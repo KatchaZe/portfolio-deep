@@ -51,6 +51,9 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
     # 4) Yahoo consensus + fallbacks
     if yahoo_qs:
         y = yahoo.parse_consensus(yahoo_qs)
+        es = yahoo.parse_earnings_history(yahoo_qs)
+        if es:
+            ff.set("earnings_surprises", es, "yahoo")
         ff.set("forward_eps", y.get("forward_eps"), "yahoo")
         if ff.beta is None:
             ff.set("beta", y.get("beta"), "yahoo")

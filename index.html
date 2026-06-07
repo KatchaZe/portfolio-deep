@@ -42,6 +42,8 @@
   td[title]{cursor:help}
   .summary{font-size:12px;color:#475569;margin:8px 0;white-space:pre-wrap}
   .verdict{font-size:10px;color:#64748b;max-width:340px;white-space:normal;text-align:left}
+  .erow{display:inline-flex;gap:3px;align-items:center}
+  .ecirc{width:11px;height:11px;border-radius:50%;display:inline-block;cursor:help;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
 </style>
 </head>
 <body>
@@ -124,6 +126,18 @@ function upsideCell(x){
   if(x.rev_verdict)return `<span title="${x.rev_verdict}" style="font-size:10px;color:#64748b">${(x.rev_verdict||'').split('—')[0].trim()||'priced-in'}</span>`;
   return '<span class="muted">&mdash;</span>';
 }
+const EARN_COLOR={beat:'#16a34a',meet:'#f59e0b',miss:'#dc2626'};
+function earnCircles(x){
+  const es=x.earnings_surprises||[];
+  if(!es.length)return '<span class="muted">&mdash;</span>';
+  const dots=es.map(e=>{
+    const c=EARN_COLOR[e.grade]||'#cbd5e1';
+    const sp=e.surprise_pct==null?'n/a':(e.surprise_pct>=0?'+':'')+e.surprise_pct+'%';
+    const tip=`${e.quarter||''} · ${(e.grade||'').toUpperCase()} ${sp}\nEPS act ${e.eps_actual??'—'} vs est ${e.eps_estimate??'—'}`;
+    return `<span class="ecirc" style="background:${c}" title="${tip}"></span>`;
+  }).join('');
+  return `<span class="erow">${dots}</span><div class="muted" style="font-size:8px">old→new</div>`;
+}
 
 async function load(){
   const r=await fetch('/api/portfolio'); const d=await r.json();
@@ -152,15 +166,16 @@ function renderPortfolio(d){
       <td>${tag(x.action,ACT_COLOR[x.action])}</td>
       <td>${anchorCell(x)}</td>
       <td>${upsideCell(x)}</td>
+      <td>${earnCircles(x)}</td>
       <td class="l verdict">${x.verdict||''}</td>
     </tr>`;}).join('');
   const t=d.totals||{};
   const totRow=`<tr class="tot"><td class="l">TOTAL</td><td></td><td></td><td></td><td></td><td>${money(t.market_value)}</td>
-     <td>${t.pl==null?'':`<span class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))}</span>`}</td><td>${pct(t.pl_pct)}</td><td colspan="6"></td></tr>`;
+     <td>${t.pl==null?'':`<span class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))}</span>`}</td><td>${pct(t.pl_pct)}</td><td colspan="7"></td></tr>`;
   document.getElementById('p1').innerHTML = `<table><thead><tr>
     <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Shares</th><th>AvgCost</th><th>MktVal</th><th>P/L $</th><th>P/L %</th>
-    <th>DEEP&#9733;</th><th>Momentum</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th class="l">Verdict</th>
-    </tr></thead><tbody>${rows||'<tr><td class="l muted" colspan="14">No holdings yet — add one above.</td></tr>'}${rows?totRow:''}</tbody></table>`;
+    <th>DEEP&#9733;</th><th>Momentum</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th title="EPS beat/meet/miss vs consensus, last 4 quarters (old→new)">Earnings</th><th class="l">Verdict</th>
+    </tr></thead><tbody>${rows||'<tr><td class="l muted" colspan="15">No holdings yet — add one above.</td></tr>'}${rows?totRow:''}</tbody></table>`;
 }
 function showTab(n){for(const i of [1,2,3]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3)loadAllocation();}
 
@@ -230,11 +245,12 @@ function renderWatchTable(rows){
       <td>${tag(x.action,ACT_COLOR[x.action])}</td>
       <td>${anchorCell(x)}</td>
       <td>${upsideCell(x)}</td>
+      <td>${earnCircles(x)}</td>
       <td class="l verdict">${x.verdict||''}</td>
       <td><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:5px 9px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></td>
     </tr>`;}).join('');
   document.getElementById('watchTable').innerHTML=`<table><thead><tr>
-    <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th>DEEP&#9733;</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th class="l">Verdict</th><th></th>
+    <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th>DEEP&#9733;</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th title="EPS beat/meet/miss vs consensus, last 4 quarters (old→new)">Earnings</th><th class="l">Verdict</th><th></th>
     </tr></thead><tbody>${body}</tbody></table>`;
 }
 async function promote(t){

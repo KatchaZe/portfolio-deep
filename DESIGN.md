@@ -85,6 +85,8 @@ FinancialFacts:
   market:      beta
   consensus:   forward_eps (NTM, adjusted), forward_eps_raw, growth_lt (decimal)
   history:     revenue_annuals = [latest_FY, FY-1, FY-2, FY-3]   # clean CAGR
+  earnings:    earnings_surprises = [{quarter, eps_actual, eps_estimate,
+               surprise_pct, grade}]  # last ~4 Q, oldest->newest (Yahoo)
   quality:     confidence (0-100), confidence_tier (green/yellow/red), flags[]
   provenance:  { field: source }     # e.g. net_income: "sec", forward_eps: "yahoo"
   derived:     tax_rate (property)
@@ -106,6 +108,7 @@ analyst `forward_eps` from Yahoo; `eps_gaap` is the SEC GAAP value.)
 | growth (long-term) | **Yahoo** est. → else SEC annual CAGR | clamped 0–30% in engine |
 | sector, beta, price | **FMP** profile (all symbols, free) | Yahoo fallback for beta/price |
 | price (daily) + momentum (RSI/MACD/DBBMV) | **Yahoo** chart | free, no FMP quota |
+| EPS surprise history (last ~4 Q) | **Yahoo** earningsHistory | beat/meet/miss vs consensus (EPS only; street/adjusted basis) |
 | Rf (10y treasury) | **Yahoo** ^TNX | one fetch per refresh |
 
 **FMP usage:** only the `profile` endpoint (sector/beta/price) ≈ **1 call per ticker**.
@@ -124,7 +127,12 @@ Financials are from SEC, so the 250/day free budget is rarely a constraint.
 - **Cross-source check** — when FMP statement data is available for a symbol, compare
   SEC vs FMP revenue/net income (≤5% → ✓). Mostly N/A on the free tier.
 - **Currency** — non-USD filers converted via FX; flagged.
-- **Confidence + tier** — score from completeness + flags; 🟢 ≥80 · 🟡 50–79 · 🔴 <50.
+- **Earnings track record** — a *bounded* confidence nudge from the EPS-surprise
+  history: `delta = round((beats − misses) / total × 10)`, clamped to ±10, needs
+  ≥2 quarters; recorded as a flag (e.g. `earnings 3B/1E/0M (+8 conf)`). This adjusts
+  **data confidence only** — it never enters the DEEP valuation math.
+- **Confidence + tier** — score from completeness + flags (+ earnings nudge);
+  🟢 ≥80 · 🟡 50–79 · 🔴 <50.
 
 ---
 
@@ -152,13 +160,15 @@ Example verdict:
 
 **Tab 1 · My Portfolio** (stored): `Ticker(+✕) | Price | Chg | Shares | AvgCost | MktVal |
 P/L $ | P/L % | DEEP★+reco | Momentum(+RSI/MACD/DBBMV tooltip) | Action | Anchor FV (or
-RevDCF implies %) | Upside | Verdict`, plus a TOTAL row and a confidence dot. Add/update a
+RevDCF implies %) | Upside | Earnings | Verdict`, plus a TOTAL row and a confidence dot.
+The **Earnings** cell shows up to 4 circles (oldest→newest) — 🟢 beat / 🟡 meet /
+🔴 miss vs EPS consensus — each with a hover tooltip (quarter, actual vs estimate, surprise%). Add/update a
 holding with **shares + avg cost** (auto-fetches). **Run Fundamental Refresh** / **Run
 Daily**. Remove with the red ✕ (deletes its cached data).
 
 **Tab 2 · Watchlist** (names persisted, data ephemeral): add a ticker → **Run watchlist**
-to analyse on demand (not stored). Per row **+ Portfolio** (prompts for shares + avg cost,
-then moves it to Tab 1) and ✕ remove.
+to analyse on demand (not stored). Same columns incl. the **Earnings** circles. Per row
+**+ Portfolio** (prompts for shares + avg cost, then moves it to Tab 1) and ✕ remove.
 
 **Tab 3 · Allocation** (cost basis): two Chart.js doughnuts (by holding, by sector).
 **What-if**: up to 5 (ticker, buy $) → **Calculate** → before-vs-after pies.
@@ -202,7 +212,9 @@ Watchlist tickers are never written to `facts`.
 - `test_extract.py` — SEC robust extraction + normalize + validate vs known-good ranges
   (AVGO net ≈ $25B, ORCL rev ≈ $64B TTM / $57B annual, NVO DKK→USD, AVGO forward-EPS corrected, no out-of-band).
 - `test_engine.py` — DEEP engine contract well-formedness on fixtures.
-- `run_tests.py` runs all three; `capture.py`/`verify.py` refresh + spot-check fixtures.
+- `test_earnings.py` — EPS-surprise parsing/grading (beat/meet/miss, oldest→newest)
+  + the bounded confidence nudge (synthetic; Yahoo earningsHistory isn't in fixtures).
+- `run_tests.py` runs all four; `capture.py`/`verify.py` refresh + spot-check fixtures.
 
 ---
 
@@ -218,6 +230,7 @@ Watchlist tickers are never written to `facts`.
 | 6. Tab 3 Allocation | cost-basis pies, sector, what-if before/after (Chart.js) | ✅ |
 | 7. Quota guard | daily counter, 90% warning + headroom, over-cap skip | ✅ |
 | 8. Regression + deploy | `run_tests.py`, README, render.yaml/Procfile/.gitignore | ✅ |
+| 9. Earnings track record | Yahoo EPS-surprise (4Q), beat/meet/miss circles, bounded confidence nudge, `test_earnings` | ✅ |
 
 ---
 
@@ -228,6 +241,9 @@ Watchlist tickers are never written to `facts`.
   Reverse DCF "implied CAGR" is shown instead.
 - **Sector** for never-seen tickers needs the FMP key, else "Unknown".
 - **Non-USD filers** (NVO) are FX-converted; ADR per-share ratios may need a manual check.
+- **Earnings surprise** is **EPS-only** (Yahoo's consensus/street basis) for the last
+  **~4 quarters** — revenue beat/miss and a clean GAAP-vs-Non-GAAP split aren't available
+  free, so they're out of scope.
 
 ## 13. Future (not in scope)
 Cloud storage + multi-device, auth, more sources for triangulation, earnings/price alerts.

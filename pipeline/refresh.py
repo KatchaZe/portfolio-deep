@@ -125,6 +125,7 @@ def analyze_row(ticker, rf, fmp_key=""):
         "upside_pct": round(upside, 1) if upside is not None else None,
         "verdict": val.verdict, "confidence": ff.confidence, "confidence_tier": ff.confidence_tier,
         "currency": ff.currency, "flags": ff.flags,
+        "earnings_surprises": ff.earnings_surprises,
     }
     return row, calls
 
@@ -255,6 +256,7 @@ def portfolio_view(s):
             "confidence": ff.get("confidence"), "confidence_tier": ff.get("confidence_tier"),
             "currency": ff.get("currency"), "updated": s["updated"].get(t),
             "flags": ff.get("flags", []),
+            "earnings_surprises": ff.get("earnings_surprises", []),
         })
     # portfolio totals
     tot_cost = sum(r["cost_basis"] or 0 for r in rows)

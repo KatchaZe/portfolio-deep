@@ -47,6 +47,10 @@ class FinancialFacts:
     # history for CAGR (newest first): [latest_FY, FY-1, FY-2, FY-3]
     revenue_annuals: list = field(default_factory=list)
 
+    # EPS surprise track record (oldest->newest), each: quarter/eps_actual/
+    # eps_estimate/surprise_pct/grade(beat|meet|miss). Display + confidence input.
+    earnings_surprises: list = field(default_factory=list)
+
     # quality
     provenance: dict = field(default_factory=dict)   # {field_name: source}
     confidence: int = 0

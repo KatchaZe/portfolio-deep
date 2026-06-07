@@ -34,6 +34,45 @@ def parse_consensus(qs_json):
     return out
 
 
+def _grade(surprise_pct):
+    """BEAT/MEET/MISS from an EPS surprise percent (threshold ±2%)."""
+    if surprise_pct is None:
+        return None
+    if surprise_pct > 2:
+        return "beat"
+    if surprise_pct < -2:
+        return "miss"
+    return "meet"
+
+
+def parse_earnings_history(qs_json):
+    """From a Yahoo quoteSummary response -> list of recent EPS-surprise quarters,
+    oldest first. Each: {quarter, eps_actual, eps_estimate, surprise_pct, grade}.
+    Yahoo's earningsHistory returns ~4 quarters; EPS only (the street/adjusted
+    consensus basis). Returns [] when the module is absent (e.g. old fixtures)."""
+    try:
+        res = qs_json["quoteSummary"]["result"][0]
+    except Exception:
+        return []
+    hist = (res.get("earningsHistory") or {}).get("history") or []
+    out = []
+    for h in hist:
+        act = _raw(h.get("epsActual"))
+        est = _raw(h.get("epsEstimate"))
+        sp = _raw(h.get("surprisePercent"))
+        if sp is None and act is not None and est not in (None, 0):
+            sp = (act - est) / abs(est) * 100
+        if act is None and est is None:
+            continue
+        out.append({"quarter": h.get("quarter", {}).get("fmt") if isinstance(h.get("quarter"), dict)
+                    else _raw(h.get("quarter")),
+                    "eps_actual": act, "eps_estimate": est,
+                    "surprise_pct": round(sp, 1) if sp is not None else None,
+                    "grade": _grade(sp)})
+    # earningsHistory is newest-first; present oldest -> newest for the circle row
+    return list(reversed(out))[-4:]
+
+
 # --------------------------------------------------------------------------- #
 #  FETCH (network)                                                             #
 # --------------------------------------------------------------------------- #
@@ -63,7 +102,7 @@ def fetch_consensus(ticker, requests_mod=None, timeout=15):
     s, crumb = _session(requests_mod)
     try:
         r = s.get(f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}",
-                  params={"modules": "defaultKeyStatistics,financialData,earningsTrend,price", "crumb": crumb},
+                  params={"modules": "defaultKeyStatistics,financialData,earningsTrend,earningsHistory,price", "crumb": crumb},
                   timeout=timeout)
         return r.json()
     except Exception as e:

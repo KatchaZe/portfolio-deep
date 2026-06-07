@@ -93,6 +93,25 @@ def _rescore(ff):
     score -= 8 * len(serious)
     if any(f.startswith("converted") for f in ff.flags):
         score -= 12
+    score += _earnings_confidence(ff)
     ff.confidence = max(0, min(100, score))
     ff.confidence_tier = "green" if ff.confidence >= 80 else "yellow" if ff.confidence >= 50 else "red"
     return ff
+
+
+def _earnings_confidence(ff):
+    """Bounded confidence nudge from the EPS-surprise track record:
+    delta = round((beats - misses) / total * 10), clamped to ±10. Needs >=2
+    quarters. Records a flag so the effect is transparent. Does NOT touch DEEP
+    valuation math — it only adjusts data confidence."""
+    es = getattr(ff, "earnings_surprises", None) or []
+    graded = [e.get("grade") for e in es if e.get("grade")]
+    total = len(graded)
+    if total < 2:
+        return 0
+    beats = graded.count("beat")
+    misses = graded.count("miss")
+    delta = max(-10, min(10, round((beats - misses) / total * 10)))
+    ff.flags.append(f"earnings {beats}B/{graded.count('meet')}E/{misses}M "
+                    f"({'+' if delta >= 0 else ''}{delta} conf)")
+    return delta

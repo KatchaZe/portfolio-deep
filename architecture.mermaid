@@ -2,17 +2,17 @@ flowchart TD
     subgraph SRC["1 · SOURCE ADAPTERS  (fetch only, mockable)"]
         SEC["sec_edgar.py  ★PRIMARY★<br/>financials: robust TTM (FY+YTD−priorYTD)<br/>freshest-tag pick · currency-aware"]
         FMP["fmp.py<br/>profile only: sector · beta · price<br/>(statements premium-gated on free)"]
-        YH["yahoo.py<br/>forward EPS (adj) · momentum chart<br/>beta/price fallback · ^TNX · FX"]
+        YH["yahoo.py<br/>forward EPS (adj) · momentum chart<br/>EPS surprise 4Q (beat/meet/miss)<br/>beta/price fallback · ^TNX · FX"]
     end
 
     subgraph PIPE["2 · PIPELINE"]
         NORM["normalize.py<br/>merge SEC + FMP profile + Yahoo<br/>→ FinancialFacts (+FX, provenance)"]
-        VAL["validate.py<br/>sanity rules · forward-EPS resolution<br/>→ confidence score + tier (🟢🟡🔴)"]
+        VAL["validate.py<br/>sanity rules · forward-EPS resolution<br/>earnings track-record nudge (±10)<br/>→ confidence score + tier (🟢🟡🔴)"]
         REF["refresh.py (orchestration)<br/>refresh_fundamentals · run_daily<br/>watchlist_run · allocation · portfolio_view"]
     end
 
     subgraph DOM["3 · DOMAIN  (pure · deterministic · tested)"]
-        FACTS["FinancialFacts<br/>values + provenance + confidence"]
+        FACTS["FinancialFacts<br/>values + provenance + confidence<br/>+ earnings_surprises (4Q)"]
         IND["indicators.py<br/>RSI / MACD / DBBMV + Action"]
         subgraph ENG["engine/  (versioned, swappable)"]
             CON["contract.py<br/>Valuation + DeepEngine ABC"]
@@ -31,8 +31,8 @@ flowchart TD
     end
 
     subgraph UI["6 · DASHBOARD (index.html, 3 tabs)"]
-        T1["Tab 1 · My Portfolio<br/>P/L · DEEP★ · momentum · action · confidence"]
-        T2["Tab 2 · Watchlist<br/>run on-demand · + Portfolio · remove"]
+        T1["Tab 1 · My Portfolio<br/>P/L · DEEP★ · momentum · action<br/>earnings circles 🟢🟡🔴 · confidence"]
+        T2["Tab 2 · Watchlist<br/>run on-demand · earnings circles<br/>+ Portfolio · remove"]
         T3["Tab 3 · Allocation<br/>cost pies (holding+sector) · what-if"]
     end
 
