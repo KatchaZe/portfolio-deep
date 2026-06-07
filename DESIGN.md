@@ -200,7 +200,7 @@ Watchlist tickers are never written to `facts`.
 - **Fixtures** — committed real SEC + Yahoo (+FMP profile) JSON for AVGO/ABBV/ORCL/NVO/MSFT.
 - `test_fmp_parse.py` — FMP profile/parse on real schema (offline).
 - `test_extract.py` — SEC robust extraction + normalize + validate vs known-good ranges
-  (AVGO net ≈ $25B, ORCL rev ≈ $57B, NVO DKK→USD, AVGO forward-EPS corrected, no out-of-band).
+  (AVGO net ≈ $25B, ORCL rev ≈ $64B TTM / $57B annual, NVO DKK→USD, AVGO forward-EPS corrected, no out-of-band).
 - `test_engine.py` — DEEP engine contract well-formedness on fixtures.
 - `run_tests.py` runs all three; `capture.py`/`verify.py` refresh + spot-check fixtures.
 
