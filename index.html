@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Portfolio DEEP v7.3</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<style>
+  :root { color-scheme: light; }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;background:#f1f5f9;color:#0f172a}
+  header{background:#0f172a;color:#fff;padding:16px 20px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px}
+  header h1{margin:0;font-size:17px}
+  .ver{font-size:11px;color:#94a3b8}
+  .wrap{max-width:1280px;margin:0 auto;padding:16px}
+  .quota{font-size:11px;color:#475569;background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:6px 10px;display:inline-block}
+  .quota.warn{border-color:#f59e0b;color:#b45309;background:#fffbeb}
+  .controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin:14px 0}
+  button.run{border:0;border-radius:9px;padding:11px 16px;font-size:13px;font-weight:700;cursor:pointer;color:#fff;display:flex;align-items:center;gap:7px}
+  .run.fund{background:#7c3aed}.run.daily{background:#2563eb}.run:disabled{opacity:.55;cursor:not-allowed}
+  .spin{width:13px;height:13px;border:2px solid rgba(255,255,255,.4);border-top-color:#fff;border-radius:50%;animation:sp .8s linear infinite;display:none}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  .addform{display:flex;flex-wrap:wrap;gap:7px;align-items:center;background:#fff;border:1px solid #e2e8f0;border-radius:9px;padding:8px 10px;margin:8px 0}
+  .addform input{padding:8px 10px;border:1px solid #cbd5e1;border-radius:7px;font-size:13px}
+  .addform input#t{width:90px;text-transform:uppercase}.addform input.n{width:110px}
+  .addform button{border:0;border-radius:7px;padding:8px 14px;font-weight:700;background:#0d9488;color:#fff;cursor:pointer;font-size:13px}
+  .tabs{display:flex;gap:6px;margin:14px 0 0}
+  .tab{padding:9px 16px;border-radius:9px 9px 0 0;background:#e2e8f0;cursor:pointer;font-size:13px;font-weight:600}
+  .tab.active{background:#fff;border:1px solid #e2e8f0;border-bottom:0}
+  .panel{background:#fff;border:1px solid #e2e8f0;border-radius:0 9px 9px 9px;padding:12px;overflow-x:auto}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th,td{padding:8px 9px;text-align:right;border-bottom:1px solid #f1f5f9;white-space:nowrap}
+  th{background:#f8fafc;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:#64748b}
+  td.l,th.l{text-align:left}
+  tr.tot td{font-weight:800;border-top:2px solid #cbd5e1;background:#f8fafc}
+  .tag{padding:2px 8px;border-radius:99px;font-size:11px;font-weight:700;color:#fff}
+  .up{color:#16a34a}.down{color:#dc2626}.muted{color:#94a3b8}
+  .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:4px}
+  .g{background:#16a34a}.y{background:#f59e0b}.r{background:#dc2626}
+  .rm{cursor:pointer;color:#fff;background:#ef4444;border-radius:5px;font-weight:700;margin-left:7px;padding:1px 7px;font-size:11px;display:inline-block}
+  .rm:hover{background:#dc2626}
+  td[title]{cursor:help}
+  .summary{font-size:12px;color:#475569;margin:8px 0;white-space:pre-wrap}
+  .verdict{font-size:10px;color:#64748b;max-width:340px;white-space:normal;text-align:left}
+</style>
+</head>
+<body>
+<header>
+  <h1>Portfolio DEEP <span class="ver" id="ver"></span></h1>
+  <span class="quota" id="quota">quota …</span>
+</header>
+<div class="wrap">
+  <div class="controls">
+    <button class="run fund" id="btnRefresh" onclick="refresh()"><span class="spin" id="spR"></span>&#9654; Run Fundamental Refresh</button>
+    <button class="run daily" id="btnDaily" onclick="daily()"><span class="spin" id="spD"></span>&#9654; Run Daily (price/momentum)</button>
+    <span class="summary" id="summary"></span>
+  </div>
+
+  <div class="addform">
+    <span style="font-size:12px;color:#475569">Add / update holding:</span>
+    <input id="t" placeholder="TICKER" maxlength="8" onkeydown="if(event.key==='Enter')addHolding()">
+    <input id="sh" class="n" type="number" step="any" placeholder="shares">
+    <input id="ac" class="n" type="number" step="any" placeholder="avg cost $">
+    <button onclick="addHolding()"><span class="spin" id="spA" style="border-top-color:#fff"></span> + Add / Update</button>
+    <span id="addMsg" style="font-size:12px;color:#64748b"></span>
+  </div>
+
+  <div class="tabs">
+    <div class="tab active" id="tab1" onclick="showTab(1)">My Portfolio</div>
+    <div class="tab" id="tab2" onclick="showTab(2)">Watchlist</div>
+    <div class="tab" id="tab3" onclick="showTab(3)">Allocation</div>
+  </div>
+  <div class="panel">
+    <div id="p1"></div>
+    <div id="p2" style="display:none">
+      <div class="addform">
+        <input id="wt" placeholder="TICKER" maxlength="8" onkeydown="if(event.key==='Enter')addWatch()">
+        <button onclick="addWatch()">+ Add to watchlist</button>
+        <button onclick="runWatch()" style="background:#2563eb"><span class="spin" id="spW"></span> &#9654; Run watchlist</button>
+        <span id="watchMsg" style="font-size:12px;color:#64748b"></span>
+      </div>
+      <div id="watchNames" style="margin:8px 0;font-size:12px;color:#475569"></div>
+      <div id="watchTable" class="muted" style="font-size:12px">Add tickers then press “Run watchlist”. Data is fetched on demand and not stored.</div>
+    </div>
+    <div id="p3" style="display:none">
+      <div style="font-size:13px;font-weight:700;margin:4px 0">Current allocation (by cost basis)</div>
+      <div id="allocEmpty" class="muted" style="font-size:12px"></div>
+      <div style="display:flex;gap:24px;flex-wrap:wrap">
+        <div style="width:300px"><div class="muted" style="font-size:11px;text-align:center">By holding</div><canvas id="pieTicker" height="240"></canvas></div>
+        <div style="width:300px"><div class="muted" style="font-size:11px;text-align:center">By sector</div><canvas id="pieSector" height="240"></canvas></div>
+      </div>
+      <div style="font-size:13px;font-weight:700;margin:18px 0 6px">What-if: try buying (up to 5)</div>
+      <div id="whatifInputs"></div>
+      <button onclick="calcWhatif()" style="border:0;border-radius:8px;padding:9px 16px;background:#7c3aed;color:#fff;font-weight:700;cursor:pointer;font-size:13px;margin-top:8px">Calculate after-allocation</button>
+      <span id="whatifMsg" style="font-size:12px;color:#64748b;margin-left:8px"></span>
+      <div id="afterWrap" style="display:none;margin-top:14px">
+        <div style="font-size:13px;font-weight:700;margin:4px 0">After (current + what-if)</div>
+        <div style="display:flex;gap:24px;flex-wrap:wrap">
+          <div style="width:300px"><div class="muted" style="font-size:11px;text-align:center">By holding</div><canvas id="pieTickerAfter" height="240"></canvas></div>
+          <div style="width:300px"><div class="muted" style="font-size:11px;text-align:center">By sector</div><canvas id="pieSectorAfter" height="240"></canvas></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const RECO_COLOR={"BUY":"#16a34a","HOLD / Accumulate":"#0d9488","HOLD":"#64748b","SELL / AVOID":"#dc2626"};
+const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","HOLD":"#64748b","WAIT":"#ca8a04","WATCH":"#d97706","TRIM":"#ea580c","SELL":"#dc2626","STRONG SELL":"#991b1b"};
+const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
+function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':Number(x).toFixed(d)}
+function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
+function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
+function pct(x){if(x===null||x===undefined)return '<span class="muted">&mdash;</span>';const s=x>=0?'up':'down';return `<span class="${s}">${x>=0?'+':''}${Number(x).toFixed(1)}%</span>`}
+function dot(tier){return `<span class="dot ${tier==='green'?'g':tier==='yellow'?'y':'r'}"></span>`}
+function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Future Value Projection','FVP').replace('Justified PEG','PEG')}
+function anchorCell(x){
+  if(x.anchor_value!=null)return `${f(x.anchor_value)}<div class="muted" style="font-size:9px">${methodShort(x.anchor_method)}</div>`;
+  if(x.rev_implied_cagr!=null)return `<span style="font-size:11px;color:#7c3aed;font-weight:700">RevDCF</span><div style="font-size:9px;color:#7c3aed">implies ${x.rev_implied_cagr}% CAGR</div>`;
+  return '<span class="muted">&mdash;</span>';
+}
+function upsideCell(x){
+  if(x.upside_pct!=null)return pct(x.upside_pct);
+  if(x.rev_verdict)return `<span title="${x.rev_verdict}" style="font-size:10px;color:#64748b">${(x.rev_verdict||'').split('—')[0].trim()||'priced-in'}</span>`;
+  return '<span class="muted">&mdash;</span>';
+}
+
+async function load(){
+  const r=await fetch('/api/portfolio'); const d=await r.json();
+  document.getElementById('ver').textContent='v'+(d.version||'7.3');
+  renderQuota(d.quota); renderPortfolio(d);
+}
+function renderQuota(q){
+  if(!q)return; const el=document.getElementById('quota');
+  el.className='quota'+(q.warn?' warn':'');
+  el.textContent=`FMP today ${q.used}/${q.cap} (${q.pct}%) · holdings ${q.holdings} · ~${q.headroom_tickers} ticker-fetches left`+(q.warn?' · ⚠ near quota — add fewer / refresh later':'');
+}
+function renderPortfolio(d){
+  const rows=(d.rows||[]).map(x=>{
+    const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
+    return `<tr>
+      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b><span class="rm" title="remove" onclick="removeHolding('${x.ticker}')">&times;</span>
+        <div class="muted" style="font-size:10px">${x.company||''} · ${x.sector||''}</div></td>
+      <td>${f(x.price)}</td><td>${chg}</td>
+      <td>${f(x.shares,0)}</td><td>${f(x.avg_cost)}</td>
+      <td>${money(x.market_value)}</td>
+      <td>${x.pl==null?'<span class="muted">&mdash;</span>':`<span class="${x.pl>=0?'up':'down'}">${x.pl>=0?'+':''}${money(Math.abs(x.pl)).replace('$','$')}</span>`}</td>
+      <td>${pct(x.pl_pct)}</td>
+      <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span>
+        <div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div></td>
+      <td title="RSI ${x.rsi_signal||'—'} (${f(x.rsi,0)}) · MACD ${x.macd_signal||'—'} · DBBMV ${x.dbbmv_signal||'—'} → score ${x.momentum_score!=null?(x.momentum_score>=0?'+':'')+x.momentum_score:'—'}">${tag(x.momentum_signal,MOM_COLOR[x.momentum_signal])}<div class="muted" style="font-size:9px">RSI ${f(x.rsi,0)} &#9432;</div></td>
+      <td>${tag(x.action,ACT_COLOR[x.action])}</td>
+      <td>${anchorCell(x)}</td>
+      <td>${upsideCell(x)}</td>
+      <td class="l verdict">${x.verdict||''}</td>
+    </tr>`;}).join('');
+  const t=d.totals||{};
+  const totRow=`<tr class="tot"><td class="l">TOTAL</td><td></td><td></td><td></td><td></td><td>${money(t.market_value)}</td>
+     <td>${t.pl==null?'':`<span class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))}</span>`}</td><td>${pct(t.pl_pct)}</td><td colspan="6"></td></tr>`;
+  document.getElementById('p1').innerHTML = `<table><thead><tr>
+    <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Shares</th><th>AvgCost</th><th>MktVal</th><th>P/L $</th><th>P/L %</th>
+    <th>DEEP&#9733;</th><th>Momentum</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th class="l">Verdict</th>
+    </tr></thead><tbody>${rows||'<tr><td class="l muted" colspan="14">No holdings yet — add one above.</td></tr>'}${rows?totRow:''}</tbody></table>`;
+}
+function showTab(n){for(const i of [1,2,3]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3)loadAllocation();}
+
+const PALETTE=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0d9488','#d97706','#0891b2','#be185d','#65a30d','#9333ea','#ea580c','#475569','#0ea5e9'];
+let charts={};
+function makePie(id,data){
+  const ctx=document.getElementById(id); if(!ctx||typeof Chart==='undefined')return;
+  if(charts[id])charts[id].destroy();
+  const labels=data.map(d=>d.label),vals=data.map(d=>d.value),tot=vals.reduce((a,b)=>a+b,0)||1;
+  charts[id]=new Chart(ctx,{type:'doughnut',
+    data:{labels:labels.map((l,i)=>`${l} ${(vals[i]/tot*100).toFixed(0)}%`),datasets:[{data:vals,backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length])}]},
+    options:{plugins:{legend:{position:'right',labels:{font:{size:10},boxWidth:12}}}}});
+}
+function buildWhatifInputs(){
+  let h='';for(let i=0;i<5;i++)h+=`<div style="display:flex;gap:6px;margin:3px 0"><input class="wf-t" placeholder="TICKER" style="width:90px;text-transform:uppercase;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><input class="wf-a" type="number" step="any" placeholder="buy amount $" style="width:130px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"></div>`;
+  document.getElementById('whatifInputs').innerHTML=h;
+}
+async function loadAllocation(){
+  if(!document.getElementById('whatifInputs').innerHTML)buildWhatifInputs();
+  const r=await fetch('/api/allocation');const d=await r.json();
+  const bt=(d.before&&d.before.by_ticker)||[];
+  document.getElementById('allocEmpty').textContent=bt.length?'':'No holdings with cost yet — add shares + avg cost in My Portfolio first.';
+  makePie('pieTicker',bt);makePie('pieSector',(d.before&&d.before.by_sector)||[]);
+}
+async function calcWhatif(){
+  const ts=[...document.querySelectorAll('.wf-t')].map(e=>e.value.trim().toUpperCase());
+  const as=[...document.querySelectorAll('.wf-a')].map(e=>e.value);
+  const items=[];for(let i=0;i<ts.length;i++){if(ts[i]&&as[i])items.push({ticker:ts[i],amount:parseFloat(as[i])});}
+  if(!items.length){document.getElementById('whatifMsg').textContent='Enter at least one ticker + amount.';return;}
+  document.getElementById('whatifMsg').textContent='Calculating…';
+  try{
+    const r=await fetch('/api/allocation/whatif',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(items)});
+    const d=await r.json();
+    makePie('pieTickerAfter',(d.after&&d.after.by_ticker)||[]);makePie('pieSectorAfter',(d.after&&d.after.by_sector)||[]);
+    document.getElementById('afterWrap').style.display='block';
+    if(d.quota)renderQuota(d.quota);
+    document.getElementById('whatifMsg').textContent='Added: '+(d.added||[]).map(a=>a.ticker+' $'+a.amount).join(', ');
+  }catch(e){document.getElementById('whatifMsg').textContent='Error: '+e}
+}
+
+async function loadWatchlist(){const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}
+function renderWatchNames(names){
+  document.getElementById('watchNames').innerHTML = names.length
+    ? 'Watchlist: '+names.map(n=>`<span style="background:#e2e8f0;border-radius:6px;padding:2px 7px;margin:2px;display:inline-block">${n}<span class="rm" onclick="removeWatch('${n}')">&times;</span></span>`).join('')
+    : '<span class="muted">Watchlist empty — add a ticker above.</span>';
+}
+async function addWatch(){const t=document.getElementById('wt').value.trim().toUpperCase();if(!t)return;await fetch('/api/watchlist/add?ticker='+encodeURIComponent(t),{method:'POST'});document.getElementById('wt').value='';loadWatchlist();}
+async function removeWatch(t){await fetch('/api/watchlist/remove?ticker='+encodeURIComponent(t),{method:'POST'});loadWatchlist();}
+async function runWatch(){
+  const sp=document.getElementById('spW'),msg=document.getElementById('watchMsg');
+  sp.style.display='inline-block';msg.textContent='Running watchlist (fetch on demand)…';
+  try{const r=await fetch('/api/watchlist/run',{method:'POST'});const d=await r.json();
+    renderWatchNames(d.names||[]);renderWatchTable(d.rows||[]);if(d.quota)renderQuota(d.quota);
+    msg.textContent=`Ran ${(d.rows||[]).length}, errors ${(d.errors||[]).length}. ${(d.errors||[]).join('; ')}`;
+  }catch(e){msg.textContent='Error: '+e}finally{sp.style.display='none'}
+}
+function renderWatchTable(rows){
+  if(!rows.length){document.getElementById('watchTable').innerHTML='<span class="muted">No results — add tickers and run.</span>';return;}
+  const body=rows.map(x=>{
+    const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
+    return `<tr>
+      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b><span class="rm" onclick="removeWatch('${x.ticker}')">&times;</span>
+        <div class="muted" style="font-size:10px">${x.company||''} · ${x.sector||''}</div></td>
+      <td>${f(x.price)}</td><td>${chg}</td>
+      <td title="RSI ${x.rsi_signal||'—'} (${f(x.rsi,0)}) · MACD ${x.macd_signal||'—'} · DBBMV ${x.dbbmv_signal||'—'}">${tag(x.momentum_signal,MOM_COLOR[x.momentum_signal])}<div class="muted" style="font-size:9px">RSI ${f(x.rsi,0)} &#9432;</div></td>
+      <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span><div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div></td>
+      <td>${tag(x.action,ACT_COLOR[x.action])}</td>
+      <td>${anchorCell(x)}</td>
+      <td>${upsideCell(x)}</td>
+      <td class="l verdict">${x.verdict||''}</td>
+      <td><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:5px 9px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></td>
+    </tr>`;}).join('');
+  document.getElementById('watchTable').innerHTML=`<table><thead><tr>
+    <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th>DEEP&#9733;</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th class="l">Verdict</th><th></th>
+    </tr></thead><tbody>${body}</tbody></table>`;
+}
+async function promote(t){
+  const sh=prompt('Add '+t+' to My Portfolio.\n\nNumber of shares:');
+  if(sh===null)return;
+  if(!sh.trim()||isNaN(parseFloat(sh))||parseFloat(sh)<=0){alert('Please enter a valid number of shares.');return;}
+  const ac=prompt('Average buy price ($) for '+t+':');
+  if(ac===null)return;
+  if(!ac.trim()||isNaN(parseFloat(ac))||parseFloat(ac)<=0){alert('Please enter a valid average cost.');return;}
+  const u='/api/watchlist/promote?ticker='+encodeURIComponent(t)+'&shares='+encodeURIComponent(parseFloat(sh))+'&avg_cost='+encodeURIComponent(parseFloat(ac));
+  await fetch(u,{method:'POST'});
+  await load();loadWatchlist();showTab(1);
+}
+
+async function addHolding(){
+  const t=document.getElementById('t').value.trim().toUpperCase();
+  const sh=document.getElementById('sh').value, ac=document.getElementById('ac').value;
+  if(!t)return; const sp=document.getElementById('spA'),msg=document.getElementById('addMsg');
+  sp.style.display='inline-block'; msg.textContent='Fetching '+t+'…';
+  try{
+    let u='/api/holding?ticker='+encodeURIComponent(t);
+    if(sh!=='')u+='&shares='+encodeURIComponent(sh);
+    if(ac!=='')u+='&avg_cost='+encodeURIComponent(ac);
+    const r=await fetch(u,{method:'POST'}); const d=await r.json();
+    renderPortfolio(d); msg.textContent='✓ '+t+' added/updated';
+    document.getElementById('t').value='';document.getElementById('sh').value='';document.getElementById('ac').value='';
+    load();
+  }catch(e){msg.textContent='✗ '+e}finally{sp.style.display='none'}
+}
+async function removeHolding(t){if(!confirm('Remove '+t+'?'))return;await fetch('/api/holding/remove?ticker='+encodeURIComponent(t),{method:'POST'});load();}
+async function refresh(){
+  const b=document.getElementById('btnRefresh'),sp=document.getElementById('spR');
+  b.disabled=true;sp.style.display='inline-block';document.getElementById('summary').textContent='Refreshing fundamentals (SEC + FMP + Yahoo)…';
+  try{const r=await fetch('/api/refresh',{method:'POST'});const d=await r.json();
+    const rs=d.result||{};document.getElementById('summary').textContent=`Refreshed ${(rs.refreshed||[]).length}, errors ${(rs.errors||[]).length}, FMP calls ${rs.fmp_calls} (Rf ${rs.rf_pct}%). ${(rs.errors||[]).join('; ')}`;
+    renderPortfolio(d.view);renderQuota(d.quota);
+  }catch(e){document.getElementById('summary').textContent='Error: '+e}finally{b.disabled=false;sp.style.display='none'}
+}
+async function daily(){
+  const b=document.getElementById('btnDaily'),sp=document.getElementById('spD');
+  b.disabled=true;sp.style.display='inline-block';document.getElementById('summary').textContent='Updating price + momentum (Yahoo)…';
+  try{const r=await fetch('/api/daily',{method:'POST'});renderPortfolio(await r.json());document.getElementById('summary').textContent='Daily updated.';}
+  catch(e){document.getElementById('summary').textContent='Error: '+e}finally{b.disabled=false;sp.style.display='none'}
+}
+load();
+</script>
+</body>
+</html>

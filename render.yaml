@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: portfolio-deep-v73
+    runtime: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11"
+      - key: FMP_API_KEY        # optional — for sector/beta via FMP profile
+        sync: false             # set this in the Render dashboard, never commit it
+    # NOTE: free tier uses an ephemeral disk -> data/portfolio.json resets on
+    # redeploy. For persistent holdings add a Render Disk mounted at ./data
+    # (paid), or keep using it locally.

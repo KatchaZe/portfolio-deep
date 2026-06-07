@@ -1,0 +1,21 @@
+[
+  {
+    "symbol": "ABBV",
+    "name": "AbbVie Inc.",
+    "price": 227.23,
+    "changePercentage": 1.01805,
+    "change": 2.29,
+    "volume": 4818022,
+    "dayLow": 226,
+    "dayHigh": 230.47,
+    "yearHigh": 244.81,
+    "yearLow": 181.73,
+    "marketCap": 401468332716,
+    "priceAvg50": 208.8114,
+    "priceAvg200": 219.7491,
+    "exchange": "NYSE",
+    "open": 227.37,
+    "previousClose": 224.94,
+    "timestamp": 1780689720
+  }
+]
