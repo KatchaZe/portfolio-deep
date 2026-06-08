@@ -73,6 +73,25 @@ def parse_earnings_history(qs_json):
     return list(reversed(out))[-4:]
 
 
+def parse_revenue_estimate(qs_json):
+    """Current-quarter (not-yet-reported) revenue consensus from earningsTrend.
+    Returns {quarter_end, estimate} or None. We snapshot this each refresh and
+    later compare to the SEC actual for that quarter (build-our-own surprise,
+    since Yahoo doesn't expose *historical* revenue estimates for free)."""
+    try:
+        res = qs_json["quoteSummary"]["result"][0]
+    except Exception:
+        return None
+    for tr in res.get("earningsTrend", {}).get("trend", []):
+        if tr.get("period") == "0q":                     # the quarter about to report
+            est = _raw((tr.get("revenueEstimate") or {}).get("avg"))
+            end = tr.get("endDate")                       # 'YYYY-MM-DD'
+            if est and end:
+                return {"quarter_end": end, "estimate": float(est)}
+            return None
+    return None
+
+
 # --------------------------------------------------------------------------- #
 #  FETCH (network)                                                             #
 # --------------------------------------------------------------------------- #

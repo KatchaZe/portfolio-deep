@@ -42,7 +42,8 @@
   td[title]{cursor:help}
   .summary{font-size:12px;color:#475569;margin:8px 0;white-space:pre-wrap}
   .verdict{font-size:10px;color:#64748b;max-width:340px;white-space:normal;text-align:left}
-  .erow{display:inline-flex;gap:3px;align-items:center}
+  .erow{display:flex;gap:3px;align-items:center;justify-content:center;margin:1px 0}
+  .elbl{font-size:8px;color:#94a3b8;width:22px;text-align:right;margin-right:2px}
   .ecirc{width:11px;height:11px;border-radius:50%;display:inline-block;cursor:help;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
 </style>
 </head>
@@ -127,16 +128,24 @@ function upsideCell(x){
   return '<span class="muted">&mdash;</span>';
 }
 const EARN_COLOR={beat:'#16a34a',meet:'#f59e0b',miss:'#dc2626'};
-function earnCircles(x){
-  const es=x.earnings_surprises||[];
-  if(!es.length)return '<span class="muted">&mdash;</span>';
-  const dots=es.map(e=>{
+function fmtB(v){return (v===null||v===undefined)?'—':'$'+(v/1e9).toFixed(2)+'B';}
+function _circ(list,kind){
+  return (list||[]).map(e=>{
     const c=EARN_COLOR[e.grade]||'#cbd5e1';
     const sp=e.surprise_pct==null?'n/a':(e.surprise_pct>=0?'+':'')+e.surprise_pct+'%';
-    const tip=`${e.quarter||''} · ${(e.grade||'').toUpperCase()} ${sp}\nEPS act ${e.eps_actual??'—'} vs est ${e.eps_estimate??'—'}`;
+    const act=kind==='eps'?(e.eps_actual??'—'):fmtB(e.rev_actual);
+    const est=kind==='eps'?(e.eps_estimate??'—'):fmtB(e.rev_estimate);
+    const tip=`${e.quarter||''} · ${(e.grade||'').toUpperCase()} ${sp}\n${kind.toUpperCase()} act ${act} vs est ${est}`;
     return `<span class="ecirc" style="background:${c}" title="${tip}"></span>`;
   }).join('');
-  return `<span class="erow">${dots}</span><div class="muted" style="font-size:8px">old→new</div>`;
+}
+function earnCircles(x){
+  const eps=x.earnings_surprises||[], rev=x.rev_surprises||[];
+  if(!eps.length && !rev.length)return '<span class="muted">&mdash;</span>';
+  let h='';
+  if(eps.length)h+=`<div class="erow"><span class="elbl">EPS</span>${_circ(eps,'eps')}</div>`;
+  if(rev.length)h+=`<div class="erow"><span class="elbl">Rev</span>${_circ(rev,'rev')}</div>`;
+  return h+`<div class="muted" style="font-size:8px">old→new</div>`;
 }
 
 async function load(){

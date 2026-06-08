@@ -12,13 +12,14 @@ import config
 PATH = os.path.join(config.DATA_DIR, "portfolio.json")
 
 _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
-            "momentum": {}, "fmp_usage": {}, "updated": {}}
+            "momentum": {}, "fmp_usage": {}, "updated": {},
+            "rev_snapshots": {}, "rev_surprises": {}}
 
 
 def load():
     os.makedirs(config.DATA_DIR, exist_ok=True)
     if not os.path.exists(PATH):
-        return dict(_DEFAULT, holdings={}, watchlist=[], facts={}, results={}, momentum={}, fmp_usage={}, updated={})
+        return json.loads(json.dumps(_DEFAULT))      # fresh deep copy of defaults
     with open(PATH, encoding="utf-8") as fh:
         s = json.load(fh)
     for k, v in _DEFAULT.items():
@@ -49,8 +50,8 @@ def set_holding(s, ticker, shares=None, avg_cost=None):
 
 def remove_holding(s, ticker):
     t = ticker.upper().strip()
-    for k in ("holdings", "facts", "results", "momentum"):
-        s[k].pop(t, None)
+    for k in ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises"):
+        s.get(k, {}).pop(t, None)
 
 
 # --- watchlist ------------------------------------------------------------- #

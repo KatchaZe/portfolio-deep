@@ -34,8 +34,9 @@ Open http://localhost:8000
 **My Portfolio** — your holdings. Add a ticker with **shares + average cost** →
 it fetches + analyses automatically. Shows price, momentum (hover for RSI/MACD/DBBMV
 breakdown), DEEP★ score + recommendation, Action, anchor fair value + upside (or
-"RevDCF implies X%" for priced-for-perfection names), **P/L $ and %**, confidence dot,
-and a one-line verdict. **Run Fundamental Refresh** (SEC+FMP+Yahoo) / **Run Daily**
+"RevDCF implies X%" for priced-for-perfection names), **P/L $ and %**, an **Earnings**
+track record (🟢 beat / 🟡 meet / 🔴 miss circles — see §3b), confidence dot, and a
+one-line verdict. **Run Fundamental Refresh** (SEC+FMP+Yahoo) / **Run Daily**
 (Yahoo price+momentum, free). Remove with the red ✕.
 
 **Watchlist** — type a ticker → **Run watchlist** to analyse on demand (not stored;
@@ -44,6 +45,26 @@ moves it to My Portfolio) and ✕ remove.
 
 **Allocation** — two cost-basis doughnut pies (by holding, by sector). **What-if**:
 enter up to 5 (ticker, buy $) → **Calculate** to see the allocation before vs after.
+
+---
+
+## 3b. Earnings track record (beat / meet / miss)
+
+The **Earnings** column shows how each company has done vs consensus, as a row of
+coloured circles (oldest→newest, hover for the numbers). Threshold: surprise > +2%
+🟢 beat · −2…+2% 🟡 meet · < −2% 🔴 miss.
+
+- **EPS** — comes straight from Yahoo (last ~4 quarters), available immediately.
+  A consistent beat/miss record also nudges the **confidence** score (bounded ±10;
+  it never touches the DEEP valuation math).
+- **Rev** — Yahoo only gives the *current-quarter* revenue estimate (no historical
+  ones for free), so the app **builds this history forward**: each refresh it snapshots
+  the estimate, and once the SEC actual for that quarter lands it grades beat/miss.
+  → starts empty, fills one circle per reported quarter, ~4 quarters (≈1 year) to fill.
+  To accumulate it you must **run locally** (the snapshots persist on disk) and
+  **Run Fundamental Refresh at least once per quarter, ideally before earnings** so the
+  estimate is captured before it rolls over. On Render's free tier the disk resets each
+  deploy, so revenue history won't accumulate there (EPS circles still work).
 
 ---
 
@@ -88,7 +109,7 @@ Nothing in the data layer, store, API, or dashboard changes — they only speak
 
 ```powershell
 python capture.py        # one-time: fetch real fixtures (or commit them)
-python run_tests.py      # FMP parser + SEC extraction + DEEP engine contract
+python run_tests.py      # FMP parser + SEC extraction + DEEP engine + earnings/rev track
 ```
 The fixtures freeze real numbers for AVGO/ABBV/ORCL/NVO/MSFT so a data regression
 fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B).
@@ -101,4 +122,8 @@ fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B).
 - **Priced-for-perfection names** (e.g. ARM) get no point fair value by design —
   the framework defers to the Reverse DCF (shows the growth the market implies).
 - **Sector** for never-seen tickers needs the FMP key; otherwise "Unknown".
+- **EPS surprise** is EPS-only (~4 Q, street/adjusted basis). **Revenue surprise** is
+  built forward (empty at first, ~1 yr to fill) and only accumulates when run locally —
+  free data has no historical revenue estimates. Fiscal-Q4 (annual-only filings) may not
+  grade since there's no standalone 90-day period.
 - Not investment advice — a calculator that reproduces DEEP v7.3 rules on free data.

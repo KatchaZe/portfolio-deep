@@ -12,7 +12,7 @@ import datetime as dt
 
 import config
 from sources import sec_edgar, yahoo, fmp
-from pipeline import normalize, validate
+from pipeline import normalize, validate, rev_track
 from domain import indicators
 from domain.engine import get_engine
 import store as store_mod
@@ -85,6 +85,8 @@ def refresh_fundamentals(s, tickers, fmp_key="", quota_cap=250):
             s["facts"][t] = ff.to_dict()
             s["results"][t] = val.to_dict()
             s["updated"][t] = store_mod.today()
+            # build-forward revenue beat/miss history (persisted, holdings only)
+            rev_track.update(s, t, ff.rev_estimate_curq, ff.revenue_quarters, store_mod.today())
             done.append(t)
         except Exception as e:
             errors.append(f"{t}: {str(e)[:60]}")
@@ -257,6 +259,7 @@ def portfolio_view(s):
             "currency": ff.get("currency"), "updated": s["updated"].get(t),
             "flags": ff.get("flags", []),
             "earnings_surprises": ff.get("earnings_surprises", []),
+            "rev_surprises": s.get("rev_surprises", {}).get(t, []),
         })
     # portfolio totals
     tot_cost = sum(r["cost_basis"] or 0 for r in rows)

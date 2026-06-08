@@ -51,6 +51,12 @@ class FinancialFacts:
     # eps_estimate/surprise_pct/grade(beat|meet|miss). Display + confidence input.
     earnings_surprises: list = field(default_factory=list)
 
+    # revenue beat/miss (built forward): the current-quarter consensus we snapshot,
+    # and the SEC ~90-day actuals used to grade past snapshots. History itself
+    # lives in the store (accumulates across refreshes), not here.
+    rev_estimate_curq: Optional[dict] = None            # {quarter_end, estimate}
+    revenue_quarters: dict = field(default_factory=dict)  # {end_date: actual_revenue}
+
     # quality
     provenance: dict = field(default_factory=dict)   # {field_name: source}
     confidence: int = 0

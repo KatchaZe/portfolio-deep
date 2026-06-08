@@ -105,7 +105,18 @@ def _accessors(facts):
         es = entries(concept, prefer)
         return max((e["end"] for e in es if e.get("end")), default=None)
 
-    return latest, ttm, annual_series, currency, latest_end
+    def quarters(concept, prefer=("USD", "usd")):
+        """{end_date: value} for ~90-day (single-quarter) periods, recent first
+        de-duplicated by end date. Used to grade our snapshotted revenue estimates."""
+        es = entries(concept, prefer)
+        qs = sorted([e for e in es if e.get("start") and 80 <= _days(e["start"], e["end"]) <= 100],
+                    key=lambda e: e["end"], reverse=True)
+        out = {}
+        for e in qs:
+            out.setdefault(e["end"], e["val"])
+        return out
+
+    return latest, ttm, annual_series, currency, latest_end, quarters
 
 
 REV = ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
@@ -117,7 +128,7 @@ NI = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholders
 def extract(companyfacts):
     """Return a dict of SEC-derived financial values (in reported currency)."""
     facts = companyfacts.get("facts", companyfacts)
-    latest, ttm, annual_series, currency, latest_end = _accessors(facts)
+    latest, ttm, annual_series, currency, latest_end, quarters = _accessors(facts)
 
     def pick(concepts):
         """Choose the concept with the FRESHEST data (most recent end date), then
@@ -157,6 +168,7 @@ def extract(companyfacts):
         "currency": (currency(rev_concept) if rev_concept else None) or "USD",
         "revenue": rev,
         "revenue_annuals": annual_series(rev_concept) if rev_concept else [],
+        "revenue_quarters": quarters(rev_concept) if rev_concept else {},
         "net_income": net_income,
         "operating_income": operating_income,
         "eps_gaap": ttm("EarningsPerShareDiluted", prefer=("USD/shares",)),
@@ -207,7 +219,7 @@ def populate(ff, companyfacts):
     d = extract(companyfacts)
     for k in ("currency", "revenue", "net_income", "operating_income", "eps_gaap",
               "shares_diluted", "total_debt", "cash", "equity", "capex", "dep_amort",
-              "income_before_tax", "tax_expense", "revenue_annuals"):
+              "income_before_tax", "tax_expense", "revenue_annuals", "revenue_quarters"):
         ff.set(k, d.get(k), "sec")
     if d.get("latest_period_end"):
         ff.set("fiscal_year", d["latest_period_end"], "sec")

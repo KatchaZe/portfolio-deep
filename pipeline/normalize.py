@@ -33,6 +33,8 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
                     setattr(ff, k, v * fx_rate)
             if ff.revenue_annuals:
                 ff.revenue_annuals = [v * fx_rate for v in ff.revenue_annuals]
+            if ff.revenue_quarters:
+                ff.revenue_quarters = {k: v * fx_rate for k, v in ff.revenue_quarters.items()}
             ff.flags.append(f"converted {ff.currency}->USD @ {round(fx_rate, 4)}")
             ff.provenance["fx"] = f"{ff.currency}->USD {round(fx_rate,4)}"
             ff.currency = "USD"
@@ -54,6 +56,9 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
         es = yahoo.parse_earnings_history(yahoo_qs)
         if es:
             ff.set("earnings_surprises", es, "yahoo")
+        rq = yahoo.parse_revenue_estimate(yahoo_qs)
+        if rq:
+            ff.set("rev_estimate_curq", rq, "yahoo")
         ff.set("forward_eps", y.get("forward_eps"), "yahoo")
         if ff.beta is None:
             ff.set("beta", y.get("beta"), "yahoo")

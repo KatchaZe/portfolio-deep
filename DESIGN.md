@@ -49,7 +49,8 @@ portfolio-app-v2/
       __init__.py            #     registry: register(), get_engine(version)
   pipeline/
     normalize.py             #   merge SEC + FMP profile + Yahoo → FinancialFacts (+FX, base confidence)
-    validate.py              #   sanity rules + forward-EPS resolution + confidence tier
+    validate.py              #   sanity rules + forward-EPS resolution + confidence tier (+earnings nudge)
+    rev_track.py             #   build-forward revenue beat/miss (snapshot estimate -> grade vs SEC actual)
     refresh.py               #   orchestration: refresh_fundamentals / run_daily / analyze_row /
                              #                  watchlist_run / allocation / portfolio_view / resolve_cik
   tests/
@@ -86,7 +87,10 @@ FinancialFacts:
   consensus:   forward_eps (NTM, adjusted), forward_eps_raw, growth_lt (decimal)
   history:     revenue_annuals = [latest_FY, FY-1, FY-2, FY-3]   # clean CAGR
   earnings:    earnings_surprises = [{quarter, eps_actual, eps_estimate,
-               surprise_pct, grade}]  # last ~4 Q, oldest->newest (Yahoo)
+               surprise_pct, grade}]  # EPS, last ~4 Q, oldest->newest (Yahoo)
+  rev-track:   rev_estimate_curq = {quarter_end, estimate}   # snapshotted each refresh
+               revenue_quarters  = {end_date: actual}        # SEC ~90-day, to grade snapshots
+               (graded revenue beat/miss HISTORY lives in the store, not here)
   quality:     confidence (0-100), confidence_tier (green/yellow/red), flags[]
   provenance:  { field: source }     # e.g. net_income: "sec", forward_eps: "yahoo"
   derived:     tax_rate (property)
@@ -109,6 +113,8 @@ analyst `forward_eps` from Yahoo; `eps_gaap` is the SEC GAAP value.)
 | sector, beta, price | **FMP** profile (all symbols, free) | Yahoo fallback for beta/price |
 | price (daily) + momentum (RSI/MACD/DBBMV) | **Yahoo** chart | free, no FMP quota |
 | EPS surprise history (last ~4 Q) | **Yahoo** earningsHistory | beat/meet/miss vs consensus (EPS only; street/adjusted basis) |
+| revenue estimate (current quarter) | **Yahoo** earningsTrend `0q` | snapshotted each refresh; graded later vs SEC actual (build-forward) |
+| revenue actuals (per quarter) | **SEC EDGAR** ~90-day | grades the snapshotted estimates |
 | Rf (10y treasury) | **Yahoo** ^TNX | one fetch per refresh |
 
 **FMP usage:** only the `profile` endpoint (sector/beta/price) ≈ **1 call per ticker**.
@@ -161,8 +167,10 @@ Example verdict:
 **Tab 1 · My Portfolio** (stored): `Ticker(+✕) | Price | Chg | Shares | AvgCost | MktVal |
 P/L $ | P/L % | DEEP★+reco | Momentum(+RSI/MACD/DBBMV tooltip) | Action | Anchor FV (or
 RevDCF implies %) | Upside | Earnings | Verdict`, plus a TOTAL row and a confidence dot.
-The **Earnings** cell shows up to 4 circles (oldest→newest) — 🟢 beat / 🟡 meet /
-🔴 miss vs EPS consensus — each with a hover tooltip (quarter, actual vs estimate, surprise%). Add/update a
+The **Earnings** cell shows two rows of up to 4 circles (oldest→newest) — 🟢 beat /
+🟡 meet / 🔴 miss, hover for quarter/actual vs estimate/surprise%:
+- **EPS** (from Yahoo, immediate).
+- **Rev** (built forward — empty until snapshots are graded; see §9). Add/update a
 holding with **shares + avg cost** (auto-fetches). **Run Fundamental Refresh** / **Run
 Daily**. Remove with the red ✕ (deletes its cached data).
 
@@ -185,11 +193,24 @@ to analyse on demand (not stored). Same columns incl. the **Earnings** circles. 
   "results":   { "NVDA": { ...Valuation.to_dict()... } },
   "momentum":  { "NVDA": { ...indicators.compute()... } },
   "fmp_usage": { "2026-06-09": 12 },           // daily FMP-call counter (quota guard)
-  "updated":   { "NVDA": "2026-06-09" }
+  "updated":   { "NVDA": "2026-06-09" },
+  "rev_snapshots": { "NVDA": { "2026-07-31": {"est": 5.4e10, "captured": "2026-06-09"} } },  // pending estimates
+  "rev_surprises": { "NVDA": [ {"quarter":"2026-04-30","rev_actual":..,"rev_estimate":..,"surprise_pct":..,"grade":".."} ] }  // graded, <=4
 }
 ```
-Removing a holding deletes it from `holdings`, `facts`, `results`, `momentum`.
-Watchlist tickers are never written to `facts`.
+Removing a holding deletes it from `holdings`, `facts`, `results`, `momentum`,
+`rev_snapshots`, `rev_surprises`. Watchlist tickers are never written to `facts`.
+
+**Revenue track record (build-forward, `rev_track.py`).** Free data has no *historical*
+revenue estimates, so the app makes its own: on every fundamentals refresh it snapshots
+the current-quarter consensus (`rev_estimate_curq`) keyed by quarter end; when the SEC
+~90-day actual for a snapshotted quarter appears (`revenue_quarters`), it grades beat/meet/
+miss (±2%) and appends to a rolling 4-quarter history. Consequences: it starts empty and
+fills one circle per reported quarter (~1 yr for four); it only accumulates where the store
+persists (**run locally** — Render free wipes the disk each deploy); refresh at least once
+per quarter, ideally *before* earnings, so the estimate is captured before it rolls over.
+This is **display-only** — it never feeds the DEEP math (EPS surprise is the only earnings
+signal wired into confidence).
 
 ---
 
@@ -214,7 +235,9 @@ Watchlist tickers are never written to `facts`.
 - `test_engine.py` — DEEP engine contract well-formedness on fixtures.
 - `test_earnings.py` — EPS-surprise parsing/grading (beat/meet/miss, oldest→newest)
   + the bounded confidence nudge (synthetic; Yahoo earningsHistory isn't in fixtures).
-- `run_tests.py` runs all four; `capture.py`/`verify.py` refresh + spot-check fixtures.
+- `test_rev.py` — revenue estimate parsing + the build-forward snapshot→grade→cap logic
+  (synthetic; locks accumulation and the 4-quarter cap).
+- `run_tests.py` runs all five; `capture.py`/`verify.py` refresh + spot-check fixtures.
 
 ---
 
@@ -231,6 +254,7 @@ Watchlist tickers are never written to `facts`.
 | 7. Quota guard | daily counter, 90% warning + headroom, over-cap skip | ✅ |
 | 8. Regression + deploy | `run_tests.py`, README, render.yaml/Procfile/.gitignore | ✅ |
 | 9. Earnings track record | Yahoo EPS-surprise (4Q), beat/meet/miss circles, bounded confidence nudge, `test_earnings` | ✅ |
+| 10. Revenue track record | build-forward (`rev_track`): snapshot Yahoo estimate → grade vs SEC actual, Rev circles, `test_rev` | ✅ |
 
 ---
 
@@ -242,8 +266,10 @@ Watchlist tickers are never written to `facts`.
 - **Sector** for never-seen tickers needs the FMP key, else "Unknown".
 - **Non-USD filers** (NVO) are FX-converted; ADR per-share ratios may need a manual check.
 - **Earnings surprise** is **EPS-only** (Yahoo's consensus/street basis) for the last
-  **~4 quarters** — revenue beat/miss and a clean GAAP-vs-Non-GAAP split aren't available
-  free, so they're out of scope.
+  **~4 quarters** — a clean GAAP-vs-Non-GAAP split isn't available free.
+- **Revenue surprise** is **built forward** (no free historical estimates): empty at first,
+  ~1 yr to fill, accumulates only when run locally, and fiscal-Q4 (annual-only filings) may
+  not grade (no standalone 90-day period). Display-only — not in the DEEP math.
 
 ## 13. Future (not in scope)
 Cloud storage + multi-device, auth, more sources for triangulation, earnings/price alerts.
