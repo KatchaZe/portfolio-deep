@@ -201,6 +201,15 @@ to analyse on demand (not stored). Same columns incl. the **Earnings** circles. 
 Removing a holding deletes it from `holdings`, `facts`, `results`, `momentum`,
 `rev_snapshots`, `rev_surprises`. Watchlist tickers are never written to `facts`.
 
+**Concurrency & durability.** `save()` is atomic (write temp → `fsync` → `os.replace`),
+and a process-level `store.LOCK` (RLock) serializes every mutating request (held in `app.py`
+around each job) so concurrent writes can't lose updates or corrupt the file. Reads stay
+lock-free because the swap is atomic. (For true multi-user this would move to a DB — see `REVIEW.md`.)
+
+**SEC fair-access.** `companyfacts` is cached to `data/cache/` with a 12h TTL and SEC requests
+are throttled (`config.SEC_MIN_INTERVAL`); the ticker→CIK map is cached ~30 days. This avoids
+re-downloading multi-MB JSON each refresh and respects SEC's rate limits.
+
 **Revenue track record (build-forward, `rev_track.py`).** Free data has no *historical*
 revenue estimates, so the app makes its own: on every fundamentals refresh it snapshots
 the current-quarter consensus (`rev_estimate_curq`) keyed by quarter end; when the SEC

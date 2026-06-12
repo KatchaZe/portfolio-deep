@@ -8,6 +8,7 @@ Run:
     open http://localhost:8000
 """
 import os
+import logging
 from concurrent.futures import ThreadPoolExecutor
 
 from fastapi import FastAPI, Request
@@ -17,6 +18,10 @@ import config
 import store as st
 from pipeline import refresh
 
+logging.basicConfig(level=logging.INFO,
+                    format="%(asctime)s %(levelname)s %(name)s %(message)s")
+log = logging.getLogger("portfolio")
+
 app = FastAPI(title="Portfolio DEEP v7.3")
 _pool = ThreadPoolExecutor(max_workers=4)
 BASE = os.path.dirname(os.path.abspath(__file__))
@@ -24,7 +29,15 @@ QUOTA_CAP = 250
 
 
 def _run(fn, *a):
-    return _pool.submit(fn, *a).result()
+    # Hold the store lock for the whole job (load->mutate->save) so concurrent
+    # mutating requests serialize instead of clobbering each other.
+    with st.LOCK:
+        return _pool.submit(fn, *a).result()
+
+
+@app.get("/healthz")
+def healthz():
+    return {"status": "ok", "version": config.DEEP_VERSION}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -51,7 +64,7 @@ def _quota(s):
     return {"used": used, "cap": QUOTA_CAP, "pct": round(used / QUOTA_CAP * 100),
             "warn": used >= 0.9 * QUOTA_CAP,
             "holdings": len(s.get("holdings", {})),
-            "headroom_tickers": max(0, (QUOTA_CAP - used) // 1)}
+            "headroom_tickers": max(0, QUOTA_CAP - used)}
 
 
 @app.post("/api/holding")
@@ -96,13 +109,15 @@ def api_watchlist():
 
 @app.post("/api/watchlist/add")
 def api_watch_add(ticker: str):
-    s = st.load(); st.add_watch(s, ticker); st.save(s)
+    with st.LOCK:
+        s = st.load(); st.add_watch(s, ticker); st.save(s)
     return JSONResponse({"names": s["watchlist"]})
 
 
 @app.post("/api/watchlist/remove")
 def api_watch_remove(ticker: str):
-    s = st.load(); st.remove_watch(s, ticker); st.save(s)
+    with st.LOCK:
+        s = st.load(); st.remove_watch(s, ticker); st.save(s)
     return JSONResponse({"names": s["watchlist"]})
 
 

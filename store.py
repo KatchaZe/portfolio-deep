@@ -4,12 +4,27 @@ Local JSON store. Holdings (with shares + avg cost) and the cached fundamentals
 only (data re-fetched each run). Removing a holding deletes all its cached data.
 """
 import os
+import re
 import json
+import threading
 import datetime as dt
 
 import config
 
+_TICKER_RE = re.compile(r"[^A-Z0-9.\-]")
+
+
+def clean_ticker(t):
+    """Normalize a user-typed ticker: uppercase, strip, drop any non-ticker
+    characters (e.g. a stray Thai vowel that produced 'ืNVDA'). Returns '' if nothing valid remains."""
+    return _TICKER_RE.sub("", (t or "").upper().strip())
+
 PATH = os.path.join(config.DATA_DIR, "portfolio.json")
+
+# Serializes load->mutate->save so concurrent requests can't clobber each other
+# (lost-update). Re-entrant so a job may nest store calls. Held by app.py around
+# each mutating job; reads are safe lock-free because save() is atomic.
+LOCK = threading.RLock()
 
 _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
             "momentum": {}, "fmp_usage": {}, "updated": {},
@@ -28,9 +43,15 @@ def load():
 
 
 def save(s):
+    """Atomic write: dump to a temp file then os.replace() (atomic on the same
+    filesystem) so a crash mid-write can never corrupt the live store."""
     os.makedirs(config.DATA_DIR, exist_ok=True)
-    with open(PATH, "w", encoding="utf-8") as fh:
+    tmp = f"{PATH}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
         json.dump(s, fh, indent=2, ensure_ascii=False)
+        fh.flush()
+        os.fsync(fh.fileno())
+    os.replace(tmp, PATH)
 
 
 def today():
@@ -39,7 +60,7 @@ def today():
 
 # --- holdings -------------------------------------------------------------- #
 def set_holding(s, ticker, shares=None, avg_cost=None):
-    t = ticker.upper().strip()
+    t = clean_ticker(ticker)
     h = s["holdings"].setdefault(t, {"shares": 0, "avg_cost": 0.0, "added": today()})
     if shares is not None:
         h["shares"] = float(shares)
@@ -49,20 +70,20 @@ def set_holding(s, ticker, shares=None, avg_cost=None):
 
 
 def remove_holding(s, ticker):
-    t = ticker.upper().strip()
+    t = clean_ticker(ticker)
     for k in ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises"):
         s.get(k, {}).pop(t, None)
 
 
 # --- watchlist ------------------------------------------------------------- #
 def add_watch(s, ticker):
-    t = ticker.upper().strip()
+    t = clean_ticker(ticker)
     if t and t not in s["watchlist"]:
         s["watchlist"].append(t)
 
 
 def remove_watch(s, ticker):
-    t = ticker.upper().strip()
+    t = clean_ticker(ticker)
     if t in s["watchlist"]:
         s["watchlist"].remove(t)
 

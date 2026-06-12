@@ -8,6 +8,10 @@ Orchestration — fundamentals refresh, daily momentum, and portfolio view.
 Each FMP call is counted for the quota guard. Fundamentals only need refreshing
 after earnings; daily momentum is free (Yahoo).
 """
+import os
+import json
+import time
+import logging
 import datetime as dt
 
 import config
@@ -17,6 +21,7 @@ from domain import indicators
 from domain.engine import get_engine
 import store as store_mod
 
+log = logging.getLogger("portfolio.refresh")
 _cik_map = None
 
 
@@ -26,16 +31,40 @@ def resolve_cik(ticker):
     if t in config.CIKS:
         return config.CIKS[t], None
     if _cik_map is None:
-        try:
-            import requests
-            r = requests.get("https://www.sec.gov/files/company_tickers.json",
-                             headers={"User-Agent": config.SEC_USER_AGENT}, timeout=20)
-            _cik_map = {row["ticker"].upper(): (str(row["cik_str"]).zfill(10), row.get("title"))
-                        for row in r.json().values()}
-        except Exception:
-            _cik_map = {}
+        _cik_map = _load_cik_map()
     v = _cik_map.get(t)
     return (v[0], v[1]) if v else (None, None)
+
+
+def _load_cik_map():
+    """SEC ticker->CIK map, cached to disk (changes rarely; refreshed ~monthly)."""
+    cache = os.path.join(config.CACHE_DIR, "company_tickers.json")
+    try:
+        if os.path.exists(cache) and (time.time() - os.path.getmtime(cache)) < 30 * 86400:
+            with open(cache, encoding="utf-8") as fh:
+                raw = json.load(fh)
+            return {row["ticker"].upper(): (str(row["cik_str"]).zfill(10), row.get("title"))
+                    for row in raw.values()}
+    except Exception as e:
+        log.warning("CIK map cache read failed: %s", e)
+    try:
+        import requests
+        r = requests.get("https://www.sec.gov/files/company_tickers.json",
+                         headers={"User-Agent": config.SEC_USER_AGENT}, timeout=20)
+        raw = r.json()
+        try:
+            os.makedirs(config.CACHE_DIR, exist_ok=True)
+            tmp = f"{cache}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(raw, fh)
+            os.replace(tmp, cache)
+        except Exception as e:
+            log.warning("CIK map cache write failed: %s", e)
+        return {row["ticker"].upper(): (str(row["cik_str"]).zfill(10), row.get("title"))
+                for row in raw.values()}
+    except Exception as e:
+        log.warning("CIK map fetch failed: %s", e)
+        return {}
 
 
 def analyze(ticker, rf, fmp_key=""):
@@ -43,7 +72,9 @@ def analyze(ticker, rf, fmp_key=""):
     t = ticker.upper().strip()
     cik, name = resolve_cik(t)
     fmp_calls = 0
-    sec_cf = sec_edgar.fetch_companyfacts(cik, config.SEC_USER_AGENT) if cik else None
+    sec_cf = sec_edgar.fetch_companyfacts(
+        cik, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
+        ttl_hours=config.SEC_CACHE_TTL_HOURS, min_interval=config.SEC_MIN_INTERVAL) if cik else None
 
     # currency -> FX
     fx = None
@@ -52,8 +83,8 @@ def analyze(ticker, rf, fmp_key=""):
             ccy = sec_edgar.extract(sec_cf).get("currency", "USD")
             if ccy and ccy != "USD":
                 fx = yahoo.fetch_fx_to_usd(ccy)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("%s FX lookup failed: %s", t, e)
 
     profile = None
     if fmp_key:
@@ -61,7 +92,8 @@ def analyze(ticker, rf, fmp_key=""):
             import requests
             r = requests.get(f"{config.FMP_BASE}/profile", params={"symbol": t, "apikey": fmp_key}, timeout=15)
             profile = r.json(); fmp_calls = 1
-        except Exception:
+        except Exception as e:
+            log.warning("%s FMP profile failed: %s", t, e)
             profile = None
 
     yq = yahoo.fetch_consensus(t)
@@ -106,8 +138,8 @@ def analyze_row(ticker, rf, fmp_key=""):
         m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
         if "error" not in m:
             mom = m
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("%s momentum failed: %s", t, e)
     price = mom.get("price") or ff.price
     anchor = val.anchor_value
     upside = ((anchor - price) / price * 100) if (anchor and price) else None
@@ -159,8 +191,8 @@ def run_daily(s, tickers):
             if "error" not in m:
                 s["momentum"][t] = m
             out.append(t)
-        except Exception:
-            pass
+        except Exception as e:
+            log.warning("%s daily momentum failed: %s", t, e)
     return out
 
 
@@ -182,11 +214,11 @@ def allocation(s, whatif=None, fmp_key=""):
             try:
                 import requests
                 r = requests.get(f"{config.FMP_BASE}/profile", params={"symbol": t, "apikey": fmp_key}, timeout=12)
-                from sources import fmp
                 sec = fmp.parse_profile(r.json()).get("sector")
                 nonlocal fmp_calls
                 fmp_calls += 1
-            except Exception:
+            except Exception as e:
+                log.warning("%s sector lookup failed: %s", t, e)
                 sec = None
         sector_cache[t] = sec or "Unknown"
         return sector_cache[t]

@@ -18,7 +18,12 @@ DEEP_VERSION = "7.3"
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
+CACHE_DIR = os.path.join(DATA_DIR, "cache")          # SEC companyfacts + CIK map cache
 FIXTURE_DIR = os.path.join(BASE_DIR, "tests", "fixtures")
+
+# SEC fair-access: stay well under 10 req/s and cache filings (they change quarterly)
+SEC_MIN_INTERVAL = 0.15      # seconds between SEC requests (~6-7/s)
+SEC_CACHE_TTL_HOURS = 12     # re-use cached companyfacts within this window
 
 # Core 12 (ticker -> SEC CIK) — used for SEC cross-check
 CIKS = {

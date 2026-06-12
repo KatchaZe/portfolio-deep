@@ -116,6 +116,7 @@ function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;<
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
 function pct(x){if(x===null||x===undefined)return '<span class="muted">&mdash;</span>';const s=x>=0?'up':'down';return `<span class="${s}">${x>=0?'+':''}${Number(x).toFixed(1)}%</span>`}
 function dot(tier){return `<span class="dot ${tier==='green'?'g':tier==='yellow'?'y':'r'}"></span>`}
+function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Future Value Projection','FVP').replace('Justified PEG','PEG')}
 function anchorCell(x){
   if(x.anchor_value!=null)return `${f(x.anchor_value)}<div class="muted" style="font-size:9px">${methodShort(x.anchor_method)}</div>`;
@@ -163,7 +164,7 @@ function renderPortfolio(d){
     const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
     return `<tr>
       <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b><span class="rm" title="remove" onclick="removeHolding('${x.ticker}')">&times;</span>
-        <div class="muted" style="font-size:10px">${x.company||''} · ${x.sector||''}</div></td>
+        <div class="muted" style="font-size:10px">${esc(x.company)} · ${esc(x.sector)}</div></td>
       <td>${f(x.price)}</td><td>${chg}</td>
       <td>${f(x.shares,0)}</td><td>${f(x.avg_cost)}</td>
       <td>${money(x.market_value)}</td>
@@ -176,7 +177,7 @@ function renderPortfolio(d){
       <td>${anchorCell(x)}</td>
       <td>${upsideCell(x)}</td>
       <td>${earnCircles(x)}</td>
-      <td class="l verdict">${x.verdict||''}</td>
+      <td class="l verdict">${esc(x.verdict)}</td>
     </tr>`;}).join('');
   const t=d.totals||{};
   const totRow=`<tr class="tot"><td class="l">TOTAL</td><td></td><td></td><td></td><td></td><td>${money(t.market_value)}</td>
@@ -247,7 +248,7 @@ function renderWatchTable(rows){
     const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
     return `<tr>
       <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b><span class="rm" onclick="removeWatch('${x.ticker}')">&times;</span>
-        <div class="muted" style="font-size:10px">${x.company||''} · ${x.sector||''}</div></td>
+        <div class="muted" style="font-size:10px">${esc(x.company)} · ${esc(x.sector)}</div></td>
       <td>${f(x.price)}</td><td>${chg}</td>
       <td title="RSI ${x.rsi_signal||'—'} (${f(x.rsi,0)}) · MACD ${x.macd_signal||'—'} · DBBMV ${x.dbbmv_signal||'—'}">${tag(x.momentum_signal,MOM_COLOR[x.momentum_signal])}<div class="muted" style="font-size:9px">RSI ${f(x.rsi,0)} &#9432;</div></td>
       <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span><div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div></td>
@@ -255,7 +256,7 @@ function renderWatchTable(rows){
       <td>${anchorCell(x)}</td>
       <td>${upsideCell(x)}</td>
       <td>${earnCircles(x)}</td>
-      <td class="l verdict">${x.verdict||''}</td>
+      <td class="l verdict">${esc(x.verdict)}</td>
       <td><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:5px 9px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></td>
     </tr>`;}).join('');
   document.getElementById('watchTable').innerHTML=`<table><thead><tr>

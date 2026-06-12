@@ -6,7 +6,26 @@ sum-of-4Q and latest-annual fallbacks. De-duplicates restated facts by keeping t
 most recently filed value. Growth uses the clean annual series. This is the
 extraction proven (v1) to fix AVGO / ORCL / NVO.
 """
+import os
+import json
+import time
+import logging
+import threading
 import datetime as dt
+
+log = logging.getLogger("portfolio.sec")
+
+# Throttle SEC requests across threads to honour SEC fair-access (<10 req/s).
+_sec_lock = threading.Lock()
+_sec_last = [0.0]
+
+
+def _throttle(min_interval):
+    with _sec_lock:
+        wait = min_interval - (time.time() - _sec_last[0])
+        if wait > 0:
+            time.sleep(wait)
+        _sec_last[0] = time.time()
 
 
 def _date(s):
@@ -227,11 +246,34 @@ def populate(ff, companyfacts):
 
 
 # fetch (runs where SEC is reachable)
-def fetch_companyfacts(cik, user_agent, requests_mod=None, timeout=30):
+def fetch_companyfacts(cik, user_agent, requests_mod=None, timeout=30,
+                       cache_dir=None, ttl_hours=12, min_interval=0.15):
+    """Fetch SEC companyfacts, with a disk cache (filings change quarterly, so a
+    short TTL avoids re-downloading multi-MB JSON every refresh) and a global
+    throttle to respect SEC fair-access."""
     import requests as _r
     requests_mod = requests_mod or _r
     cik10 = str(cik).zfill(10)
+    path = os.path.join(cache_dir, f"companyfacts_{cik10}.json") if cache_dir else None
+    if path and os.path.exists(path):
+        try:
+            if (time.time() - os.path.getmtime(path)) < ttl_hours * 3600:
+                with open(path, encoding="utf-8") as fh:
+                    return json.load(fh)
+        except Exception as e:
+            log.warning("companyfacts cache read failed (%s): %s", cik10, e)
+    _throttle(min_interval)
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
     r = requests_mod.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
     r.raise_for_status()
-    return r.json()
+    data = r.json()
+    if path:
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            tmp = f"{path}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(data, fh)
+            os.replace(tmp, path)
+        except Exception as e:
+            log.warning("companyfacts cache write failed (%s): %s", cik10, e)
+    return data
