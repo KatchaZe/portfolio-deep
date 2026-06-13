@@ -11,7 +11,10 @@ FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 FMP_BASE = "https://financialmodelingprep.com/stable"     # stable endpoints (?symbol=)
 FMP_LEGACY = "https://financialmodelingprep.com/api/v3"   # fallback path style
 
-SEC_USER_AGENT = "PortfolioDeepApp katcha2002@gmail.com"  # SEC fair-access contact
+# SEC fair-access requires a contact in the User-Agent. Set SEC_CONTACT_EMAIL in
+# your environment so your address is NOT hard-coded in this (public) repo.
+SEC_CONTACT_EMAIL = os.environ.get("SEC_CONTACT_EMAIL", "your-email@example.com")
+SEC_USER_AGENT = f"PortfolioDeepApp {SEC_CONTACT_EMAIL}"  # SEC fair-access contact
 
 # Active DEEP framework version — change this ONE line to swap engines (e.g. "7.4")
 DEEP_VERSION = "7.3"

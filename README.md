@@ -11,7 +11,7 @@ allocation view.
 - **Trust:** every value carries provenance + a confidence tier; a regression test
   suite locks correct numbers (the v1 extraction bugs can't come back).
 
-See `DESIGN.md` for architecture and `DEEP_v7.3_AUDIT.md` for framework compliance.
+See `DESIGN.md` for architecture and **`BEGINNER_GUIDE.md` for a step-by-step beginner guide** (run, modify, upgrade the engine).
 
 ---
 
@@ -20,7 +20,7 @@ See `DESIGN.md` for architecture and `DEEP_v7.3_AUDIT.md` for framework complian
 Python 3.9+.
 
 ```powershell
-cd portfolio-app-v2
+cd portfolio-deep
 $env:FMP_API_KEY="your_key"     # optional (sector/beta from FMP profile; without it, Yahoo is used)
 pip install -r requirements.txt
 uvicorn app:app --port 8000
@@ -82,9 +82,11 @@ coloured circles (oldest→newest, hover for the numbers). Threshold: surprise >
 ## 4. Deploy (access from anywhere)
 
 Render (free) — gives a public URL:
-1. Put `portfolio-app-v2/` in a GitHub repo (commit `tests/fixtures/` so tests run).
+1. Put this repo on GitHub (commit `tests/fixtures/` so tests run).
 2. render.com → **New → Web Service** → connect the repo (uses `render.yaml`).
-3. In the dashboard set env var **FMP_API_KEY** (optional).
+3. In the dashboard set env vars: **FMP_API_KEY** (optional) and **APP_TOKEN**
+   (recommended — protects your portfolio on the public URL; open `/?token=YOUR_TOKEN`
+   once, then it is remembered via cookie).
 4. Deploy. Build: `pip install -r requirements.txt`; Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`.
 
 > Free tier sleeps after ~15 min idle (first hit wakes it) and uses an ephemeral

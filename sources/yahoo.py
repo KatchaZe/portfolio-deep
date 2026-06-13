@@ -144,19 +144,21 @@ def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20)
         c, v = q["close"][i], q["volume"][i]
         if c is not None and v is not None:
             closes.append(float(c)); vols.append(float(v))
-            dates.append(dt.datetime.utcfromtimestamp(ts[i]).strftime("%Y-%m-%d"))
+            dates.append(dt.datetime.fromtimestamp(ts[i], dt.timezone.utc).strftime("%Y-%m-%d"))
     return {"closes": closes, "volumes": vols, "dates": dates}
 
 
 def fetch_treasury_10y(requests_mod=None, timeout=12):
-    """10-year US treasury yield as a decimal (e.g. 0.043). Uses ^TNX."""
+    """10-year US treasury yield as (decimal, live_bool). Uses ^TNX.
+    live=False means Yahoo failed and the hardcoded 4.3% fallback is used —
+    callers must surface this (DEEP principle: 'Risk is current')."""
     try:
         d = fetch_chart("%5ETNX", requests_mod=requests_mod, rng="5d", timeout=timeout)
         if d["closes"]:
-            return d["closes"][-1] / 100.0
+            return d["closes"][-1] / 100.0, True
     except Exception:
         pass
-    return 0.043
+    return 0.043, False
 
 
 def fetch_fx_to_usd(currency, requests_mod=None, timeout=12):

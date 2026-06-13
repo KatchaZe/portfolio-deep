@@ -201,6 +201,12 @@ class DeepV73Engine(DeepEngine):
         mcap = (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None
         rdcf = reverse_dcf(f.price, f.shares_diluted, f.revenue, rev_1y, rev_3y, w, rf, tax,
                            TERMINAL_MARGIN.get(f.ticker, 0.25))
+        # generic-margin warning: tickers outside TERMINAL_MARGIN use a 25% default,
+        # which is wrong for banks/fintech (e.g. SOFI/HOOD) — RevDCF verdict approximate
+        if rdcf.get("triggered") and f.ticker not in TERMINAL_MARGIN:
+            note = "terminal margin default 25% (generic) — RevDCF verdict approximate"
+            if note not in f.flags:
+                f.flags.append(note)
 
         eps_pos = eps0 is not None and eps0 > 0
         fcf_pos = fcff is not None and fcff > 0
@@ -258,13 +264,19 @@ class DeepV73Engine(DeepEngine):
 
 
 def _verdict(f, v):
-    fv = v.anchor_value
-    up = (f"{((fv - f.price) / f.price * 100):+.0f}% upside" if (fv and f.price) else "")
     km = v.key_metrics
-    if v.anchor_method == "Terminal-Anchored Reverse DCF" and v.reverse_dcf.get("triggered"):
-        rd = v.reverse_dcf
-        return (f"{v.recommendation} {v.stars} — Pre-profit: market prices ~{rd.get('implied_cagr_pct')}% 10y CAGR "
-                f"vs actual {rd.get('actual_1y_pct')}% ({rd.get('verdict')}). conf {f.confidence}")
+    if v.anchor_method == "Terminal-Anchored Reverse DCF":
+        rd = v.reverse_dcf or {}
+        if rd.get("triggered"):
+            return (f"{v.recommendation} {v.stars} — Pre-profit: market prices ~{rd.get('implied_cagr_pct')}% 10y CAGR "
+                    f"vs actual {rd.get('actual_1y_pct')}% ({rd.get('verdict')}). conf {f.confidence}")
+        return (f"{v.recommendation or 'N/A'} {v.stars} — insufficient data for a point fair value "
+                f"(missing price/revenue/shares). conf {f.confidence}").strip()
+    fv = v.anchor_value
+    if fv is None:
+        return (f"{v.recommendation or 'N/A'} {v.stars} — no fair value computed (missing inputs). "
+                f"conf {f.confidence}").strip()
+    up = (f"{((fv - f.price) / f.price * 100):+.0f}% upside" if f.price else "")
     band = f"range ${v.range_low}–${v.range_high}" if v.range_low else ""
     return (f"{v.recommendation} {v.stars} — {v.anchor_method} ${fv} ({up}); {band}. "
             f"ROIC {km.get('roic_pct')}% vs WACC {km.get('wacc_pct')}%, growth {km.get('growth_pct')}%. conf {f.confidence}").strip()

@@ -67,8 +67,9 @@ def _load_cik_map():
         return {}
 
 
-def analyze(ticker, rf, fmp_key=""):
-    """Fetch -> normalize -> validate -> engine. Returns (facts, valuation, fmp_calls)."""
+def analyze(ticker, rf, fmp_key="", rf_live=True):
+    """Fetch -> normalize -> validate -> engine. Returns (facts, valuation, fmp_calls).
+    NETWORK ONLY — never touches the store, safe to run outside store.LOCK."""
     t = ticker.upper().strip()
     cik, name = resolve_cik(t)
     fmp_calls = 0
@@ -98,40 +99,64 @@ def analyze(ticker, rf, fmp_key=""):
 
     yq = yahoo.fetch_consensus(t)
     ff = normalize.build(t, sec_cf, profile, yq, fx_rate=fx, company=name)
+    if not rf_live:
+        ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
     validate.validate(ff, rf=rf)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
 
 
-def refresh_fundamentals(s, tickers, fmp_key="", quota_cap=250):
-    rf = yahoo.fetch_treasury_10y()
-    done, errors, calls = [], [], 0
-    used = store_mod.fmp_used_today(s)
+def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
+    """NETWORK PHASE — no store access, run OUTSIDE store.LOCK.
+    Returns (fetched {ticker: (FinancialFacts, Valuation)}, errors, fmp_calls,
+    rf_pct, rf_live)."""
+    rf, rf_live = yahoo.fetch_treasury_10y()
+    fetched, errors, calls = {}, [], 0
+    cost = 1 if fmp_key else 0          # without a key we make zero FMP calls
     for t in tickers:
-        if used + calls + 1 > quota_cap:
+        if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
             continue
         try:
-            ff, val, c = analyze(t, rf, fmp_key)
+            ff, val, c = analyze(t, rf, fmp_key, rf_live=rf_live)
             calls += c
-            s["facts"][t] = ff.to_dict()
-            s["results"][t] = val.to_dict()
-            s["updated"][t] = store_mod.today()
-            # build-forward revenue beat/miss history (persisted, holdings only)
-            rev_track.update(s, t, ff.rev_estimate_curq, ff.revenue_quarters, store_mod.today())
-            done.append(t)
+            fetched[t] = (ff, val)
         except Exception as e:
+            log.warning("%s fundamentals failed: %s", t, e)
             errors.append(f"{t}: {str(e)[:60]}")
-    store_mod.add_fmp_calls(s, calls)
-    return {"refreshed": done, "errors": errors, "fmp_calls": calls,
-            "fmp_used_today": store_mod.fmp_used_today(s), "rf_pct": round(rf * 100, 2)}
+    return fetched, errors, calls, round(rf * 100, 2), rf_live
 
 
-def analyze_row(ticker, rf, fmp_key=""):
+def commit_fundamentals(s, fetched, fmp_calls):
+    """STORE PHASE — fast merge of fetched results. Caller must hold store.LOCK."""
+    today = store_mod.today()
+    for t, (ff, val) in fetched.items():
+        s["facts"][t] = ff.to_dict()
+        s["results"][t] = val.to_dict()
+        s["updated"][t] = today
+        # build-forward revenue beat/miss history (persisted, holdings only)
+        rev_track.update(s, t, ff.rev_estimate_curq, ff.revenue_quarters, today)
+    store_mod.add_fmp_calls(s, fmp_calls)
+    return s
+
+
+def refresh_fundamentals(s, tickers, fmp_key="", quota_cap=250):
+    """Back-compat wrapper (fetch + commit in one call). Prefer the split
+    fetch_fundamentals / commit_fundamentals so the lock isn't held during
+    network I/O — see app.py."""
+    fetched, errors, calls, rf_pct, rf_live = fetch_fundamentals(
+        tickers, fmp_key, store_mod.fmp_used_today(s), quota_cap)
+    commit_fundamentals(s, fetched, calls)
+    return {"refreshed": list(fetched.keys()), "errors": errors, "fmp_calls": calls,
+            "fmp_used_today": store_mod.fmp_used_today(s), "rf_pct": rf_pct,
+            "rf_live": rf_live}
+
+
+def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     """Full analysis for ONE ticker incl. momentum, returned as a display row.
-    Ephemeral — nothing is stored. Returns (row, fmp_calls)."""
+    Ephemeral — nothing is stored. NETWORK ONLY. Returns (row, fmp_calls)."""
     t = ticker.upper().strip()
-    ff, val, calls = analyze(t, rf, fmp_key)
+    ff, val, calls = analyze(t, rf, fmp_key, rf_live=rf_live)
     mom = {}
     try:
         c = yahoo.fetch_chart(t)
@@ -164,36 +189,58 @@ def analyze_row(ticker, rf, fmp_key=""):
     return row, calls
 
 
-def watchlist_run(s, tickers, fmp_key="", quota_cap=250):
-    rf = yahoo.fetch_treasury_10y()
+def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
+    """NETWORK PHASE — analyse tickers on demand, nothing stored. Run OUTSIDE
+    store.LOCK; the caller commits only the FMP quota counter afterwards."""
+    rf, rf_live = yahoo.fetch_treasury_10y()
     rows, errors, calls = [], [], 0
-    used = store_mod.fmp_used_today(s)
+    cost = 1 if fmp_key else 0
     for t in tickers:
-        if used + calls + 1 > quota_cap:
+        if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
             continue
         try:
-            r, c = analyze_row(t, rf, fmp_key)
+            r, c = analyze_row(t, rf, fmp_key, rf_live=rf_live)
             calls += c
             rows.append(r)
         except Exception as e:
             errors.append(f"{t}: {str(e)[:50]}")
-    store_mod.add_fmp_calls(s, calls)
-    return {"rows": rows, "errors": errors, "fmp_calls": calls, "rf_pct": round(rf * 100, 2)}
+    return {"rows": rows, "errors": errors, "fmp_calls": calls,
+            "rf_pct": round(rf * 100, 2), "rf_live": rf_live}
 
 
-def run_daily(s, tickers):
-    out = []
+def watchlist_run(s, tickers, fmp_key="", quota_cap=250):
+    """Back-compat wrapper. Prefer fetch_watchlist + commit quota in app.py."""
+    res = fetch_watchlist(tickers, fmp_key, store_mod.fmp_used_today(s), quota_cap)
+    store_mod.add_fmp_calls(s, res["fmp_calls"])
+    return res
+
+
+def fetch_daily(tickers):
+    """NETWORK PHASE — Yahoo chart + momentum per ticker (no FMP quota).
+    Returns {ticker: momentum_dict}. Run OUTSIDE store.LOCK."""
+    out = {}
     for t in tickers:
         try:
             c = yahoo.fetch_chart(t)
             m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
             if "error" not in m:
-                s["momentum"][t] = m
-            out.append(t)
+                out[t] = m
         except Exception as e:
             log.warning("%s daily momentum failed: %s", t, e)
     return out
+
+
+def commit_daily(s, fetched):
+    """STORE PHASE — merge momentum. Caller must hold store.LOCK."""
+    for t, m in fetched.items():
+        s["momentum"][t] = m
+    return list(fetched.keys())
+
+
+def run_daily(s, tickers):
+    """Back-compat wrapper (fetch + commit in one call)."""
+    return commit_daily(s, fetch_daily(tickers))
 
 
 def allocation(s, whatif=None, fmp_key=""):
@@ -241,14 +288,21 @@ def allocation(s, whatif=None, fmp_key=""):
     if whatif:
         after = dict(base)
         added = []
+        skipped = []
         for w in whatif:
-            t = (w.get("ticker") or "").upper().strip()
-            amt = float(w.get("amount") or 0)
+            t = store_mod.clean_ticker((w or {}).get("ticker"))
+            try:
+                amt = float((w or {}).get("amount") or 0)
+            except (TypeError, ValueError):
+                skipped.append(str((w or {}).get("ticker") or "?"))
+                continue
             if t and amt > 0:
                 after[t] = after.get(t, 0) + amt
                 added.append({"ticker": t, "amount": amt})
         result["after"] = pies(after)
         result["added"] = added
+        if skipped:
+            result["skipped"] = skipped
     return result, fmp_calls
 
 

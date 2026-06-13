@@ -31,7 +31,7 @@ cross-checked **free** data, and manages a portfolio, watchlist, and allocation 
 ## 2. Module structure (as-built)
 
 ```
-portfolio-app-v2/
+portfolio-deep/
   config.py                  # tickers, CIKs, FMP base, SEC UA, DEEP_VERSION
   app.py                     # FastAPI endpoints
   index.html                 # 3-tab dashboard (vanilla JS + Chart.js)

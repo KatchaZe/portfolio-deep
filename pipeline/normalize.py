@@ -52,6 +52,10 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
 
     # 4) Yahoo consensus + fallbacks
     if yahoo_qs:
+        # surface a degraded Yahoo response (datacenter IPs are often blocked)
+        _res = (yahoo_qs.get("quoteSummary") or {}).get("result")
+        if yahoo_qs.get("_error") or not _res:
+            ff.flags.append("yahoo unavailable — consensus (fwd EPS) / momentum may be degraded")
         y = yahoo.parse_consensus(yahoo_qs)
         es = yahoo.parse_earnings_history(yahoo_qs)
         if es:

@@ -118,6 +118,7 @@ function pct(x){if(x===null||x===undefined)return '<span class="muted">&mdash;</
 function dot(tier){return `<span class="dot ${tier==='green'?'g':tier==='yellow'?'y':'r'}"></span>`}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
 function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Future Value Projection','FVP').replace('Justified PEG','PEG')}
+function flagIcon(x){const fl=x.flags||[];if(!fl.length)return '';return ` <span title="${esc(fl.join('\n'))}" style="cursor:help;color:#d97706;font-size:11px;font-weight:700">⚑${fl.length}</span>`}
 function anchorCell(x){
   if(x.anchor_value!=null)return `${f(x.anchor_value)}<div class="muted" style="font-size:9px">${methodShort(x.anchor_method)}</div>`;
   if(x.rev_implied_cagr!=null)return `<span style="font-size:11px;color:#7c3aed;font-weight:700">RevDCF</span><div style="font-size:9px;color:#7c3aed">implies ${x.rev_implied_cagr}% CAGR</div>`;
@@ -150,7 +151,9 @@ function earnCircles(x){
 }
 
 async function load(){
-  const r=await fetch('/api/portfolio'); const d=await r.json();
+  const r=await fetch('/api/portfolio');
+  if(r.status===401){document.getElementById('p1').innerHTML='<div style="padding:14px;font-size:13px">🔒 This app is protected by a token.<br>Open <b>/?token=YOUR_APP_TOKEN</b> once (the APP_TOKEN you set on the server) — it will be remembered after that.</div>';return;}
+  const d=await r.json();
   document.getElementById('ver').textContent='v'+(d.version||'7.3');
   renderQuota(d.quota); renderPortfolio(d);
 }
@@ -163,7 +166,7 @@ function renderPortfolio(d){
   const rows=(d.rows||[]).map(x=>{
     const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
     return `<tr>
-      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b><span class="rm" title="remove" onclick="removeHolding('${x.ticker}')">&times;</span>
+      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b>${flagIcon(x)}<span class="rm" title="remove" onclick="removeHolding('${x.ticker}')">&times;</span>
         <div class="muted" style="font-size:10px">${esc(x.company)} · ${esc(x.sector)}</div></td>
       <td>${f(x.price)}</td><td>${chg}</td>
       <td>${f(x.shares,0)}</td><td>${f(x.avg_cost)}</td>
@@ -239,7 +242,8 @@ async function runWatch(){
   sp.style.display='inline-block';msg.textContent='Running watchlist (fetch on demand)…';
   try{const r=await fetch('/api/watchlist/run',{method:'POST'});const d=await r.json();
     renderWatchNames(d.names||[]);renderWatchTable(d.rows||[]);if(d.quota)renderQuota(d.quota);
-    msg.textContent=`Ran ${(d.rows||[]).length}, errors ${(d.errors||[]).length}. ${(d.errors||[]).join('; ')}`;
+    const rfW=d.rf_live===false?' ⚠ Rf fallback':'';
+    msg.textContent=`Ran ${(d.rows||[]).length}, errors ${(d.errors||[]).length}${rfW}. ${(d.errors||[]).join('; ')}`;
   }catch(e){msg.textContent='Error: '+e}finally{sp.style.display='none'}
 }
 function renderWatchTable(rows){
@@ -247,7 +251,7 @@ function renderWatchTable(rows){
   const body=rows.map(x=>{
     const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
     return `<tr>
-      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b><span class="rm" onclick="removeWatch('${x.ticker}')">&times;</span>
+      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b>${flagIcon(x)}<span class="rm" onclick="removeWatch('${x.ticker}')">&times;</span>
         <div class="muted" style="font-size:10px">${esc(x.company)} · ${esc(x.sector)}</div></td>
       <td>${f(x.price)}</td><td>${chg}</td>
       <td title="RSI ${x.rsi_signal||'—'} (${f(x.rsi,0)}) · MACD ${x.macd_signal||'—'} · DBBMV ${x.dbbmv_signal||'—'}">${tag(x.momentum_signal,MOM_COLOR[x.momentum_signal])}<div class="muted" style="font-size:9px">RSI ${f(x.rsi,0)} &#9432;</div></td>
@@ -285,9 +289,11 @@ async function addHolding(){
     if(sh!=='')u+='&shares='+encodeURIComponent(sh);
     if(ac!=='')u+='&avg_cost='+encodeURIComponent(ac);
     const r=await fetch(u,{method:'POST'}); const d=await r.json();
-    renderPortfolio(d); msg.textContent='✓ '+t+' added/updated';
+    if(r.status===401){msg.textContent='🔒 unauthorized — open /?token=YOUR_APP_TOKEN';return;}
+    renderPortfolio(d.view||d); if(d.quota)renderQuota(d.quota);
+    const errs=(d.result&&d.result.errors)||[];
+    msg.textContent=errs.length?('⚠ '+t+': '+errs.join('; ')):('✓ '+t+' added/updated');
     document.getElementById('t').value='';document.getElementById('sh').value='';document.getElementById('ac').value='';
-    load();
   }catch(e){msg.textContent='✗ '+e}finally{sp.style.display='none'}
 }
 async function removeHolding(t){if(!confirm('Remove '+t+'?'))return;await fetch('/api/holding/remove?ticker='+encodeURIComponent(t),{method:'POST'});load();}
@@ -295,7 +301,8 @@ async function refresh(){
   const b=document.getElementById('btnRefresh'),sp=document.getElementById('spR');
   b.disabled=true;sp.style.display='inline-block';document.getElementById('summary').textContent='Refreshing fundamentals (SEC + FMP + Yahoo)…';
   try{const r=await fetch('/api/refresh',{method:'POST'});const d=await r.json();
-    const rs=d.result||{};document.getElementById('summary').textContent=`Refreshed ${(rs.refreshed||[]).length}, errors ${(rs.errors||[]).length}, FMP calls ${rs.fmp_calls} (Rf ${rs.rf_pct}%). ${(rs.errors||[]).join('; ')}`;
+    const rs=d.result||{};const rfWarn=rs.rf_live===false?' ⚠ Rf fallback (live 10Y yield unavailable)':'';
+    document.getElementById('summary').textContent=`Refreshed ${(rs.refreshed||[]).length}, errors ${(rs.errors||[]).length}, FMP calls ${rs.fmp_calls} (Rf ${rs.rf_pct}%${rfWarn}). ${(rs.errors||[]).join('; ')}`;
     renderPortfolio(d.view);renderQuota(d.quota);
   }catch(e){document.getElementById('summary').textContent='Error: '+e}finally{b.disabled=false;sp.style.display='none'}
 }
