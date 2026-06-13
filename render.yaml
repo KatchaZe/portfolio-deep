@@ -12,6 +12,12 @@ services:
         sync: false             # set this in the Render dashboard, never commit it
       - key: APP_TOKEN          # recommended — protects the public URL (open /?token=... once)
         sync: false             # set this in the Render dashboard, never commit it
+      - key: SEC_CONTACT_EMAIL  # recommended — SEC fair-access contact (keeps your email out of git)
+        sync: false             # set this in the Render dashboard, never commit it
+      - key: GDRIVE_SA_JSON     # optional — Google Drive persistence (paste service-account key JSON)
+        sync: false             # set this in the Render dashboard, never commit it
+      - key: GDRIVE_FOLDER_ID   # optional — Google Drive folder id that holds portfolio.json
+        sync: false             # set this in the Render dashboard, never commit it
     # NOTE: free tier uses an ephemeral disk -> data/portfolio.json resets on
     # redeploy. For persistent holdings add a Render Disk mounted at ./data
     # (paid), or keep using it locally.

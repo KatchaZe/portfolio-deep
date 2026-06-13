@@ -10,8 +10,14 @@ import threading
 import datetime as dt
 
 import config
+from sources import gdrive_store
 
 _TICKER_RE = re.compile(r"[^A-Z0-9.\-]")
+
+# Has the remote (Google Drive) copy been pulled into the local file yet this
+# process? We pull once, lazily, on the first load() so a cold-started Render
+# instance restores the portfolio before serving anything.
+_drive_pulled = False
 
 
 def clean_ticker(t):
@@ -33,6 +39,13 @@ _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
 
 def load():
     os.makedirs(config.DATA_DIR, exist_ok=True)
+    # On the first load of this process, restore from Google Drive (if configured)
+    # so a cold-started / redeployed instance gets its portfolio back. No-op when
+    # Drive isn't set up; never raises (falls back to whatever is on local disk).
+    global _drive_pulled
+    if not _drive_pulled:
+        _drive_pulled = True
+        gdrive_store.drive_pull(PATH)
     if not os.path.exists(PATH):
         return json.loads(json.dumps(_DEFAULT))      # fresh deep copy of defaults
     with open(PATH, encoding="utf-8") as fh:
@@ -52,6 +65,9 @@ def save(s):
         fh.flush()
         os.fsync(fh.fileno())
     os.replace(tmp, PATH)
+    # Mirror to Google Drive (if configured) so the data survives a restart.
+    # Best-effort: a Drive failure is logged but never breaks the local save.
+    gdrive_store.drive_push(PATH)
 
 
 def today():

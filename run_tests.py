@@ -14,7 +14,7 @@ import subprocess
 
 TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
          "tests.test_earnings", "tests.test_rev", "tests.test_hardening",
-         "tests.test_app_fixes"]
+         "tests.test_app_fixes", "tests.test_gdrive"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
