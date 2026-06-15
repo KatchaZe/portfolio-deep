@@ -61,10 +61,11 @@ coloured circles (oldest→newest, hover for the numbers). Threshold: surprise >
   ones for free), so the app **builds this history forward**: each refresh it snapshots
   the estimate, and once the SEC actual for that quarter lands it grades beat/miss.
   → starts empty, fills one circle per reported quarter, ~4 quarters (≈1 year) to fill.
-  To accumulate it you must **run locally** (the snapshots persist on disk) and
-  **Run Fundamental Refresh at least once per quarter, ideally before earnings** so the
-  estimate is captured before it rolls over. On Render's free tier the disk resets each
-  deploy, so revenue history won't accumulate there (EPS circles still work).
+  To accumulate it, **Run Fundamental Refresh at least once per quarter, ideally before
+  earnings** so the estimate is captured before it rolls over. With Google Drive
+  persistence enabled (`GOOGLE_DRIVE_OAUTH_SETUP.md`) the snapshots are mirrored to your
+  Drive, so revenue history now survives redeploys and accumulates on the deployed app
+  too — not just when running locally.
 
 ---
 
@@ -84,14 +85,19 @@ coloured circles (oldest→newest, hover for the numbers). Threshold: surprise >
 Render (free) — gives a public URL:
 1. Put this repo on GitHub (commit `tests/fixtures/` so tests run).
 2. render.com → **New → Web Service** → connect the repo (uses `render.yaml`).
-3. In the dashboard set env vars: **FMP_API_KEY** (optional) and **APP_TOKEN**
+3. In the dashboard set env vars: **FMP_API_KEY** (optional), **APP_TOKEN**
    (recommended — protects your portfolio on the public URL; open `/?token=YOUR_TOKEN`
-   once, then it is remembered via cookie).
+   once, then it is remembered via cookie), and the three **`GDRIVE_OAUTH_*`** vars
+   for Google Drive persistence (see **`GOOGLE_DRIVE_OAUTH_SETUP.md`**).
 4. Deploy. Build: `pip install -r requirements.txt`; Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`.
 
-> Free tier sleeps after ~15 min idle (first hit wakes it) and uses an ephemeral
-> disk — `data/portfolio.json` resets on redeploy. For persistent holdings add a
-> Render Disk mounted at `./data` (paid), or run locally.
+> Free tier sleeps after ~15 min idle (first hit wakes it) and uses an ephemeral disk.
+> **Persistence is handled via Google Drive (OAuth):** the app pushes `portfolio.json`
+> to *your own* Drive on every save and pulls it back on startup, so holdings (and the
+> revenue-snapshot history) survive every redeploy — **no paid Render Disk needed**.
+> One-time setup: **`GOOGLE_DRIVE_OAUTH_SETUP.md`**. Without the `GDRIVE_OAUTH_*` vars the
+> app still runs, just local-only. (A *service account* can't write to a personal Gmail
+> Drive — no storage quota — so OAuth-as-yourself is the supported path.)
 
 ---
 

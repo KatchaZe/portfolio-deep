@@ -14,10 +14,16 @@ services:
         sync: false             # set this in the Render dashboard, never commit it
       - key: SEC_CONTACT_EMAIL  # recommended — SEC fair-access contact (keeps your email out of git)
         sync: false             # set this in the Render dashboard, never commit it
-      - key: GDRIVE_SA_JSON     # optional — Google Drive persistence (paste service-account key JSON)
+      # --- Google Drive persistence (OAuth = log in as yourself) — see GOOGLE_DRIVE_OAUTH_SETUP.md
+      - key: GDRIVE_OAUTH_CLIENT_ID      # OAuth "Desktop app" client id
         sync: false             # set this in the Render dashboard, never commit it
-      - key: GDRIVE_FOLDER_ID   # optional — Google Drive folder id that holds portfolio.json
+      - key: GDRIVE_OAUTH_CLIENT_SECRET  # OAuth client secret
         sync: false             # set this in the Render dashboard, never commit it
-    # NOTE: free tier uses an ephemeral disk -> data/portfolio.json resets on
-    # redeploy. For persistent holdings add a Render Disk mounted at ./data
-    # (paid), or keep using it locally.
+      - key: GDRIVE_OAUTH_REFRESH_TOKEN  # refresh token printed by get_gdrive_token.py
+        sync: false             # set this in the Render dashboard, never commit it
+      - key: GDRIVE_FOLDER_ID   # optional — Drive folder id for portfolio.json (else falls back to My Drive)
+        sync: false             # set this in the Render dashboard, never commit it
+    # NOTE: free tier uses an ephemeral disk, so data/portfolio.json is wiped on every
+    # redeploy. The app mirrors it to YOUR Google Drive (drive_pull on startup,
+    # drive_push on save) so holdings persist with NO paid Render Disk. A service
+    # account does NOT work on personal Gmail (no storage quota) — use the OAuth vars above.

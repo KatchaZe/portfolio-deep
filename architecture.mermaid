@@ -23,8 +23,10 @@ flowchart TD
         end
     end
 
-    subgraph STORE["4 · STORE  (local JSON)"]
-        PORT["portfolio.json<br/>holdings(shares+avg cost) · watchlist<br/>facts · results · momentum · fmp_usage<br/>rev_snapshots · rev_surprises (accrue)"]
+    subgraph STORE["4 · STORE  (store.py — local JSON + cloud mirror)"]
+        PORT["portfolio.json (local working copy)<br/>holdings(shares+avg cost) · watchlist<br/>facts · results · momentum · fmp_usage<br/>rev_snapshots · rev_surprises (accrue)"]
+        GD["gdrive_store.py<br/>OAuth user creds · scope drive.file<br/>drive_pull() on load · drive_push() on save<br/>best-effort · no-op when unconfigured"]
+        CLOUD["☁ Google Drive (your account)<br/>portfolio.json — survives Render<br/>free-tier redeploys / cold starts"]
     end
 
     subgraph API["5 · FASTAPI (app.py)"]
@@ -52,6 +54,9 @@ flowchart TD
     RT --> PORT
     REF --> PORT
     PORT --> EP
+    PORT -. "drive_push() on save" .-> GD
+    GD -. "drive_pull() on load" .-> PORT
+    GD <-->|sync| CLOUD
     EP --> T1
     EP --> T2
     EP --> T3
@@ -64,6 +69,8 @@ flowchart TD
     classDef primary fill:#dcfce7,stroke:#16a34a,stroke-width:2px;
     classDef data fill:#dbeafe,stroke:#2563eb;
     classDef guard fill:#fef9c3,stroke:#ca8a04;
+    classDef cloud fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;
     class SEC primary;
     class FMP,YH,FACTS data;
     class VAL,QUOTA,FIX guard;
+    class GD,CLOUD cloud;

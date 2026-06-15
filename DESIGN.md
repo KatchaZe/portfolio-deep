@@ -215,8 +215,9 @@ revenue estimates, so the app makes its own: on every fundamentals refresh it sn
 the current-quarter consensus (`rev_estimate_curq`) keyed by quarter end; when the SEC
 ~90-day actual for a snapshotted quarter appears (`revenue_quarters`), it grades beat/meet/
 miss (±2%) and appends to a rolling 4-quarter history. Consequences: it starts empty and
-fills one circle per reported quarter (~1 yr for four); it only accumulates where the store
-persists (**run locally** — Render free wipes the disk each deploy); refresh at least once
+fills one circle per reported quarter (~1 yr for four); it accumulates wherever the store
+persists — with Google Drive persistence on (`GOOGLE_DRIVE_OAUTH_SETUP.md`) that now includes
+the deployed Render app, not only local runs; refresh at least once
 per quarter, ideally *before* earnings, so the estimate is captured before it rolls over.
 This is **display-only** — it never feeds the DEEP math (EPS surprise is the only earnings
 signal wired into confidence).

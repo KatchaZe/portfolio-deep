@@ -1,0 +1,11 @@
+# Normalize all text files to LF inside the repo. This stops the Windows
+# "73 files modified" noise caused by CRLF<->LF flips (no real content change).
+# After adding this file once, run:  git add --renormalize .  &&  git commit
+* text=auto eol=lf
+
+# Treat these as binary (never touch line endings)
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
