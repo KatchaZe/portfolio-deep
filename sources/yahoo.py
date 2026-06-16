@@ -3,6 +3,7 @@ Yahoo source adapter — forward EPS (adjusted consensus), beta, price, shares,
 growth, FX rates, and (later) daily momentum. Parse is separated from fetch so
 it is unit-testable against saved quoteSummary fixtures.
 """
+import time
 
 
 def _raw(node):
@@ -115,28 +116,74 @@ def _session(requests_mod):
     return s, crumb
 
 
-def fetch_consensus(ticker, requests_mod=None, timeout=15):
+_QS_MODULES = "defaultKeyStatistics,financialData,earningsTrend,earningsHistory,price"
+
+
+def _qs_ok(j):
+    """True when a quoteSummary response actually carries a result block."""
+    try:
+        return bool(j["quoteSummary"]["result"])
+    except Exception:
+        return False
+
+
+def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.5):
+    """quoteSummary with retry + host rotation. Yahoo blocks/empties responses
+    intermittently (esp. from datacenter IPs); we try query2 then query1, re-warm
+    the session each round, and back off between rounds. Returns the last response
+    (possibly an error dict) if every attempt is degraded — callers/normalize
+    already flag a missing result block."""
     import requests as _r
     requests_mod = requests_mod or _r
-    s, crumb = _session(requests_mod)
-    try:
-        r = s.get(f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}",
-                  params={"modules": "defaultKeyStatistics,financialData,earningsTrend,earningsHistory,price", "crumb": crumb},
-                  timeout=timeout)
-        return r.json()
-    except Exception as e:
-        return {"_error": str(e)[:120]}
+    last = {"_error": "no attempt"}
+    for attempt in range(1, retries + 1):
+        s, crumb = _session(requests_mod)
+        for host in ("query2", "query1"):
+            try:
+                r = s.get(f"https://{host}.finance.yahoo.com/v10/finance/quoteSummary/{ticker}",
+                          params={"modules": _QS_MODULES, "crumb": crumb}, timeout=timeout)
+                if r.status_code == 200:
+                    j = r.json()
+                    if _qs_ok(j):
+                        return j                       # got real data — done
+                    last = j
+                else:
+                    last = {"_error": f"http {r.status_code}"}
+            except Exception as e:
+                last = {"_error": str(e)[:120]}
+        if attempt < retries:
+            time.sleep(backoff * attempt)              # 1.5s, 3.0s, …
+    return last
 
 
-def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20):
-    """Daily closes + volumes + dates for momentum."""
+def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
+                retries=3, backoff=1.5):
+    """Daily closes + volumes + dates for momentum. Retries + host rotation so a
+    single throttled response doesn't blank out momentum."""
     import requests as _r
     requests_mod = requests_mod or _r
     import datetime as dt
-    r = requests_mod.get(f"https://query1.finance.yahoo.com/v8/finance/chart/{ticker}",
-                         params={"range": rng, "interval": interval}, headers=_UA, timeout=timeout)
-    r.raise_for_status()
-    res = r.json()["chart"]["result"][0]
+    last_err = None
+    res = None
+    for attempt in range(1, retries + 1):
+        for host in ("query1", "query2"):
+            try:
+                r = requests_mod.get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}",
+                                     params={"range": rng, "interval": interval},
+                                     headers=_UA, timeout=timeout)
+                r.raise_for_status()
+                result = (r.json().get("chart") or {}).get("result")
+                if result:
+                    res = result[0]
+                    break
+            except Exception as e:
+                last_err = e
+        if res is not None:
+            break
+        if attempt < retries:
+            time.sleep(backoff * attempt)
+    if res is None:
+        raise last_err or RuntimeError(f"chart unavailable for {ticker}")
     q = res["indicators"]["quote"][0]
     ts = res["timestamp"]
     closes, vols, dates = [], [], []

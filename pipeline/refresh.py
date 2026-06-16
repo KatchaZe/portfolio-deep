@@ -101,9 +101,60 @@ def analyze(ticker, rf, fmp_key="", rf_live=True):
     ff = normalize.build(t, sec_cf, profile, yq, fx_rate=fx, company=name)
     if not rf_live:
         ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
+
+    # price/shares fallback — foreign filers (e.g. NVO) have no SEC share count, so
+    # if Yahoo was degraded the engine has nothing to anchor on. Pull price+shares
+    # from FMP quote ON DEMAND (only when actually missing, to spare quota).
+    if fmp_key and (ff.shares_diluted is None or ff.price is None):
+        try:
+            q = fmp.parse_quote(fmp.fetch_quote(t, fmp_key))
+            fmp_calls += 1
+            filled = []
+            if ff.price is None and q.get("price"):
+                ff.set("price", q["price"], "fmp/quote"); filled.append("price")
+            if ff.shares_diluted is None and q.get("shares"):
+                ff.set("shares_diluted", q["shares"], "fmp/quote"); filled.append("shares")
+            if filled:
+                ff.flags.append(f"{'/'.join(filled)} via FMP quote (sec/yahoo gap)")
+        except Exception as e:
+            log.warning("%s FMP quote fallback failed: %s", t, e)
+
+    # earnings cross-check / fallback — always pull FMP earnings (GAAP basis) and
+    # reconcile with Yahoo's (adjusted). Keeps the EARNINGS column populated when
+    # Yahoo drops earningsHistory, and flags a beat/miss disagreement.
+    if fmp_key:
+        try:
+            es_fmp = fmp.parse_earnings(fmp.fetch_earnings(t, fmp_key))
+            fmp_calls += 1
+            ff.earnings_surprises = _reconcile_earnings(ff, ff.earnings_surprises, es_fmp)
+        except Exception as e:
+            log.warning("%s FMP earnings failed: %s", t, e)
+
     validate.validate(ff, rf=rf)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
+
+
+def _reconcile_earnings(ff, yh, fm):
+    """Pick the earnings list to show and tag its provenance.
+      • Yahoo present            -> keep Yahoo (adjusted/street, matches forward_eps);
+        if FMP also present and the latest quarter disagrees beat-vs-miss, flag it.
+      • Yahoo empty, FMP present -> use FMP and flag the substitution.
+      • both empty               -> leave as-is."""
+    if yh:
+        src = "yahoo"
+        if fm:
+            if {(yh[-1] or {}).get("grade"), (fm[-1] or {}).get("grade")} == {"beat", "miss"}:
+                ff.flags.append("earnings beat/miss disagree (yahoo vs FMP)")
+            else:
+                src = "yahoo+fmp✓"
+        ff.provenance["earnings_surprises"] = src
+        return yh
+    if fm:
+        ff.flags.append("earnings via FMP (yahoo earningsHistory empty)")
+        ff.provenance["earnings_surprises"] = "fmp"
+        return fm
+    return yh
 
 
 def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
@@ -112,7 +163,7 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     rf_pct, rf_live)."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     fetched, errors, calls = {}, [], 0
-    cost = 1 if fmp_key else 0          # without a key we make zero FMP calls
+    cost = 2 if fmp_key else 0          # profile + earnings per ticker (0 without a key)
     for t in tickers:
         if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
@@ -194,7 +245,7 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     store.LOCK; the caller commits only the FMP quota counter afterwards."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     rows, errors, calls = [], [], 0
-    cost = 1 if fmp_key else 0
+    cost = 2 if fmp_key else 0          # profile + earnings per ticker
     for t in tickers:
         if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
@@ -353,3 +404,4 @@ def portfolio_view(s):
     totals = {"cost_basis": round(tot_cost, 2), "market_value": round(tot_mv, 2),
               "pl": round(tot_mv - tot_cost, 2), "pl_pct": round((tot_mv - tot_cost) / tot_cost * 100, 1) if tot_cost else None}
     return {"rows": rows, "totals": totals}
+# end of refresh.py

@@ -13,8 +13,8 @@ import sys
 import subprocess
 
 TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
-         "tests.test_earnings", "tests.test_rev", "tests.test_hardening",
-         "tests.test_app_fixes", "tests.test_gdrive"]
+         "tests.test_earnings", "tests.test_fmp_earnings", "tests.test_rev",
+         "tests.test_hardening", "tests.test_app_fixes", "tests.test_gdrive"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -31,7 +31,7 @@ def main():
     if failed:
         print("FAILED:", ", ".join(failed))
         sys.exit(1)
-    print("ALL TEST SUITES PASSED ✅")
+    print("ALL TEST SUITES PASSED OK")
 
 
 if __name__ == "__main__":

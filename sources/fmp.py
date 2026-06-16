@@ -62,6 +62,54 @@ def fetch(ticker, key, sleep=1.2, requests_mod=None):
     return bundle
 
 
+def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=8):
+    """EPS beat/meet/miss history from FMP — the fallback/cross-check when Yahoo
+    drops its earningsHistory module. Tries the stable endpoint first, then two
+    legacy paths, so a plan/endpoint difference doesn't blank the data. Returns a
+    raw list (parse_earnings turns it into the display shape) or []."""
+    import requests as _r
+    requests_mod = requests_mod or _r
+    attempts = [
+        (f"{BASE}/earnings", {"symbol": ticker, "limit": limit, "apikey": key}),
+        (f"{config.FMP_LEGACY}/earnings-surprises/{ticker}", {"apikey": key}),
+        (f"{config.FMP_LEGACY}/historical/earning_calendar/{ticker}", {"apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if isinstance(j, list) and j:
+                return j
+        except Exception:
+            continue
+    return []
+
+
+def fetch_quote(ticker, key, requests_mod=None, timeout=15):
+    """FMP quote -> price + sharesOutstanding. Fallback for price/shares when SEC
+    lacks shares (foreign filers like NVO) and Yahoo is degraded. Stable endpoint
+    first, then the legacy path. Returns a raw list or []."""
+    import requests as _r
+    requests_mod = requests_mod or _r
+    attempts = [
+        (f"{BASE}/quote", {"symbol": ticker, "apikey": key}),
+        (f"{config.FMP_LEGACY}/quote/{ticker}", {"apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if isinstance(j, list) and j:
+                return j
+        except Exception:
+            continue
+    return []
+
+
 # --------------------------------------------------------------------------- #
 #  PARSE  (pure — unit-tested against fixtures)                                 #
 # --------------------------------------------------------------------------- #
@@ -82,6 +130,53 @@ def parse_profile(profile_json):
         "price": _num(p, "price"),
         "company": _num(p, "companyName"),
         "currency": _num(p, "currency"),
+    }
+
+
+def _grade(surprise_pct):
+    """BEAT/MEET/MISS from an EPS surprise percent (±2% threshold — same rule as
+    the Yahoo adapter so the two sources are directly comparable)."""
+    if surprise_pct is None:
+        return None
+    if surprise_pct > 2:
+        return "beat"
+    if surprise_pct < -2:
+        return "miss"
+    return "meet"
+
+
+def parse_earnings(earn_json):
+    """FMP earnings -> list of {quarter, eps_actual, eps_estimate, surprise_pct,
+    grade}, oldest->newest, last 4. Mirrors yahoo.parse_earnings_history exactly
+    so the display + confidence code is source-agnostic. Defensive on field names
+    (stable vs legacy endpoints) and skips not-yet-reported rows (no actual)."""
+    rows = earn_json if isinstance(earn_json, list) else []
+    out = []
+    for e in rows:
+        if not isinstance(e, dict):
+            continue
+        act = _num(e, "epsActual", "actualEarningResult", "eps", "epsActuals")
+        est = _num(e, "epsEstimated", "estimatedEarning", "epsEstimate", "estimatedEps")
+        if act is None:                       # future/unreported quarter
+            continue
+        sp = None
+        if est not in (None, 0):
+            sp = (act - est) / abs(est) * 100
+        out.append({"quarter": e.get("date") or e.get("fillingDate") or e.get("period"),
+                    "eps_actual": act, "eps_estimate": est,
+                    "surprise_pct": round(sp, 1) if sp is not None else None,
+                    "grade": _grade(sp)})
+    out.sort(key=lambda x: x["quarter"] or "")
+    return out[-4:]
+
+
+def parse_quote(quote_json):
+    """FMP /quote -> {price, shares}. Used as the price/shares fallback for filers
+    where SEC has no share count and Yahoo is unavailable."""
+    q = quote_json[0] if isinstance(quote_json, list) and quote_json else (quote_json or {})
+    return {
+        "price": _num(q, "price"),
+        "shares": _num(q, "sharesOutstanding", "sharesOutstandingDil"),
     }
 
 
