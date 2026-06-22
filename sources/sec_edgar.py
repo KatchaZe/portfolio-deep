@@ -135,7 +135,34 @@ def _accessors(facts):
             out.setdefault(e["end"], e["val"])
         return out
 
-    return latest, ttm, annual_series, currency, latest_end, quarters
+    def instant_series(concept, prefer=("USD", "usd")):
+        """Point-in-time (balance-sheet) values at distinct fiscal year-ends, newest
+        first. Lets v8.2 read PRIOR-year invested-capital components (equity/debt/cash)
+        for the 5y ROIC-spread-trend signal — all from the same free SEC filing."""
+        es = entries(concept, prefer)
+        insts = sorted([e for e in es if not e.get("start")], key=lambda e: e["end"], reverse=True)
+        out, seen = [], set()
+        for e in insts:
+            yr = e["end"][:4]
+            if yr not in seen:
+                seen.add(yr); out.append(e["val"])
+        return out
+
+    def annual_series_dated(concept, prefer=("USD", "usd")):
+        """Like annual_series but keeps the FY-end date: [[end, val], …] newest first.
+        Used to align annual EPS with year-end prices for the own-5y-P/E percentile."""
+        es = entries(concept, prefer)
+        annuals = sorted([e for e in es if e.get("start") and 350 <= _days(e["start"], e["end"]) <= 380],
+                         key=lambda e: e["end"], reverse=True)
+        out, seen = [], set()
+        for a in annuals:
+            yr = a["end"][:4]
+            if yr not in seen:
+                seen.add(yr); out.append([a["end"], a["val"]])
+        return out
+
+    return (latest, ttm, annual_series, currency, latest_end, quarters,
+            instant_series, annual_series_dated)
 
 
 REV = ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
@@ -147,7 +174,8 @@ NI = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholders
 def extract(companyfacts):
     """Return a dict of SEC-derived financial values (in reported currency)."""
     facts = companyfacts.get("facts", companyfacts)
-    latest, ttm, annual_series, currency, latest_end, quarters = _accessors(facts)
+    (latest, ttm, annual_series, currency, latest_end, quarters,
+     instant_series, annual_series_dated) = _accessors(facts)
 
     def pick(concepts):
         """Choose the concept with the FRESHEST data (most recent end date), then
@@ -165,7 +193,7 @@ def extract(companyfacts):
 
     rev, rev_concept = pick(REV)
     net_income, _ = pick(NI)
-    operating_income, _ = pick(OP)
+    operating_income, _op_concept = pick(OP)
     ref_end = _latest_end(facts, rev_concept)
 
     def fresh(*tags, prefer=("USD", "usd")):
@@ -179,15 +207,36 @@ def extract(companyfacts):
         return None
 
     # total debt: prefer an explicit combined tag, else long-term + current
+    LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebt", "LongTermNotesPayable", "Borrowings")
+    ST_DEBT = ("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings", "NotesPayableCurrent")
     total_debt = (fresh("DebtLongtermAndShorttermCombinedAmount")
-                  or _sum(fresh("LongTermDebtNoncurrent", "LongTermDebt", "LongTermNotesPayable", "Borrowings"),
-                          fresh("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings", "NotesPayableCurrent")))
+                  or _sum(fresh(*LT_DEBT), fresh(*ST_DEBT)))
+
+    # --- v8.2 additions (all from the same companyfacts JSON) -----------------
+    EQUITY_TAGS = ("StockholdersEquity", "Equity",
+                   "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+    CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents")
+    DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiability",
+                   "DeferredRevenueCurrent", "DeferredRevenue")
+
+    def prior_instant(*tags):
+        for t in tags:
+            s = instant_series(t)
+            if len(s) > 1:
+                return s[1]
+        return None
+
+    prior_lt = prior_instant("DebtLongtermAndShorttermCombinedAmount", *LT_DEBT)
+    prior_st = prior_instant(*ST_DEBT)
+    total_debt_prior = (prior_instant("DebtLongtermAndShorttermCombinedAmount")
+                        or _sum(prior_lt, prior_st))
 
     return {
         "currency": (currency(rev_concept) if rev_concept else None) or "USD",
         "revenue": rev,
         "revenue_annuals": annual_series(rev_concept) if rev_concept else [],
         "revenue_quarters": quarters(rev_concept) if rev_concept else {},
+        "operating_income_quarters": quarters(_op_concept) if _op_concept else {},
         "net_income": net_income,
         "operating_income": operating_income,
         "eps_gaap": ttm("EarningsPerShareDiluted", prefer=("USD/shares",)),
@@ -203,6 +252,28 @@ def extract(companyfacts):
                              or ttm("ProfitLossBeforeTax"),
         "tax_expense": ttm("IncomeTaxExpenseBenefit"),
         "latest_period_end": _latest_end(facts, rev_concept),
+        # --- v8.2 additions ---
+        "cfo": ttm("NetCashProvidedByUsedInOperatingActivities")
+               or ttm("NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+        "total_assets": fresh("Assets"),
+        "receivables": fresh("AccountsReceivableNetCurrent", "ReceivablesNetCurrent",
+                             "AccountsAndOtherReceivablesNetCurrent"),
+        "interest_expense": ttm("InterestExpense") or ttm("InterestAndDebtExpense") or ttm("InterestExpenseDebt"),
+        "rnd_expense": ttm("ResearchAndDevelopmentExpense")
+                       or ttm("ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
+        "rnd_annuals": annual_series("ResearchAndDevelopmentExpense")
+                       or annual_series("ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
+        "operating_income_annuals": annual_series(_op_concept) if _op_concept else [],
+        "equity_prior": prior_instant(*EQUITY_TAGS),
+        "total_debt_prior": total_debt_prior,
+        "cash_prior": prior_instant(*CASH_TAGS),
+        # --- round 2: organic growth + billings ---
+        "acquisitions_net": ttm("PaymentsToAcquireBusinessesNetOfCashAcquired")
+                            or ttm("PaymentsToAcquireBusinessesAndInterestInAffiliates")
+                            or ttm("PaymentsToAcquireBusinessesGross"),
+        "deferred_revenue": fresh(*DEFREV_TAGS),
+        "deferred_revenue_prior": prior_instant(*DEFREV_TAGS),
+        "eps_annuals_dated": annual_series_dated("EarningsPerShareDiluted", prefer=("USD/shares",)),
     }
 
 
@@ -238,7 +309,16 @@ def populate(ff, companyfacts):
     d = extract(companyfacts)
     for k in ("currency", "revenue", "net_income", "operating_income", "eps_gaap",
               "shares_diluted", "total_debt", "cash", "equity", "capex", "dep_amort",
-              "income_before_tax", "tax_expense", "revenue_annuals", "revenue_quarters"):
+              "income_before_tax", "tax_expense", "revenue_annuals", "revenue_quarters",
+              "operating_income_quarters",
+              # v8.2 additions
+              "cfo", "total_assets", "receivables", "interest_expense", "rnd_expense",
+              "rnd_annuals", "operating_income_annuals",
+              "equity_prior", "total_debt_prior", "cash_prior",
+              # round 2 additions
+              "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
+              # round 3 addition
+              "eps_annuals_dated"):
         ff.set(k, d.get(k), "sec")
     if d.get("latest_period_end"):
         ff.set("fiscal_year", d["latest_period_end"], "sec")

@@ -13,7 +13,12 @@ from sources import sec_edgar, fmp, yahoo
 
 # monetary fields converted when the filer reports in a non-USD currency
 _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
-          "equity", "capex", "dep_amort", "income_before_tax", "tax_expense")
+          "equity", "capex", "dep_amort", "income_before_tax", "tax_expense",
+          # v8.2 additions
+          "cfo", "total_assets", "receivables", "interest_expense", "rnd_expense",
+          "equity_prior", "total_debt_prior", "cash_prior",
+          # round 2 additions
+          "acquisitions_net", "deferred_revenue", "deferred_revenue_prior")
 
 
 def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rate=None,
@@ -35,6 +40,12 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
                 ff.revenue_annuals = [v * fx_rate for v in ff.revenue_annuals]
             if ff.revenue_quarters:
                 ff.revenue_quarters = {k: v * fx_rate for k, v in ff.revenue_quarters.items()}
+            if ff.operating_income_quarters:
+                ff.operating_income_quarters = {k: v * fx_rate for k, v in ff.operating_income_quarters.items()}
+            for _ls in ("rnd_annuals", "operating_income_annuals"):
+                _v = getattr(ff, _ls)
+                if _v:
+                    setattr(ff, _ls, [x * fx_rate for x in _v])
             ff.flags.append(f"converted {ff.currency}->USD @ {round(fx_rate, 4)}")
             ff.provenance["fx"] = f"{ff.currency}->USD {round(fx_rate,4)}"
             ff.currency = "USD"

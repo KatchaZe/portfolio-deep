@@ -1,7 +1,8 @@
-# Portfolio DEEP v7.3 App — Design Document (v2, as-built)
+# Portfolio DEEP v8.2 App — Design Document (v2, as-built)
 
-A local web app that values stocks with the **DEEP Framework v7.3** on reliable,
-cross-checked **free** data, and manages a portfolio, watchlist, and allocation view.
+A local web app that values stocks with the **DEEP Framework v8.2** (v7.3 retained for
+rollback) on reliable, cross-checked **free** data, and manages a portfolio, watchlist,
+and allocation view.
 
 > **Mid-build pivot (important).** The original plan made **FMP** the primary
 > financial source. During Phase 1 we found the **FMP free tier blocks the
@@ -116,9 +117,15 @@ analyst `forward_eps` from Yahoo; `eps_gaap` is the SEC GAAP value.)
 | revenue estimate (current quarter) | **Yahoo** earningsTrend `0q` | snapshotted each refresh; graded later vs SEC actual (build-forward) |
 | revenue actuals (per quarter) | **SEC EDGAR** ~90-day | grades the snapshotted estimates |
 | Rf (10y treasury) | **Yahoo** ^TNX | one fetch per refresh |
+| **CFO, total assets, receivables, interest expense, R&D (+5y series), acquisitions, deferred revenue, prior-year balances** | **SEC EDGAR** | v8.2: earnings quality, true-WACC Kd, R&D capitalization, organic-growth/billings, 5y spread trend |
+| **consensus path** (next/far-FY revenue growth + analyst count) | **FMP** analyst-estimates | v8.2 growth fade (Demand durability) + reliability gate |
+| **peer set** | **FMP** stock-peers (helper) + **sector cohort** | peer-median growth computed free from the batch; FMP peers refine the cohort |
+| **own 5y P/E percentile** | **Yahoo** 5y monthly prices + **SEC** annual EPS | re-rating signal; USD filers, fills on localhost (Yahoo blocks cloud IPs) |
 
-**FMP usage:** only the `profile` endpoint (sector/beta/price) ≈ **1 call per ticker**.
-Financials are from SEC, so the 250/day free budget is rarely a constraint.
+**FMP usage (v8.2):** `profile` + `earnings` + `analyst-estimates` ≈ **3 calls per ticker**
+(+ `quote`/`peers` on demand). Financials are still SEC, so the 250/day free budget holds.
+Peer-median and own-P/E add **no FMP calls** (sector cohort + Yahoo). Inputs with no free
+source (NRR, sentiment, terminal margin, survival prob) are **skipped + flagged**, never guessed.
 
 ---
 
@@ -142,21 +149,33 @@ Financials are from SEC, so the 250/day free budget is rarely a constraint.
 
 ---
 
-## 6. DEEP v7.3 engine — versioned & swappable
+## 6. DEEP engine — versioned & swappable (active: v8.2)
 
 `domain/engine/` isolates the framework behind a contract:
 - `contract.py` — `Valuation` (output dataclass) + `DeepEngine` ABC (`evaluate(facts, rf) → Valuation`).
-- `deep_v73.py` — `DeepV73Engine` (version "7.3"): WACC = Rf+β·ERP, ROIC, Justified PEG,
-  Future Value Projection, Terminal-Anchored Reverse DCF, weighted composite
-  (D .20 / E .20 / Ec .30 / P .30) → stars + recommendation + Stage 1.8 anchor + verdict.
-- `__init__.py` — registry; `get_engine()` reads `config.DEEP_VERSION`.
+  v8.x added optional fields (`cost_of_equity`, `eva`, `eq_verdict`, `subscores`) — additive only.
+- `deep_v73.py` — `DeepV73Engine` ("7.3"): WACC = Rf+β·ERP (cost of equity), Justified PEG
+  (heuristic), FVP, Reverse DCF. **Kept for instant rollback.**
+- `deep_v82.py` — `DeepV82Engine` ("8.2", active). v8 finance-fidelity changes:
+  - **True WACC** — Ke = Rf+β·ERP; WACC weights after-tax debt + market equity. FCFF→WACC, FCFE→Ke.
+  - **ERP 4.23%** (Damodaran implied, Jan 2026) replaces the frozen 4.75%.
+  - **EV-bridge Reverse DCF** — anchors on Enterprise Value (mktcap + debt − cash).
+  - **R&D-capitalized ROIC** — research asset → adjusted operating income + invested capital.
+  - **Earnings-quality screen** — cash conversion / accruals / SBC% → caps Execution.
+  - **Fundamental 2-stage PEG** (payout, growth, Ke) with a low-beta sanity clamp on fair P/E.
+  - **Numeric DEEP rubric** (deterministic 0–5 bands + bounded adjustments): organic growth,
+    incremental ROIC, 5y spread trend, peer-median, own-5y-P/E percentile. `subscores.breakdown`
+    carries the full audit trail. Weights unchanged (D .20 / E .20 / Ec .30 / P .30).
+  - Adjustments with no free data input are **skipped + flagged**, never fabricated.
+- `__init__.py` — registry; both engines registered; `get_engine()` reads `config.DEEP_VERSION`.
 
-**Upgrade to v7.4** = add `deep_v74.py` (`class DeepV74Engine(DeepEngine)`), `register()` it,
-set `DEEP_VERSION="7.4"`. The data layer, store, API, and dashboard are untouched —
-they only speak `FinancialFacts` (in) and `Valuation` (out).
+**Switch / rollback** = one line in `config.py` (`DEEP_VERSION = "8.2"` ⇄ `"7.3"`). The data
+layer, store, API, and dashboard are untouched — they only speak `FinancialFacts` (in) and
+`Valuation` (out). The upgrade how-to is `UPGRADE_ENGINE.md`; lessons from the real v7.3→v8.2
+upgrade (signature ripple, new-data plumbing, output guards) are in `UPGRADE_ENGINE_REVIEW.md`.
 
-Example verdict:
-> *HOLD/Accumulate ★★★★☆ — Justified PEG $53 (+24% upside); range $53–$66. ROIC 34% vs WACC 6%, growth 11%.*
+Example verdict (v8.2):
+> *BUY ★★★★☆ — Fundamental PEG $172 (+15% upside); range $150–$172. ROIC 28% vs WACC 8.7% (Ke 9.2%), growth 12%, EQ CLEAN.*
 > Priced-for-perfection names (e.g. ARM) → anchor null by design; verdict shows the
 > Reverse-DCF implied CAGR instead.
 

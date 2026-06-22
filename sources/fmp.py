@@ -1,10 +1,5 @@
 """
-FMP source adapter — fetch (network) is separated from parse (pure) so the
-parser can be unit-tested offline against saved fixtures.
-
-Field names below are the REAL ones confirmed from the probe's captured
-responses (income-statement, profile, analyst-estimates). Access is defensive
-(several name variants) so a minor FMP rename doesn't silently null a field.
+FMP source adapter — fetch (network) separated from parse (pure).
 """
 import time
 
@@ -12,10 +7,6 @@ import config
 
 BASE = config.FMP_BASE
 
-
-# --------------------------------------------------------------------------- #
-#  FETCH  (runs on a machine with internet + FMP key)                          #
-# --------------------------------------------------------------------------- #
 ENDPOINTS = {
     "profile": {},
     "quote": {},
@@ -29,7 +20,6 @@ ENDPOINTS = {
 
 
 def fetch(ticker, key, sleep=1.2, requests_mod=None):
-    """Return a raw bundle {name: json}. Spaced + one retry on 429."""
     import requests as _r
     requests_mod = requests_mod or _r
     bundle, calls = {}, 0
@@ -63,10 +53,6 @@ def fetch(ticker, key, sleep=1.2, requests_mod=None):
 
 
 def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=8):
-    """EPS beat/meet/miss history from FMP — the fallback/cross-check when Yahoo
-    drops its earningsHistory module. Tries the stable endpoint first, then two
-    legacy paths, so a plan/endpoint difference doesn't blank the data. Returns a
-    raw list (parse_earnings turns it into the display shape) or []."""
     import requests as _r
     requests_mod = requests_mod or _r
     attempts = [
@@ -88,9 +74,6 @@ def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=8):
 
 
 def fetch_quote(ticker, key, requests_mod=None, timeout=15):
-    """FMP quote -> price + sharesOutstanding. Fallback for price/shares when SEC
-    lacks shares (foreign filers like NVO) and Yahoo is degraded. Stable endpoint
-    first, then the legacy path. Returns a raw list or []."""
     import requests as _r
     requests_mod = requests_mod or _r
     attempts = [
@@ -110,9 +93,49 @@ def fetch_quote(ticker, key, requests_mod=None, timeout=15):
     return []
 
 
-# --------------------------------------------------------------------------- #
-#  PARSE  (pure — unit-tested against fixtures)                                 #
-# --------------------------------------------------------------------------- #
+def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=6):
+    import requests as _r
+    requests_mod = requests_mod or _r
+    attempts = [
+        (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": limit, "apikey": key}),
+        (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "annual", "limit": limit, "apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if isinstance(j, list) and j:
+                return j
+        except Exception:
+            continue
+    return []
+
+
+def fetch_peers(ticker, key, requests_mod=None, timeout=15):
+    import requests as _r
+    requests_mod = requests_mod or _r
+    attempts = [
+        (f"{BASE}/stock-peers", {"symbol": ticker, "apikey": key}),
+        (f"{config.FMP_LEGACY}/stock_peers", {"symbol": ticker, "apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if isinstance(j, list) and j:
+                if isinstance(j[0], dict) and j[0].get("peersList"):
+                    return list(j[0]["peersList"])
+                return [e.get("symbol") for e in j if isinstance(e, dict)
+                        and e.get("symbol") and e.get("symbol") != ticker]
+        except Exception:
+            continue
+    return []
+
+
 def _num(d, *names):
     for n in names:
         if isinstance(d, dict) and d.get(n) is not None:
@@ -121,8 +144,6 @@ def _num(d, *names):
 
 
 def parse_profile(profile_json):
-    """FMP /profile -> sector, beta, price, company, currency (works on free tier
-    for ALL symbols, unlike the statement endpoints)."""
     p = profile_json[0] if isinstance(profile_json, list) and profile_json else (profile_json or {})
     return {
         "sector": _num(p, "sector"),
@@ -134,8 +155,6 @@ def parse_profile(profile_json):
 
 
 def _grade(surprise_pct):
-    """BEAT/MEET/MISS from an EPS surprise percent (±2% threshold — same rule as
-    the Yahoo adapter so the two sources are directly comparable)."""
     if surprise_pct is None:
         return None
     if surprise_pct > 2:
@@ -146,10 +165,6 @@ def _grade(surprise_pct):
 
 
 def parse_earnings(earn_json):
-    """FMP earnings -> list of {quarter, eps_actual, eps_estimate, surprise_pct,
-    grade}, oldest->newest, last 4. Mirrors yahoo.parse_earnings_history exactly
-    so the display + confidence code is source-agnostic. Defensive on field names
-    (stable vs legacy endpoints) and skips not-yet-reported rows (no actual)."""
     rows = earn_json if isinstance(earn_json, list) else []
     out = []
     for e in rows:
@@ -157,7 +172,7 @@ def parse_earnings(earn_json):
             continue
         act = _num(e, "epsActual", "actualEarningResult", "eps", "epsActuals")
         est = _num(e, "epsEstimated", "estimatedEarning", "epsEstimate", "estimatedEps")
-        if act is None:                       # future/unreported quarter
+        if act is None:
             continue
         sp = None
         if est not in (None, 0):
@@ -170,14 +185,77 @@ def parse_earnings(earn_json):
     return out[-4:]
 
 
+def parse_revenue_surprises(earn_json):
+    """FMP earnings -> revenue beat/miss history (oldest->newest, last 4) from rows
+    that carry BOTH a revenue actual and estimate. Same +/-2% grade as EPS."""
+    rows = earn_json if isinstance(earn_json, list) else []
+    out = []
+    for e in rows:
+        if not isinstance(e, dict):
+            continue
+        act = _num(e, "revenueActual", "revenue")
+        est = _num(e, "revenueEstimated", "estimatedRevenue")
+        if act is None or est in (None, 0):
+            continue
+        try:
+            sp = (act - est) / abs(est) * 100
+        except (TypeError, ZeroDivisionError):
+            continue
+        out.append({"quarter": e.get("date") or e.get("fillingDate")
+                    or e.get("fiscalDateEnding") or e.get("period"),
+                    "rev_actual": act, "rev_estimate": est,
+                    "surprise_pct": round(sp, 1), "grade": _grade(sp)})
+    out.sort(key=lambda x: x["quarter"] or "")
+    return out[-4:]
+
+
 def parse_quote(quote_json):
-    """FMP /quote -> {price, shares}. Used as the price/shares fallback for filers
-    where SEC has no share count and Yahoo is unavailable."""
     q = quote_json[0] if isinstance(quote_json, list) and quote_json else (quote_json or {})
     return {
         "price": _num(q, "price"),
         "shares": _num(q, "sharesOutstanding", "sharesOutstandingDil"),
     }
+
+
+def parse_estimate_path(estimates, latest_fy=None):
+    rows = [e for e in (estimates or []) if isinstance(e, dict) and e.get("date")
+            and _num(e, "revenueAvg") and _num(e, "revenueAvg") > 0]
+    if len(rows) < 2:
+        return {}
+    rows.sort(key=lambda e: e["date"])
+    future = [e for e in rows if (not latest_fy) or e["date"] > latest_fy] or rows
+    if len(future) < 2:
+        future = rows
+    revs = [_num(e, "revenueAvg") for e in future]
+    growths = [revs[i + 1] / revs[i] - 1 for i in range(len(revs) - 1) if revs[i]]
+    out = {}
+    if growths:
+        out["fwd_growth_near"] = round(growths[0], 4)
+        out["fwd_growth_far"] = round(growths[-1], 4)
+    na = _num(future[0], "numberAnalystsEstimatedRevenue",
+              "numberAnalystEstimatedRevenue", "numAnalystsRevenue")
+    if na is not None:
+        try:
+            out["n_analysts"] = int(na)
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def parse_forward_eps(estimates, latest_fy=None):
+    """FMP analyst-estimates -> nearest future-year epsAvg, or None."""
+    rows = [e for e in (estimates or []) if isinstance(e, dict) and e.get("date")]
+    if not rows:
+        return None
+    rows.sort(key=lambda e: e["date"])
+    future = [e for e in rows if (not latest_fy) or e["date"] > latest_fy]
+    if not future:
+        future = rows[-2:] if len(rows) >= 2 else rows
+    eps = _num(future[0], "epsAvg", "epsAvgEstimate", "estimatedEpsAvg")
+    try:
+        return float(eps) if eps is not None else None
+    except (TypeError, ValueError):
+        return None
 
 
 def _first(x):
@@ -189,7 +267,6 @@ def _first(x):
 
 
 def parse(bundle, facts):
-    """Populate `facts` (FinancialFacts) from an FMP bundle. Source tag 'fmp'."""
     SRC = "fmp"
     prof = _first(bundle.get("profile"))
     quote = _first(bundle.get("quote"))
@@ -199,7 +276,6 @@ def parse(bundle, facts):
     cf = _first(bundle.get("cashflow_annual"))
     ttm = _first(bundle.get("income_ttm"))
 
-    # meta
     facts.set("company", _num(prof, "companyName"), SRC)
     facts.set("sector", _num(prof, "sector"), SRC)
     facts.set("beta", _num(prof, "beta"), SRC)
@@ -207,7 +283,6 @@ def parse(bundle, facts):
     facts.set("currency", _num(inc, "reportedCurrency") or _num(prof, "currency") or "USD", SRC)
     facts.set("fiscal_year", _num(inc, "date", "fiscalYear"), SRC)
 
-    # income — prefer the TTM endpoint if present, else latest annual
     src_inc = ttm if (ttm and _num(ttm, "revenue")) else inc
     tag = SRC + ("/ttm" if src_inc is ttm else "/annual")
     facts.set("revenue", _num(src_inc, "revenue", "revenueTTM"), tag)
@@ -219,20 +294,16 @@ def parse(bundle, facts):
     facts.set("tax_expense", _num(src_inc, "incomeTaxExpense"), tag)
     facts.set("dep_amort", _num(src_inc, "depreciationAndAmortization") or _num(cf, "depreciationAndAmortization"), tag)
 
-    # annual revenue series for CAGR (clean fiscal-year values)
     facts.set("revenue_annuals", [_num(x, "revenue") for x in inc_list if _num(x, "revenue")], SRC + "/annual")
 
-    # balance
     facts.set("total_debt", _num(bal, "totalDebt"), SRC)
     facts.set("cash", _num(bal, "cashAndCashEquivalents", "cashAndShortTermInvestments"), SRC)
     facts.set("equity", _num(bal, "totalStockholdersEquity", "totalEquity"), SRC)
 
-    # cash flow
     capex = _num(cf, "capitalExpenditure")
     facts.set("capex", abs(capex) if capex is not None else None, SRC)
     facts.set("sbc", _num(cf, "stockBasedCompensation"), SRC)
 
-    # consensus (analyst estimates) — adjusted forward EPS + implied growth
     fwd_eps, growth = _consensus(bundle.get("estimates"), facts.fiscal_year)
     facts.set("forward_eps", fwd_eps, SRC + "/estimates")
     facts.set("growth_lt", growth, SRC + "/estimates")
@@ -240,8 +311,6 @@ def parse(bundle, facts):
 
 
 def _consensus(estimates, latest_fy):
-    """NTM adjusted EPS = nearest future-year epsAvg; growth = revenueAvg CAGR
-    across the estimate horizon."""
     if not isinstance(estimates, list) or not estimates:
         return None, None
     rows = [e for e in estimates if isinstance(e, dict) and e.get("date")]

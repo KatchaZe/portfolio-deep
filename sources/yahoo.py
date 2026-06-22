@@ -195,6 +195,40 @@ def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
     return {"closes": closes, "volumes": vols, "dates": dates}
 
 
+def pe_percentile_5y(eps_dated, closes, dates, price, current_eps):
+    """Where the current trailing P/E sits in its OWN ~5y range: 0=cheapest, 1=richest.
+    Re-rating / mean-reversion signal for the v8.2 Price pillar. None if not enough data.
+
+      eps_dated = [[FY_end, diluted_EPS], …]  (from SEC, any order)
+      closes/dates = ascending monthly price series (from Yahoo 5y chart)
+
+    Builds a historical P/E point per fiscal year (year-end price ÷ that FY's EPS),
+    adds the current P/E, and returns the current point's position in [min,max]. Pure."""
+    if not eps_dated or not closes or not dates or not price or not current_eps or current_eps <= 0:
+        return None
+    paired = sorted(zip(dates, closes), key=lambda x: x[0])
+    pes = []
+    for end, eps in eps_dated:
+        if not eps or eps <= 0:
+            continue
+        px = None
+        for d, c in paired:                 # last close on/before the FY end
+            if d <= end:
+                px = c
+            else:
+                break
+        if px:
+            pes.append(px / eps)
+    if len(pes) < 2:
+        return None
+    cur_pe = price / current_eps
+    pes.append(cur_pe)
+    lo, hi = min(pes), max(pes)
+    if hi <= lo:
+        return 0.5
+    return max(0.0, min(1.0, (cur_pe - lo) / (hi - lo)))
+
+
 def fetch_treasury_10y(requests_mod=None, timeout=12):
     """10-year US treasury yield as (decimal, live_bool). Uses ^TNX.
     live=False means Yahoo failed and the hardcoded 4.3% fallback is used —

@@ -6,6 +6,7 @@ it here, and set DEEP_VERSION="7.4" in config.py. Nothing else changes.
 """
 from .contract import DeepEngine, Valuation
 from .deep_v73 import DeepV73Engine
+from .deep_v82 import DeepV82Engine
 
 _ENGINES = {}
 
@@ -15,7 +16,7 @@ def register(engine):
 
 
 register(DeepV73Engine())
-# future: from .deep_v74 import DeepV74Engine; register(DeepV74Engine())
+register(DeepV82Engine())
 
 
 def get_engine(version=None):

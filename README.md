@@ -1,15 +1,28 @@
-# Portfolio DEEP v7.3 — Stock Screening App (v2)
+# Portfolio DEEP v8.2 — Stock Screening App (v2)
 
-A local web app that values your stocks with the **DEEP Framework v7.3** on
+A local web app that values your stocks with the **DEEP Framework v8.2** on
 reliable, cross-checked free data, and manages a portfolio, watchlist, and
-allocation view.
+allocation view. (v7.3 is retained for one-line rollback — see below.)
 
-- **Data:** SEC EDGAR (primary financials, all US + 20-F filers) · FMP profile
-  (sector/beta/price) · Yahoo (forward EPS, momentum, FX). All free.
-- **Engine:** DEEP v7.3 (WACC, ROIC, Justified PEG, Future Value Projection,
-  Terminal-Anchored Reverse DCF, weighted composite) — isolated & version-swappable.
-- **Trust:** every value carries provenance + a confidence tier; a regression test
-  suite locks correct numbers (the v1 extraction bugs can't come back).
+- **Data (all free):** SEC EDGAR (primary financials, all US + 20-F filers — incl.
+  cash flow, R&D + history, interest, assets, receivables, acquisitions, deferred
+  revenue, prior-year balances, **quarterly revenue & operating income**) · FMP
+  (profile, earnings, quote, **analyst-estimate consensus path**, **revenue surprise**,
+  stock-peers) · Yahoo (forward EPS, momentum, FX, **5y prices**) · **Finnhub /
+  Alpha Vantage** (optional 3rd/4th EPS-surprise cross-check) · **Stooq** (price/momentum
+  fallback when Yahoo is blocked on cloud hosts).
+- **Engine:** DEEP **v8.2** — true WACC (FCFF→WACC, FCFE→Ke), EV-bridge reverse DCF,
+  ERP centralised in `config` (flagged when stale), **data-anchored terminal margin**,
+  R&D-capitalized ROIC, earnings-quality screen, fundamental 2-stage PEG, and a numeric
+  DEEP rubric (organic growth, incremental ROIC, 5y spread trend, peer-median, own-5y
+  P/E percentile). Isolated & version-swappable.
+- **Momentum & cross-checks:** RSI / MACD / dynamic-Bollinger momentum; an **EPS +
+  Revenue + operating-margin** quarterly track record; a **multi-source forward-EPS
+  blend** (median + dispersion).
+- **Trust:** every value carries provenance + a confidence tier; inputs with no free
+  source are **skipped + flagged**, never guessed (incl. beta→1.0, tax→21%, growth→8%,
+  ERP staleness, terminal-margin fallback); a 16-module regression suite locks numbers.
+  See **`DATA_AUDIT.md`** for the full real-vs-assumed provenance audit.
 
 See `DESIGN.md` for architecture and **`BEGINNER_GUIDE.md` for a step-by-step beginner guide** (run, modify, upgrade the engine).
 
@@ -48,24 +61,27 @@ enter up to 5 (ticker, buy $) → **Calculate** to see the allocation before vs 
 
 ---
 
-## 3b. Earnings track record (beat / meet / miss)
+## 3b. Earnings track record (EPS / Rev / Margin)
 
-The **Earnings** column shows how each company has done vs consensus, as a row of
-coloured circles (oldest→newest, hover for the numbers). Threshold: surprise > +2%
-🟢 beat · −2…+2% 🟡 meet · < −2% 🔴 miss.
+The **Earnings** column shows up to **three** rows of coloured circles per company
+(oldest→newest, hover for the numbers).
 
-- **EPS** — comes straight from Yahoo (last ~4 quarters), available immediately.
-  A consistent beat/miss record also nudges the **confidence** score (bounded ±10;
-  it never touches the DEEP valuation math).
-- **Rev** — Yahoo only gives the *current-quarter* revenue estimate (no historical
-  ones for free), so the app **builds this history forward**: each refresh it snapshots
-  the estimate, and once the SEC actual for that quarter lands it grades beat/miss.
-  → starts empty, fills one circle per reported quarter, ~4 quarters (≈1 year) to fill.
-  To accumulate it, **Run Fundamental Refresh at least once per quarter, ideally before
-  earnings** so the estimate is captured before it rolls over. With Google Drive
-  persistence enabled (`GOOGLE_DRIVE_OAUTH_SETUP.md`) the snapshots are mirrored to your
-  Drive, so revenue history now survives redeploys and accumulates on the deployed app
-  too — not just when running locally.
+- **EPS** (beat/meet/miss vs consensus) — surprise > +2% 🟢 beat · −2…+2% 🟡 meet ·
+  < −2% 🔴 miss. Cross-checked across **Yahoo + FMP + Finnhub + Alpha Vantage**: the
+  reconcile picks a primary track record, marks the sources that confirm it, and flags
+  a latest-quarter beat-vs-miss disagreement. A consistent record nudges **confidence**
+  (bounded ±10; never touches valuation math).
+- **Rev** (beat/meet/miss vs consensus) — two paths: (a) **immediate** from FMP when
+  its earnings feed exposes `revenueActual`/`revenueEstimated`; (b) otherwise **built
+  forward** — each refresh snapshots Yahoo's current-quarter estimate and grades it once
+  the SEC actual lands (~1 year to fill). Build-forward history is preferred when present;
+  with Google Drive persistence it survives redeploys.
+- **Mgn** (operating-margin YoY trend) — operating income ÷ revenue per quarter from SEC,
+  graded 🟢 expand · 🟡 flat · 🔴 contract (±0.5pp). Fills **immediately**, no estimate
+  needed. (Empty for IFRS semi-annual filers with no standalone 90-day period, e.g. NVO.)
+
+The **Anchor FV** cell also shows an `EPS×N` badge = how many sources the forward-EPS
+**blend** used (hover for the median + min–max range; green = sources agree, red = wide).
 
 ---
 
@@ -101,15 +117,18 @@ Render (free) — gives a public URL:
 
 ---
 
-## 5. Upgrade the framework (e.g. v7.4) — only touches the engine
+## 5. Upgrade / switch the framework — only touches the engine
 
-The engine is isolated behind a contract (`domain/engine/contract.py`). To switch:
-1. Add `domain/engine/deep_v74.py` with `class DeepV74Engine(DeepEngine)`.
-2. `register(DeepV74Engine())` in `domain/engine/__init__.py`.
-3. Set `DEEP_VERSION = "7.4"` in `config.py`.
-
-Nothing in the data layer, store, API, or dashboard changes — they only speak
-`FinancialFacts` (in) and `Valuation` (out).
+The engine is isolated behind a contract (`domain/engine/contract.py`). Both v7.3
+and v8.2 are registered; switch the active one in `config.py`:
+```python
+DEEP_VERSION = "8.2"   # or "7.3" to roll back instantly
+```
+To add a future version: add `domain/engine/deep_vNN.py` with `class DeepVNNEngine(DeepEngine)`,
+`register()` it in `domain/engine/__init__.py`, and point `DEEP_VERSION` at it. Nothing in the
+data layer, store, API, or dashboard changes — they only speak `FinancialFacts` (in) and
+`Valuation` (out). See `UPGRADE_ENGINE.md` (the how-to) and `UPGRADE_ENGINE_REVIEW.md` (lessons
+from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output sanity guards).
 
 ---
 
@@ -117,10 +136,13 @@ Nothing in the data layer, store, API, or dashboard changes — they only speak
 
 ```powershell
 python capture.py        # one-time: fetch real fixtures (or commit them)
-python run_tests.py      # FMP parser + SEC extraction + DEEP engine + earnings/rev track
+python run_tests.py      # 17 modules: FMP/SEC/engine + momentum, consensus blend,
+                         # margin trend, Stooq, revenue surprise, assumption flags
 ```
 The fixtures freeze real numbers for AVGO/ABBV/ORCL/NVO/MSFT so a data regression
-fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B).
+fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B). New
+modules: `test_margin`, `test_stooq`, `test_consensus`, `test_finnhub`, `test_fmp_rev`,
+`test_followups`.
 
 ---
 
@@ -130,8 +152,19 @@ fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B).
 - **Priced-for-perfection names** (e.g. ARM) get no point fair value by design —
   the framework defers to the Reverse DCF (shows the growth the market implies).
 - **Sector** for never-seen tickers needs the FMP key; otherwise "Unknown".
-- **EPS surprise** is EPS-only (~4 Q, street/adjusted basis). **Revenue surprise** is
-  built forward (empty at first, ~1 yr to fill) and only accumulates when run locally —
-  free data has no historical revenue estimates. Fiscal-Q4 (annual-only filings) may not
-  grade since there's no standalone 90-day period.
-- Not investment advice — a calculator that reproduces DEEP v7.3 rules on free data.
+- **EPS surprise** is EPS-only (~4 Q, street/adjusted basis), cross-checked across up to
+  4 free sources. **Revenue surprise** is immediate when FMP exposes revenue actual+estimate,
+  else built forward (empty at first, ~1 yr to fill). Fiscal-Q4 (annual-only filings) may
+  not grade since there's no standalone 90-day period.
+- **Forward EPS** is a **median blend** of Yahoo + FMP (+ Finnhub if keyed) with the
+  min–max dispersion shown; a revenue-capacity ceiling still rejects an implausible value
+  (e.g. AVGO's unsplit consensus) in favour of a SEC-derived one.
+- **v8.2 inputs with no free source** are skipped + flagged (never guessed): NRR /
+  management-tone / news-sentiment (bigdata.com's NLP edge) affect only bounded rubric
+  nudges, not the core valuation. **Assumption-by-nature** inputs are made transparent:
+  **terminal margin** is now anchored to the company's own SEC operating margin (table
+  fallback only for pre-profit, flagged); **ERP** lives in `config` with an as-of date and
+  is flagged once stale; **beta→1.0 / tax→21% / growth→8%** fallbacks are each flagged.
+  See **`DATA_AUDIT.md`**. **Own-5y P/E percentile** needs Yahoo 5y prices, so it fills
+  on localhost and skips on cloud hosts that Yahoo blocks.
+- Not investment advice — a calculator that reproduces DEEP v8.2 rules on free data.

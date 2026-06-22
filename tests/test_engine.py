@@ -36,8 +36,8 @@ def run():
         v = eng.evaluate(ff, rf=0.045)
         print(f"{t:5} {v.recommendation:18} {v.stars}  anchor {v.anchor_method} ${v.anchor_value}")
 
-        # contract well-formedness
-        if v.version != "7.3":
+        # contract well-formedness (track the active engine, whatever version)
+        if v.version != eng.version:
             failures.append(f"{t}: wrong version {v.version}")
         for s in (v.D, v.E_exec, v.E_econ, v.P):
             if s is not None and not (0 <= s <= 5):

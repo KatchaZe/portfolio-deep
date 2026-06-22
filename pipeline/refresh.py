@@ -15,14 +15,40 @@ import logging
 import datetime as dt
 
 import config
-from sources import sec_edgar, yahoo, fmp
-from pipeline import normalize, validate, rev_track
+from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
+from pipeline import normalize, validate, rev_track, margin_track, consensus
 from domain import indicators
 from domain.engine import get_engine
 import store as store_mod
 
 log = logging.getLogger("portfolio.refresh")
 _cik_map = None
+
+
+def get_prices(ticker, rng="3mo", interval="1d"):
+    """Daily closes/volumes/dates for momentum — Yahoo first, then Stooq fallback.
+    Yahoo is often blocked/emptied from datacenter IPs (cloud hosts), so we fall
+    back to Stooq (no key, answers from datacenter IPs) to keep momentum alive.
+    Returns the series dict; raises only if BOTH sources fail."""
+    yahoo_short = None
+    try:
+        d = yahoo.fetch_chart(ticker, rng=rng, interval=interval)
+        if d and len(d.get("closes", [])) >= 30:
+            return d
+        yahoo_short = d                         # got data, just not enough — keep as last resort
+    except Exception as e:
+        log.warning("%s yahoo chart failed, trying stooq: %s", ticker, e)
+    try:
+        d = stooq.fetch_chart(ticker)
+        if d and len(d.get("closes", [])) >= 30:
+            tail = 180                          # Stooq returns full history; momentum needs only the tail
+            return {"closes": d["closes"][-tail:], "volumes": d["volumes"][-tail:],
+                    "dates": d["dates"][-tail:]}
+    except Exception as e:
+        log.warning("%s stooq chart failed: %s", ticker, e)
+    if yahoo_short:
+        return yahoo_short
+    raise RuntimeError(f"no price data for {ticker} (yahoo+stooq)")
 
 
 def resolve_cik(ticker):
@@ -119,20 +145,123 @@ def analyze(ticker, rf, fmp_key="", rf_live=True):
         except Exception as e:
             log.warning("%s FMP quote fallback failed: %s", t, e)
 
-    # earnings cross-check / fallback — always pull FMP earnings (GAAP basis) and
-    # reconcile with Yahoo's (adjusted). Keeps the EARNINGS column populated when
-    # Yahoo drops earningsHistory, and flags a beat/miss disagreement.
+    # EPS-surprise cross-check across ALL available free sources: Yahoo (adjusted,
+    # from normalize) + FMP (GAAP) + Finnhub + Alpha Vantage (both optional). The
+    # reconcile picks a primary track record, tags which sources confirm it, and
+    # flags a latest-quarter beat-vs-miss disagreement.
+    es_by_source = {}
+    if ff.earnings_surprises:
+        es_by_source["yahoo"] = ff.earnings_surprises
     if fmp_key:
         try:
-            es_fmp = fmp.parse_earnings(fmp.fetch_earnings(t, fmp_key))
+            raw_fmp_earn = fmp.fetch_earnings(t, fmp_key)
             fmp_calls += 1
-            ff.earnings_surprises = _reconcile_earnings(ff, ff.earnings_surprises, es_fmp)
+            es_by_source["fmp"] = fmp.parse_earnings(raw_fmp_earn)
+            # Phase 3: immediate revenue surprise from the SAME response (no extra call)
+            ff.rev_surprises_fmp = fmp.parse_revenue_surprises(raw_fmp_earn)
         except Exception as e:
             log.warning("%s FMP earnings failed: %s", t, e)
+    if config.FINNHUB_API_KEY:
+        try:
+            fh = finnhub.parse_earnings(finnhub.fetch_earnings(t, config.FINNHUB_API_KEY))
+            if fh:
+                es_by_source["finnhub"] = fh
+        except Exception as e:
+            log.warning("%s Finnhub earnings failed: %s", t, e)
+    if config.ALPHAVANTAGE_API_KEY:
+        try:
+            av = alphavantage.parse_earnings(alphavantage.fetch_earnings(t, config.ALPHAVANTAGE_API_KEY))
+            if av:
+                es_by_source["alphavantage"] = av
+        except Exception as e:
+            log.warning("%s AlphaVantage earnings failed: %s", t, e)
+    rec = consensus.reconcile_earnings(es_by_source)
+    if rec["list"]:
+        ff.earnings_surprises = rec["list"]
+        ff.provenance["earnings_surprises"] = rec["provenance"]
+        if rec["disagree"]:
+            ff.flags.append("earnings beat/miss disagree across sources")
+        if "yahoo" not in es_by_source and rec["primary"]:
+            ff.flags.append(f"earnings via {rec['primary']} (yahoo earningsHistory empty)")
+
+    # consensus PATH (FMP analyst-estimates) → growth fade + breadth + a fwd-EPS candidate
+    fmp_estimates = None
+    if fmp_key:
+        try:
+            fmp_estimates = fmp.fetch_estimates(t, fmp_key)
+            fmp_calls += 1
+            path = fmp.parse_estimate_path(fmp_estimates, ff.fiscal_year)
+            for k in ("fwd_growth_near", "fwd_growth_far", "n_analysts"):
+                if path.get(k) is not None:
+                    ff.set(k, path[k], "fmp/estimates")
+        except Exception as e:
+            log.warning("%s FMP estimates failed: %s", t, e)
+
+    # forward-EPS BLEND — median of Yahoo + FMP + Finnhub (each free), with the
+    # min–max dispersion kept for display + a confidence nudge. validate() still
+    # applies the revenue-ceiling backstop to the blended value afterwards.
+    fwd_candidates = {}
+    if ff.forward_eps and ff.forward_eps > 0:
+        fwd_candidates["yahoo"] = ff.forward_eps          # Yahoo value set by normalize
+    if fmp_estimates:
+        fe = fmp.parse_forward_eps(fmp_estimates, ff.fiscal_year)
+        if fe:
+            fwd_candidates["fmp"] = fe
+    if config.FINNHUB_API_KEY:
+        try:
+            fh_fwd = finnhub.parse_eps_estimate(finnhub.fetch_eps_estimate(t, config.FINNHUB_API_KEY))
+            if fh_fwd:
+                fwd_candidates["finnhub"] = fh_fwd
+        except Exception as e:
+            log.warning("%s Finnhub eps-estimate failed: %s", t, e)
+    blend = consensus.blend_forward_eps(fwd_candidates)
+    if blend:
+        ff.set("forward_eps", blend["value"], "consensus-blend(" + "+".join(blend["sources"]) + ")")
+        ff.forward_eps_sources = blend["sources"]
+        ff.forward_eps_low = blend["low"]
+        ff.forward_eps_high = blend["high"]
+        ff.forward_eps_spread_pct = blend["spread_pct"]
+        ff.forward_eps_n = blend["n"]
+
+    # own 5y P/E percentile (re-rating signal) — Yahoo 5y monthly prices + SEC annual EPS.
+    # USD filers only (avoids price-vs-EPS currency mismatch); free, no FMP quota.
+    if ff.currency == "USD" and ff.price and ff.eps_annuals_dated:
+        try:
+            cur_eps = (ff.net_income / ff.shares_diluted) if (ff.net_income and ff.shares_diluted) else ff.eps_gaap
+            ch = yahoo.fetch_chart(t, rng="5y", interval="1mo")
+            pct = yahoo.pe_percentile_5y(ff.eps_annuals_dated, ch["closes"], ch["dates"], ff.price, cur_eps)
+            if pct is not None:
+                ff.set("own_pe_pctile", round(pct, 3), "yahoo5y+sec")
+        except Exception as e:
+            log.warning("%s own-PE percentile failed: %s", t, e)
 
     validate.validate(ff, rf=rf)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
+
+
+def compute_peer_medians(fetched):
+    """{ticker: median revenue-growth of its SECTOR cohort, excluding itself}. Free
+    peer-median from the batch already fetched — no extra API calls. Needs ≥2 names
+    in the sector; otherwise the ticker is omitted (engine then skips the peer adj)."""
+    by_sector = {}
+    growth = {}
+    for t, (ff, _v) in fetched.items():
+        ann = ff.revenue_annuals or []
+        g = (ann[0] / ann[1] - 1) if (len(ann) > 1 and ann[1]) else None
+        sec = ff.sector or "Unknown"
+        if g is not None:
+            growth[t] = g
+            by_sector.setdefault(sec, []).append(t)
+    out = {}
+    for t, (ff, _v) in fetched.items():
+        sec = ff.sector or "Unknown"
+        peers = [growth[p] for p in by_sector.get(sec, []) if p != t and p in growth]
+        if peers:
+            peers.sort()
+            n = len(peers)
+            out[t] = peers[n // 2] if n % 2 else (peers[n // 2 - 1] + peers[n // 2]) / 2
+    return out
 
 
 def _reconcile_earnings(ff, yh, fm):
@@ -163,7 +292,7 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     rf_pct, rf_live)."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     fetched, errors, calls = {}, [], 0
-    cost = 2 if fmp_key else 0          # profile + earnings per ticker (0 without a key)
+    cost = 3 if fmp_key else 0          # profile + earnings + estimates per ticker (0 without a key)
     for t in tickers:
         if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
@@ -175,6 +304,13 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
         except Exception as e:
             log.warning("%s fundamentals failed: %s", t, e)
             errors.append(f"{t}: {str(e)[:60]}")
+    # peer-median (sector cohort, free) → inject + re-score the affected names. The
+    # engine is pure, so re-evaluate is cheap and needs no extra network calls.
+    medians = compute_peer_medians(fetched)
+    for t, med in medians.items():
+        ff, _val = fetched[t]
+        ff.set("peer_median_growth", round(med, 4), "sector-cohort")
+        fetched[t] = (ff, get_engine().evaluate(ff, rf=rf))
     return fetched, errors, calls, round(rf * 100, 2), rf_live
 
 
@@ -210,7 +346,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     ff, val, calls = analyze(t, rf, fmp_key, rf_live=rf_live)
     mom = {}
     try:
-        c = yahoo.fetch_chart(t)
+        c = get_prices(t)
         m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
         if "error" not in m:
             mom = m
@@ -236,6 +372,14 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "verdict": val.verdict, "confidence": ff.confidence, "confidence_tier": ff.confidence_tier,
         "currency": ff.currency, "flags": ff.flags,
         "earnings_surprises": ff.earnings_surprises,
+        "rev_surprises": ff.rev_surprises_fmp,   # watchlist: immediate FMP revenue surprise
+        "margin_trend": margin_track.build(ff.operating_income_quarters, ff.revenue_quarters),
+        "forward_eps": ff.forward_eps, "forward_eps_low": ff.forward_eps_low,
+        "forward_eps_high": ff.forward_eps_high, "forward_eps_spread_pct": ff.forward_eps_spread_pct,
+        "forward_eps_n": ff.forward_eps_n, "forward_eps_sources": ff.forward_eps_sources,
+        # v8.2 detail (for the expandable drawer)
+        "eq_verdict": val.eq_verdict, "cost_of_equity": val.cost_of_equity, "eva": val.eva,
+        "key_metrics": val.key_metrics, "subscores": val.subscores,
     }
     return row, calls
 
@@ -245,7 +389,7 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     store.LOCK; the caller commits only the FMP quota counter afterwards."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     rows, errors, calls = [], [], 0
-    cost = 2 if fmp_key else 0          # profile + earnings per ticker
+    cost = 3 if fmp_key else 0          # profile + earnings + estimates per ticker
     for t in tickers:
         if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
@@ -273,7 +417,7 @@ def fetch_daily(tickers):
     out = {}
     for t in tickers:
         try:
-            c = yahoo.fetch_chart(t)
+            c = get_prices(t)
             m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
             if "error" not in m:
                 out[t] = m
@@ -396,9 +540,19 @@ def portfolio_view(s):
             "currency": ff.get("currency"), "updated": s["updated"].get(t),
             "flags": ff.get("flags", []),
             "earnings_surprises": ff.get("earnings_surprises", []),
-            "rev_surprises": s.get("rev_surprises", {}).get(t, []),
+            "rev_surprises": s.get("rev_surprises", {}).get(t, []) or ff.get("rev_surprises_fmp", []),
+            "margin_trend": margin_track.build(ff.get("operating_income_quarters"),
+                                               ff.get("revenue_quarters")),
+            "forward_eps": ff.get("forward_eps"), "forward_eps_low": ff.get("forward_eps_low"),
+            "forward_eps_high": ff.get("forward_eps_high"),
+            "forward_eps_spread_pct": ff.get("forward_eps_spread_pct"),
+            "forward_eps_n": ff.get("forward_eps_n"), "forward_eps_sources": ff.get("forward_eps_sources"),
+            "eq_verdict": val.get("eq_verdict"),
+            "cost_of_equity": val.get("cost_of_equity"),
+            "eva": val.get("eva"),
+            "key_metrics": val.get("key_metrics"),
+            "subscores": val.get("subscores"),
         })
-    # portfolio totals
     tot_cost = sum(r["cost_basis"] or 0 for r in rows)
     tot_mv = sum(r["market_value"] or 0 for r in rows)
     totals = {"cost_basis": round(tot_cost, 2), "market_value": round(tot_mv, 2),

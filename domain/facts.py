@@ -39,10 +39,42 @@ class FinancialFacts:
     dep_amort: Optional[float] = None
     sbc: Optional[float] = None
 
+    # --- v8.2 extra fundamentals (SEC-sourced) -------------------------------
+    cfo: Optional[float] = None                 # cash flow from operations (TTM) — earnings quality
+    total_assets: Optional[float] = None        # accruals-ratio denominator
+    receivables: Optional[float] = None         # AR vs revenue (channel-stuffing check)
+    interest_expense: Optional[float] = None    # → interest coverage → synthetic Kd for true WACC
+    rnd_expense: Optional[float] = None          # current-year R&D (TTM)
+    rnd_annuals: list = field(default_factory=list)               # R&D series (newest first) — R&D capitalization
+    operating_income_annuals: list = field(default_factory=list)  # op-income series (newest first) — margin trend / ΔNOPAT
+    # prior fiscal-year balance (instant) — prior invested capital for 5y spread trend
+    equity_prior: Optional[float] = None
+    total_debt_prior: Optional[float] = None
+    cash_prior: Optional[float] = None
+    # --- 🟢 round 2: organic growth + billings (SEC) -------------------------
+    acquisitions_net: Optional[float] = None    # M&A cash spent (TTM) — organic-growth penalty
+    deferred_revenue: Optional[float] = None    # contract liability — billings/leading signal
+    deferred_revenue_prior: Optional[float] = None
+    # --- 🟢 round 2: consensus path + peers (FMP) ----------------------------
+    fwd_growth_near: Optional[float] = None      # next-FY consensus revenue growth
+    fwd_growth_far: Optional[float] = None       # final-FY consensus revenue growth (fade)
+    n_analysts: Optional[int] = None             # consensus breadth (reliability gate)
+    peer_median_growth: Optional[float] = None   # median revenue growth of the sector cohort
+    peers: list = field(default_factory=list)    # FMP stock-peers (when fetched)
+    # --- 🟢 round 3: own 5y P/E percentile (re-rating, Price adj) -------------
+    own_pe_pctile: Optional[float] = None        # 0=cheapest / 1=richest vs own 5y P/E range
+    eps_annuals_dated: list = field(default_factory=list)  # [[FY_end, diluted_EPS], …] newest first
+
     # market / consensus
     beta: Optional[float] = None
-    forward_eps: Optional[float] = None         # NTM adjusted consensus
+    forward_eps: Optional[float] = None         # NTM adjusted consensus (blended median)
     growth_lt: Optional[float] = None           # decimal, e.g. 0.15
+    # --- Phase 2: multi-source forward-EPS blend (dispersion) ----------------
+    forward_eps_sources: dict = field(default_factory=dict)  # {source: eps} that fed the blend
+    forward_eps_low: Optional[float] = None
+    forward_eps_high: Optional[float] = None
+    forward_eps_spread_pct: Optional[float] = None           # (high-low)/median*100
+    forward_eps_n: int = 0                                    # number of sources blended
 
     # history for CAGR (newest first): [latest_FY, FY-1, FY-2, FY-3]
     revenue_annuals: list = field(default_factory=list)
@@ -56,6 +88,12 @@ class FinancialFacts:
     # lives in the store (accumulates across refreshes), not here.
     rev_estimate_curq: Optional[dict] = None            # {quarter_end, estimate}
     revenue_quarters: dict = field(default_factory=dict)  # {end_date: actual_revenue}
+    # quarterly operating income ({end_date: op_income}) — paired with revenue_quarters
+    # to build the operating-margin trend (margin_track). SEC ~90-day periods.
+    operating_income_quarters: dict = field(default_factory=dict)
+    # Phase 3: immediate revenue beat/miss from FMP (revenueActual vs revenueEstimated),
+    # a fallback for the build-forward history so the Rev row isn't empty for ~1 year.
+    rev_surprises_fmp: list = field(default_factory=list)
 
     # quality
     provenance: dict = field(default_factory=dict)   # {field_name: source}

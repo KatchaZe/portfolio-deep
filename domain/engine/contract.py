@@ -38,6 +38,13 @@ class Valuation:
 
     reverse_dcf: dict = field(default_factory=dict)
     key_metrics: dict = field(default_factory=dict)   # wacc_pct, roic_pct, spread_pct, growth_pct, beta
+
+    # --- v8.x additions (optional; older engines leave them at defaults) ------
+    cost_of_equity: Optional[float] = None             # Ke decimal (FCFE discount rate)
+    eva: Optional[float] = None                        # economic profit = spread × invested capital
+    eq_verdict: Optional[str] = None                   # earnings-quality: CLEAN / REVIEW / LOW
+    subscores: dict = field(default_factory=dict)      # per-pillar rubric breakdown (audit trail)
+
     verdict: str = ""                                  # short ifa-style summary line
     flags: list = field(default_factory=list)
 
