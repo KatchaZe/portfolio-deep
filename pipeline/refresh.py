@@ -16,7 +16,7 @@ import datetime as dt
 
 import config
 from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
-from pipeline import normalize, validate, rev_track, margin_track, consensus
+from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill
 from domain import indicators
 from domain.engine import get_engine
 import store as store_mod
@@ -197,6 +197,33 @@ def analyze(ticker, rf, fmp_key="", rf_live=True):
         except Exception as e:
             log.warning("%s FMP estimates failed: %s", t, e)
 
+    # IMMEDIATE estimate-vs-actual backfill — only when the primary paths came up
+    # empty (Yahoo blocked / FMP earnings lacked revenue / forward-build not yet
+    # matured). Pairs FMP QUARTERLY analyst-estimates with free SEC actuals so the
+    # EPS / Rev circles fill on the first refresh. One extra FMP call, gated.
+    need_eps = not ff.earnings_surprises
+    need_rev = not ff.rev_surprises_fmp
+    if fmp_key and (need_eps or need_rev):
+        try:
+            est_q = fmp.parse_estimates_quarterly(fmp.fetch_estimates_quarter(t, fmp_key))
+            fmp_calls += 1
+            if est_q:
+                if need_eps:
+                    bf = surprise_backfill.build_eps(ff.eps_quarters, est_q)
+                    if bf:
+                        ff.eps_surprises_backfill = bf
+                        if not ff.earnings_surprises:
+                            ff.earnings_surprises = bf
+                            ff.provenance["earnings_surprises"] = "fmp-est x sec-actual"
+                            ff.flags.append("EPS beat/miss reconstructed (FMP est × SEC actual)")
+                if need_rev:
+                    rbf = surprise_backfill.build_rev(ff.revenue_quarters, est_q)
+                    if rbf:
+                        ff.rev_surprises_fmp = rbf
+                        ff.provenance["rev_surprises_fmp"] = "fmp-est x sec-actual"
+        except Exception as e:
+            log.warning("%s surprise backfill failed: %s", t, e)
+
     # forward-EPS BLEND — median of Yahoo + FMP + Finnhub (each free), with the
     # min–max dispersion kept for display + a confidence nudge. validate() still
     # applies the revenue-ceiling backstop to the blended value afterwards.
@@ -292,7 +319,7 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     rf_pct, rf_live)."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     fetched, errors, calls = {}, [], 0
-    cost = 3 if fmp_key else 0          # profile + earnings + estimates per ticker (0 without a key)
+    cost = 4 if fmp_key else 0          # profile + earnings + estimates + quarterly-est backfill per ticker (0 without a key)
     for t in tickers:
         if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")
@@ -389,7 +416,7 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     store.LOCK; the caller commits only the FMP quota counter afterwards."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     rows, errors, calls = [], [], 0
-    cost = 3 if fmp_key else 0          # profile + earnings + estimates per ticker
+    cost = 4 if fmp_key else 0          # profile + earnings + estimates + quarterly-est backfill per ticker
     for t in tickers:
         if cost and quota_used + calls + cost > quota_cap:
             errors.append(f"{t} (quota)")

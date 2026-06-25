@@ -237,6 +237,10 @@ def extract(companyfacts):
         "revenue_annuals": annual_series(rev_concept) if rev_concept else [],
         "revenue_quarters": quarters(rev_concept) if rev_concept else {},
         "operating_income_quarters": quarters(_op_concept) if _op_concept else {},
+        # quarterly diluted EPS actuals (USD/shares) — the free ACTUAL we grade
+        # analyst estimates against in surprise_backfill (US GAAP + IFRS filers).
+        "eps_quarters": (quarters("EarningsPerShareDiluted", prefer=("USD/shares",))
+                         or quarters("DilutedEarningsLossPerShare", prefer=("USD/shares", "DKK/shares"))),
         "net_income": net_income,
         "operating_income": operating_income,
         "eps_gaap": ttm("EarningsPerShareDiluted", prefer=("USD/shares",)),
@@ -310,7 +314,7 @@ def populate(ff, companyfacts):
     for k in ("currency", "revenue", "net_income", "operating_income", "eps_gaap",
               "shares_diluted", "total_debt", "cash", "equity", "capex", "dep_amort",
               "income_before_tax", "tax_expense", "revenue_annuals", "revenue_quarters",
-              "operating_income_quarters",
+              "operating_income_quarters", "eps_quarters",
               # v8.2 additions
               "cfo", "total_assets", "receivables", "interest_expense", "rnd_expense",
               "rnd_annuals", "operating_income_annuals",

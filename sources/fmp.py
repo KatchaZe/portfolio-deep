@@ -113,6 +113,49 @@ def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=6):
     return []
 
 
+def fetch_estimates_quarter(ticker, key, requests_mod=None, timeout=20, limit=12):
+    """Analyst estimates at QUARTERLY granularity — gives a per-quarter EPS &
+    revenue estimate we can pair with SEC actuals (surprise_backfill). Same endpoint
+    family as fetch_estimates, just period=quarter. Returns a raw list or []."""
+    import requests as _r
+    requests_mod = requests_mod or _r
+    attempts = [
+        (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "quarter", "limit": limit, "apikey": key}),
+        (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "quarter", "limit": limit, "apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if isinstance(j, list) and j:
+                return j
+        except Exception:
+            continue
+    return []
+
+
+def parse_estimates_quarterly(estimates):
+    """FMP quarterly analyst-estimates -> {quarter_end(YYYY-MM-DD): {eps_est, rev_est}}.
+    Defensive about field names; skips rows missing a usable date. Pure.
+    Paired with SEC actuals in pipeline.surprise_backfill."""
+    out = {}
+    for e in (estimates or []):
+        if not isinstance(e, dict):
+            continue
+        d = e.get("date") or e.get("period")
+        if not d:
+            continue
+        d = str(d)[:10]
+        eps_est = _num(e, "epsAvg", "epsAvgEstimate", "estimatedEpsAvg", "estimatedEps")
+        rev_est = _num(e, "revenueAvg", "estimatedRevenueAvg", "revenueAvgEstimate", "estimatedRevenue")
+        if eps_est is None and rev_est is None:
+            continue
+        out[d] = {"eps_est": eps_est, "rev_est": rev_est}
+    return out
+
+
 def fetch_peers(ticker, key, requests_mod=None, timeout=15):
     import requests as _r
     requests_mod = requests_mod or _r

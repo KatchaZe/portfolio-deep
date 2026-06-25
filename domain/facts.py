@@ -91,9 +91,16 @@ class FinancialFacts:
     # quarterly operating income ({end_date: op_income}) — paired with revenue_quarters
     # to build the operating-margin trend (margin_track). SEC ~90-day periods.
     operating_income_quarters: dict = field(default_factory=dict)
+    # quarterly diluted EPS actuals ({end_date: eps}) from SEC — the free, always-
+    # available ACTUAL used to grade analyst estimates immediately (surprise_backfill),
+    # so the EPS row fills even when Yahoo earningsHistory is blocked.
+    eps_quarters: dict = field(default_factory=dict)
     # Phase 3: immediate revenue beat/miss from FMP (revenueActual vs revenueEstimated),
     # a fallback for the build-forward history so the Rev row isn't empty for ~1 year.
     rev_surprises_fmp: list = field(default_factory=list)
+    # Immediate EPS beat/miss reconstructed from FMP quarterly estimates x SEC EPS
+    # actuals (surprise_backfill) — fallback when reconciled earnings_surprises is empty.
+    eps_surprises_backfill: list = field(default_factory=list)
 
     # quality
     provenance: dict = field(default_factory=dict)   # {field_name: source}
