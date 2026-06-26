@@ -16,8 +16,8 @@ import datetime as dt
 
 import config
 from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
-from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill
-from domain import indicators
+from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache
+from domain import indicators, momentum
 from domain.engine import get_engine
 import store as store_mod
 
@@ -49,6 +49,82 @@ def get_prices(ticker, rng="3mo", interval="1d"):
     if yahoo_short:
         return yahoo_short
     raise RuntimeError(f"no price data for {ticker} (yahoo+stooq)")
+
+
+def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
+    """Adjusted daily closes (oldest->newest) for the momentum composite.
+
+    3-tier, all dividend+split adjusted EXCEPT Stooq (split-only -> flagged):
+        1) Yahoo adjclose   (free, full history; IP-block risk on cloud)
+        2) FMP adjClose     (API key -> not IP-blocked; spent only if Yahoo is short)
+        3) Stooq            (split-only -> dividend_adjusted=False; no key)
+
+    Returns the FIRST source with >= full_bars (so 12-1 / SMA200 are valid). If none
+    reaches that (e.g. a recent listing), returns the source that provided the MOST
+    bars, as long as it has >= min_bars, so a *partial* momentum still shows.
+    Uses ONLY fetched data — never fabricates or back-fills. Raises only when every
+    source is empty/too short, so the caller leaves the cell blank.
+
+    R4: a same-day cached series short-circuits the network (saves FMP quota); every
+    successful fetch is cached; if every live source fails a stale cache is served
+    (flagged) before giving up — so momentum survives a transient outage."""
+    fresh = pricecache.read_fresh(ticker)
+    if fresh and len(fresh.get("closes") or []) >= min_bars:
+        out = dict(fresh); out["from_cache"] = True
+        return out
+    best = None                                   # (n_bars, payload) seen so far
+
+    def finish(pay):
+        pricecache.write(ticker, pay)             # cache the good series (errors swallowed)
+        return pay
+
+    def consider(payload):
+        nonlocal best
+        # R1 data-quality guard: drop corrupt bars (non-positive / lone spikes)
+        cc, vv, dd, q = momentum.clean_series(payload.get("closes"),
+                                              payload.get("volumes"), payload.get("dates"))
+        payload["closes"], payload["volumes"], payload["dates"], payload["quality"] = cc, vv, dd, q
+        n = len(cc)
+        if n and (best is None or n > best[0]):
+            best = (n, payload)
+        return n
+
+    try:
+        d = yahoo.fetch_chart(ticker, rng=rng, interval="1d")
+        pay = {"closes": d.get("adj_closes") or d.get("closes") or [],
+               "volumes": d.get("volumes", []), "dates": d.get("dates", []),
+               "dividend_adjusted": "adj_closes" in d, "source": "yahoo"}
+        if consider(pay) >= full_bars:
+            return finish(pay)
+    except Exception as e:
+        log.warning("%s yahoo long chart failed: %s", ticker, e)
+
+    if fmp_key:
+        try:
+            h = fmp.parse_history(fmp.fetch_history(ticker, fmp_key))
+            pay = {"closes": h["closes"], "volumes": h["volumes"], "dates": h["dates"],
+                   "dividend_adjusted": True, "source": "fmp"}
+            if consider(pay) >= full_bars:
+                return finish(pay)
+        except Exception as e:
+            log.warning("%s fmp history failed: %s", ticker, e)
+
+    try:
+        d = stooq.fetch_chart(ticker)
+        pay = {"closes": d.get("closes", []), "volumes": d.get("volumes", []),
+               "dates": d.get("dates", []), "dividend_adjusted": False, "source": "stooq"}
+        if consider(pay) >= full_bars:
+            return finish(pay)
+    except Exception as e:
+        log.warning("%s stooq long chart failed: %s", ticker, e)
+
+    if best and best[0] >= min_bars:              # partial history, but usable
+        return finish(best[1])
+    stale = pricecache.read_any(ticker)           # R4: last good series keeps momentum alive
+    if stale and len(stale.get("closes") or []) >= min_bars:
+        out = dict(stale); out["from_cache"] = True; out["stale_cache"] = True
+        return out
+    raise RuntimeError(f"no long price data for {ticker} (yahoo+fmp+stooq)")
 
 
 def resolve_cik(ticker):
@@ -372,6 +448,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     t = ticker.upper().strip()
     ff, val, calls = analyze(t, rf, fmp_key, rf_live=rf_live)
     mom = {}
+    mom_v2 = {}
     try:
         c = get_prices(t)
         m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
@@ -379,6 +456,18 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
             mom = m
     except Exception as e:
         log.warning("%s momentum failed: %s", t, e)
+    try:                                            # faithful composite momentum (v2)
+        lc = get_prices_long(t, fmp_key)
+        mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
+        if "error" not in mv:
+            mv["src"] = lc.get("source")
+            mv["quality"] = lc.get("quality")
+            mom_v2 = mv
+    except Exception as e:
+        log.warning("%s momentum_v2 failed: %s", t, e)
+    if mom_v2:                                      # R2: warn split-only only for dividend payers
+        mom_v2["div_warn"] = momentum.div_warn(mom_v2.get("dividend_adjusted"),
+                                               getattr(ff, "dividend_ps", None))
     price = mom.get("price") or ff.price
     anchor = val.anchor_value
     upside = ((anchor - price) / price * 100) if (anchor and price) else None
@@ -392,6 +481,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "momentum_signal": mom.get("momentum_signal"), "rsi": mom.get("rsi"),
         "rsi_signal": mom.get("rsi_signal"), "macd_signal": mom.get("macd_signal"),
         "dbbmv_signal": mom.get("dbbmv_signal"), "momentum_score": mom.get("momentum_score"),
+        "momentum_v2": mom_v2 or None,           # primary composite (secondary = fields above)
         "action": indicators.action(val.signal, mom.get("momentum_signal")),
         "anchor_method": val.anchor_method, "anchor_value": anchor,
         "range_low": val.range_low, "range_high": val.range_high,
@@ -427,6 +517,8 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
             rows.append(r)
         except Exception as e:
             errors.append(f"{t}: {str(e)[:50]}")
+    # cross-sectional momentum rank among the watchlist names (mirrors portfolio_view)
+    momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
     return {"rows": rows, "errors": errors, "fmp_calls": calls,
             "rf_pct": round(rf * 100, 2), "rf_live": rf_live}
 
@@ -438,18 +530,32 @@ def watchlist_run(s, tickers, fmp_key="", quota_cap=250):
     return res
 
 
-def fetch_daily(tickers):
-    """NETWORK PHASE — Yahoo chart + momentum per ticker (no FMP quota).
-    Returns {ticker: momentum_dict}. Run OUTSIDE store.LOCK."""
+def fetch_daily(tickers, fmp_key=""):
+    """NETWORK PHASE — per ticker: short-window indicators (RSI/MACD/DBBMV, secondary)
+    plus the faithful composite momentum (v2, primary) under m["v2"].
+    `fmp_key` is only spent if Yahoo is blocked (get_prices_long tier 2); leave ""
+    to keep the daily run quota-free (Yahoo->Stooq). Run OUTSIDE store.LOCK."""
     out = {}
     for t in tickers:
+        m = {}
         try:
             c = get_prices(t)
-            m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
-            if "error" not in m:
-                out[t] = m
+            mm = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
+            if "error" not in mm:
+                m = mm
         except Exception as e:
             log.warning("%s daily momentum failed: %s", t, e)
+        try:
+            lc = get_prices_long(t, fmp_key)
+            mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
+            if "error" not in mv:
+                mv["src"] = lc.get("source")
+                mv["quality"] = lc.get("quality")
+                m["v2"] = mv
+        except Exception as e:
+            log.warning("%s daily momentum_v2 failed: %s", t, e)
+        if m:
+            out[t] = m
     return out
 
 
@@ -528,12 +634,48 @@ def allocation(s, whatif=None, fmp_key=""):
     return result, fmp_calls
 
 
+def _momentum_meta(rows, stale_after=4):
+    """Per-row momentum staleness + portfolio 'last updated' (R3 banner).
+    Mutates each row's momentum_v2 with age_days/stale. 'today' is the server date;
+    ages come only from the data's own as_of — nothing is fabricated."""
+    import datetime as _dt
+    today = _dt.date.today()
+
+    def age(a):
+        try:
+            return (today - _dt.date.fromisoformat(str(a)[:10])).days
+        except Exception:
+            return None
+
+    asofs, stale_count, n = [], 0, 0
+    for r in rows:
+        v = r.get("momentum_v2")
+        if not v:
+            continue
+        n += 1
+        ag = age(v.get("as_of"))
+        v["age_days"] = ag
+        v["stale"] = (ag is not None and ag > stale_after)
+        if v.get("as_of"):
+            asofs.append(str(v["as_of"])[:10])
+        if v["stale"]:
+            stale_count += 1
+    last = max(asofs) if asofs else None
+    overall = age(last) if last else None
+    return {"as_of": last, "age_days": overall,
+            "stale": (n > 0 and (last is None or (overall is not None and overall > stale_after))),
+            "stale_count": stale_count, "n": n}
+
+
 def portfolio_view(s):
     rows = []
     for t, h in s.get("holdings", {}).items():
         ff = s["facts"].get(t, {})
         val = s["results"].get(t, {})
         mom = s["momentum"].get(t, {})
+        v2 = mom.get("v2") or {}
+        if v2:                                       # R2: dividend-aware split-only warning
+            v2["div_warn"] = momentum.div_warn(v2.get("dividend_adjusted"), ff.get("dividend_ps"))
         price = mom.get("price") or ff.get("price")
         shares, avg = h.get("shares", 0), h.get("avg_cost", 0)
         cost = shares * avg if (shares and avg) else None
@@ -560,6 +702,7 @@ def portfolio_view(s):
             "momentum_signal": mom.get("momentum_signal"), "rsi": mom.get("rsi"),
             "rsi_signal": mom.get("rsi_signal"), "macd_signal": mom.get("macd_signal"),
             "dbbmv_signal": mom.get("dbbmv_signal"), "momentum_score": mom.get("momentum_score"),
+            "momentum_v2": v2 or None,           # primary composite (secondary = fields above)
             "action": act, "verdict": val.get("verdict"),
             "rev_implied_cagr": rd.get("implied_cagr_pct"), "rev_actual_1y": rd.get("actual_1y_pct"),
             "rev_verdict": rd.get("verdict"),
@@ -580,9 +723,12 @@ def portfolio_view(s):
             "key_metrics": val.get("key_metrics"),
             "subscores": val.get("subscores"),
         })
+    # cross-sectional momentum rank across the held portfolio (mutates each v2 dict)
+    momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
+    mom_meta = _momentum_meta(rows)              # R3: per-row staleness + banner meta
     tot_cost = sum(r["cost_basis"] or 0 for r in rows)
     tot_mv = sum(r["market_value"] or 0 for r in rows)
     totals = {"cost_basis": round(tot_cost, 2), "market_value": round(tot_mv, 2),
               "pl": round(tot_mv - tot_cost, 2), "pl_pct": round((tot_mv - tot_cost) / tot_cost * 100, 1) if tot_cost else None}
-    return {"rows": rows, "totals": totals}
+    return {"rows": rows, "totals": totals, "momentum_meta": mom_meta}
 # end of refresh.py

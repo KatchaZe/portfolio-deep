@@ -1,5 +1,6 @@
 """
 FMP source adapter — fetch (network) separated from parse (pure).
+Includes historical-price (adjClose) for the momentum composite.
 """
 import time
 
@@ -91,6 +92,65 @@ def fetch_quote(ticker, key, requests_mod=None, timeout=15):
         except Exception:
             continue
     return []
+
+
+def fetch_history(ticker, key, requests_mod=None, timeout=25, days=400):
+    """Daily historical prices (raw json) for the momentum composite. API-key based
+    so it answers when Yahoo is IP-blocked from a cloud host. Tries legacy
+    historical-price-full (returns adjClose+volume) then the stable EOD endpoint.
+    Returns the raw json (dict or list); {} if all attempts fail. Costs 1 FMP call
+    (tier-2 fallback, used only when Yahoo is short/blocked)."""
+    import requests as _r
+    requests_mod = requests_mod or _r
+    attempts = [
+        (f"{config.FMP_LEGACY}/historical-price-full/{ticker}", {"timeseries": days, "apikey": key}),
+        (f"{BASE}/historical-price-eod/full", {"symbol": ticker, "apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if parse_history(j)["closes"]:
+                return j
+        except Exception:
+            continue
+    return {}
+
+
+def parse_history(j):
+    """FMP historical prices -> {closes, volumes, dates} ascending by date, using
+    adjClose when present (falls back to close). Handles both the legacy shape
+    {'historical': [...]} and a bare list (stable). Newest-first input is sorted
+    ascending. Pure; never raises."""
+    if isinstance(j, dict):
+        rows = j.get("historical") or j.get("results") or []
+    elif isinstance(j, list):
+        rows = j
+    else:
+        rows = []
+    parsed = []
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        d = row.get("date")
+        c = row.get("adjClose")
+        if c is None:
+            c = row.get("close")
+        v = row.get("volume")
+        if d is None or c is None:
+            continue
+        try:
+            close = float(c)
+            vol = float(v) if v is not None else 0.0
+        except (TypeError, ValueError):
+            continue
+        parsed.append((str(d)[:10], close, vol))
+    parsed.sort(key=lambda x: x[0])             # YYYY-MM-DD sorts chronologically
+    return {"closes": [p[1] for p in parsed],
+            "volumes": [p[2] for p in parsed],
+            "dates": [p[0] for p in parsed]}
 
 
 def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=6):
@@ -322,6 +382,7 @@ def parse(bundle, facts):
     facts.set("company", _num(prof, "companyName"), SRC)
     facts.set("sector", _num(prof, "sector"), SRC)
     facts.set("beta", _num(prof, "beta"), SRC)
+    facts.set("dividend_ps", _num(prof, "lastDiv"), SRC)   # R2: dividend-aware split-only warning
     facts.set("price", _num(quote, "price") or _num(prof, "price"), SRC)
     facts.set("currency", _num(inc, "reportedCurrency") or _num(prof, "currency") or "USD", SRC)
     facts.set("fiscal_year", _num(inc, "date", "fiscalYear"), SRC)

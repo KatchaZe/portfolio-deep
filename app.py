@@ -94,7 +94,7 @@ def _fetch_and_commit(tickers):
     used = st.fmp_used_today(s0)
     fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(
         tickers, config.FMP_API_KEY, used, QUOTA_CAP)
-    daily = refresh.fetch_daily(tickers)
+    daily = refresh.fetch_daily(tickers, config.FMP_API_KEY)
     with st.LOCK:
         s = st.load()
         refresh.commit_fundamentals(s, fetched, calls)
@@ -171,7 +171,7 @@ def api_refresh():
 @app.post("/api/daily")
 def api_daily():
     tickers = list(st.load().get("holdings", {}).keys())
-    daily = refresh.fetch_daily(tickers)            # network OUTSIDE the lock
+    daily = refresh.fetch_daily(tickers, config.FMP_API_KEY)   # FMP only if Yahoo blocked
     with st.LOCK:
         s = st.load()
         refresh.commit_daily(s, daily)

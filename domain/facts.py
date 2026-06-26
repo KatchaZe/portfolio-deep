@@ -67,6 +67,7 @@ class FinancialFacts:
 
     # market / consensus
     beta: Optional[float] = None
+    dividend_ps: Optional[float] = None         # last annual dividend/share (FMP lastDiv); 0/None = non-payer
     forward_eps: Optional[float] = None         # NTM adjusted consensus (blended median)
     growth_lt: Optional[float] = None           # decimal, e.g. 0.15
     # --- Phase 2: multi-source forward-EPS blend (dispersion) ----------------

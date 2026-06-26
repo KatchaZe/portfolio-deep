@@ -500,4 +500,4 @@ def _verdict(f, v):
     eq = f", EQ {v.eq_verdict}" if v.eq_verdict else ""
     return (f"{v.recommendation} {v.stars} - {v.anchor_method} ${fv} ({up}); {band}. "
             f"ROIC {km.get('roic_adj_pct') or km.get('roic_pct')}% vs WACC {km.get('wacc_pct')}% "
-            f"(Ke {km.get('ke_pct')}%), growth {km.get('growth_pct')}%{eq}. conf {f.confidence}").str
+            f"(Ke {km.get('ke_pct')}%), growth {km.get('growth_pct')}%{eq}. conf {f.confidence}").strip()

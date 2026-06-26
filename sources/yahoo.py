@@ -169,7 +169,8 @@ def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
         for host in ("query1", "query2"):
             try:
                 r = requests_mod.get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}",
-                                     params={"range": rng, "interval": interval},
+                                     params={"range": rng, "interval": interval,
+                                             "events": "div,splits"},
                                      headers=_UA, timeout=timeout)
                 r.raise_for_status()
                 result = (r.json().get("chart") or {}).get("result")
@@ -185,14 +186,24 @@ def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
     if res is None:
         raise last_err or RuntimeError(f"chart unavailable for {ticker}")
     q = res["indicators"]["quote"][0]
+    # adjusted close (split+dividend) for momentum; absent on some responses
+    adj = None
+    adj_node = res["indicators"].get("adjclose")
+    if adj_node and isinstance(adj_node, list) and adj_node:
+        adj = adj_node[0].get("adjclose")
     ts = res["timestamp"]
-    closes, vols, dates = [], [], []
+    closes, adj_closes, vols, dates = [], [], [], []
     for i in range(len(ts)):
         c, v = q["close"][i], q["volume"][i]
         if c is not None and v is not None:
             closes.append(float(c)); vols.append(float(v))
+            a = adj[i] if (adj and i < len(adj) and adj[i] is not None) else c
+            adj_closes.append(float(a))
             dates.append(dt.datetime.fromtimestamp(ts[i], dt.timezone.utc).strftime("%Y-%m-%d"))
-    return {"closes": closes, "volumes": vols, "dates": dates}
+    out = {"closes": closes, "volumes": vols, "dates": dates}
+    if adj is not None:
+        out["adj_closes"] = adj_closes          # present only when Yahoo returned adjclose
+    return out
 
 
 def pe_percentile_5y(eps_dated, closes, dates, price, current_eps):
