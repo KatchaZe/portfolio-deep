@@ -33,7 +33,8 @@ from pydantic import BaseModel
 
 import config
 import store as st
-from pipeline import refresh
+from pipeline import refresh, risk_prices
+from domain.engine import risk as riskeng
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -263,3 +264,199 @@ def api_whatif(items: List[WhatIfBuy]):
             st.save(s)
     res["quota"] = _quota(s)
     return JSONResponse(res)
+
+
+# --------------------------------------------------------------------------- #
+#  Risk engine  (Allocation tab — institutional risk-desk view)               #
+#  READ-ONLY on the main store. Network (price history) runs OUTSIDE st.LOCK;  #
+#  only the fmp_usage counter is committed under the lock (same safe pattern   #
+#  as /api/allocation/whatif). All risk data goes to data/risk_cache.json.     #
+# --------------------------------------------------------------------------- #
+import math as _math
+
+
+def _sleeve(sector):
+    """Coarse risk-driver sleeve for the allocation donut (not just sector names)."""
+    s = (sector or "").lower()
+    if "semicond" in s:
+        return "Semiconductor"
+    if "tech" in s or "information technology" in s:
+        return "Growth / Technology"
+    if "health" in s or "pharmac" in s:
+        return "Defensive / Healthcare"
+    if "financ" in s or "bank" in s:
+        return "Financial"
+    if "consumer" in s:
+        return "Consumer"
+    if "communication" in s:
+        return "Communication / Media"
+    return sector or "Unknown"
+
+
+def _proxy_vol(sector):
+    s = (sector or "").lower()
+    if "tech" in s or "semicond" in s or "information technology" in s or "communication" in s:
+        return riskeng.PROXY_VOL["tech"]
+    return riskeng.PROXY_VOL["us_large"]
+
+
+def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years, prefer_fmp):
+    """Assemble the full risk payload. Returns (payload, fmp_calls)."""
+    holdings = s.get("holdings", {})
+    facts = s.get("facts", {})
+    mom = s.get("momentum", {})
+
+    positions, betas, sectors, currencies, asset_class = {}, {}, {}, {}, {}
+    for t, h in holdings.items():
+        sh = h.get("shares") or 0
+        ff = facts.get(t, {}) or {}
+        price = (mom.get(t, {}) or {}).get("price") or ff.get("price")
+        if sh <= 0 or not price:
+            continue
+        positions[t] = sh * price
+        betas[t] = ff.get("beta")
+        sectors[t] = ff.get("sector") or "Unknown"
+        currencies[t] = ff.get("currency") or "USD"
+        asset_class[t] = "equity"          # all current holdings are single equities
+
+    weights = riskeng.capital_weights(positions)
+    if not weights:                        # LEVEL 3 — insufficient data
+        return ({"status": "insufficient",
+                 "message": "ยังไม่มี holding ที่มีราคา/จำนวนหุ้นพอจะวิเคราะห์ — เพิ่ม holding หรือกด Run Daily ก่อน",
+                 "snapshot": None}, 0)
+
+    tickers = sorted(weights, key=lambda t: -weights[t])
+    wvec = [weights[t] for t in tickers]
+    total_value = sum(positions.values())
+
+    # ---- price history -> returns (network, accuracy-first, quota-guarded) ----
+    rdata, calls, rmeta = risk_prices.fetch_returns(
+        tickers, fmp_key if prefer_fmp else "", quota_used, quota_cap, prefer_fmp=prefer_fmp)
+
+    have_realized = all((rdata.get(t, {}).get("n") or 0) >= 60 for t in tickers)
+    aligned = riskeng.align_returns({t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers)
+    common_n = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
+
+    if have_realized and common_n >= 60:
+        cov = riskeng.cov_matrix({t: rdata[t]["returns"] for t in tickers}, tickers)
+        cov_mode, cov_tag = "realized", "[CALC]"
+    else:
+        pvols = [_proxy_vol(sectors[t]) for t in tickers]
+        cov = riskeng.proxy_cov(tickers, pvols, asset_class)
+        cov_mode, cov_tag = "proxy", "[JUDG-PROXY]"
+
+    vols = [_math.sqrt(cov[i][i]) if cov[i][i] > 0 else 0.0 for i in range(len(tickers))]
+    port_vol = riskeng.portfolio_vol(wvec, cov)
+    dr_normal = riskeng.diversification_ratio(wvec, vols, port_vol)
+
+    cov_c = riskeng.crisis_cov(cov, tickers, asset_class)
+    vols_c = [_math.sqrt(cov_c[i][i]) if cov_c[i][i] > 0 else 0.0 for i in range(len(tickers))]
+    port_vol_c = riskeng.portfolio_vol(wvec, cov_c)
+    dr_crisis = riskeng.diversification_ratio(wvec, vols_c, port_vol_c)
+
+    rc_rows, rc_sum = riskeng.risk_contributions(tickers, wvec, cov)
+    conc = riskeng.concentration(weights)
+    gap = riskeng.gap_coverage(weights, asset_class)
+    score = riskeng.diversification_score(
+        dr_normal, dr_crisis, rc_sum.get("enb_abs"), conc.get("eff_n"), conc.get("n"), gap)
+
+    # ---- exposures ----
+    by_sector = riskeng.group_exposure(weights, sectors)
+    by_currency = riskeng.group_exposure(weights, currencies)
+    by_sleeve = riskeng.group_exposure(weights, {t: _sleeve(sectors[t]) for t in tickers})
+    beta_rc = riskeng.beta_risk_contribution(weights, betas)
+    port_beta = riskeng.portfolio_beta(weights, betas)
+
+    # ---- stress / tail ----
+    stress = riskeng.stress_test(weights, betas, sectors)
+    historical = riskeng.stress_test(weights, betas, sectors, scenarios=riskeng.HISTORICAL)
+    var = riskeng.var_cvar(port_vol, horizon_years)
+    reverse = riskeng.reverse_stress(weights, betas, tolerance_pct)
+    severe_dd = min([r["loss_pct"] for r in (stress + historical)], default=None)
+
+    # ---- suitability / sizing / rebalance ----
+    suit = riskeng.suitability(stress + historical, var, tolerance_pct)
+    sizing = riskeng.position_sizing(rc_rows, sectors)
+    reb = riskeng.rebalance(weights, sizing)
+
+    # post-trade re-validation: recompute on the proposed weights (same cov)
+    after = None
+    if not reb["no_trade"]:
+        pw = reb["proposed_weights"]
+        pvec = [pw.get(t, 0.0) for t in tickers]
+        a_vol = riskeng.portfolio_vol(pvec, cov)
+        a_rc, a_sum = riskeng.risk_contributions(tickers, pvec, cov)
+        a_conc = riskeng.concentration({t: pw.get(t, 0.0) for t in tickers})
+        after = {
+            "port_vol_pct": round(a_vol * 100, 1),
+            "eff_n": a_conc.get("eff_n"),
+            "top_risk": (a_rc[0]["ticker"] if a_rc else None),
+            "stress_worst_pct": min([r["loss_pct"] for r in riskeng.stress_test(
+                {t: pw.get(t, 0.0) for t in tickers}, betas, sectors)], default=None),
+        }
+
+    snapshot = {
+        "as_of": s.get("updated", {}).get("_daily") or None,
+        "total_value": round(total_value, 2),
+        "n_positions": len(weights),
+        "cash_pct": None,                  # not in data model -> "Invested Portfolio"
+        "equity_pct": 100.0,
+        "port_vol_pct": round(port_vol * 100, 1) if port_vol else None,
+        "severe_drawdown_pct": severe_dd,
+        "diversification_score": score["score"],
+        "port_beta": port_beta,
+        "scope": "Invested Portfolio (ไม่รวม Cash — data model ไม่มียอดเงินสด)",
+    }
+
+    return ({
+        "status": "ok",
+        "snapshot": snapshot,
+        "allocation": {"by_sector": by_sector, "by_currency": by_currency, "by_sleeve": by_sleeve},
+        "concentration": conc,
+        "capital_vs_risk": {
+            "beta_based": beta_rc,                 # Phase-1 one-factor view
+            "covariance_based": rc_rows,           # Phase-2 full view (preferred)
+            "port_vol_pct": rc_sum.get("port_vol_pct"),
+            "enb_abs": rc_sum.get("enb_abs"),
+        },
+        "diversification": {
+            "dr_normal": round(dr_normal, 2) if dr_normal else None,
+            "dr_crisis": round(dr_crisis, 2) if dr_crisis else None,
+            "score": score,
+        },
+        "stress": {"hypothetical": stress, "historical": historical,
+                   "var": var, "reverse": reverse, "tag": "[JUDG-SCENARIO] Illustrative, not a forecast"},
+        "suitability": suit,
+        "position_sizing": sizing,
+        "rebalance": {**reb, "after": after},
+        "meta": {
+            "cov_mode": cov_mode, "cov_tag": cov_tag, "cache": rmeta.get("cache"),
+            "quota_degraded": rmeta.get("quota_degraded"),
+            "sources": {t: rdata.get(t, {}).get("source") for t in tickers},
+            "as_of": {t: rdata.get(t, {}).get("as_of") for t in tickers},
+            "tags": {"history": cov_tag, "stress": "[JUDG-SCENARIO]",
+                     "beta_sector": "[STORED]", "weights": "[CALC]"},
+        },
+    }, calls)
+
+
+@app.get("/api/risk")
+def api_risk(risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0, enrich: str = "auto"):
+    """Full risk-desk analysis of the current portfolio.
+    enrich='auto' (default) uses FMP adjusted history when quota allows, else free
+    stooq; enrich='free' never spends FMP quota (used by the regression test)."""
+    prefer_fmp = (enrich != "free")
+    s = st.load()
+    quota_used = st.fmp_used_today(s)
+    payload, calls = _build_risk(
+        s, config.FMP_API_KEY, quota_used, QUOTA_CAP,
+        risk_tolerance_pct, horizon_years, prefer_fmp)
+    if calls:                               # commit ONLY the quota counter, safely
+        with st.LOCK:
+            s2 = st.load()
+            st.add_fmp_calls(s2, calls)
+            st.save(s2)
+        payload["quota"] = _quota(st.load())
+    else:
+        payload["quota"] = _quota(s)
+    return JSONResponse(payload)

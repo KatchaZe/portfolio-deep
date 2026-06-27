@@ -87,6 +87,22 @@
       <div id="watchTable" class="muted" style="font-size:12px">Add tickers then press “Run watchlist”. Data is fetched on demand and not stored.</div>
     </div>
     <div id="p3" style="display:none">
+      <!-- ===================== RISK DESK (institutional view) ===================== -->
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 8px">
+        <div style="font-size:15px;font-weight:800">&#128737;&#65039; Risk Desk <span class="muted" style="font-size:11px;font-weight:600">— Capital weight &ne; Risk weight</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <label class="muted" style="font-size:11px">Max loss รับได้
+            <input id="riskTol" type="number" value="20" min="1" max="90" style="width:54px;padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px">%</label>
+          <label class="muted" style="font-size:11px">Horizon
+            <select id="riskHorizon" style="padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="1">1y</option><option value="3">3y</option><option value="5">5y</option></select></label>
+          <label class="muted" style="font-size:11px" title="auto = ใช้ FMP adjusted history เพื่อความแม่นเมื่อ quota พอ แล้ว fallback เป็น stooq · free = ไม่ใช้ FMP quota">data
+            <select id="riskEnrich" style="padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="auto">auto (FMP&rarr;stooq)</option><option value="free">free (stooq only)</option></select></label>
+          <button onclick="loadRisk()" style="border:0;border-radius:7px;padding:7px 13px;background:#0f172a;color:#fff;font-weight:700;cursor:pointer;font-size:12px"><span class="spin" id="spRisk"></span> &#8635; Run risk analysis</button>
+        </div>
+      </div>
+      <div id="riskBody"><div class="muted" style="font-size:12px;padding:8px">กด “Run risk analysis” เพื่อคำนวณ %Capital vs %Risk, concentration, correlation, stress test และแผน rebalance.</div></div>
+      <div style="border-top:2px solid #e2e8f0;margin:22px 0 12px"></div>
+      <!-- ===================== existing cost-basis allocation + what-if (unchanged) ===================== -->
       <div style="font-size:13px;font-weight:700;margin:4px 0">Current allocation (by cost basis)</div>
       <div id="allocEmpty" class="muted" style="font-size:12px"></div>
       <div style="display:flex;gap:24px;flex-wrap:wrap">
@@ -299,7 +315,7 @@ function renderPortfolio(d){
     <th>DEEP&#9733;</th><th>Momentum</th><th title="Cross-sectional momentum rank (Top/Mid/Bottom by 12-1)">Rank</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th title="EPS &amp; Rev beat/meet/miss vs consensus + operating-margin YoY trend (expand/flat/contract), last 4 quarters (old→new)">Earnings</th><th class="l">Verdict</th>
     </tr></thead><tbody>${rows||'<tr><td class="l muted" colspan="16">No holdings yet — add one above.</td></tr>'}${rows?totRow:''}</tbody></table>`;
 }
-function showTab(n){for(const i of [1,2,3]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3)loadAllocation();}
+function showTab(n){for(const i of [1,2,3]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){loadAllocation();loadRisk();}}
 
 const PALETTE=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0d9488','#d97706','#0891b2','#be185d','#65a30d','#9333ea','#ea580c','#475569','#0ea5e9'];
 let charts={};
@@ -336,6 +352,135 @@ async function calcWhatif(){
     if(d.quota)renderQuota(d.quota);
     document.getElementById('whatifMsg').textContent='Added: '+(d.added||[]).map(a=>a.ticker+' $'+a.amount).join(', ');
   }catch(e){document.getElementById('whatifMsg').textContent='Error: '+e}
+}
+
+// ===================== RISK DESK (tab3, additive — new functions only) =====================
+let riskCharts={};
+function rcChart(id,cfg){const ctx=document.getElementById(id);if(!ctx||typeof Chart==='undefined')return;if(riskCharts[id])riskCharts[id].destroy();riskCharts[id]=new Chart(ctx,cfg);}
+function rcard(label,val,color){return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:96px"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em">${label}</div><div style="font-size:17px;font-weight:800;color:${color||'#0f172a'}">${val}</div></div>`;}
+function rp(v,d=1){return (v===null||v===undefined)?'<span class="muted">&mdash;</span>':Number(v).toFixed(d)+'%';}
+function lossColor(v){return v<=-30?'#dc2626':v<=-15?'#ea580c':v<0?'#d97706':'#16a34a';}
+function scoreColor(s){return s>=60?'#16a34a':s>=40?'#d97706':'#dc2626';}
+function rsec(title,inner,note){return `<div style="margin:14px 0"><div style="font-size:13px;font-weight:800;margin:0 0 6px">${title}${note?` <span class="muted" style="font-weight:600;font-size:10px">${note}</span>`:''}</div>${inner}</div>`;}
+
+async function loadRisk(){
+  const body=document.getElementById('riskBody'); if(!body)return;
+  const sp=document.getElementById('spRisk'); if(sp)sp.style.display='inline-block';
+  const tol=document.getElementById('riskTol').value||20, hz=document.getElementById('riskHorizon').value||1, en=document.getElementById('riskEnrich').value||'auto';
+  body.innerHTML='<div class="muted" style="font-size:12px;padding:10px">Computing risk… (price history + covariance + stress)</div>';
+  try{
+    const r=await fetch(`/api/risk?risk_tolerance_pct=${encodeURIComponent(tol)}&horizon_years=${encodeURIComponent(hz)}&enrich=${en}`);
+    const d=await r.json(); if(d.quota)renderQuota(d.quota); renderRisk(d);
+  }catch(e){body.innerHTML='<div class="down" style="padding:10px;font-size:12px">Error: '+esc(String(e))+'</div>';}
+  finally{if(sp)sp.style.display='none';}
+}
+function capRiskRows(cv){
+  const cov=cv.covariance_based||[];
+  if(cov.length && cov[0].signed_risk_pct!=null) return cov.map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.signed_risk_pct,diff:x.diff_pp,abs:x.abs_risk_share_pct}));
+  return (cv.beta_based||[]).map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.risk_pct,diff:x.diff_pp,abs:x.risk_pct}));
+}
+function renderRisk(d){
+  const body=document.getElementById('riskBody');
+  if(!d||d.status!=='ok'){body.innerHTML='<div class="muted" style="padding:10px;font-size:12px">'+esc((d&&d.message)||'No risk data — add holdings with price first.')+'</div>';return;}
+  const s=d.snapshot,dv=d.diversification||{},cv=d.capital_vs_risk||{},m=d.meta||{};
+  // 1) snapshot
+  const snap=`<div style="display:flex;gap:8px;flex-wrap:wrap">
+    ${rcard('Value','$'+Math.round(s.total_value).toLocaleString())}
+    ${rcard('Positions',s.n_positions)}
+    ${rcard('Est. Vol (annual)',rp(s.port_vol_pct),'#0f172a')}
+    ${rcard('Severe drawdown',rp(s.severe_drawdown_pct),lossColor(s.severe_drawdown_pct))}
+    ${rcard('Portfolio β',s.port_beta)}
+    ${rcard('Diversification',s.diversification_score+'/100',scoreColor(s.diversification_score))}</div>
+    <div class="muted" style="font-size:10px;margin-top:5px">${esc(s.scope||'')} · DR normal <b>${dv.dr_normal??'—'}</b> / crisis <b>${dv.dr_crisis??'—'}</b> — ${esc((dv.score&&dv.score.band)||'')}</div>`;
+  // 2) allocation
+  const alloc=`<div style="display:flex;gap:24px;flex-wrap:wrap">
+    <div style="width:280px"><div class="muted" style="font-size:11px;text-align:center">By risk sleeve</div><canvas id="rcSleeve" height="220"></canvas></div>
+    <div style="width:280px"><div class="muted" style="font-size:11px;text-align:center">By currency</div><canvas id="rcCcy" height="220"></canvas></div></div>`;
+  // 3) capital vs risk
+  const caprisk=`<canvas id="rcCapRisk" height="${Math.max(120,capRiskRows(cv).length*34)}"></canvas>
+    <div class="muted" style="font-size:10px;margin-top:4px">แท่งเทา = %เงินที่ลง · แท่งแดง = %ความเสี่ยงที่สร้าง (เขียว = ตัวช่วยลดความเสี่ยง). ${capRiskHint(cv)}</div>`;
+  // 4) concentration
+  const c=d.concentration||{};
+  const conc=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+    ${rcard('HHI',c.hhi??'—')}${rcard('Effective N',c.eff_n??'—')}${rcard('Top-5',rp(c.top5_pct))}${rcard('Top-10',rp(c.top10_pct))}${rcard('ENB (risk)',(cv.enb_abs??'—'))}</div>
+    <div style="width:340px;max-width:100%"><canvas id="rcSector" height="180"></canvas></div>
+    <div style="font-size:11px;margin-top:6px">${hiddenConc(d.allocation,cv)}</div>`;
+  // 5) stress
+  const st=d.stress||{},vr=st.var||{};
+  const stress=`<canvas id="rcStress" height="${Math.max(140,(((st.historical||[]).length)+((st.hypothetical||[]).length))*30)}"></canvas>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${rcard('VaR 95%',rp(vr.var95_pct),'#dc2626')}${rcard('VaR 99%',rp(vr.var99_pct),'#dc2626')}${rcard('CVaR 95%',rp(vr.cvar95_pct),'#991b1b')}</div>
+    <div class="muted" style="font-size:10px;margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
+  // 6) suitability banner
+  const suit=d.suitability||{}; const ok=suit.within_tolerance;
+  const suitB=`<div style="border-radius:9px;padding:11px 13px;font-size:12.5px;font-weight:600;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#991b1b'};border:1px solid ${ok?'#86efac':'#fecaca'}">
+    ${ok?'✅':'⛔'} Suitability: drawdown ที่ผูกพัน <b>${rp(suit.binding_drawdown_pct)}</b> เทียบขีดรับได้ <b>${rp(-(suit.tolerance_pct||0))}</b> — <b>${esc(suit.verdict||'')}</b></div>`;
+  // 7) rebalance
+  const reb=d.rebalance||{}; let rebH;
+  if(reb.no_trade){rebH=`<div style="border-radius:9px;padding:10px 13px;background:#dcfce7;color:#166534;border:1px solid #86efac;font-size:12.5px;font-weight:700">NO TRADE — พอร์ตยังอยู่ใน policy band</div>`;}
+  else{
+    const af=reb.after||{};
+    rebH=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+      ${rcard('Vol now',rp(cv.port_vol_pct))}${rcard('Vol after',rp(af.port_vol_pct),'#16a34a')}
+      ${rcard('Top risk now',(capRiskRows(cv)[0]||{}).ticker||'—')}${rcard('Top risk after',af.top_risk||'—')}
+      ${rcard('Stress worst after',rp(af.stress_worst_pct),lossColor(af.stress_worst_pct))}</div>
+      <table style="font-size:12px"><thead><tr><th class="l">Ticker</th><th>Action</th><th>From</th><th>To</th><th>Δ</th><th class="l">Priority</th></tr></thead><tbody>
+      ${(reb.trades||[]).map(t=>`<tr><td class="l"><b>${t.ticker}</b></td><td><span class="tag" style="background:${t.action==='TRIM'?'#ea580c':'#0d9488'}">${t.action}</span></td><td>${rp(t.from_pct)}</td><td>${rp(t.to_pct)}</td><td>${rp(t.amount_pct)}</td><td class="l">${t.priority}</td></tr>`).join('')}
+      </tbody></table>`;
+  }
+  body.innerHTML = rsec('1 · Portfolio Snapshot',snap)
+    + rsec('2 · Capital Allocation (by risk driver)',alloc)
+    + rsec('3 · Capital Weight vs Risk Weight',caprisk,m.cov_tag||'')
+    + rsec('4 · Concentration Map',conc)
+    + rsec('5 · Stress Test',stress,'[JUDG-SCENARIO]')
+    + rsec('6 · Suitability (headline finding)',suitB)
+    + rsec('7 · Rebalancing Plan',rebH)
+    + rsec('Bottom line',panelExplain(d))
+    + panelLegend(m);
+  drawRiskCharts(d);
+}
+function capRiskHint(cv){const r=capRiskRows(cv);const big=r.filter(x=>x.diff!=null&&x.diff>=3).sort((a,b)=>b.diff-a.diff)[0];return big?`${big.ticker} ถือเงิน ${rp(big.cap)} แต่สร้างความเสี่ยง ${rp(big.risk)} (มากกว่าน้ำหนักเงิน +${big.diff}pp).`:'';}
+function hiddenConc(alloc,cv){
+  const sl=(alloc&&alloc.by_sleeve)||[]; const top=sl[0];
+  let out=[]; if(top&&top.value>=40)out.push(`⚠ กระจุกที่ <b>${esc(top.label)}</b> ${rp(top.value)} ของพอร์ต`);
+  const ccy=(alloc&&alloc.by_currency)||[]; if(ccy[0]&&ccy[0].value>=80)out.push(`USD/${esc(ccy[0].label)} exposure ${rp(ccy[0].value)} — FX single-currency`);
+  const hi=capRiskRows(cv)[0]; if(hi)out.push(`ตัวขับความเสี่ยงหลัก: <b>${hi.ticker}</b> (${rp(hi.abs)} ของความเสี่ยงรวม)`);
+  return out.length?out.join(' · '):'<span class="muted">ไม่พบ concentration เด่นเกินเกณฑ์</span>';
+}
+function panelExplain(d){
+  const cv=d.capital_vs_risk||{},rows=capRiskRows(cv),st=d.stress||{},suit=d.suitability||{},dv=d.diversification||{},reb=d.rebalance||{};
+  const worst=[...(st.historical||[]),...(st.hypothetical||[])].sort((a,b)=>a.loss_pct-b.loss_pct)[0];
+  const top=rows[0],bigGap=rows.filter(x=>x.diff!=null&&x.diff>0).sort((a,b)=>b.diff-a.diff)[0];
+  const firstAct=(reb.trades||[])[0];
+  const li=[];
+  if(top)li.push(`พอร์ตขับเคลื่อนโดย <b>${top.ticker}</b> — สร้าง ${rp(top.abs)} ของความเสี่ยงรวม`);
+  if(bigGap&&bigGap.ticker!==(top||{}).ticker)li.push(`<b>${bigGap.ticker}</b> เงินน้อยแต่เสี่ยงเกินน้ำหนัก (+${bigGap.diff}pp)`);
+  if(worst)li.push(`Scenario เจ็บสุด: <b>${esc(worst.label)}</b> ~${rp(worst.loss_pct)}`);
+  li.push(`Diversification ${d.snapshot.diversification_score}/100 — DR crisis ${dv.dr_crisis??'—'} (ใกล้ 1 = แทบไม่ช่วยตอนวิกฤต)`);
+  if((dv.score&&dv.score.sub&&dv.score.sub.gap_coverage)===0)li.push(`ขาด ballast: ไม่มี bond / gold / cash ถ่วงพอร์ต`);
+  li.push(suit.within_tolerance?`Drawdown ยังอยู่ในขีดที่รับได้`:`⛔ Drawdown อาจเกินที่รับได้ — เรื่องนี้สำคัญสุด`);
+  li.push(reb.no_trade?`Action: NO TRADE`:(firstAct?`Action แรก: ${firstAct.action} ${firstAct.ticker} ${rp(firstAct.amount_pct)}`:'Action: review'));
+  return `<ul style="margin:2px 0 0;padding-left:18px;font-size:12px;line-height:1.7">`+li.map(x=>`<li>${x}</li>`).join('')+`</ul>`;
+}
+function panelLegend(m){
+  const src=m.sources||{}; const srcTxt=Object.keys(src).map(t=>`${t}:${src[t]}`).join(' · ');
+  return `<div style="margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8">
+    Tags: [STORED]=จาก data model · [CALC]=คำนวณ · [JUDG-PROXY]=ค่าสมมติ asset-class · [JUDG-SCENARIO]=stress illustrative.
+    Covariance: <b>${esc(m.cov_mode||'?')}</b> ${esc(m.cov_tag||'')}${m.quota_degraded?' · ⚠ degraded to free source (quota)':''}<br>price source — ${esc(srcTxt)}</div>`;
+}
+function drawRiskCharts(d){
+  const al=d.allocation||{};
+  makePie('rcSleeve',al.by_sleeve||[]); makePie('rcCcy',al.by_currency||[]);
+  const r=capRiskRows(d.capital_vs_risk||{}).slice(0,10);
+  rcChart('rcCapRisk',{type:'bar',data:{labels:r.map(x=>x.ticker),datasets:[
+    {label:'%Capital',data:r.map(x=>x.cap),backgroundColor:'#94a3b8'},
+    {label:'%Risk',data:r.map(x=>x.risk),backgroundColor:r.map(x=>x.risk<0?'#16a34a':'#dc2626')}]},
+    options:{indexAxis:'y',plugins:{legend:{labels:{font:{size:10},boxWidth:12}}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:10}}}}}});
+  const sec=(al.by_sector||[]);
+  rcChart('rcSector',{type:'bar',data:{labels:sec.map(x=>x.label),datasets:[{label:'%',data:sec.map(x=>x.value),backgroundColor:'#2563eb'}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+  const st=d.stress||{}; const sc=[...(st.historical||[]),...(st.hypothetical||[])].sort((a,b)=>a.loss_pct-b.loss_pct);
+  rcChart('rcStress',{type:'bar',data:{labels:sc.map(x=>x.label),datasets:[{label:'Est. loss %',data:sc.map(x=>x.loss_pct),backgroundColor:sc.map(x=>lossColor(x.loss_pct))}]},
+    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
 }
 
 async function loadWatchlist(){const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}

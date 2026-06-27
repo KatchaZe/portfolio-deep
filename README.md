@@ -56,8 +56,49 @@ one-line verdict. **Run Fundamental Refresh** (SEC+FMP+Yahoo) / **Run Daily**
 names are remembered). Per row: **+ Portfolio** (prompts for shares + avg cost, then
 moves it to My Portfolio) and ✕ remove.
 
-**Allocation** — two cost-basis doughnut pies (by holding, by sector). **What-if**:
-enter up to 5 (ticker, buy $) → **Calculate** to see the allocation before vs after.
+**Allocation** — opens with the new **Risk Desk** (see §2b): %Capital vs %Risk,
+concentration, correlation/diversification, stress tests, and a rebalancing plan.
+Below it (unchanged) are the two cost-basis doughnut pies (by holding, by sector)
+and **What-if**: enter up to 5 (ticker, buy $) → **Calculate** to see the
+allocation before vs after.
+
+---
+
+## 2b. Allocation → Risk Desk (institutional risk view)
+
+The Allocation tab now opens with a **Risk Desk** that answers what the cost-basis
+pies cannot: **capital weight ≠ risk weight** (a 20% position in a high-vol name can
+be 50%+ of portfolio risk). All math is computed server-side in **pure Python**
+(`domain/engine/risk.py`, no numpy) and served by **`GET /api/risk`**. The cost-basis
+pies + what-if below it are untouched.
+
+**Controls:** *Max loss รับได้ (%)* (your tolerance), *Horizon*, and *data*:
+`auto` = use **FMP dividend-adjusted** history for accurate vol/correlation when the
+quota allows, else free **Stooq**; `free` = never spend FMP quota.
+
+**Seven sections** (numbers carry epistemic tags):
+
+1. **Snapshot** — value, #positions, est. annual vol, severe drawdown, portfolio β, **Diversification Score 0–100**, DR normal/crisis.
+2. **Capital Allocation** — donuts by **risk sleeve** (Semiconductor / Growth-Tech / Defensive / …) and by **currency**.
+3. **Capital Weight vs Risk Weight** — the headline bar: grey %capital vs red %risk (green = a diversifier that *reduces* risk; signed %RC sums to 100%).
+4. **Concentration Map** — HHI, Effective N, Top-5/10, ENB, by-sector bar, hidden-concentration callouts.
+5. **Stress Test** — historical replays (GFC / COVID / 2022 / 2024 carry) + hypothetical shocks + **VaR/CVaR** + **reverse stress**. All `[JUDG-SCENARIO]` illustrative, not forecasts.
+6. **Suitability** — the headline finding: does the worst plausible drawdown exceed your max-loss tolerance? (green = within / red = exceeds).
+7. **Rebalancing Plan** — caps each name, proposes trims/adds with priority, shows **before → after** risk metrics; can return **NO TRADE**.
+
+Plus a plain-language **Bottom line** and an epistemic-tag legend.
+
+**Data & quota:** vol/correlation use ~1.5y of daily returns, sourced accuracy-first
+and confidence-tagged: FMP adjClose `[CALC]` → Stooq `[CALC]` → asset-class proxy
+`[JUDG-PROXY]`. A hard pre-check keeps FMP usage **under the 250/day cap** and degrades
+to free sources rather than erroring; beta/sector are read from stored facts `[STORED]`.
+
+**Isolation — the My Portfolio / Watchlist tabs are unaffected:** `/api/risk` is
+**read-only** on `portfolio.json`; risk results cache in a **separate
+`data/risk_cache.json`**; the only write to the shared store is the FMP-usage counter,
+via the same reload→commit-under-lock pattern as the what-if endpoint. The
+`test_no_regression` suite locks this. Full rationale + audit: **`RISK_FEATURE.md`**
+and `ALLOCATION_RISK_UPGRADE_PLAN.md` §10.
 
 ---
 
@@ -136,13 +177,17 @@ from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output s
 
 ```powershell
 python capture.py        # one-time: fetch real fixtures (or commit them)
-python run_tests.py      # 17 modules: FMP/SEC/engine + momentum, consensus blend,
-                         # margin trend, Stooq, revenue surprise, assumption flags
+python run_tests.py      # 19 modules: FMP/SEC/engine + momentum, consensus blend,
+                         # margin trend, Stooq, revenue surprise, assumption flags,
+                         # + risk engine + no-regression isolation
 ```
 The fixtures freeze real numbers for AVGO/ABBV/ORCL/NVO/MSFT so a data regression
 fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B). New
 modules: `test_margin`, `test_stooq`, `test_consensus`, `test_finnhub`, `test_fmp_rev`,
-`test_followups`.
+`test_followups`, **`test_risk`** (risk-engine invariants: weights sum to 1, RC sums
+to σp, signed %RC sums to 100%, a diversifier gets negative RC, DR≥1, score 0–100),
+**`test_no_regression`** (the Allocation upgrade is additive: the existing endpoints
+keep their JSON contract and `/api/risk` never modifies `portfolio.json`).
 
 ---
 

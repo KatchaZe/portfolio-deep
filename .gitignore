@@ -4,5 +4,7 @@ __pycache__/
 venv/
 data/portfolio.json
 data/cache/
+data/risk_cache.json
 .env
+client_secret.json
 # keep tests/fixtures/ committed — they are the regression safety net
