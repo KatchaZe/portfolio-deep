@@ -1,0 +1,7 @@
+{
+  "horizon": "long",
+  "role": "value-first",
+  "tax_status": "taxable",
+  "risk_aversion": "medium",
+  "_note": "S1/S42: edit to match YOU (horizon: long/medium/short; role: value-first/momentum/blended; tax_status: taxable/sheltered)."
+}

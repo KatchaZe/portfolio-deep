@@ -75,6 +75,9 @@
   </div>
   <div class="panel">
     <div id="momBanner" style="display:none"></div>
+    <div id="mktRegime" style="display:none"></div>
+    <div id="benchmark" style="display:none"></div>
+    <div id="philosophy" style="display:none"></div>
     <div id="p1"></div>
     <div id="p2" style="display:none">
       <div class="addform">
@@ -134,6 +137,10 @@ function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;<
 function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
 function momPct(v){return (v===null||v===undefined)?'—':(v>=0?'+':'')+(v*100).toFixed(1)+'%'}
+function garpBadge(x){
+  if(!x.garp_candidate)return '';
+  return ` <span class="tag" style="background:#0d9488;font-size:8px" title="GARP / value-quality mismatch (Damodaran S13/S19): cheap (Price) AND quality (Economics). Score ${x.garp_score??'?'}/10">GARP</span>`;
+}
 function momCell(x){
   // PRIMARY = faithful composite (momentum_v2). RSI/MACD/DBBMV kept as SECONDARY in tooltip.
   const m=x.momentum_v2;
@@ -150,13 +157,18 @@ function momCell(x){
   const cleaned=dropped?` · cleaned ${dropped} bad bar(s)`:'';
   const staleTxt=stale?` · ⏳ STALE ${m.age_days}d old — run Daily`:'';
   const rank=m.mom_bucket?` · rank ${m.mom_bucket}`:'';
+  const crash=m.crash_guard===true, rev=(m.reversal&&m.reversal.risk===true);
+  const crashTxt=crash?' · \u26A0 S9 crash guard: market risk-off, momentum crash-prone':'';
+  const revTxt=rev?` · \u21BB S9 reversal risk (3y ${momPct(m.reversal.cum_return)}, near top)`:'';
   const tip=(`Composite ${m.mom_label} (${m.mom_score}/${m.mom_n} positive)`
     +` · 12-1 ${momPct(m.mom_12_1)} · 6M ${momPct(m.roc_6m)} · 12M ${momPct(m.roc_12m)}`
     +` · ${m.above_sma200===true?'above':m.above_sma200===false?'below':'?'} SMA200 · RSI ${f(m.rsi,0)}`
     +`  ||  12-1>0 ${ck('mom_12_1_pos')}  6M>0 ${ck('roc_6m_pos')}  >SMA200 ${ck('above_sma200')}  RSI>50 ${ck('rsi_gt_50')}`
-    +` · source ${m.src||'?'} · ${q.bars||'?'} bars · as of ${m.as_of||'?'}${warn}${cleaned}${staleTxt}  ||  secondary: ${sec}`).replace(/"/g,'&quot;');
+    +` · source ${m.src||'?'} · ${q.bars||'?'} bars · as of ${m.as_of||'?'}${warn}${cleaned}${staleTxt}${crashTxt}${revTxt}  ||  secondary: ${sec}`).replace(/"/g,'&quot;');
   const marks=(divWarn?'<span style="color:#d97706" title="split-only price, dividend payer — 12M may understate">&#9888;</span>':'')
-    +(stale?'<span style="color:#b45309" title="stale momentum — run Daily">&#9203;</span>':'');
+    +(stale?'<span style="color:#b45309" title="stale momentum — run Daily">&#9203;</span>':'')
+    +(crash?'<span style="color:#dc2626" title="S9 crash guard: market risk-off (S&P below 200-DMA) — momentum crash-prone">&#9888;</span>':'')
+    +(rev?'<span style="color:#7c3aed" title="S9 long-horizon reversal: ~3y run extreme and near top — reversal-prone">&#8635;</span>':'');
   return `<td title="${tip}">${tag(m.mom_label,MOMV2_COLOR[m.mom_label])}${marks}`
     +`<div class="muted" style="font-size:9px">6M ${momPct(m.roc_6m)}${rank} &#9432;</div></td>`;
 }
@@ -190,7 +202,10 @@ function anchorCell(x){
   return '<span class="muted">&mdash;</span>';
 }
 function upsideCell(x){
-  if(x.upside_pct!=null)return pct(x.upside_pct);
+  if(x.upside_pct!=null){
+    const net=(x.net_upside_pct!=null)?`<div class="muted" style="font-size:9px" title="after ~trading cost + capital-gains tax (Damodaran S6)">net ${(x.net_upside_pct>=0?'+':'')+x.net_upside_pct}%</div>`:'';
+    return pct(x.upside_pct)+net;
+  }
   if(x.rev_verdict)return `<span title="${x.rev_verdict}" style="font-size:10px;color:#64748b">${(x.rev_verdict||'').split('—')[0].trim()||'priced-in'}</span>`;
   return '<span class="muted">&mdash;</span>';
 }
@@ -222,6 +237,11 @@ function earnCircles(x){
   if(eps.length)h+=`<div class="erow"><span class="elbl">EPS</span>${_circ(eps,'eps')}</div>`;
   if(rev.length)h+=`<div class="erow"><span class="elbl">Rev</span>${_circ(rev,'rev')}</div>`;
   if(mgn.length)h+=`<div class="erow"><span class="elbl" title="Operating-margin YoY trend: expand / flat / contract">Mgn</span>${_circ(mgn,'mgn')}</div>`;
+  const pd=x.pead||{};
+  if(pd.bias&&pd.bias!=='neutral'){
+    const up=pd.bias==='up';
+    h+=`<div class="erow"><span class="elbl" title="${(pd.note||'').replace(/"/g,'&quot;')}">PEAD</span><span class="tag" style="background:${up?'#16a34a':'#dc2626'};font-size:9px" title="Damodaran S25: drift bias from the last earnings surprise">${up?'▲ up':'▼ down'}${pd.strength==='strong'?'*':''}</span></div>`;
+  }
   return h+`<div class="muted" style="font-size:8px">old→new</div>`;
 }
 
@@ -284,8 +304,45 @@ function toggleDrawer(tr){
   const open=dr.style.display!=='none'; dr.style.display=open?'none':'';
   const ch=tr.querySelector('.chev'); if(ch)ch.style.transform=open?'':'rotate(180deg)';
 }
+function renderMarket(mk){
+  const el=document.getElementById('mktRegime'); if(!el)return;
+  if(!mk||!mk.regime){el.style.display='none';return;}
+  const off=mk.regime==='risk_off';
+  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;border:1px solid '
+    +(off?'#fecaca;background:#fef2f2;color:#991b1b':'#bbf7d0;background:#f0fdf4;color:#166534');
+  const dist=(mk.dist_pct!=null)?` (${mk.dist_pct>=0?'+':''}${mk.dist_pct}% vs 200-DMA)`:'';
+  el.innerHTML=off
+    ? `&#9888; Market regime: <b>RISK-OFF</b>${dist} — S&P below its 200-day average. Momentum is crash-prone (Damodaran S9); treat bullish signals with caution.`
+    : `&#9679; Market regime: <b>RISK-ON</b>${dist} — S&P above its 200-day average. Momentum signals more reliable.`;
+  const v=mk.valuation;
+  if(v&&v.regime){
+    const col={cheap:'#166534',fair:'#475569',expensive:'#991b1b'}[v.regime]||'#475569';
+    el.innerHTML+=`<div style="margin-top:4px;font-size:11px;color:${col}">Market valuation (S&P): <b>${v.regime.toUpperCase()}</b> — implied ERP ${v.implied_erp_pct}% · earnings-yield ${v.earnings_yield_pct}% · Fed spread ${v.fed_spread_pct}% &rarr; <b>${v.tilt}</b> <span style="color:#94a3b8">(Damodaran S32/33; manual inputs — not in-and-out timing)</span></div>`;
+  }
+}
+function renderPhilosophy(p){
+  const el=document.getElementById('philosophy'); if(!el)return;
+  if(!p||!p.running){el.style.display='none';return;}
+  const pr=p.profile||{}, col=p.fit_ok?'#4b3869':'#991b1b';
+  const notes=(p.notes&&p.notes.length)?` · <span style="color:#991b1b">${p.notes.join(' · ')}</span>`:'';
+  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;background:#faf5ff;color:#4b3869;border:1px solid #e9d5ff';
+  el.innerHTML=`&#129504; Philosophy fit (S1/S42): พอร์ตกำลังเล่น <b style="color:${col}">${p.running}</b> · avg DEEP ${p.avg_composite??'—'} · ${p.strong_momentum_pct}% strong momentum · ${p.garp_candidates} GARP — profile: <b>${pr.role||'?'}</b>/${pr.horizon||'?'}/${pr.tax_status||'?'}${notes}`;
+}
+function renderBenchmark(b){
+  const el=document.getElementById('benchmark'); if(!el)return;
+  if(!b||(b.portfolio_12m==null&&b.market_12m==null)){el.style.display='none';return;}
+  const f=v=>v==null?'—':(v>=0?'+':'')+v+'%';
+  const exTxt=(b.excess_pp==null)?'':` · excess <b>${b.excess_pp>=0?'+':''}${b.excess_pp} pp</b>`;
+  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;'
+    +'background:#f1f5f9;color:#334155;border:1px solid #e2e8f0';
+  el.innerHTML=`&#128202; Holdings trailing 12M (MV-weighted, illustrative): <b>${f(b.portfolio_12m)}</b> vs S&P <b>${f(b.market_12m)}</b>${exTxt}`
+    +` — active strategies usually trail a low-cost index over time (Damodaran S16/S35); judge net of cost &amp; tax.`;
+}
 function renderPortfolio(d){
   renderMomBanner(d.momentum_meta);
+  renderMarket(d.market);
+  renderBenchmark(d.benchmark);
+  renderPhilosophy(d.philosophy);
   const rows=(d.rows||[]).map(x=>{
     const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
     return `<tr class="prow" style="cursor:pointer" onclick="toggleDrawer(this)" title="Click for WACC/Ke/EVA + DEEP sub-score breakdown">
@@ -297,7 +354,7 @@ function renderPortfolio(d){
       <td>${x.pl==null?'<span class="muted">&mdash;</span>':`<span class="${x.pl>=0?'up':'down'}">${x.pl>=0?'+':''}${money(Math.abs(x.pl)).replace('$','$')}</span>`}</td>
       <td>${pct(x.pl_pct)}</td>
       <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span>
-        <div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div>${eqBadge(x)}</td>
+        <div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div>${eqBadge(x)}${garpBadge(x)}</td>
       ${momCell(x)}
       ${rankCell(x)}
       <td>${tag(x.action,ACT_COLOR[x.action])}</td>
@@ -410,6 +467,14 @@ function renderRisk(d){
   const stress=`<canvas id="rcStress" height="${Math.max(140,(((st.historical||[]).length)+((st.hypothetical||[]).length))*30)}"></canvas>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${rcard('VaR 95%',rp(vr.var95_pct),'#dc2626')}${rcard('VaR 99%',rp(vr.var99_pct),'#dc2626')}${rcard('CVaR 95%',rp(vr.cvar95_pct),'#991b1b')}</div>
     <div class="muted" style="font-size:10px;margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
+  // 5b) downside-risk lens (Damodaran S2/S4)
+  const dn=d.downside||{};
+  const rr=d.rate_risk||{}, pa=(d.meta&&d.meta.pricing_assets)||[];
+  const rateLine=rr.has_bonds?`<div class="muted" style="font-size:10px;margin-top:4px">Bond rate risk (S3): +100bps &rarr; <b>${rr.loss_pct}%</b> on portfolio · ${esc(rr.tag||'')}</div>`:'';
+  const pricingLine=pa.length?`<div class="muted" style="font-size:10px;margin-top:4px;color:#b45309">&#9888; ${esc(pa.join(', '))} = pricing plays (no cash flow, S40-41) — high uncertainty, cap weight</div>`:'';
+  const downside=`<div style="display:flex;gap:8px;flex-wrap:wrap">
+    ${rcard('Vol (total)',rp(dn.vol_pct))}${rcard('Downside dev',rp(dn.semidev_pct),'#b45309')}${rcard('Sortino',dn.sortino??'—')}${rcard('Downside β',dn.downside_beta??'—')}</div>
+    <div class="muted" style="font-size:10px;margin-top:5px">${esc(dn.tag||'')} · วัดความเสี่ยง “ขาลง” แยกจากความผันผวนรวม — Sortino สูง=ดี · downside β = แรงตกเทียบ S&P เฉพาะวันตลาดลง (${dn.n||0} วัน)</div>${rateLine}${pricingLine}`;
   // 6) suitability banner
   const suit=d.suitability||{}; const ok=suit.within_tolerance;
   const suitB=`<div style="border-radius:9px;padding:11px 13px;font-size:12.5px;font-weight:600;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#991b1b'};border:1px solid ${ok?'#86efac':'#fecaca'}">
@@ -432,6 +497,7 @@ function renderRisk(d){
     + rsec('3 · Capital Weight vs Risk Weight',caprisk,m.cov_tag||'')
     + rsec('4 · Concentration Map',conc)
     + rsec('5 · Stress Test',stress,'[JUDG-SCENARIO]')
+    + rsec('5b · Downside Risk (S2/S4)',downside)
     + rsec('6 · Suitability (headline finding)',suitB)
     + rsec('7 · Rebalancing Plan',rebH)
     + rsec('Bottom line',panelExplain(d))
@@ -510,7 +576,7 @@ function renderWatchTable(rows){
       <td>${f(x.price)}</td><td>${chg}</td>
       ${momCell(x)}
       ${rankCell(x)}
-      <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span><div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div></td>
+      <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span><div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div>${garpBadge(x)}</td>
       <td>${tag(x.action,ACT_COLOR[x.action])}</td>
       <td>${anchorCell(x)}</td>
       <td>${upsideCell(x)}</td>

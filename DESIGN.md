@@ -33,41 +33,54 @@ and allocation view.
 
 ```
 portfolio-deep/
-  config.py                  # tickers, CIKs, FMP base, SEC UA, DEEP_VERSION
-  app.py                     # FastAPI endpoints
-  index.html                 # 3-tab dashboard (vanilla JS + Chart.js)
-  store.py                   # local JSON: holdings, watchlist, facts, results, momentum, fmp_usage
+  config.py                  # tickers, CIKs, FMP base, SEC UA, DEEP_VERSION, ERP (+as-of/stale)
+  app.py                     # FastAPI endpoints (incl. /api/risk + risk helpers)
+  index.html                 # 3-tab dashboard (vanilla JS + Chart.js); Tab 3 = Risk Desk
+  store.py                   # local JSON + Google Drive mirror: holdings, watchlist, facts, results, momentum, fmp_usage, rev_*
   sources/                   # fetch only — no math, each mockable
-    sec_edgar.py             #   PRIMARY financials: robust TTM, freshest-tag pick, currency-aware
-    fmp.py                   #   profile (sector/beta/price); parse_profile  [statements are premium-gated]
-    yahoo.py                 #   forward EPS, beta, price, shares, growth, chart→momentum, ^TNX, FX
+    sec_edgar.py             #   PRIMARY financials: robust TTM, freshest-tag pick, currency-aware (+v8.2 fields)
+    fmp.py                   #   profile (sector/beta/price) · earnings · quote · analyst-estimates · peers · adjClose
+    yahoo.py                 #   forward EPS, beta, price, shares, growth, chart→momentum, 5y prices, ^TNX, FX
+    stooq.py                 #   free daily OHLC (no key) — price/momentum + risk-return fallback
+    finnhub.py               #   optional 3rd EPS-surprise cross-check (free key)
+    alphavantage.py          #   optional 4th EPS-surprise cross-check (free key, 25/day)
+    gdrive_store.py          #   OAuth Google-Drive mirror of portfolio.json (persistence)
   domain/                    # pure, deterministic, unit-tested
-    facts.py                 #   FinancialFacts dataclass (+ provenance / confidence / tier)
-    indicators.py            #   RSI / MACD / DBBMV momentum + Action grid
+    facts.py                 #   FinancialFacts dataclass (+ provenance / confidence / tier; v8.2 fields)
+    momentum.py              #   PRIMARY signal: MOM_12_1 · ROC_6M · SMA200 · RSI(14) → composite (QuantInsti)
+    indicators.py            #   secondary: RSI / MACD / DBBMV mean-reversion + Action grid
     engine/                  #   versioned DEEP engine
       contract.py            #     Valuation (output) + DeepEngine ABC  ← the stable contract
-      deep_v73.py            #     DeepV73Engine: canonical math + facts→Valuation wiring
+      deep_v82.py            #     DeepV82Engine ("8.2", ACTIVE): true WACC/Ke, R&D-ROIC, EQ, 2-stage PEG, EV RevDCF, rubric
+      deep_v73.py            #     DeepV73Engine ("7.3"): kept for one-line rollback
+      risk.py                #     Risk Desk math (pure): weights/cov/DR/RC/ENB/stress/VaR/sizing/rebalance
       __init__.py            #     registry: register(), get_engine(version)
   pipeline/
-    normalize.py             #   merge SEC + FMP profile + Yahoo → FinancialFacts (+FX, base confidence)
-    validate.py              #   sanity rules + forward-EPS resolution + confidence tier (+earnings nudge)
+    normalize.py             #   merge SEC + FMP + Yahoo → FinancialFacts (+FX, base confidence)
+    validate.py              #   sanity rules + forward-EPS resolution + assumption flags + confidence tier
+    consensus.py             #   blend forward-EPS (median + dispersion) · reconcile EPS-surprise sources
     rev_track.py             #   build-forward revenue beat/miss (snapshot estimate -> grade vs SEC actual)
-    refresh.py               #   orchestration: refresh_fundamentals / run_daily / analyze_row /
-                             #                  watchlist_run / allocation / portfolio_view / resolve_cik
-  tests/
+    margin_track.py          #   operating-margin YoY trend per SEC quarter (expand/flat/contract)
+    surprise_backfill.py     #   immediate EPS/Rev beat/miss from SEC actual × FMP estimate
+    pricecache.py            #   disk cache for the long (2y) adjusted price series (R4)
+    risk_prices.py           #   risk-only daily-return source (FMP adj → Stooq → proxy), quota-guarded
+    refresh.py               #   orchestration: fetch/commit_fundamentals · fetch/commit_daily ·
+                             #                  watchlist · allocation · portfolio_view · resolve_cik
+  tests/                     # 20 suites (run_tests.py) — see §10
     fixtures/                #   frozen real JSON: AVGO, ABBV, ORCL, NVO, MSFT (sec/yahoo/fmp profile)
-    test_fmp_parse.py        #   FMP profile/parse on real schema (offline)
-    test_extract.py          #   SEC extraction + normalize + validate vs known-good
-    test_engine.py           #   DEEP engine contract on fixtures
+    test_engine_v82.py · test_momentum.py · test_risk.py · test_no_regression.py · …
   capture.py                 # fetch real fixtures (SEC + FMP profile + Yahoo)
   verify.py                  # run SEC extraction on fixtures, compare to known-good
-  run_tests.py               # run all suites
+  run_tests.py               # run all 20 suites
   requirements.txt · render.yaml · Procfile · .gitignore
-  data/portfolio.json        # created at runtime
+  data/portfolio.json        # created at runtime (+ data/risk_cache.json, data/cache/)
 ```
 
-Reused from v1 (verified): the canonical DEEP math (now in `domain/engine/deep_v73.py`)
-and the momentum math (`domain/indicators.py`). Everything in the data layer is new.
+Reused from v1 (verified): the canonical DEEP math (ported into the versioned engine,
+now `domain/engine/deep_v82.py` with `deep_v73.py` kept for rollback) and the mean-reversion
+indicators (`domain/indicators.py`, now secondary). The **primary momentum signal**
+(`domain/momentum.py`) and the **Risk Desk** (`domain/engine/risk.py`) were added later; the
+whole data layer is new.
 
 ---
 
@@ -112,7 +125,7 @@ analyst `forward_eps` from Yahoo; `eps_gaap` is the SEC GAAP value.)
 | forward EPS (NTM, adjusted) | **Yahoo** quoteSummary | validated vs revenue ceiling (rejects bad/unsplit) |
 | growth (long-term) | **Yahoo** est. → else SEC annual CAGR | clamped 0–30% in engine |
 | sector, beta, price | **FMP** profile (all symbols, free) | Yahoo fallback for beta/price |
-| price (daily) + momentum (RSI/MACD/DBBMV) | **Yahoo** chart | free, no FMP quota |
+| price (daily) + momentum | **Yahoo** chart (→ **Stooq** fallback) | free, no FMP quota; **primary** = `momentum.py` composite (MOM_12_1/ROC/SMA200/RSI), RSI/MACD/DBBMV is secondary |
 | EPS surprise history (last ~4 Q) | **Yahoo** earningsHistory | beat/meet/miss vs consensus (EPS only; street/adjusted basis) |
 | revenue estimate (current quarter) | **Yahoo** earningsTrend `0q` | snapshotted each refresh; graded later vs SEC actual (build-forward) |
 | revenue actuals (per quarter) | **SEC EDGAR** ~90-day | grades the snapshotted estimates |
@@ -186,19 +199,25 @@ Example verdict (v8.2):
 **Tab 1 · My Portfolio** (stored): `Ticker(+✕) | Price | Chg | Shares | AvgCost | MktVal |
 P/L $ | P/L % | DEEP★+reco | Momentum(+RSI/MACD/DBBMV tooltip) | Action | Anchor FV (or
 RevDCF implies %) | Upside | Earnings | Verdict`, plus a TOTAL row and a confidence dot.
-The **Earnings** cell shows two rows of up to 4 circles (oldest→newest) — 🟢 beat /
+The **Earnings** cell shows up to three rows of up to 4 circles (oldest→newest) — 🟢 beat /
 🟡 meet / 🔴 miss, hover for quarter/actual vs estimate/surprise%:
-- **EPS** (from Yahoo, immediate).
-- **Rev** (built forward — empty until snapshots are graded; see §9). Add/update a
-holding with **shares + avg cost** (auto-fetches). **Run Fundamental Refresh** / **Run
-Daily**. Remove with the red ✕ (deletes its cached data).
+- **EPS** (vs consensus, cross-checked across Yahoo + FMP + Finnhub + Alpha Vantage).
+- **Rev** (immediate from FMP when available, else built forward — see §9).
+- **Mgn** (operating-margin YoY trend from SEC: expand/flat/contract — fills immediately).
+Add/update a holding with **shares + avg cost** (auto-fetches). **Run Fundamental Refresh** /
+**Run Daily**. Remove with the red ✕ (deletes its cached data).
 
 **Tab 2 · Watchlist** (names persisted, data ephemeral): add a ticker → **Run watchlist**
 to analyse on demand (not stored). Same columns incl. the **Earnings** circles. Per row
 **+ Portfolio** (prompts for shares + avg cost, then moves it to Tab 1) and ✕ remove.
 
-**Tab 3 · Allocation** (cost basis): two Chart.js doughnuts (by holding, by sector).
-**What-if**: up to 5 (ticker, buy $) → **Calculate** → before-vs-after pies.
+**Tab 3 · Allocation → Risk Desk** (institutional risk view, served by `GET /api/risk`):
+%Capital vs %Risk, concentration (HHI/Effective-N/ENB), correlation/diversification
+(DR normal + crisis), stress tests (historical + hypothetical + VaR/CVaR + reverse stress),
+suitability vs your max-loss tolerance, and a rebalancing plan (before→after). All math is
+pure Python (`domain/engine/risk.py`); numbers carry epistemic tags. Below it (unchanged) are
+the cost-basis doughnuts (by holding, by sector) and **What-if**: up to 5 (ticker, buy $) →
+**Calculate** → before-vs-after pies. See `RISK_FEATURE.md` for the developer reference.
 
 ---
 
@@ -210,7 +229,7 @@ to analyse on demand (not stored). Same columns incl. the **Earnings** circles. 
   "watchlist": ["AMD", "CRM"],                 // names only
   "facts":     { "NVDA": { ...FinancialFacts.to_dict()... } },   // holdings only
   "results":   { "NVDA": { ...Valuation.to_dict()... } },
-  "momentum":  { "NVDA": { ...indicators.compute()... } },
+  "momentum":  { "NVDA": { ...momentum.compute() (primary) + indicators.compute() (secondary)... } },
   "fmp_usage": { "2026-06-09": 12 },           // daily FMP-call counter (quota guard)
   "updated":   { "NVDA": "2026-06-09" },
   "rev_snapshots": { "NVDA": { "2026-07-31": {"est": 5.4e10, "captured": "2026-06-09"} } },  // pending estimates
@@ -258,15 +277,16 @@ signal wired into confidence).
 ## 10. Testing strategy (the trust layer)
 
 - **Fixtures** — committed real SEC + Yahoo (+FMP profile) JSON for AVGO/ABBV/ORCL/NVO/MSFT.
-- `test_fmp_parse.py` — FMP profile/parse on real schema (offline).
-- `test_extract.py` — SEC robust extraction + normalize + validate vs known-good ranges
-  (AVGO net ≈ $25B, ORCL rev ≈ $64B TTM / $57B annual, NVO DKK→USD, AVGO forward-EPS corrected, no out-of-band).
-- `test_engine.py` — DEEP engine contract well-formedness on fixtures.
-- `test_earnings.py` — EPS-surprise parsing/grading (beat/meet/miss, oldest→newest)
-  + the bounded confidence nudge (synthetic; Yahoo earningsHistory isn't in fixtures).
-- `test_rev.py` — revenue estimate parsing + the build-forward snapshot→grade→cap logic
-  (synthetic; locks accumulation and the 4-quarter cap).
-- `run_tests.py` runs all five; `capture.py`/`verify.py` refresh + spot-check fixtures.
+- `run_tests.py` runs **20 suites**; `capture.py`/`verify.py` refresh + spot-check fixtures. Highlights:
+  - `test_extract.py` — SEC robust extraction + normalize + validate vs known-good ranges
+    (AVGO net ≈ $25B, ORCL rev in-range, NVO DKK→USD, AVGO forward-EPS corrected, no out-of-band).
+  - `test_engine.py` / **`test_engine_v82.py`** — DEEP v7.3 / **v8.2** engine contract on fixtures.
+  - `test_earnings.py` / `test_rev.py` / `test_margin.py` / `test_consensus.py` / `test_finnhub.py` /
+    `test_fmp_rev.py` / `test_followups.py` — earnings/rev/margin track record + EPS blend + assumption flags.
+  - `test_momentum.py` / `test_stooq.py` / `test_pricecache.py` — momentum composite + price sources/cache.
+  - **`test_risk.py`** — risk-engine invariants (weights→1, RC→σp, signed %RC→100%, diversifier<0, DR≥1, score 0–100).
+  - **`test_no_regression.py`** — `/api/risk` is additive and never writes `portfolio.json`.
+  - `test_fmp_parse.py` / `test_hardening.py` / `test_app_fixes.py` / `test_gdrive.py` — parsers, freeze/crash fixes, Drive mirror.
 
 ---
 
@@ -284,6 +304,10 @@ signal wired into confidence).
 | 8. Regression + deploy | `run_tests.py`, README, render.yaml/Procfile/.gitignore | ✅ |
 | 9. Earnings track record | Yahoo EPS-surprise (4Q), beat/meet/miss circles, bounded confidence nudge, `test_earnings` | ✅ |
 | 10. Revenue track record | build-forward (`rev_track`): snapshot Yahoo estimate → grade vs SEC actual, Rev circles, `test_rev` | ✅ |
+| 11. v8.2 engine | true WACC/Ke, R&D-ROIC, earnings-quality, 2-stage PEG, EV reverse DCF, numeric DEEP rubric; centralised ERP; `test_engine_v82` | ✅ |
+| 12. Momentum upgrade | `momentum.py` composite (MOM_12_1/ROC/SMA200/RSI) as primary; Stooq fallback + price cache; `test_momentum` | ✅ |
+| 13. Risk Desk | Allocation tab → `domain/engine/risk.py` + `/api/risk` (read-only, isolated cache); stress/VaR/rebalance; `test_risk`, `test_no_regression` | ✅ |
+| 14. Persistence + extra sources | Google Drive OAuth mirror; Finnhub/Alpha Vantage cross-check; margin track; consensus blend | ✅ |
 
 ---
 

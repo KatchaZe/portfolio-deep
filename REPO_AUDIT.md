@@ -1,6 +1,6 @@
-# 🔎 Repo Audit — Portfolio DEEP v7.3 (full-stack review)
+# 🔎 Repo Audit — Portfolio DEEP v8.2 (full-stack review)
 
-อัปเดต: หลังเปลี่ยน Google Drive persistence เป็น OAuth (มิ.ย. 2026)
+อัปเดต: หลังเพิ่ม engine v8.2 + momentum composite + Risk Desk (Allocation tab) — มิ.ย. 2026
 
 ---
 
@@ -12,9 +12,9 @@
 | `index.html` | หน้าเว็บ dashboard (3 แท็บ) — frontend ทั้งหมดในไฟล์เดียว |
 | `config.py` | ค่าคงที่/ENV (FMP key, SEC contact, DEEP_VERSION, paths) |
 | `store.py` | persistence: load/save `portfolio.json` + เรียก drive_pull/push |
-| `sources/` | `sec_edgar.py` (financials หลัก), `fmp.py` (profile), `yahoo.py` (fwd EPS/momentum), `gdrive_store.py` (Drive sync), `__init__.py` |
-| `domain/` | `facts.py`, `indicators.py`, `engine/contract.py`, `engine/deep_v73.py` (เครื่องคำนวณ DEEP), `engine/__init__.py` (registry) |
-| `pipeline/` | `normalize.py`, `validate.py`, `rev_track.py`, `refresh.py` (orchestration) |
+| `sources/` | `sec_edgar.py` (financials หลัก), `fmp.py` (profile/earnings/estimates/peers), `yahoo.py` (fwd EPS/momentum/5y), `stooq.py` (price fallback), `finnhub.py`/`alphavantage.py` (EPS-surprise เสริม), `gdrive_store.py` (Drive sync), `__init__.py` |
+| `domain/` | `facts.py`, `momentum.py` (สัญญาณหลัก), `indicators.py` (เสริม), `engine/contract.py`, `engine/deep_v82.py` (**active**), `engine/deep_v73.py` (rollback), `engine/risk.py` (Risk Desk), `engine/__init__.py` (registry) |
+| `pipeline/` | `normalize.py`, `validate.py`, `consensus.py`, `rev_track.py`, `margin_track.py`, `surprise_backfill.py`, `pricecache.py`, `risk_prices.py`, `refresh.py` (orchestration) |
 | `requirements.txt` · `render.yaml` · `Procfile` | deploy config |
 
 ## 🛠 จำเป็นเฉพาะตอน dev/test (เก็บไว้ อย่าลบถ้ายัง maintain โค้ด)

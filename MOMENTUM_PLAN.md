@@ -175,3 +175,26 @@ git push
 1. ตั้ง env `FMP_API_KEY` บน host (ให้ FMP เป็น fallback adjusted ก่อน Stooq + เก็บ `dividend_ps` ของ R2)
 2. รอ redeploy แล้วเข้าแอป กด **Run Fundamental Refresh** (เติม `dividend_ps` → R2 ทำงาน) → จากนั้น **Run Daily (price/momentum)** (เติม momentum v2)
 3. หุ้นเก่ายังขึ้น "—" จนกว่าจะ refresh รอบแรก (stale-facts gotcha)
+
+---
+
+## 10. ✅ ลงมือเพิ่ม Damodaran S9/S11 (28 มิ.ย. 2026) — Tier 1 #1–#3
+
+อ้างอิงแผน `Damodaran2026_Sources_and_BuildMap.md`. ทำแบบ **additive ล้วน** (ไม่แก้ return shape เดิม) — ผ่าน `run_tests.py` ครบ 20 suites + ของเดิมไม่พัง
+
+**#1 Market-state regime + crash guard (S9):**
+- `domain/momentum.py`: เพิ่ม `market_state(index_closes)` (SPY เทียบ SMA200 → `risk_on`/`risk_off`) และ `crash_guard(mom_label, regime)` (เตือนเมื่อตลาด risk-off + หุ้นมี momentum บวก)
+- `pipeline/refresh.py`: `fetch_daily` ดึง SPY 1 ครั้ง → `market_state` → ใส่ key `^MARKET`; `commit_daily` route เข้า `s["market"]`; `portfolio_view` แนบ `crash_guard` ลงแต่ละ v2 + คืน key `market`
+- `index.html`: แบนเนอร์ `#mktRegime` (เขียว risk-on / แดง risk-off) + marker ⚠ ใน momCell เมื่อ crash_guard
+
+**#2 Long-horizon reversal guard (S9):**
+- `domain/momentum.py`: เพิ่ม `reversal_flag(closes, window=756)` — flag เมื่อ run ~3y สุดโต่ง (≥+150%) และอยู่ใกล้ยอดกรอบ (≥0.9); ผูกเข้า `compute()` เป็น key `reversal`
+- `pipeline/refresh.py`: `fetch_daily` ดึง momentum ด้วย `rng="5y"` + `fmp.fetch_history(..., days=1300)` เพื่อให้มีประวัติพอ
+- `index.html`: marker ↩ ใน momCell เมื่อ reversal.risk
+
+**#3 Indicator taxonomy relabel (S11):**
+- `domain/indicators.py`: เพิ่ม `TAXONOMY = {rsi:contrarian, dbbmv:contrarian, macd:trend}` + ใส่ใน `compute()` return — แยกชัดว่าตัวไหน mean-reversion vs trend
+
+**Test:** `tests/test_momentum.py` เพิ่ม `test_reversal_flag`, `test_market_state_and_crash_guard`; `python run_tests.py` → **ALL TEST SUITES PASSED OK**
+
+> เตือน stale-facts: หลัง deploy ต้องกด **Run Daily (price/momentum)** รอบใหม่ เพื่อเติม `market` + `reversal` (ของเดิมขึ้น "—" จนกว่าจะ refresh)

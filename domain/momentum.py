@@ -86,6 +86,58 @@ def rsi(closes, period=14):
 
 
 # --------------------------------------------------------------------------- #
+#  S9 extensions — long-horizon reversal + market-regime crash guard          #
+# --------------------------------------------------------------------------- #
+def reversal_flag(closes, window=756, extreme=1.5, top=0.90):
+    """Damodaran S9 (Random Walks & Momentum): over 3-5 years price runs tend to
+    REVERSE (long-horizon mean reversion). Flags a name whose cumulative run over
+    ~`window` bars (default 756 ~= 3y) is extreme (>= `extreme`, default +150%) AND
+    that sits near the very top of that window's range (>= `top`). Pure; never
+    fabricates -- returns risk=None when there is < `window` bars of history.
+
+    Returns {risk, window_bars, cum_return, range_pos}."""
+    n = len(closes) if closes else 0
+    if n < window:
+        return {"risk": None, "window_bars": n, "cum_return": None, "range_pos": None}
+    seg = closes[-window:]
+    base, last = seg[0], seg[-1]
+    if not base or last <= 0:
+        return {"risk": None, "window_bars": len(seg), "cum_return": None, "range_pos": None}
+    cum = last / base - 1
+    lo, hi = min(seg), max(seg)
+    range_pos = (last - lo) / (hi - lo) if hi > lo else None
+    risk = bool(cum >= extreme and range_pos is not None and range_pos >= top)
+    return {"risk": risk, "window_bars": len(seg), "cum_return": round(cum, 4),
+            "range_pos": round(range_pos, 3) if range_pos is not None else None}
+
+
+def market_state(index_closes, period=200):
+    """Damodaran S9: momentum CRASHES when the broad market turns. Reads the trend
+    regime from an index series (e.g. SPY adjusted closes):
+        risk_on  = index above its own SMA200  -> momentum signals are trustworthy
+        risk_off = index below its own SMA200  -> momentum is crash-prone
+    Pure; regime=None when there is < `period` bars. Returns
+    {regime, above_sma200, dist_pct, n}."""
+    n = len(index_closes) if index_closes else 0
+    s = sma(index_closes, period)
+    if s is None:
+        return {"regime": None, "above_sma200": None, "dist_pct": None, "n": n}
+    last = index_closes[-1]
+    above = last > s
+    return {"regime": "risk_on" if above else "risk_off", "above_sma200": above,
+            "dist_pct": round((last / s - 1) * 100, 2), "n": n}
+
+
+def crash_guard(mom_label, market_regime):
+    """S9 momentum-crash guard: in a risk_off market, a bullish momentum reading is
+    unreliable (momentum tends to crash at market turns). Returns True when caution
+    applies -- i.e. the market is risk_off AND the name shows positive momentum."""
+    if market_regime != "risk_off":
+        return False
+    return mom_label in ("Strong", "Positive")
+
+
+# --------------------------------------------------------------------------- #
 #  Data-quality guard (R1) — clean fetched series, never fabricate            #
 # --------------------------------------------------------------------------- #
 def clean_series(closes, volumes=None, dates=None, max_jump=0.5, revert=0.33):
@@ -181,6 +233,7 @@ def compute(ticker, closes, dates=None, dividend_adjusted=True):
     n = len(avail)
     score = sum(1 for v in avail if v)
     label = _label(score, n)
+    rev = reversal_flag(closes)                  # S9 long-horizon reversal (None if < 3y)
 
     def _r(x, nd=4):
         return round(x, nd) if isinstance(x, (int, float)) else x
@@ -194,6 +247,7 @@ def compute(ticker, closes, dates=None, dividend_adjusted=True):
         "vol_ann": _r(vol), "risk_adj_mom": _r(risk_adj),
         "rsi": _r(rv, 1),
         "components": components,
+        "reversal": rev,                          # S9: long-horizon reversal risk
         "mom_score": score, "mom_n": n, "mom_label": label,
         "dividend_adjusted": bool(dividend_adjusted),
         "as_of": dates[-1] if dates else None,

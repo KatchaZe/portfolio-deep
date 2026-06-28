@@ -1,59 +1,72 @@
 flowchart TD
     subgraph SRC["1 · SOURCE ADAPTERS  (fetch only, mockable)"]
-        SEC["sec_edgar.py  ★PRIMARY★<br/>financials: robust TTM (FY+YTD−priorYTD)<br/>freshest-tag pick · currency-aware"]
-        FMP["fmp.py<br/>profile only: sector · beta · price<br/>(statements premium-gated on free)"]
-        YH["yahoo.py<br/>forward EPS (adj) · momentum chart<br/>EPS surprise 4Q · revenue est (curQ)<br/>beta/price fallback · ^TNX · FX"]
+        SEC["sec_edgar.py  ★PRIMARY★<br/>financials: robust TTM (FY+YTD−priorYTD)<br/>+ CFO/assets/AR/interest/R&D/acq/deferred rev<br/>quarterly rev & op-income · freshest-tag · FX-aware"]
+        FMP["fmp.py<br/>profile: sector·beta·price · earnings · quote<br/>analyst-estimate path · revenue surprise · peers<br/>adjClose history (momentum/risk)"]
+        YH["yahoo.py<br/>forward EPS (adj) · momentum chart · 5y prices<br/>EPS surprise · revenue est (curQ) · ^TNX · FX"]
+        STQ["stooq.py<br/>free daily OHLC (no key)<br/>price/momentum + risk-returns FALLBACK"]
+        FH["finnhub.py / alphavantage.py<br/>optional 3rd/4th EPS-surprise cross-check"]
     end
 
     subgraph PIPE["2 · PIPELINE"]
-        NORM["normalize.py<br/>merge SEC + FMP profile + Yahoo<br/>→ FinancialFacts (+FX, provenance)"]
-        VAL["validate.py<br/>sanity rules · forward-EPS resolution<br/>earnings track-record nudge (±10)<br/>→ confidence score + tier (🟢🟡🔴)"]
-        RT["rev_track.py<br/>build-forward revenue beat/miss<br/>snapshot est → grade vs SEC actual"]
-        REF["refresh.py (orchestration)<br/>refresh_fundamentals · run_daily<br/>watchlist_run · allocation · portfolio_view"]
+        NORM["normalize.py<br/>merge SEC + FMP + Yahoo → FinancialFacts (+FX, provenance)"]
+        VAL["validate.py<br/>sanity rules · forward-EPS resolution<br/>assumption flags → confidence score + tier (🟢🟡🔴)"]
+        TRACKS["rev_track · margin_track · consensus<br/>surprise_backfill · pricecache<br/>EPS/Rev/Margin track record + EPS blend"]
+        RISKP["risk_prices.py<br/>daily returns FMP→Stooq→proxy (risk only)"]
+        REF["refresh.py (orchestration)<br/>fetch/commit_fundamentals · fetch/commit_daily<br/>watchlist · allocation · portfolio_view"]
     end
 
     subgraph DOM["3 · DOMAIN  (pure · deterministic · tested)"]
-        FACTS["FinancialFacts<br/>values + provenance + confidence<br/>+ earnings_surprises (4Q)"]
-        IND["indicators.py<br/>RSI / MACD / DBBMV + Action"]
+        FACTS["FinancialFacts<br/>values + provenance + confidence<br/>+ v8.2 fields (CFO, R&D, consensus path, peers…)"]
+        MOM["momentum.py ★PRIMARY signal★<br/>MOM_12_1 · ROC_6M · SMA200 · RSI(14) → composite"]
+        IND["indicators.py (secondary)<br/>RSI / MACD / DBBMV mean-reversion + Action"]
         subgraph ENG["engine/  (versioned, swappable)"]
             CON["contract.py<br/>Valuation + DeepEngine ABC"]
-            V73["deep_v73.py  ★active★<br/>WACC·ROIC·PEG·FVP·RevDCF·composite"]
-            V74["deep_v74.py  (future)"]
-            REG["__init__.py registry<br/>get_engine(DEEP_VERSION)"]
+            V82["deep_v82.py  ★active★<br/>true WACC·Ke·R&D-ROIC·EQ·2-stage PEG·EV RevDCF·rubric"]
+            V73["deep_v73.py  (rollback)"]
+            REG["__init__.py registry<br/>get_engine(DEEP_VERSION=8.2)"]
         end
+        RISK["engine/risk.py (Risk Desk math)<br/>weights·cov·DR·RC/ENB·stress·VaR·sizing·rebalance"]
     end
 
     subgraph STORE["4 · STORE  (store.py — local JSON + cloud mirror)"]
         PORT["portfolio.json (local working copy)<br/>holdings(shares+avg cost) · watchlist<br/>facts · results · momentum · fmp_usage<br/>rev_snapshots · rev_surprises (accrue)"]
+        RCACHE["risk_cache.json<br/>risk return-series cache (separate file)"]
         GD["gdrive_store.py<br/>OAuth user creds · scope drive.file<br/>drive_pull() on load · drive_push() on save<br/>best-effort · no-op when unconfigured"]
         CLOUD["☁ Google Drive (your account)<br/>portfolio.json — survives Render<br/>free-tier redeploys / cold starts"]
     end
 
     subgraph API["5 · FASTAPI (app.py)"]
-        EP["/portfolio /holding(+/remove) /refresh /daily<br/>/watchlist(/add /remove /run /promote)<br/>/allocation(/whatif) /quota"]
+        EP["/portfolio /holding(+/remove) /refresh /daily<br/>/watchlist(/add /remove /run /promote)<br/>/allocation(/whatif) /risk /quota /healthz"]
     end
 
     subgraph UI["6 · DASHBOARD (index.html, 3 tabs)"]
-        T1["Tab 1 · My Portfolio<br/>P/L · DEEP★ · momentum · action<br/>earnings circles EPS+Rev 🟢🟡🔴 · confidence"]
+        T1["Tab 1 · My Portfolio<br/>P/L · DEEP★ (v8.2) · momentum · action<br/>earnings circles EPS+Rev+Mgn 🟢🟡🔴 · confidence"]
         T2["Tab 2 · Watchlist<br/>run on-demand · earnings circles<br/>+ Portfolio · remove"]
-        T3["Tab 3 · Allocation<br/>cost pies (holding+sector) · what-if"]
+        T3["Tab 3 · Allocation → RISK DESK<br/>%Capital vs %Risk · concentration · stress/VaR<br/>suitability · rebalance · (cost pies + what-if below)"]
     end
 
     SEC --> NORM
     FMP --> NORM
     YH --> NORM
+    STQ -. price/return fallback .-> REF
+    FH -. optional cross-check .-> TRACKS
     NORM --> VAL --> FACTS
     FACTS --> CON
+    CON --- V82
     CON --- V73
-    CON --- V74
     REG --> CON
     REF --> FACTS
+    REF --> MOM
     REF --> IND
     REF --> REG
-    REF --> RT
-    RT --> PORT
+    REF --> TRACKS
+    TRACKS --> PORT
     REF --> PORT
     PORT --> EP
+    RISKP --> RISK
+    RISK --> EP
+    RISKP -. caches .-> RCACHE
+    PORT -. read-only .-> RISK
     PORT -. "drive_push() on save" .-> GD
     GD -. "drive_pull() on load" .-> PORT
     GD <-->|sync| CLOUD
@@ -63,6 +76,7 @@ flowchart TD
     YH -. daily momentum (no FMP quota) .-> REF
     QUOTA["quota guard<br/>FMP 250/day · warn 90%"]
     QUOTA -. guards .-> REF
+    QUOTA -. guards .-> RISKP
     FIX["tests/fixtures<br/>AVGO ABBV ORCL NVO MSFT"]
     FIX -. freezes correct values .-> NORM
 
@@ -71,6 +85,6 @@ flowchart TD
     classDef guard fill:#fef9c3,stroke:#ca8a04;
     classDef cloud fill:#ede9fe,stroke:#7c3aed,stroke-width:2px;
     class SEC primary;
-    class FMP,YH,FACTS data;
+    class FMP,YH,STQ,FH,FACTS data;
     class VAL,QUOTA,FIX guard;
-    class GD,CLOUD cloud;
+    class GD,CLOUD,RCACHE cloud;

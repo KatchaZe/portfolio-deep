@@ -1,0 +1,39 @@
+feat(damodaran-2026): add 12 Investment-Philosophies signals (Tier 1-3)
+
+Maps Damodaran's 2026-edition "Investment Philosophies" course onto the
+dashboard. All changes are ADDITIVE (no existing return shape changed); the
+full suite passes incl. no-regression. New numbers reuse existing data
+sources; the only manual inputs are config assumptions (MARKET_PE, cost/tax)
+handled like the existing ERP constant.
+
+Tier 1 - Momentum & discipline
+- S9  market regime + crash guard: momentum.market_state / crash_guard;
+      refresh.fetch_daily fetches SPY -> s["market"]; momCell warning marker
+- S9  long-horizon reversal guard: momentum.reversal_flag (3-5y); 5y fetch
+- S11 indicator taxonomy: indicators.TAXONOMY (trend vs contrarian)
+- S6  net-of-cost/tax upside: config.CAPGAINS_TAX_RATE/TRADING_COST_BPS,
+      domain/costs.net_upside; per-row net_upside_pct + UI
+- S16/S35 benchmark + value discipline: refresh.weighted_trailing_return,
+      SPY 12M return, benchmark banner
+
+Tier 2 - Risk, valuation, information trading
+- S2/S4   downside-risk lens: risk.semideviation/sortino/downside_beta/
+          portfolio_returns; SPY added to _build_risk; risk panel 5b
+- S32/S33 market-valuation overlay: pipeline/market_valuation.overlay,
+          config.MARKET_PE, live Rf; cheap/fair/expensive + cash tilt
+- S25     PEAD drift signal: domain/pead.signal over stored surprises; badge
+- S13/S19 GARP cheap x quality screen: pipeline/screen; GET /api/screen; badge
+
+Tier 3 - Multi-asset & meta
+- S3/S38-41 asset classes: config.ASSET_CLASS_MAP/DURATION_PROXY/
+            CLASS_PROXY_VOL; risk.effective_duration/rate_stress;
+            _build_risk reads asset_class + rate_risk + pricing-play flag
+- S1/S42    philosophy-fit: domain/philosophy + data/philosophy_profile.json;
+            portfolio_view "philosophy"; banner
+
+New files: domain/{costs,pead,philosophy}.py,
+  pipeline/{screen,market_valuation}.py, data/philosophy_profile.json,
+  tests/test_{costs,downside,pead,screen,market_valuation,assetclass,philosophy}.py
+Tests: 20 -> 27 suites; run `py run_tests.py` (expect ALL TEST SUITES PASSED OK)
+Post-deploy: run Fundamental Refresh then Daily to populate
+  market/valuation/benchmark/PEAD/momentum-regime (stale-facts).

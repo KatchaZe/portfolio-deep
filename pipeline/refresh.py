@@ -16,8 +16,9 @@ import datetime as dt
 
 import config
 from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
-from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache
-from domain import indicators, momentum
+from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache, market_valuation
+from domain import indicators, momentum, costs, pead, philosophy
+from pipeline import screen as screen_mod
 from domain.engine import get_engine
 import store as store_mod
 
@@ -101,7 +102,7 @@ def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
 
     if fmp_key:
         try:
-            h = fmp.parse_history(fmp.fetch_history(ticker, fmp_key))
+            h = fmp.parse_history(fmp.fetch_history(ticker, fmp_key, days=1300))  # ~5y for reversal
             pay = {"closes": h["closes"], "volumes": h["volumes"], "dates": h["dates"],
                    "dividend_adjusted": True, "source": "fmp"}
             if consider(pay) >= full_bars:
@@ -546,7 +547,7 @@ def fetch_daily(tickers, fmp_key=""):
         except Exception as e:
             log.warning("%s daily momentum failed: %s", t, e)
         try:
-            lc = get_prices_long(t, fmp_key)
+            lc = get_prices_long(t, fmp_key, rng="5y")     # 5y so S9 reversal can fire
             mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
             if "error" not in mv:
                 mv["src"] = lc.get("source")
@@ -556,14 +557,32 @@ def fetch_daily(tickers, fmp_key=""):
             log.warning("%s daily momentum_v2 failed: %s", t, e)
         if m:
             out[t] = m
+    # S9 market regime (once per run): SPY trend gates per-name momentum reliability.
+    try:
+        sp = get_prices_long("SPY", fmp_key, rng="2y")     # ~1y+ is enough for SMA200
+        mkt = momentum.market_state(sp["closes"])
+        mkt["ret_12m"] = momentum.roc(sp["closes"], 252)   # S16/S35 benchmark
+        mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
+        try:
+            rf, _ = yahoo.fetch_treasury_10y()
+            mkt["valuation"] = market_valuation.overlay(rf, config.ERP, config.MARKET_PE)
+        except Exception as e:
+            log.warning("market valuation overlay failed: %s", e)
+        out["^MARKET"] = mkt                                # reserved key -> commit routes to s["market"]
+    except Exception as e:
+        log.warning("market_state SPY failed: %s", e)
     return out
 
 
 def commit_daily(s, fetched):
-    """STORE PHASE — merge momentum. Caller must hold store.LOCK."""
+    """STORE PHASE — merge momentum. Caller must hold store.LOCK.
+    The reserved '^MARKET' key (S9 regime) is routed to s['market'], not a holding."""
     for t, m in fetched.items():
-        s["momentum"][t] = m
-    return list(fetched.keys())
+        if t == "^MARKET":
+            s["market"] = m
+        else:
+            s["momentum"][t] = m
+    return [t for t in fetched if t != "^MARKET"]
 
 
 def run_daily(s, tickers):
@@ -667,8 +686,24 @@ def _momentum_meta(rows, stale_after=4):
             "stale_count": stale_count, "n": n}
 
 
+def weighted_trailing_return(rows, key="roc_12m"):
+    """S16/S35 benchmark input: MV-weighted trailing return of CURRENT holdings
+    (illustrative buy-and-hold, not a realized portfolio return). Pure; uses only
+    rows that have both market_value and the momentum return; renormalizes."""
+    num = den = 0.0
+    for r in rows:
+        mv = r.get("market_value")
+        ret = (r.get("momentum_v2") or {}).get(key)
+        if mv and ret is not None:
+            num += mv * ret
+            den += mv
+    return (num / den) if den else None
+
+
 def portfolio_view(s):
     rows = []
+    market = s.get("market") or {}                   # S9 regime (risk_on / risk_off / None)
+    mkt_regime = market.get("regime")
     for t, h in s.get("holdings", {}).items():
         ff = s["facts"].get(t, {})
         val = s["results"].get(t, {})
@@ -676,6 +711,7 @@ def portfolio_view(s):
         v2 = mom.get("v2") or {}
         if v2:                                       # R2: dividend-aware split-only warning
             v2["div_warn"] = momentum.div_warn(v2.get("dividend_adjusted"), ff.get("dividend_ps"))
+            v2["crash_guard"] = momentum.crash_guard(v2.get("mom_label"), mkt_regime)  # S9
         price = mom.get("price") or ff.get("price")
         shares, avg = h.get("shares", 0), h.get("avg_cost", 0)
         cost = shares * avg if (shares and avg) else None
@@ -699,6 +735,8 @@ def portfolio_view(s):
             "anchor_method": val.get("anchor_method"), "anchor_value": anchor,
             "range_low": val.get("range_low"), "range_high": val.get("range_high"),
             "upside_pct": round(upside, 1) if upside is not None else None,
+            "net_upside_pct": costs.net_upside(round(upside, 1) if upside is not None else None,
+                                               config.CAPGAINS_TAX_RATE, config.TRADING_COST_BPS),
             "momentum_signal": mom.get("momentum_signal"), "rsi": mom.get("rsi"),
             "rsi_signal": mom.get("rsi_signal"), "macd_signal": mom.get("macd_signal"),
             "dbbmv_signal": mom.get("dbbmv_signal"), "momentum_score": mom.get("momentum_score"),
@@ -711,6 +749,8 @@ def portfolio_view(s):
             "flags": ff.get("flags", []),
             "earnings_surprises": ff.get("earnings_surprises", []),
             "rev_surprises": s.get("rev_surprises", {}).get(t, []) or ff.get("rev_surprises_fmp", []),
+            "pead": pead.signal(ff.get("earnings_surprises") or ff.get("eps_surprises_backfill"),
+                                s.get("rev_surprises", {}).get(t) or ff.get("rev_surprises_fmp")),
             "margin_trend": margin_track.build(ff.get("operating_income_quarters"),
                                                ff.get("revenue_quarters")),
             "forward_eps": ff.get("forward_eps"), "forward_eps_low": ff.get("forward_eps_low"),
@@ -722,6 +762,8 @@ def portfolio_view(s):
             "eva": val.get("eva"),
             "key_metrics": val.get("key_metrics"),
             "subscores": val.get("subscores"),
+            "garp_score": screen_mod.garp_score(val.get("E_econ"), val.get("P")),
+            "garp_candidate": screen_mod.is_candidate(val.get("E_econ"), val.get("P")),
         })
     # cross-sectional momentum rank across the held portfolio (mutates each v2 dict)
     momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
@@ -730,5 +772,15 @@ def portfolio_view(s):
     tot_mv = sum(r["market_value"] or 0 for r in rows)
     totals = {"cost_basis": round(tot_cost, 2), "market_value": round(tot_mv, 2),
               "pl": round(tot_mv - tot_cost, 2), "pl_pct": round((tot_mv - tot_cost) / tot_cost * 100, 1) if tot_cost else None}
-    return {"rows": rows, "totals": totals, "momentum_meta": mom_meta}
+    mkt_ret = (market or {}).get("ret_12m")
+    port_ret = weighted_trailing_return(rows)
+    benchmark = {
+        "portfolio_12m": round(port_ret * 100, 1) if port_ret is not None else None,
+        "market_12m": round(mkt_ret * 100, 1) if mkt_ret is not None else None,
+        "excess_pp": round((port_ret - mkt_ret) * 100, 1) if (port_ret is not None and mkt_ret is not None) else None,
+    }
+    prof = philosophy.load(os.path.join(config.BASE_DIR, "data", "philosophy_profile.json"))
+    phil = philosophy.assess(rows, prof)
+    return {"rows": rows, "totals": totals, "momentum_meta": mom_meta,
+            "market": market or None, "benchmark": benchmark, "philosophy": phil}
 # end of refresh.py

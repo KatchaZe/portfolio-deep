@@ -418,8 +418,93 @@ def reverse_stress(weights, betas, tolerance_pct, default_beta=1.0):
 
 
 # --------------------------------------------------------------------------- #
+#  Downside-risk lens (Damodaran S2/S4: total vs downside, standalone vs market) #
+# --------------------------------------------------------------------------- #
+def portfolio_returns(returns_by_ticker, tickers, weights):
+    """Weighted daily portfolio-return series from aligned per-ticker returns. Pure."""
+    aligned = align_returns(returns_by_ticker, tickers)
+    n = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
+    if n == 0:
+        return []
+    out = []
+    for i in range(n):
+        out.append(sum(weights.get(t, 0.0) * aligned[t][-n:][i] for t in tickers))
+    return out
+
+
+def semideviation(returns, mar=0.0):
+    """Annualized DOWNSIDE deviation: only returns below the minimum-acceptable
+    return (MAR=0) count. sqrt(mean over ALL obs of squared shortfalls) annualized.
+    Damodaran S4: downside risk, not symmetric volatility. 0.0 if no downside."""
+    if not returns or len(returns) < 2:
+        return 0.0
+    downs = [r - mar for r in returns if r < mar]
+    if not downs:
+        return 0.0
+    msq = sum(d * d for d in downs) / len(returns)
+    return math.sqrt(msq) * math.sqrt(TRADING_DAYS)
+
+
+def sortino(returns, mar=0.0):
+    """Annualized Sortino-style ratio = annualized excess mean / downside deviation.
+    None when there is no downside deviation (can't divide)."""
+    if not returns:
+        return None
+    sd = semideviation(returns, mar)
+    if not sd:
+        return None
+    return round((_mean(returns) - mar) * TRADING_DAYS / sd, 2)
+
+
+def downside_beta(asset_returns, market_returns):
+    """Beta measured ONLY on days the market is down (m<0): cov(a,m|m<0)/var(m|m<0).
+    Damodaran S4: risk added in bad times matters more. None if too few down days."""
+    n = min(len(asset_returns), len(market_returns))
+    if n < 10:
+        return None
+    a, m = asset_returns[-n:], market_returns[-n:]
+    pairs = [(a[i], m[i]) for i in range(n) if m[i] < 0]
+    if len(pairs) < 5:
+        return None
+    ma = sum(p[0] for p in pairs) / len(pairs)
+    mm = sum(p[1] for p in pairs) / len(pairs)
+    cov = sum((p[0] - ma) * (p[1] - mm) for p in pairs) / len(pairs)
+    var = sum((p[1] - mm) ** 2 for p in pairs) / len(pairs)
+    return round(cov / var, 2) if var > 0 else None
+
+
+# --------------------------------------------------------------------------- #
 #  Phase 4 — suitability, position sizing, rebalancing engine                  #
 # --------------------------------------------------------------------------- #
+def effective_duration(bond_returns, yield_changes_bps):
+    """Empirical effective duration (Damodaran S3) from regression of bond daily
+    returns on daily yield CHANGES in bps: r ~ -(D/10000)*dy  ->  D = -slope*10000.
+    Reuses data already fetchable (bond-ETF prices + ^TNX). None if too few aligned
+    points or the yield never moves. Pure."""
+    n = min(len(bond_returns), len(yield_changes_bps))
+    if n < 20:
+        return None
+    r, dy = bond_returns[-n:], yield_changes_bps[-n:]
+    mr = sum(r) / n
+    mdy = sum(dy) / n
+    cov = sum((r[i] - mr) * (dy[i] - mdy) for i in range(n)) / n
+    var = sum((dy[i] - mdy) ** 2 for i in range(n)) / n
+    if var <= 0:
+        return None
+    return round(-(cov / var) * 10000, 1)
+
+
+def rate_stress(weights, durations, bps):
+    """Portfolio loss % from a parallel rate move of `bps` bps, applied to rate-
+    sensitive (bond) holdings only: loss_i = -duration_i * (bps/10000). Pure."""
+    loss = 0.0
+    for t, w in weights.items():
+        d = durations.get(t)
+        if d:
+            loss += w * (-d * (bps / 10000.0))
+    return round(loss * 100, 2)
+
+
 def suitability(stress_rows, var_block, tolerance_pct):
     """Compare the worst plausible drawdown to the user's stated tolerance.
     Returns a verdict + the binding number, surfaced as a HEADLINE finding."""

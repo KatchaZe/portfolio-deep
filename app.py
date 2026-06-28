@@ -34,6 +34,7 @@ from pydantic import BaseModel
 import config
 import store as st
 from pipeline import refresh, risk_prices
+from pipeline import screen as screen_mod
 from domain.engine import risk as riskeng
 
 logging.basicConfig(level=logging.INFO,
@@ -186,6 +187,21 @@ def api_watchlist():
     return JSONResponse({"names": s.get("watchlist", [])})
 
 
+@app.get("/api/screen")
+def api_screen():
+    """Damodaran S13/S19 GARP screen: rank every analysed name (holdings + watchlist
+    results) on CHEAP x QUALITY using the stored DEEP subscores. Read-only."""
+    s = st.load()
+    facts = s.get("facts", {})
+    items = []
+    for t, v in (s.get("results", {}) or {}).items():
+        ff = facts.get(t, {}) or {}
+        items.append({"ticker": t, "company": ff.get("company"), "sector": ff.get("sector"),
+                      "economics": v.get("E_econ"), "price": v.get("P"), "demand": v.get("D"),
+                      "composite": v.get("composite"), "recommendation": v.get("recommendation")})
+    return JSONResponse({"items": screen_mod.rank(items)})
+
+
 @app.post("/api/watchlist/add")
 def api_watch_add(ticker: str):
     with st.LOCK:
@@ -317,7 +333,7 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         betas[t] = ff.get("beta")
         sectors[t] = ff.get("sector") or "Unknown"
         currencies[t] = ff.get("currency") or "USD"
-        asset_class[t] = "equity"          # all current holdings are single equities
+        asset_class[t] = config.ASSET_CLASS_MAP.get(t, "equity")   # S3/S38-41 multi-class
 
     weights = riskeng.capital_weights(positions)
     if not weights:                        # LEVEL 3 — insufficient data
@@ -331,7 +347,7 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
 
     # ---- price history -> returns (network, accuracy-first, quota-guarded) ----
     rdata, calls, rmeta = risk_prices.fetch_returns(
-        tickers, fmp_key if prefer_fmp else "", quota_used, quota_cap, prefer_fmp=prefer_fmp)
+        tickers + ["SPY"], fmp_key if prefer_fmp else "", quota_used, quota_cap, prefer_fmp=prefer_fmp)
 
     have_realized = all((rdata.get(t, {}).get("n") or 0) >= 60 for t in tickers)
     aligned = riskeng.align_returns({t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers)
@@ -341,7 +357,8 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         cov = riskeng.cov_matrix({t: rdata[t]["returns"] for t in tickers}, tickers)
         cov_mode, cov_tag = "realized", "[CALC]"
     else:
-        pvols = [_proxy_vol(sectors[t]) for t in tickers]
+        pvols = [config.CLASS_PROXY_VOL.get(asset_class[t], _proxy_vol(sectors[t]))
+                 if asset_class[t] != "equity" else _proxy_vol(sectors[t]) for t in tickers]
         cov = riskeng.proxy_cov(tickers, pvols, asset_class)
         cov_mode, cov_tag = "proxy", "[JUDG-PROXY]"
 
@@ -366,6 +383,31 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     by_sleeve = riskeng.group_exposure(weights, {t: _sleeve(sectors[t]) for t in tickers})
     beta_rc = riskeng.beta_risk_contribution(weights, betas)
     port_beta = riskeng.portfolio_beta(weights, betas)
+
+    # ---- downside-risk lens (Damodaran S2/S4) ----
+    spy_rets = rdata.get("SPY", {}).get("returns", [])
+    port_rets = riskeng.portfolio_returns(
+        {t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers, weights)
+    downside = {
+        "vol_pct": round(riskeng.annualized_vol(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
+        "semidev_pct": round(riskeng.semideviation(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
+        "sortino": riskeng.sortino(port_rets),
+        "downside_beta": riskeng.downside_beta(port_rets, spy_rets) if (port_rets and spy_rets) else None,
+        "n": len(port_rets),
+        "tag": "[CALC]" if cov_mode == "realized" else "[JUDG-PROXY] thin history",
+    }
+
+    # ---- bond rate risk (Damodaran S3) + pricing-asset flag (S40-41) ----
+    durations = {t: config.DURATION_PROXY.get(t) for t in tickers if asset_class.get(t) == "bond"}
+    durations = {t: d for t, d in durations.items() if d}
+    rate_risk = {
+        "has_bonds": bool(durations),
+        "bps": 100,
+        "loss_pct": riskeng.rate_stress(weights, durations, 100) if durations else None,
+        "durations": durations,
+        "tag": "[JUDG-PROXY] category duration; +100bps parallel shock",
+    }
+    pricing_assets = [t for t in tickers if asset_class.get(t) in ("crypto", "collectible")]
 
     # ---- stress / tail ----
     stress = riskeng.stress_test(weights, betas, sectors)
@@ -424,6 +466,8 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "dr_crisis": round(dr_crisis, 2) if dr_crisis else None,
             "score": score,
         },
+        "downside": downside,
+        "rate_risk": rate_risk,
         "stress": {"hypothetical": stress, "historical": historical,
                    "var": var, "reverse": reverse, "tag": "[JUDG-SCENARIO] Illustrative, not a forecast"},
         "suitability": suit,
@@ -436,6 +480,7 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "as_of": {t: rdata.get(t, {}).get("as_of") for t in tickers},
             "tags": {"history": cov_tag, "stress": "[JUDG-SCENARIO]",
                      "beta_sector": "[STORED]", "weights": "[CALC]"},
+            "pricing_assets": pricing_assets,
         },
     }, calls)
 

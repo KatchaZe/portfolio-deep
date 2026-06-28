@@ -63,3 +63,34 @@ KNOWN_GOOD = {
     "MSFT": {"revenue_ttm_bn": (290, 340), "note": "v1 was correct ~312B"},
     "NVO":  {"note": "reports in DKK -> convert to USD in normalize"},
 }
+
+# --- Damodaran S6: trading costs & taxes are a real drag on net returns -------
+# ASSUMPTIONS (no live feed; set here like ERP). Anything derived from these is
+# labelled net-of-cost/tax in the UI, with the gross shown alongside.
+CAPGAINS_TAX_RATE = 0.15     # investor capital-gains tax on realized gains (long-term US default)
+TRADING_COST_BPS = 20        # round-trip trading cost in bps (bid-ask + impact); 20 = 0.20%
+
+# --- Damodaran S32/33: market-valuation overlay (manual, refresh monthly like ERP)
+# S&P 500 trailing P/E — no free API; update from multpl.com / Damodaran monthly.
+MARKET_PE = 25.1
+MARKET_PE_AS_OF = "2026-06"
+
+# --- Damodaran S3 (bonds) + S38-41 (alternatives): multi-asset-class support ---
+# Map ticker -> asset class so the risk engine treats bonds/gold/crypto correctly
+# (default "equity"). Crypto/collectibles have NO cash flow -> PRICING plays (S40-41);
+# the UI labels them so and caps their weight.
+ASSET_CLASS_MAP = {
+    "TLT": "bond", "IEF": "bond", "SHY": "bond", "AGG": "bond", "BND": "bond",
+    "LQD": "bond", "TIP": "bond", "GOVT": "bond",
+    "GLD": "gold", "IAU": "gold",
+    "BTC-USD": "crypto", "ETH-USD": "crypto", "IBIT": "crypto",
+}
+# Effective-duration proxy (years) for bond ETFs (S3); empirical value (price vs
+# ^TNX) overrides when computable. [JUDG-PROXY]
+DURATION_PROXY = {
+    "SHY": 1.9, "IEF": 7.5, "TLT": 16.5, "AGG": 6.0, "BND": 6.0,
+    "LQD": 8.5, "TIP": 7.0, "GOVT": 6.0,
+}
+# Annual vol proxy by asset class (decimals) when price history is thin.
+CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
+                   "collectible": 0.30, "cash": 0.01}

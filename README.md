@@ -21,7 +21,7 @@ allocation view. (v7.3 is retained for one-line rollback — see below.)
   blend** (median + dispersion).
 - **Trust:** every value carries provenance + a confidence tier; inputs with no free
   source are **skipped + flagged**, never guessed (incl. beta→1.0, tax→21%, growth→8%,
-  ERP staleness, terminal-margin fallback); a 16-module regression suite locks numbers.
+  ERP staleness, terminal-margin fallback); a 20-module regression suite locks numbers.
   See **`DATA_AUDIT.md`** for the full real-vs-assumed provenance audit.
 
 See `DESIGN.md` for architecture and **`BEGINNER_GUIDE.md` for a step-by-step beginner guide** (run, modify, upgrade the engine).
@@ -177,7 +177,7 @@ from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output s
 
 ```powershell
 python capture.py        # one-time: fetch real fixtures (or commit them)
-python run_tests.py      # 19 modules: FMP/SEC/engine + momentum, consensus blend,
+python run_tests.py      # 20 modules: FMP/SEC/engine + momentum, consensus blend,
                          # margin trend, Stooq, revenue surprise, assumption flags,
                          # + risk engine + no-regression isolation
 ```

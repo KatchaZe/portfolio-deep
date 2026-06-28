@@ -19,12 +19,14 @@
 
 | ชั้น | ไฟล์ | หน้าที่ | ภาษามนุษย์ |
 |---|---|---|---|
-| sources | `sources/sec_edgar.py` `yahoo.py` `fmp.py` | ดึงข้อมูลดิบจากเน็ต | "ไปเอาตัวเลขมา" |
-| pipeline | `pipeline/normalize.py` `validate.py` | รวม 3 แหล่ง + ตรวจคุณภาพ | "ทำความสะอาดข้อมูล" |
-| domain | `domain/engine/deep_v73.py` | **คณิตศาสตร์ DEEP ทั้งหมด** | "สมองที่ให้คะแนน" |
-| store | `store.py` | เซฟลงไฟล์ `data/portfolio.json` | "ความจำ" |
-| api | `app.py` | รับคำสั่งจากหน้าจอ | "พนักงานรับเรื่อง" |
-| ui | `index.html` | หน้าเว็บ 3 แท็บ | "หน้าร้าน" |
+| sources | `sources/sec_edgar.py` (หลัก) `yahoo.py` `fmp.py` `stooq.py` `finnhub.py` `alphavantage.py` `gdrive_store.py` | ดึงข้อมูลดิบจากเน็ต (SEC=หลัก, ที่เหลือเสริม/สำรอง) | "ไปเอาตัวเลขมา" |
+| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `risk_prices.py` `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate | "ทำความสะอาด + สั่งงาน" |
+| domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) | **คณิตศาสตร์ DEEP + momentum + risk** | "สมองที่ให้คะแนน" |
+| store | `store.py` | เซฟลงไฟล์ `data/portfolio.json` (+ mirror ขึ้น Google Drive) | "ความจำ" |
+| api | `app.py` (FastAPI) | รับคำสั่งจากหน้าจอ (รวม `/api/risk`) | "พนักงานรับเรื่อง" |
+| ui | `index.html` | หน้าเว็บ 3 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk) | "หน้าร้าน" |
+
+> **เวอร์ชันปัจจุบัน:** engine ที่ใช้งานคือ **DEEP v8.2** (`config.py → DEEP_VERSION="8.2"`); `deep_v73.py` เก็บไว้เพื่อ rollback. สัญญาณ momentum หลักมาจาก `domain/momentum.py` (QuantInsti: MOM_12_1/ROC/SMA200/RSI) — ส่วน `indicators.py` (RSI<30/DBBMV) เป็นแค่ตัวยืนยันรอง.
 
 **กฎเหล็ก 1 ข้อ:** `domain/` ห้ามแตะเน็ตเด็ดขาด (เป็น pure math) → ทำให้ test ได้ง่ายและไม่พัง
 
@@ -61,18 +63,21 @@ uvicorn app:app --port 8000
 ```bash
 python run_tests.py
 ```
-ต้องเห็น **`ALL TEST SUITES PASSED ✅`** ตอนจบ ถ้าเห็น `FAILED:` แปลว่ามีบางอย่างพัง
+ต้องเห็น **`ALL TEST SUITES PASSED OK`** ตอนจบ ถ้าเห็น `FAILED:` แปลว่ามีบางอย่างพัง
 → อ่านบรรทัดที่ error บอก แล้วย้อนไปดูไฟล์ที่เพิ่งแก้
 
-มี 7 ชุดเทสต์ แต่ละชุดล็อก "ตัวเลขที่ถูกต้อง" ของหุ้นจริง (AVGO/ABBV/ORCL/NVO/MSFT)
-ไว้ ดังนั้นถ้าเผลอทำสูตรเพี้ยน เทสต์จะจับได้ก่อนที่จะ deploy
+มี **20 ชุดเทสต์** (ดูรายชื่อเต็มใน `run_tests.py`) แต่ละชุดล็อก "ตัวเลขที่ถูกต้อง" ของหุ้นจริง
+(AVGO/ABBV/ORCL/NVO/MSFT) ไว้ ดังนั้นถ้าเผลอทำสูตรเพี้ยน เทสต์จะจับได้ก่อนที่จะ deploy
 
 | ชุดเทสต์ | ตรวจอะไร |
 |---|---|
 | `test_extract` | SEC อ่านตัวเลขถูกไหม (รายได้/กำไร) |
-| `test_engine` | DEEP คำนวณคะแนน/มูลค่าถูกไหม |
+| `test_engine` / `test_engine_v82` | DEEP v7.3 / **v8.2** คำนวณคะแนน/มูลค่าถูกไหม |
+| `test_momentum` | momentum composite (MOM_12_1/ROC/SMA200/RSI) ถูกไหม |
+| `test_risk` | Risk engine: weights→1, RC→σp, %RC→100%, DR≥1, score 0–100 |
+| `test_no_regression` | `/api/risk` ไม่ไปแก้ `portfolio.json` (feature แยกขาด) |
 | `test_app_fixes` | บั๊ก freeze/crash ที่แก้ไปแล้ว กลับมาไหม |
-| (อื่นๆ) | earnings, revenue track, FMP parse, hardening |
+| (อื่นๆ) | earnings, rev/margin track, consensus blend, FMP/SEC parse, stooq, pricecache, gdrive, hardening |
 
 ---
 
@@ -81,14 +86,16 @@ python run_tests.py
 > **ขั้นตอนมาตรฐานทุกครั้ง:** (1) แก้ไฟล์ → (2) `python run_tests.py` → (3) ถ้าผ่าน รันแอปดูผล
 
 ### 3.1 เปลี่ยน Equity Risk Premium (ERP)
-ERP ล็อกไว้ที่ **4.75%** (ตาม Damodaran) อยู่ **2 ที่ ต้องแก้ให้ตรงกัน**:
+ตั้งแต่ v8.2 **ERP อยู่ที่เดียวคือ `config.py`** (engine `deep_v82.py` + `validate.py` อ่านค่านี้ค่าเดียวกัน
+ผ่าน `config.ERP` — ไม่ต้องแก้หลายไฟล์อีกแล้ว) ค่าปัจจุบัน = **4.23%** (Damodaran implied, ม.ค. 2026):
 ```python
-# domain/engine/deep_v73.py  (บนสุด)
-ERP = 0.0475          # ← เปลี่ยนตรงนี้
-
-# pipeline/validate.py       (บนสุด)
-ERP = 0.0475          # ← และตรงนี้ด้วย ให้ค่าเท่ากัน
+# config.py — แก้ที่เดียว
+ERP = 0.0423          # ← เปลี่ยนค่า ERP ตรงนี้ที่เดียว
+ERP_AS_OF = "2026-01" # ← อัปเดตเดือน/ปีที่รีเฟรชด้วย ทุกครั้งที่เปลี่ยน ERP
+ERP_STALE_MONTHS = 3  # ← แอปจะขึ้น ⚑ เตือนเมื่อ ERP เก่ากว่า 3 เดือน
 ```
+> 💡 `deep_v73.py` (engine rollback) ยัง hard-code `ERP = 0.0475` ของมันเอง — ปกติไม่ต้องแตะ
+> ตราบใดที่ยังใช้ v8.2 อยู่ (ถ้า rollback กลับไป 7.3 ค่อยแก้ในไฟล์นั้น)
 
 ### 3.2 เพิ่มหุ้นใหม่เข้า "ตารางอ้างอิง CIK" (ทำให้ SEC เร็วขึ้น)
 ถ้าหุนที่ดูบ่อยยังต้องไปค้น CIK ทุกครั้ง ให้ pin ไว้:
@@ -102,30 +109,31 @@ CIKS = {
 > ไม่เพิ่มก็ได้ — แอปจะไปดึงตาราง CIK เต็มจาก SEC อัตโนมัติ (แค่ครั้งแรกช้านิดเดียว)
 
 ### 3.3 ปรับ "อัตรากำไรปลายทาง" ของหุ้นเฉพาะตัว (Reverse DCF แม่นขึ้น)
-หุ้นนอกตารางนี้จะใช้ค่า default 25% ซึ่ง **ผิดสำหรับธนาคาร/fintech** (เช่น SOFI, HOOD)
-→ ใส่ค่าจริงเพื่อให้ verdict แม่นขึ้น (แอปจะขึ้น ⚑ เตือนถ้าหุ้นยังไม่อยู่ในตาราง):
+ใน v8.2 หุ้นที่ **มีกำไรอยู่แล้ว** จะ **anchor กับ operating margin ปัจจุบันของตัวเอง** (จาก SEC, clamp 5–40%)
+โดยอัตโนมัติ — ไม่ต้องตั้งค่ามือ. ตาราง `TERMINAL_MARGIN` ตอนนี้เป็น **fallback สำหรับหุ้นที่ยังขาดทุน
+(pre-profit) เท่านั้น** (margin ปัจจุบัน ≤ 0); หุ้น pre-profit นอกตารางจะใช้ค่า default 25% แล้วขึ้น ⚑ เตือน:
 ```python
-# domain/engine/deep_v73.py  → dict ชื่อ TERMINAL_MARGIN
+# domain/engine/deep_v82.py  → dict ชื่อ TERMINAL_MARGIN  (ใช้เฉพาะหุ้น pre-profit)
 TERMINAL_MARGIN = {
     "NVDA": 0.35, "MSFT": 0.40, ...
-    "SOFI": 0.20,      # ← เพิ่ม net margin ปลายทางที่สมเหตุสมผล
+    "SOFI": 0.20,      # ← เพิ่ม op margin ปลายทางที่สมเหตุสมผล (กรณีหุ้นนั้นยังขาดทุน)
 }
 ```
 
 ### 3.4 ปรับเกณฑ์ให้คะแนน Demand (ตัวอย่างการแก้ scoring)
+ใน v8.2 การให้คะแนนเป็น **rubric แบบมีโครงสร้าง** (base band ตาม growth + ปรับด้วย organic/peer/durability)
+อยู่ในฟังก์ชัน `_r_demand(...)` ไม่ใช่ `_demand(g)` เดิมของ v7.3 แล้ว:
 ```python
-# domain/engine/deep_v73.py  → ฟังก์ชัน _demand(g)
-def _demand(g):
-    if g is None: return None
-    return 4.5 if g > 0.40 else 3.5 if g > 0.20 else 3.0 if g > 0.10 else 2.5 if g > 0 else 1.5
-    #          ↑ แก้ตัวเลขเกณฑ์/คะแนนตรงนี้ได้เลย
+# domain/engine/deep_v82.py  → ฟังก์ชัน _r_demand(g, peer_median, acq_intensity, fade_ratio, notes)
+base = _band(g, [(0.35, 5.0), (0.25, 4.0), (0.15, 3.0), (0.08, 2.0), (0.0, 1.0), (-1e9, 0.0)])
+#                  ↑ แก้ band เกณฑ์ growth/คะแนนตรงนี้ได้เลย (แล้วค่อยปรับ peer/durability ด้านล่าง)
 ```
 > แก้เสร็จ **อย่าลืมรัน test** — ถ้าคะแนนหุ้นใน fixture เปลี่ยนเยอะจน assert ไม่ผ่าน
-> ให้ไปอัปเดตค่าที่คาดหวังใน `tests/test_engine.py` ให้ตรงกับสูตรใหม่
+> ให้ไปอัปเดตค่าที่คาดหวังใน `tests/test_engine_v82.py` ให้ตรงกับสูตรใหม่
 
 ### 3.5 เปลี่ยนค่าน้ำหนัก D/E/E/P
 ```python
-# domain/engine/deep_v73.py
+# domain/engine/deep_v82.py  (ค่าเดียวกับ v7.3)
 WEIGHTS = {"D": 0.20, "E_exec": 0.20, "E_econ": 0.30, "P": 0.30}   # รวมต้อง = 1.0
 ```
 
@@ -138,38 +146,41 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 ---
 
-## 🚀 4. อัปเกรด DEEP engine เป็นเวอร์ชันใหม่ (เช่น v7.4)
+## 🚀 4. อัปเกรด DEEP engine เป็นเวอร์ชันใหม่ (เช่น v8.3)
 
-> รายละเอียดเต็มอยู่ใน **`UPGRADE_ENGINE.md`** — สรุปสั้นๆ 4 ขั้น:
+> ปัจจุบัน active = **v8.2** (`deep_v82.py`) และยังเก็บ **v7.3** ไว้ rollback.
+> รายละเอียดเต็มอยู่ใน **`UPGRADE_ENGINE.md`** + บทเรียนจากการอัปจริง v7.3→v8.2 ใน
+> **`UPGRADE_ENGINE_REVIEW.md`** — สรุปสั้นๆ 4 ขั้น:
 
-1. **คัดลอกไฟล์เก่าเป็นไฟล์ใหม่:** `domain/engine/deep_v73.py` → `deep_v74.py`
+1. **คัดลอกไฟล์ active เป็นไฟล์ใหม่:** `domain/engine/deep_v82.py` → `deep_v83.py`
 2. **เปลี่ยนชื่อ class + version:**
    ```python
-   class DeepV74Engine(DeepEngine):
-       version = "7.4"
+   class DeepV83Engine(DeepEngine):
+       version = "8.3"
        def evaluate(self, facts, rf=0.045):
            ...  # แก้ math ที่ต้องการตรงนี้
    ```
 3. **ลงทะเบียน engine ใหม่:**
    ```python
    # domain/engine/__init__.py — เพิ่ม 2 บรรทัด
-   from .deep_v74 import DeepV74Engine
-   register(DeepV74Engine())
+   from .deep_v83 import DeepV83Engine
+   register(DeepV83Engine())
    ```
 4. **สลับเวอร์ชันที่ใช้งาน:**
    ```python
    # config.py
-   DEEP_VERSION = "7.4"      # ← เปลี่ยนบรรทัดเดียว
+   DEEP_VERSION = "8.3"      # ← เปลี่ยนบรรทัดเดียว
    ```
 
 **กฎเหล็ก:** engine ต้อง **รับ `FinancialFacts` เข้า → คืน `Valuation` ออก** เท่านั้น
 ตราบใดที่ทำตามสัญญานี้ (ดู `domain/engine/contract.py`) **หน้าจอ/ข้อมูล/store ไม่ต้องแตะเลย**
-ของเก่า v7.3 ยังอยู่ → ถ้า v7.4 มีปัญหา แค่เปลี่ยน `DEEP_VERSION` กลับเป็น `"7.3"` ก็ rollback ทันที
+ของเก่ายังอยู่ → ถ้า v8.3 มีปัญหา แค่เปลี่ยน `DEEP_VERSION` กลับเป็น `"8.2"` (หรือ `"7.3"`) ก็ rollback ทันที
 
 > 💡 อยากให้ DEEP skill เวอร์ชันใหม่ของคุณ (ใน Claude) ออกมาเป็น engine ไฟล์นี้:
-> เปิด skill `ifa-stock-analysis` ดูสคริปต์ใน `scripts/` (roic.py, wacc.py, justified_peg.py,
-> reverse_dcf_terminal.py) — สูตรใน `deep_v73.py` คือ "port" ของสคริปต์เหล่านั้นมาเป็น engine
-> เวลาอัปเดต skill → แก้สคริปต์ก่อน → แล้วลอกสูตรมาใส่ `deep_v74.py`
+> เปิด skill `ifa-stock-analysis` (v8.2) ดูสคริปต์ใน `scripts/` (`wacc.py`, `roic.py`, `rd_capitalize.py`,
+> `justified_peg.py`, `reverse_dcf_terminal.py`, `young_company_dcf.py`, `earnings_quality.py`,
+> `deep_subscores.py`) — สูตรใน `deep_v82.py` คือ "port" ของสคริปต์เหล่านั้นมาเป็น engine
+> เวลาอัปเดต skill → แก้สคริปต์ก่อน → แล้วลอกสูตรมาใส่ `deep_v83.py`
 
 ---
 
@@ -193,7 +204,7 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 - [ ] `python run_tests.py` → เห็น `ALL TEST SUITES PASSED ✅`
 - [ ] รันแอป `uvicorn app:app --port 8000` แล้วเปิดดูจริง ไม่มี error ใน terminal
-- [ ] ลองกดทุกปุ่ม: Add holding / Refresh / Daily / Watchlist run / What-if
+- [ ] ลองกดทุกปุ่ม: Add holding / Refresh / Daily / Watchlist run / Allocation → Run risk analysis / What-if
 - [ ] ถ้า deploy สาธารณะ: ตั้ง `APP_TOKEN` แล้ว (ห้าม commit ค่า token ลง git!)
 - [ ] ไม่มีข้อมูลส่วนตัว (email/key) อยู่ในโค้ดที่จะ push (เช็ค `config.py`)
 

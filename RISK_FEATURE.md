@@ -17,7 +17,7 @@ are in `ALLOCATION_RISK_UPGRADE_PLAN.md` (esp. §10).
 | `data/risk_cache.json` | **new (runtime)** | Separate cache for return series — never `portfolio.json`. |
 | `tests/test_risk.py` | **new** | Risk-math invariants (offline). |
 | `tests/test_no_regression.py` | **new** | Endpoint contracts + `portfolio.json` isolation. |
-| `run_tests.py` | edited | Registered the two new test modules (now 19). |
+| `run_tests.py` | edited | Registered the two new test modules (now 20 incl. later additions). |
 
 No existing module's behavior or return shape was modified, so My Portfolio and
 Watchlist are byte-for-byte unchanged.
@@ -118,7 +118,7 @@ so loops are clear, fast, beginner-readable, and add zero deploy risk.
 ```powershell
 python -m tests.test_risk            # pure math, offline
 python -m tests.test_no_regression   # endpoint contracts + portfolio.json isolation (offline, monkeypatched)
-python run_tests.py                  # full suite (19 modules)
+python run_tests.py                  # full suite (20 modules)
 ```
 
 `test_risk` locks the invariants (weights→1, RC→σp, signed %RC→100%, diversifier<0,

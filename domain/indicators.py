@@ -4,6 +4,13 @@ Pure functions over daily closes + volumes (Yahoo chart). Ported & verified.
 """
 import math
 
+# Damodaran S11 (Technical Analysis): classify each indicator by the behavioural
+# bias it exploits, so the secondary signals are not mistaken for momentum.
+#   contrarian = bets on mean-reversion (RSI<30 oversold bounce, Bollinger reversion)
+#   trend      = trend-following / momentum (MACD)
+# The PRIMARY momentum readout lives in domain/momentum.py (12-1, SMA200, RSI>50).
+TAXONOMY = {"rsi": "contrarian", "dbbmv": "contrarian", "macd": "trend"}
+
 
 def ema(a, p):
     k = 2 / (p + 1)
@@ -89,7 +96,8 @@ def compute(ticker, closes, vols, dates):
     mo = "Bullish" if tot >= 2 else "Bearish" if tot <= -2 else "Neutral"
     return {"ticker": ticker, "price": round(last, 2), "change": round((last - prev) / prev * 100, 2),
             "rsi": round(rv, 1), "rsi_signal": rs, "macd_signal": ms, "dbbmv_signal": ds,
-            "momentum_score": tot, "momentum_signal": mo, "as_of": dates[-1] if dates else None}
+            "momentum_score": tot, "momentum_signal": mo, "taxonomy": TAXONOMY,
+            "as_of": dates[-1] if dates else None}
 
 
 # combined Action (DEEP signal x momentum)  — used by the daily refresh

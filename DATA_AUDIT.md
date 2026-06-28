@@ -5,7 +5,7 @@ from real data, and which are assumptions/guesses?* Every assumption is **flagge
 at runtime (DEEP invariant: "skip + flag, never fabricate"), so no guessed value is
 silent.
 
-Verified by `python run_tests.py` (16/16 modules) + an end-to-end run on the real
+Verified by `python run_tests.py` (20/20 modules) + an end-to-end run on the real
 SEC/Yahoo/FMP fixtures (MSFT, AVGO, NVO). `tests/test_extract.py` checks every
 primary value against known-good ranges; `tests/test_followups.py` locks the
 assumption-handling below.
