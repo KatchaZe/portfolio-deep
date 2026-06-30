@@ -487,6 +487,11 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "anchor_method": val.anchor_method, "anchor_value": anchor,
         "range_low": val.range_low, "range_high": val.range_high,
         "upside_pct": round(upside, 1) if upside is not None else None,
+        "net_upside_pct": costs.net_upside(round(upside, 1) if upside is not None else None,
+                                           config.CAPGAINS_TAX_RATE, config.TRADING_COST_BPS),
+        "garp_score": screen_mod.garp_score(val.E_econ, val.P),
+        "garp_candidate": screen_mod.is_candidate(val.E_econ, val.P),
+        "pead": pead.signal(ff.earnings_surprises or ff.eps_surprises_backfill, ff.rev_surprises_fmp),
         "verdict": val.verdict, "confidence": ff.confidence, "confidence_tier": ff.confidence_tier,
         "currency": ff.currency, "flags": ff.flags,
         "earnings_surprises": ff.earnings_surprises,
@@ -520,6 +525,15 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
             errors.append(f"{t}: {str(e)[:50]}")
     # cross-sectional momentum rank among the watchlist names (mirrors portfolio_view)
     momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
+    try:                                            # S9 market regime -> crash guard per row (mirror portfolio)
+        sp = get_prices_long("SPY", fmp_key, rng="2y")
+        regime = momentum.market_state(sp["closes"]).get("regime")
+        for r in rows:
+            v2 = r.get("momentum_v2")
+            if v2:
+                v2["crash_guard"] = momentum.crash_guard(v2.get("mom_label"), regime)
+    except Exception as e:
+        log.warning("watchlist market_state failed: %s", e)
     return {"rows": rows, "errors": errors, "fmp_calls": calls,
             "rf_pct": round(rf * 100, 2), "rf_live": rf_live}
 

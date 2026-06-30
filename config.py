@@ -94,3 +94,6 @@ DURATION_PROXY = {
 # Annual vol proxy by asset class (decimals) when price history is thin.
 CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
                    "collectible": 0.30, "cash": 0.01}
+
+# Build stamp — bump together with DASH_BUILD in index.html (frontend/deploy guard).
+BUILD = "2026-06-28d"

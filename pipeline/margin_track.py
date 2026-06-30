@@ -51,7 +51,7 @@ def _yoy_match(end, ends, tol_days=25):
     return best
 
 
-def build(op_quarters, rev_quarters, limit=4):
+def build(op_quarters, rev_quarters, limit=5):
     """Operating-margin trend history (oldest->newest, <=limit) from two
     {end_date: value} dicts. Only quarters present in BOTH (and with non-zero
     revenue) are used."""

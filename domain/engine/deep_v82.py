@@ -480,7 +480,10 @@ class DeepV82Engine(DeepEngine):
                          "terminal_margin_pct": round(tmargin * 100, 1),
                          "terminal_margin_anchored": tm_anchored},
             flags=list(f.flags))
-        v.verdict = _verdict(f, v)
+        try:
+            v.verdict = _verdict(f, v)
+        except Exception as e:                       # guard: never let a verdict typo/bad field crash a ticker
+            v.verdict = (f"{v.recommendation or 'N/A'} {v.stars or ''} - verdict unavailable ({type(e).__name__})").strip()
         return v
 
 

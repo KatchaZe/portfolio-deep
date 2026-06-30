@@ -113,7 +113,7 @@ def _fetch_and_commit(tickers):
 # --------------------------------------------------------------------------- #
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "version": config.DEEP_VERSION}
+    return {"status": "ok", "version": config.DEEP_VERSION, "build": config.BUILD}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -384,30 +384,37 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     beta_rc = riskeng.beta_risk_contribution(weights, betas)
     port_beta = riskeng.portfolio_beta(weights, betas)
 
-    # ---- downside-risk lens (Damodaran S2/S4) ----
-    spy_rets = rdata.get("SPY", {}).get("returns", [])
-    port_rets = riskeng.portfolio_returns(
-        {t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers, weights)
-    downside = {
-        "vol_pct": round(riskeng.annualized_vol(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
-        "semidev_pct": round(riskeng.semideviation(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
-        "sortino": riskeng.sortino(port_rets),
-        "downside_beta": riskeng.downside_beta(port_rets, spy_rets) if (port_rets and spy_rets) else None,
-        "n": len(port_rets),
-        "tag": "[CALC]" if cov_mode == "realized" else "[JUDG-PROXY] thin history",
-    }
+    # ---- downside-risk lens (Damodaran S2/S4) — defensive: never crash the payload ----
+    try:
+        spy_rets = rdata.get("SPY", {}).get("returns", [])
+        port_rets = riskeng.portfolio_returns(
+            {t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers, weights)
+        downside = {
+            "vol_pct": round(riskeng.annualized_vol(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
+            "semidev_pct": round(riskeng.semideviation(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
+            "sortino": riskeng.sortino(port_rets),
+            "downside_beta": riskeng.downside_beta(port_rets, spy_rets) if (port_rets and spy_rets) else None,
+            "n": len(port_rets),
+            "tag": "[CALC]" if cov_mode == "realized" else "[JUDG-PROXY] thin history",
+        }
+    except Exception as e:
+        downside = {"vol_pct": None, "semidev_pct": None, "sortino": None,
+                    "downside_beta": None, "n": 0, "tag": f"[error] {type(e).__name__}"}
 
-    # ---- bond rate risk (Damodaran S3) + pricing-asset flag (S40-41) ----
-    durations = {t: config.DURATION_PROXY.get(t) for t in tickers if asset_class.get(t) == "bond"}
-    durations = {t: d for t, d in durations.items() if d}
-    rate_risk = {
-        "has_bonds": bool(durations),
-        "bps": 100,
-        "loss_pct": riskeng.rate_stress(weights, durations, 100) if durations else None,
-        "durations": durations,
-        "tag": "[JUDG-PROXY] category duration; +100bps parallel shock",
-    }
-    pricing_assets = [t for t in tickers if asset_class.get(t) in ("crypto", "collectible")]
+    # ---- bond rate risk (Damodaran S3) + pricing-asset flag (S40-41) — defensive ----
+    try:
+        durations = {t: config.DURATION_PROXY.get(t) for t in tickers if asset_class.get(t) == "bond"}
+        durations = {t: d for t, d in durations.items() if d}
+        rate_risk = {
+            "has_bonds": bool(durations), "bps": 100,
+            "loss_pct": riskeng.rate_stress(weights, durations, 100) if durations else None,
+            "durations": durations,
+            "tag": "[JUDG-PROXY] category duration; +100bps parallel shock",
+        }
+        pricing_assets = [t for t in tickers if asset_class.get(t) in ("crypto", "collectible")]
+    except Exception:
+        rate_risk = {"has_bonds": False, "bps": 100, "loss_pct": None, "durations": {}, "tag": "[error]"}
+        pricing_assets = []
 
     # ---- stress / tail ----
     stress = riskeng.stress_test(weights, betas, sectors)
@@ -493,9 +500,15 @@ def api_risk(risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0, enric
     prefer_fmp = (enrich != "free")
     s = st.load()
     quota_used = st.fmp_used_today(s)
-    payload, calls = _build_risk(
-        s, config.FMP_API_KEY, quota_used, QUOTA_CAP,
-        risk_tolerance_pct, horizon_years, prefer_fmp)
+    try:
+        payload, calls = _build_risk(
+            s, config.FMP_API_KEY, quota_used, QUOTA_CAP,
+            risk_tolerance_pct, horizon_years, prefer_fmp)
+    except Exception as e:                              # never return a bare 500 (frontend JSON.parse crashes)
+        import traceback as _tb
+        _tb.print_exc()
+        return JSONResponse({"status": "error", "snapshot": None,
+                             "message": f"Risk analysis failed: {type(e).__name__}: {e}"})
     if calls:                               # commit ONLY the quota counter, safely
         with st.LOCK:
             s2 = st.load()

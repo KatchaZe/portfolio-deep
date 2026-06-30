@@ -17,7 +17,7 @@ def test_yoy_trend_and_grade():
     op = {"2025-01-31": 30, "2025-04-30": 30, "2025-07-31": 30, "2025-10-31": 30,
           "2026-01-31": 35}                       # +5pp YoY vs 2025-01-31
     h = margin_track.build(op, rev)
-    assert len(h) == 4, h                          # capped to 4 (oldest dropped)
+    assert len(h) == 5, h                          # capped to 5 (5-quarter history)
     last = h[-1]
     assert last["quarter"] == "2026-01-31", last
     assert abs(last["op_margin"] - 0.35) < 1e-9, last

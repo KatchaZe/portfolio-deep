@@ -72,11 +72,11 @@ def _pair(actuals, estimates, est_key, act_field, est_field, limit):
     return out[-limit:]
 
 
-def build_eps(eps_quarters, est_by_q, limit=4):
+def build_eps(eps_quarters, est_by_q, limit=5):
     """EPS beat/miss from SEC eps actuals x FMP quarterly eps estimates."""
     return _pair(eps_quarters, est_by_q, "eps_est", "eps_actual", "eps_estimate", limit)
 
 
-def build_rev(revenue_quarters, est_by_q, limit=4):
+def build_rev(revenue_quarters, est_by_q, limit=5):
     """Revenue beat/miss from SEC revenue actuals x FMP quarterly revenue estimates."""
     return _pair(revenue_quarters, est_by_q, "rev_est", "rev_actual", "rev_estimate", limit)

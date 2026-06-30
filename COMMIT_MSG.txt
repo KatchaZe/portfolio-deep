@@ -34,6 +34,29 @@ Tier 3 - Multi-asset & meta
 New files: domain/{costs,pead,philosophy}.py,
   pipeline/{screen,market_valuation}.py, data/philosophy_profile.json,
   tests/test_{costs,downside,pead,screen,market_valuation,assetclass,philosophy}.py
-Tests: 20 -> 27 suites; run `py run_tests.py` (expect ALL TEST SUITES PASSED OK)
+Tests: 20 -> 28 suites; run `py run_tests.py` (expect ALL TEST SUITES PASSED OK)
 Post-deploy: run Fundamental Refresh then Daily to populate
   market/valuation/benchmark/PEAD/momentum-regime (stale-facts).
+
+Hardening (frontend/deploy/robustness)
+- frontend-presence test: tests/test_frontend.py asserts index.html carries the
+  new render fns + element ids, consumes every new payload key, and that
+  DASH_BUILD == config.BUILD (catches old/reverted UI + backend-frontend drift)
+- build stamp: config.BUILD + /healthz "build"; index.html DASH_BUILD + checkBuild()
+  warns on UI-vs-server mismatch (hard-refresh hint)
+- permanent guard in deep_v82 around _verdict: a verdict typo/bad field can no
+  longer crash a ticker (fixes the 'str' object has no attribute 'str' class)
+- market/benchmark banners now show a muted "waiting for data" placeholder
+  instead of hiding, so the feature is visible before Run Daily
+Tests: 20 -> 28 suites; BUILD 2026-06-28b.
+
+UI polish + risk-tab fix (build 2026-06-28b)
+- fix Allocation/Risk 500: api_risk now returns readable JSON {status:error,message}
+  instead of a bare 500 (frontend was crashing on JSON.parse of "Internal Server
+  Error"); the new downside + rate_risk blocks in _build_risk are wrapped defensively
+  so they degrade to None instead of failing the whole payload; loadRisk() tolerates
+  non-JSON/non-OK responses
+- GARP screen UI: new renderScreen()/loadScreen() renders /api/screen as a ranked
+  cheap x quality table under My Portfolio (was endpoint-only before)
+- per-row GARP score shown on every holding (teal "GARP n" for candidates, muted
+  "G n" otherwise) so the cheap x quality reading is visible for all names
