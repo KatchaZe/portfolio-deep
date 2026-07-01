@@ -136,7 +136,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-06-28d";
+const DASH_BUILD="2026-06-28e";
 function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':Number(x).toFixed(d)}
 function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
@@ -385,6 +385,33 @@ function renderBenchmark(b){
   el.innerHTML=`&#128202; Holdings trailing 12M (MV-weighted, illustrative): <b>${f(b.portfolio_12m)}</b> vs S&P <b>${f(b.market_12m)}</b>${exTxt}`
     +` — active strategies usually trail a low-cost index over time (Damodaran S16/S35); judge net of cost &amp; tax.`;
 }
+function tdInner(html){try{const t=document.createElement('table');t.innerHTML='<tbody><tr>'+html+'</tr></tbody>';const td=t.querySelector('td');return td?td.innerHTML:html;}catch(e){return html;}}
+function cardCell(lbl,html){return `<div style="min-width:96px;flex:1 1 96px"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">${lbl}</div><div style="font-size:12px;margin-top:2px">${html}</div></div>`;}
+function pcard(x,watch){
+  const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
+  const reco=`<span style="font-size:10px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</span>`;
+  const rmFn=watch?`removeWatch('${x.ticker}')`:`removeHolding('${x.ticker}')`;
+  const right=watch
+    ? `<div style="text-align:right"><div style="font-size:13px;font-weight:700">${f(x.price)}</div>${chg}</div>`
+    : `<div style="text-align:right"><div style="font-size:13px;font-weight:700">${f(x.price)}</div>${chg}<div style="font-size:11px;margin-top:2px">${x.pl==null?'<span class="muted">&mdash;</span>':`<span class="${x.pl>=0?'up':'down'}">${x.pl>=0?'+':''}${money(Math.abs(x.pl))}</span> <span class="muted">${pct(x.pl_pct)}</span>`}</div></div>`;
+  const head=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
+    <div>${dot(x.confidence_tier)}<b style="font-size:14px">${x.ticker}</b>${flagIcon(x)} <span class="rm" title="remove" onclick="${rmFn}">&times;</span>
+      <div class="muted" style="font-size:10px">${esc(x.company)} &middot; ${esc(x.sector)}</div></div>
+    ${right}</div>`;
+  const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:16px">${f(x.composite,2)}</b><span style="font-size:11px">${x.stars||''}</span>${reco}${eqBadge(x)}${garpBadge(x)}</div>`;
+  const grid=`<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
+    ${cardCell('Momentum',tdInner(momCell(x)))}
+    ${cardCell('Rank',tdInner(rankCell(x)))}
+    ${cardCell('Action',tag(x.action,ACT_COLOR[x.action]))}
+    ${cardCell('Anchor FV',anchorCell(x))}
+    ${cardCell('Upside',upsideCell(x))}</div>`;
+  const earn=`<div style="margin:6px 0"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px">${earnCircles(x)}</div></div>`;
+  const verdict=`<div class="muted" style="font-size:11px;border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`;
+  const extra=watch
+    ? `<div style="margin-top:8px"><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:6px 11px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></div>`
+    : `<details style="margin-top:6px"><summary style="font-size:11px;color:#64748b;cursor:pointer">WACC / Ke / EVA + DEEP sub-scores</summary>${deepDrawer(x)}</details>`;
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}${deep}${grid}${earn}${verdict}${extra}</div>`;
+}
 function renderPortfolio(d){
   renderMomBanner(d.momentum_meta);
   renderMarket(d.market);
@@ -414,10 +441,9 @@ function renderPortfolio(d){
   const t=d.totals||{};
   const totRow=`<tr class="tot"><td class="l">TOTAL</td><td></td><td></td><td></td><td></td><td>${money(t.market_value)}</td>
      <td>${t.pl==null?'':`<span class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))}</span>`}</td><td>${pct(t.pl_pct)}</td><td colspan="8"></td></tr>`;
-  document.getElementById('p1').innerHTML = `<table><thead><tr>
-    <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Shares</th><th>AvgCost</th><th>MktVal</th><th>P/L $</th><th>P/L %</th>
-    <th>DEEP&#9733;</th><th>Momentum</th><th title="Cross-sectional momentum rank (Top/Mid/Bottom by 12-1)">Rank</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th title="EPS &amp; Rev beat/meet/miss vs consensus + operating-margin YoY trend (expand/flat/contract), last 5 quarters (old→new)">Earnings</th><th class="l">Verdict</th>
-    </tr></thead><tbody>${rows||'<tr><td class="l muted" colspan="16">No holdings yet — add one above.</td></tr>'}${rows?totRow:''}</tbody></table>`;
+  const __cards=(d.rows||[]).map(x=>pcard(x,false)).join('');
+  const __tot=`<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:13px"><div><span class="muted" style="font-size:11px">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:11px">P/L</span> ${t.pl==null?'<span class="muted">&mdash;</span>':`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${pct(t.pl_pct)}</b>`}</div></div>`;
+  document.getElementById('p1').innerHTML = (d.rows&&d.rows.length)?(__tot+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px">${__cards}</div>`):'<div class="muted" style="padding:10px;font-size:13px">No holdings yet — add one above.</div>';
 }
 function showTab(n){for(const i of [1,2,3]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){loadAllocation();loadRisk();loadScreen();}}
 
@@ -633,9 +659,7 @@ function renderWatchTable(rows){
       <td class="l verdict">${esc(x.verdict)}</td>
       <td><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:5px 9px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></td>
     </tr>`;}).join('');
-  document.getElementById('watchTable').innerHTML=`<table><thead><tr>
-    <th class="l">Ticker</th><th>Price</th><th>Chg</th><th>Momentum</th><th title="Cross-sectional momentum rank (Top/Mid/Bottom by 12-1)">Rank</th><th>DEEP&#9733;</th><th>Action</th><th>Anchor FV</th><th>Upside</th><th title="EPS &amp; Rev beat/meet/miss vs consensus + operating-margin YoY trend (expand/flat/contract), last 5 quarters (old→new)">Earnings</th><th class="l">Verdict</th><th></th>
-    </tr></thead><tbody>${body}</tbody></table>`;
+  document.getElementById('watchTable').innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px">${rows.map(x=>pcard(x,true)).join('')}</div>`;
 }
 async function promote(t){
   const sh=prompt('Add '+t+' to My Portfolio.\n\nNumber of shares:');

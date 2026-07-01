@@ -494,7 +494,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "pead": pead.signal(ff.earnings_surprises or ff.eps_surprises_backfill, ff.rev_surprises_fmp),
         "verdict": val.verdict, "confidence": ff.confidence, "confidence_tier": ff.confidence_tier,
         "currency": ff.currency, "flags": ff.flags,
-        "earnings_surprises": ff.earnings_surprises,
+        "earnings_surprises": ff.earnings_surprises or ff.eps_surprises_backfill,
         "rev_surprises": ff.rev_surprises_fmp,   # watchlist: immediate FMP revenue surprise
         "margin_trend": margin_track.build(ff.operating_income_quarters, ff.revenue_quarters),
         "forward_eps": ff.forward_eps, "forward_eps_low": ff.forward_eps_low,
@@ -761,7 +761,7 @@ def portfolio_view(s):
             "confidence": ff.get("confidence"), "confidence_tier": ff.get("confidence_tier"),
             "currency": ff.get("currency"), "updated": s["updated"].get(t),
             "flags": ff.get("flags", []),
-            "earnings_surprises": ff.get("earnings_surprises", []),
+            "earnings_surprises": ff.get("earnings_surprises") or ff.get("eps_surprises_backfill") or [],
             "rev_surprises": s.get("rev_surprises", {}).get(t, []) or ff.get("rev_surprises_fmp", []),
             "pead": pead.signal(ff.get("earnings_surprises") or ff.get("eps_surprises_backfill"),
                                 s.get("rev_surprises", {}).get(t) or ff.get("rev_surprises_fmp")),
