@@ -4,6 +4,9 @@ services:
     runtime: python
     plan: free
     buildCommand: pip install -r requirements.txt
+    # H5: MUST stay a SINGLE worker process (uvicorn default). store.LOCK, the
+    # Drive push worker and the pull-state guard are all per-process — adding
+    # --workers 2+ silently breaks every concurrency/data-loss guarantee.
     startCommand: uvicorn app:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: PYTHON_VERSION

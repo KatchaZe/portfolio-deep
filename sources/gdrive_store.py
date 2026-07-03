@@ -24,8 +24,23 @@ import os
 import io
 import json
 import logging
+import datetime as _dt
 
 log = logging.getLogger("portfolio.gdrive")
+
+# Live status for the /api/persist endpoint + UI badge. Updated on every
+# pull/push attempt so a silent failure becomes VISIBLE on the dashboard.
+STATUS = {
+    "last_pull": None,        # ISO timestamp of last pull attempt
+    "pull_result": None,      # "pulled" | "absent" | "error"
+    "last_push": None,        # ISO timestamp of last push attempt
+    "push_result": None,      # "pushed" | "skipped" | "error"
+    "last_error": None,       # str(last exception) from pull or push
+}
+
+
+def _now():
+    return _dt.datetime.now().isoformat(timespec="seconds")
 
 REMOTE_NAME = "portfolio.json"          # fixed filename inside Drive
 # drive.file = the app may only touch files it creates/opens itself (narrowest,
@@ -89,7 +104,15 @@ def _client():
         from google.oauth2 import service_account
         info = json.loads(os.environ["GDRIVE_SA_JSON"])
         creds = service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
-    _service = build("drive", "v3", credentials=creds, cache_discovery=False)
+    # C1 fix: bound every Drive HTTP call — httplib2's default has NO timeout,
+    # so a hung socket could stall the push worker (or the first-load pull) forever.
+    try:
+        import httplib2
+        from google_auth_httplib2 import AuthorizedHttp
+        _service = build("drive", "v3", cache_discovery=False,
+                         http=AuthorizedHttp(creds, http=httplib2.Http(timeout=30)))
+    except ImportError:                     # very old client libs: keep old behaviour
+        _service = build("drive", "v3", credentials=creds, cache_discovery=False)
     return _service
 
 
@@ -110,17 +133,25 @@ def _find_file_id(svc):
 
 
 def drive_pull(local_path):
-    """Download the remote portfolio.json onto local_path. Returns True if a
-    remote copy existed and was written, False otherwise. Never raises."""
+    """Download the remote portfolio.json onto local_path.
+
+    Returns one of THREE distinct states (the caller MUST treat them differently):
+      "pulled" — remote existed and was written locally
+      "absent" — Drive reachable but no remote file yet (legit first run)
+      "error"  — Drive NOT reachable / auth failed → the caller must NOT push,
+                 or an empty local store would overwrite the good remote backup.
+    Never raises."""
     if not enabled():
-        return False
+        return "error" if _auth_mode() else "absent"
+    STATUS["last_pull"] = _now()
     try:
         from googleapiclient.http import MediaIoBaseDownload
         svc = _client()
         fid = _find_file_id(svc)
         if not fid:
             log.info("Drive: no remote portfolio.json yet (first run)")
-            return False
+            STATUS["pull_result"] = "absent"
+            return "absent"
         buf = io.BytesIO()
         dl = MediaIoBaseDownload(buf, svc.files().get_media(fileId=fid))
         done = False
@@ -129,28 +160,55 @@ def drive_pull(local_path):
         data = buf.getvalue()
         json.loads(data.decode("utf-8"))            # validate before overwriting
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        with open(local_path, "wb") as fh:
+        # C2 fix: atomic replace — readers load() lock-free, so they must never
+        # be able to see a half-written portfolio.json.
+        tmp = f"{local_path}.pull.{os.getpid()}.tmp"
+        with open(tmp, "wb") as fh:
             fh.write(data)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, local_path)
         log.info("Drive: pulled portfolio.json (%d bytes)", len(data))
-        return True
+        STATUS["pull_result"] = "pulled"
+        STATUS["last_error"] = None
+        return "pulled"
     except Exception as e:
-        log.warning("Drive pull failed (using local copy): %s", e)
-        return False
+        log.error("Drive pull FAILED — push disabled until a pull succeeds "
+                  "(protects the remote backup): %s", e)
+        STATUS["pull_result"] = "error"
+        STATUS["last_error"] = f"pull: {e}"
+        return "error"
 
 
 def drive_push(local_path):
     """Upload local_path to the remote portfolio.json (create or update).
     Returns True on success. Never raises — a Drive outage must not break save()."""
+    global _file_id
     if not enabled():
         return False
+    STATUS["last_push"] = _now()
     try:
         from googleapiclient.http import MediaFileUpload
         svc = _client()
         fid = _find_file_id(svc)
         media = MediaFileUpload(local_path, mimetype="application/json", resumable=False)
         if fid:
-            svc.files().update(fileId=fid, media_body=media).execute()
-        else:
+            try:
+                svc.files().update(fileId=fid, media_body=media).execute()
+            except Exception as e:
+                # H4: the cached file id can go stale (file deleted/moved in
+                # Drive). On 404, drop the cache and fall through to re-find /
+                # re-create instead of erroring until the next restart.
+                if "404" not in str(e):
+                    raise
+                log.warning("Drive: cached file id stale (%s); re-resolving", e)
+                _file_id = None
+                fid = _find_file_id(svc)
+                media = MediaFileUpload(local_path, mimetype="application/json",
+                                        resumable=False)
+                if fid:
+                    svc.files().update(fileId=fid, media_body=media).execute()
+        if not fid:
             meta = {"name": REMOTE_NAME}
             folder = os.environ.get("GDRIVE_FOLDER_ID")
             if folder:
@@ -173,10 +231,20 @@ def drive_push(local_path):
                                                  fields="id").execute()
                 else:
                     raise
-            global _file_id
-            _file_id = created["id"]
+            _file_id = created["id"]        # (global declared at function top)
         log.info("Drive: pushed portfolio.json")
+        STATUS["push_result"] = "pushed"
+        STATUS["last_error"] = None
         return True
     except Exception as e:
         log.warning("Drive push failed (kept local copy only): %s", e)
+        STATUS["push_result"] = "error"
+        STATUS["last_error"] = f"push: {e}"
         return False
+
+
+def status():
+    """Snapshot for the /api/persist endpoint — never raises."""
+    mode = _auth_mode()
+    return {"configured": mode is not None, "auth_mode": mode,
+            "enabled": enabled(), **STATUS}

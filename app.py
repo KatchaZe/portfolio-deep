@@ -17,6 +17,9 @@ Concurrency model (this fixes the v2 server-freeze):
     (commit_*). The UI stays responsive even during a long fundamental refresh.
   * Trade-off (single-user app): two overlapping refreshes could both pass the
     FMP quota pre-check; the counter is still committed correctly afterwards.
+  * DEPLOY (H5): run exactly ONE worker process (uvicorn default). store.LOCK,
+    the background Drive-push worker and the pull-state guard are per-process;
+    multiple workers would silently break all of them.
 
 Optional auth (set env APP_TOKEN):
   open  https://your-app/?token=YOUR_TOKEN  once — a cookie is stored, after
@@ -43,7 +46,7 @@ log = logging.getLogger("portfolio")
 
 app = FastAPI(title="Portfolio DEEP v7.3")
 BASE = os.path.dirname(os.path.abspath(__file__))
-QUOTA_CAP = 250
+QUOTA_CAP = config.QUOTA_CAP
 APP_TOKEN = os.environ.get("APP_TOKEN", "")
 
 
@@ -69,9 +72,12 @@ async def _auth_middleware(request: Request, call_next):
                 {"error": "unauthorized — open /?token=YOUR_APP_TOKEN once"},
                 status_code=401)
     resp = await call_next(request)
-    # first successful visit with ?token=... -> remember it in a cookie
+    # first successful visit with ?token=... -> remember it in a cookie.
+    # secure=True: never send the token over plain HTTP (Render serves HTTPS).
+    # Local http://localhost dev still works — the browser just skips the cookie
+    # and ?token= / X-App-Token per request keep working.
     if APP_TOKEN and auth_ok(request.query_params.get("token")):
-        resp.set_cookie("app_token", APP_TOKEN, httponly=True,
+        resp.set_cookie("app_token", APP_TOKEN, httponly=True, secure=True,
                         samesite="lax", max_age=30 * 86400)
     return resp
 
@@ -133,6 +139,13 @@ def api_portfolio():
 @app.get("/api/quota")
 def api_quota():
     return JSONResponse(_quota(st.load()))
+
+
+@app.get("/api/persist")
+def api_persist():
+    """Google-Drive persistence health — surfaced as a header badge so a silent
+    backup failure (expired token, quota, network) is visible BEFORE data is lost."""
+    return JSONResponse(st.persist_status())
 
 
 @app.post("/api/holding")

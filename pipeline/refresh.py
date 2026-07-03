@@ -12,18 +12,29 @@ import os
 import json
 import time
 import logging
+import threading
 import datetime as dt
+from concurrent.futures import ThreadPoolExecutor
 
 import config
 from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
 from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache, market_valuation
-from domain import indicators, momentum, costs, pead, philosophy
+from domain import indicators, momentum, costs, pead, philosophy, advice
 from pipeline import screen as screen_mod
 from domain.engine import get_engine
 import store as store_mod
 
 log = logging.getLogger("portfolio.refresh")
 _cik_map = None
+_cik_lock = threading.Lock()       # P1: parallel workers share the lazy CIK map
+MAX_WORKERS = 4                    # P1: parallel ticker fetches (SEC throttle is global)
+
+
+def _clean_prices(d):
+    """R1 for the SHORT series too: drop clearly-corrupt bars (non-positive /
+    lone reverting spikes) before RSI/MACD/DBBMV read them. Pure."""
+    cc, vv, dd, _q = momentum.clean_series(d.get("closes"), d.get("volumes"), d.get("dates"))
+    return {**d, "closes": cc, "volumes": vv, "dates": dd}
 
 
 def get_prices(ticker, rng="3mo", interval="1d"):
@@ -33,14 +44,14 @@ def get_prices(ticker, rng="3mo", interval="1d"):
     Returns the series dict; raises only if BOTH sources fail."""
     yahoo_short = None
     try:
-        d = yahoo.fetch_chart(ticker, rng=rng, interval=interval)
+        d = _clean_prices(yahoo.fetch_chart(ticker, rng=rng, interval=interval))
         if d and len(d.get("closes", [])) >= 30:
             return d
         yahoo_short = d                         # got data, just not enough — keep as last resort
     except Exception as e:
         log.warning("%s yahoo chart failed, trying stooq: %s", ticker, e)
     try:
-        d = stooq.fetch_chart(ticker)
+        d = _clean_prices(stooq.fetch_chart(ticker))
         if d and len(d.get("closes", [])) >= 30:
             tail = 180                          # Stooq returns full history; momentum needs only the tail
             return {"closes": d["closes"][-tail:], "volumes": d["volumes"][-tail:],
@@ -66,13 +77,21 @@ def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
     Uses ONLY fetched data — never fabricates or back-fills. Raises only when every
     source is empty/too short, so the caller leaves the cell blank.
 
-    R4: a same-day cached series short-circuits the network (saves FMP quota); every
-    successful fetch is cached; if every live source fails a stale cache is served
-    (flagged) before giving up — so momentum survives a transient outage."""
+    R4/H3: a same-day cached series short-circuits the network only when it already
+    has >= full_bars (a partial cache no longer hides a longer series, but it does
+    stop same-day FMP re-spend); every successful fetch is cached; if every live
+    source fails a stale cache is served (flagged) before giving up — so momentum
+    survives a transient outage."""
     fresh = pricecache.read_fresh(ticker)
-    if fresh and len(fresh.get("closes") or []) >= min_bars:
+    n_fresh = len((fresh or {}).get("closes") or [])
+    if fresh and n_fresh >= full_bars:            # H3: cache must satisfy the FULL request
         out = dict(fresh); out["from_cache"] = True
         return out
+    # H3: a same-day PARTIAL cache no longer blocks a longer fetch (the old
+    # >=min_bars short-circuit let a 2y series suppress a 5y request all day),
+    # but FMP quota is NOT re-spent to improve a partial we already paid for
+    # today — only the free tiers (Yahoo/Stooq) may try to beat the cache.
+    spend_fmp = bool(fmp_key) and not (fresh and n_fresh >= min_bars)
     best = None                                   # (n_bars, payload) seen so far
 
     def finish(pay):
@@ -100,7 +119,7 @@ def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
     except Exception as e:
         log.warning("%s yahoo long chart failed: %s", ticker, e)
 
-    if fmp_key:
+    if spend_fmp:
         try:
             h = fmp.parse_history(fmp.fetch_history(ticker, fmp_key, days=1300))  # ~5y for reversal
             pay = {"closes": h["closes"], "volumes": h["volumes"], "dates": h["dates"],
@@ -120,7 +139,13 @@ def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
         log.warning("%s stooq long chart failed: %s", ticker, e)
 
     if best and best[0] >= min_bars:              # partial history, but usable
+        if fresh and n_fresh > best[0]:           # H3: today's cache is still the longest
+            out = dict(fresh); out["from_cache"] = True
+            return out
         return finish(best[1])
+    if fresh and n_fresh >= min_bars:             # live sources failed -> same-day cache
+        out = dict(fresh); out["from_cache"] = True
+        return out
     stale = pricecache.read_any(ticker)           # R4: last good series keeps momentum alive
     if stale and len(stale.get("closes") or []) >= min_bars:
         out = dict(stale); out["from_cache"] = True; out["stale_cache"] = True
@@ -133,8 +158,9 @@ def resolve_cik(ticker):
     t = ticker.upper().strip()
     if t in config.CIKS:
         return config.CIKS[t], None
-    if _cik_map is None:
-        _cik_map = _load_cik_map()
+    with _cik_lock:                    # P1: don't double-fetch the map from 2 threads
+        if _cik_map is None:
+            _cik_map = _load_cik_map()
     v = _cik_map.get(t)
     return (v[0], v[1]) if v else (None, None)
 
@@ -193,9 +219,8 @@ def analyze(ticker, rf, fmp_key="", rf_live=True):
     profile = None
     if fmp_key:
         try:
-            import requests
-            r = requests.get(f"{config.FMP_BASE}/profile", params={"symbol": t, "apikey": fmp_key}, timeout=15)
-            profile = r.json(); fmp_calls = 1
+            profile = fmp.fetch_profile(t, fmp_key) or None
+            fmp_calls = 1
         except Exception as e:
             log.warning("%s FMP profile failed: %s", t, e)
             profile = None
@@ -204,6 +229,8 @@ def analyze(ticker, rf, fmp_key="", rf_live=True):
     ff = normalize.build(t, sec_cf, profile, yq, fx_rate=fx, company=name)
     if not rf_live:
         ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
+    if isinstance(sec_cf, dict) and sec_cf.get("_stale_cache"):
+        ff.flags.append("SEC via stale cache (network failed) — figures may lag the latest filing")
 
     # price/shares fallback — foreign filers (e.g. NVO) have no SEC share count, so
     # if Yahoo was degraded the engine has nothing to anchor on. Pull price+shares
@@ -390,24 +417,41 @@ def _reconcile_earnings(ff, yh, fm):
     return yh
 
 
+def _partition_by_quota(tickers, cost, quota_used, quota_cap):
+    """P1: split tickers into (todo, quota_errors) UP FRONT using the worst-case
+    cost per ticker, so the quota pre-check stays exact under parallel fetching."""
+    todo, errors = [], []
+    budget = max(0, quota_cap - quota_used)
+    for t in tickers:
+        if cost and (len(todo) + 1) * cost > budget:
+            errors.append(f"{t} (quota)")
+        else:
+            todo.append(t)
+    return todo, errors
+
+
 def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     """NETWORK PHASE — no store access, run OUTSIDE store.LOCK.
+    P1: tickers are analysed in PARALLEL (ThreadPool, MAX_WORKERS). Safe because
+    analyze() is network+pure (no store), the SEC throttle is global/thread-safe,
+    and the FMP quota is partitioned up front (worst-case cost per ticker).
     Returns (fetched {ticker: (FinancialFacts, Valuation)}, errors, fmp_calls,
     rf_pct, rf_live)."""
     rf, rf_live = yahoo.fetch_treasury_10y()
-    fetched, errors, calls = {}, [], 0
-    cost = 4 if fmp_key else 0          # profile + earnings + estimates + quarterly-est backfill per ticker (0 without a key)
-    for t in tickers:
-        if cost and quota_used + calls + cost > quota_cap:
-            errors.append(f"{t} (quota)")
-            continue
-        try:
-            ff, val, c = analyze(t, rf, fmp_key, rf_live=rf_live)
-            calls += c
-            fetched[t] = (ff, val)
-        except Exception as e:
-            log.warning("%s fundamentals failed: %s", t, e)
-            errors.append(f"{t}: {str(e)[:60]}")
+    fetched, calls = {}, 0
+    cost = 5 if fmp_key else 0          # H2: profile + quote-fallback + earnings + estimates + quarterly-est backfill per ticker (0 without a key)
+    todo, errors = _partition_by_quota(tickers, cost, quota_used, quota_cap)
+    if todo:
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(todo))) as ex:
+            futs = {t: ex.submit(analyze, t, rf, fmp_key, rf_live) for t in todo}
+        for t in todo:                   # collect in submission order (stable errors)
+            try:
+                ff, val, c = futs[t].result()
+                calls += c
+                fetched[t] = (ff, val)
+            except Exception as e:
+                log.warning("%s fundamentals failed: %s", t, e)
+                errors.append(f"{t}: {str(e)[:60]}")
     # peer-median (sector cohort, free) → inject + re-score the affected names. The
     # engine is pure, so re-evaluate is cheap and needs no extra network calls.
     medians = compute_peer_medians(fetched)
@@ -443,6 +487,34 @@ def refresh_fundamentals(s, tickers, fmp_key="", quota_cap=250):
             "rf_live": rf_live}
 
 
+def _earn_status(eps_list, rev_list, mgn_list, provenance, facts_has_new_schema, fmp_on):
+    """Why is each earnings track (EPS / Rev / Mgn) filled or empty? Shown as a
+    tooltip so a blank row is EXPLAINED instead of silently missing (user ask:
+    'ถ้าดึงไม่ได้ ให้บอกว่าดึงไม่ได้ ทั้งจากแหล่งหลักและสำรอง').
+    Returns {"eps": {...}, "rev": {...}, "mgn": {...}, "stale_facts": bool}."""
+    prov = provenance or {}
+
+    def track(lst, src_key, primary, fallbacks):
+        if lst:
+            return {"ok": True, "src": prov.get(src_key) or "stored"}
+        if not facts_has_new_schema:
+            return {"ok": False, "reason": "stale-facts",
+                    "detail": "ข้อมูลชุดเก่า (ก่อนอัปเดต schema) — กด Run Fundamental Refresh"}
+        fb = ", ".join(fallbacks) if fmp_on else ", ".join(f for f in fallbacks if "FMP" not in f) or "-"
+        return {"ok": False, "reason": "unavailable",
+                "detail": f"ดึงไม่ได้ทั้งแหล่งหลัก ({primary}) และสำรอง ({fb})"}
+
+    return {
+        "eps": track(eps_list, "earnings_surprises", "Yahoo earningsHistory",
+                     ["FMP earnings", "FMP est × SEC actual", "Finnhub", "AlphaVantage"]),
+        "rev": track(rev_list, "rev_surprises_fmp", "forward-build (Yahoo est × SEC actual)",
+                     ["FMP earnings-revenue", "FMP est × SEC actual"]),
+        "mgn": track(mgn_list, "operating_income_quarters", "SEC quarterly filings",
+                     ["(SEC เท่านั้น — บริษัทต่างชาติ/IFRS บางรายไม่รายงานรายไตรมาส)"]),
+        "stale_facts": not facts_has_new_schema,
+    }
+
+
 def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     """Full analysis for ONE ticker incl. momentum, returned as a display row.
     Ephemeral — nothing is stored. NETWORK ONLY. Returns (row, fmp_calls)."""
@@ -470,6 +542,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         mom_v2["div_warn"] = momentum.div_warn(mom_v2.get("dividend_adjusted"),
                                                getattr(ff, "dividend_ps", None))
     price = mom.get("price") or ff.price
+    mgn_trend = margin_track.build(ff.operating_income_quarters, ff.revenue_quarters)  # P3: once
     anchor = val.anchor_value
     upside = ((anchor - price) / price * 100) if (anchor and price) else None
     rd = val.reverse_dcf or {}
@@ -496,7 +569,12 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "currency": ff.currency, "flags": ff.flags,
         "earnings_surprises": ff.earnings_surprises or ff.eps_surprises_backfill,
         "rev_surprises": ff.rev_surprises_fmp,   # watchlist: immediate FMP revenue surprise
-        "margin_trend": margin_track.build(ff.operating_income_quarters, ff.revenue_quarters),
+        "margin_trend": mgn_trend,
+        # v8.3: all fair-value methods + why-empty status for the earnings circles
+        "fv_peg": val.fv_peg, "fv_fvp": val.fv_fvp,
+        "earn_status": _earn_status(
+            ff.earnings_surprises or ff.eps_surprises_backfill, ff.rev_surprises_fmp,
+            mgn_trend, ff.provenance, True, bool(fmp_key)),
         "forward_eps": ff.forward_eps, "forward_eps_low": ff.forward_eps_low,
         "forward_eps_high": ff.forward_eps_high, "forward_eps_spread_pct": ff.forward_eps_spread_pct,
         "forward_eps_n": ff.forward_eps_n, "forward_eps_sources": ff.forward_eps_sources,
@@ -504,6 +582,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "eq_verdict": val.eq_verdict, "cost_of_equity": val.cost_of_equity, "eva": val.eva,
         "key_metrics": val.key_metrics, "subscores": val.subscores,
     }
+    row["advice"] = advice.build(row)     # v8.3: Damodaran action synthesis (Thai)
     return row, calls
 
 
@@ -511,18 +590,19 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     """NETWORK PHASE — analyse tickers on demand, nothing stored. Run OUTSIDE
     store.LOCK; the caller commits only the FMP quota counter afterwards."""
     rf, rf_live = yahoo.fetch_treasury_10y()
-    rows, errors, calls = [], [], 0
-    cost = 4 if fmp_key else 0          # profile + earnings + estimates + quarterly-est backfill per ticker
-    for t in tickers:
-        if cost and quota_used + calls + cost > quota_cap:
-            errors.append(f"{t} (quota)")
-            continue
-        try:
-            r, c = analyze_row(t, rf, fmp_key, rf_live=rf_live)
-            calls += c
-            rows.append(r)
-        except Exception as e:
-            errors.append(f"{t}: {str(e)[:50]}")
+    rows, calls = [], 0
+    cost = 5 if fmp_key else 0          # H2: profile + quote-fallback + earnings + estimates + quarterly-est backfill per ticker
+    todo, errors = _partition_by_quota(tickers, cost, quota_used, quota_cap)
+    if todo:                            # P1: parallel, same pattern as fetch_fundamentals
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(todo))) as ex:
+            futs = {t: ex.submit(analyze_row, t, rf, fmp_key, rf_live) for t in todo}
+        for t in todo:                  # keep input order for the display rows
+            try:
+                r, c = futs[t].result()
+                calls += c
+                rows.append(r)
+            except Exception as e:
+                errors.append(f"{t}: {str(e)[:50]}")
     # cross-sectional momentum rank among the watchlist names (mirrors portfolio_view)
     momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
     try:                                            # S9 market regime -> crash guard per row (mirror portfolio)
@@ -550,8 +630,8 @@ def fetch_daily(tickers, fmp_key=""):
     plus the faithful composite momentum (v2, primary) under m["v2"].
     `fmp_key` is only spent if Yahoo is blocked (get_prices_long tier 2); leave ""
     to keep the daily run quota-free (Yahoo->Stooq). Run OUTSIDE store.LOCK."""
-    out = {}
-    for t in tickers:
+    def _daily_one(t):
+        """Per-ticker daily payload. Never raises (each part is contained)."""
         m = {}
         try:
             c = get_prices(t)
@@ -561,7 +641,7 @@ def fetch_daily(tickers, fmp_key=""):
         except Exception as e:
             log.warning("%s daily momentum failed: %s", t, e)
         try:
-            lc = get_prices_long(t, fmp_key, rng="5y")     # 5y so S9 reversal can fire
+            lc = get_prices_long(t, fmp_key, rng="5y", full_bars=780)  # H3: S9 reversal needs 756 bars — demand them
             mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
             if "error" not in mv:
                 mv["src"] = lc.get("source")
@@ -569,8 +649,16 @@ def fetch_daily(tickers, fmp_key=""):
                 m["v2"] = mv
         except Exception as e:
             log.warning("%s daily momentum_v2 failed: %s", t, e)
-        if m:
-            out[t] = m
+        return m
+
+    out = {}
+    if tickers:                          # P1: parallel per-ticker daily fetch
+        with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(tickers))) as ex:
+            futs = {t: ex.submit(_daily_one, t) for t in tickers}
+        for t in tickers:
+            m = futs[t].result()
+            if m:
+                out[t] = m
     # S9 market regime (once per run): SPY trend gates per-name momentum reliability.
     try:
         sp = get_prices_long("SPY", fmp_key, rng="2y")     # ~1y+ is enough for SMA200
@@ -620,9 +708,7 @@ def allocation(s, whatif=None, fmp_key=""):
         sec = (facts.get(t, {}) or {}).get("sector")
         if not sec and fmp_key:
             try:
-                import requests
-                r = requests.get(f"{config.FMP_BASE}/profile", params={"symbol": t, "apikey": fmp_key}, timeout=12)
-                sec = fmp.parse_profile(r.json()).get("sector")
+                sec = fmp.parse_profile(fmp.fetch_profile(t, fmp_key)).get("sector")
                 nonlocal fmp_calls
                 fmp_calls += 1
             except Exception as e:
@@ -736,6 +822,8 @@ def portfolio_view(s):
         anchor = val.get("anchor_value")
         rd = val.get("reverse_dcf") or {}
         upside = ((anchor - price) / price * 100) if (anchor and price) else None
+        mgn_trend = margin_track.build(ff.get("operating_income_quarters"),
+                                       ff.get("revenue_quarters"))        # P3: once
         rows.append({
             "ticker": t, "company": ff.get("company"), "sector": ff.get("sector"),
             "price": price, "change": mom.get("change"),
@@ -765,8 +853,16 @@ def portfolio_view(s):
             "rev_surprises": s.get("rev_surprises", {}).get(t, []) or ff.get("rev_surprises_fmp", []),
             "pead": pead.signal(ff.get("earnings_surprises") or ff.get("eps_surprises_backfill"),
                                 s.get("rev_surprises", {}).get(t) or ff.get("rev_surprises_fmp")),
-            "margin_trend": margin_track.build(ff.get("operating_income_quarters"),
-                                               ff.get("revenue_quarters")),
+            "margin_trend": mgn_trend,
+            # v8.3: all fair-value methods + why-empty status for the earnings circles
+            "fv_peg": val.get("fv_peg"), "fv_fvp": val.get("fv_fvp"),
+            "earn_status": _earn_status(
+                ff.get("earnings_surprises") or ff.get("eps_surprises_backfill"),
+                s.get("rev_surprises", {}).get(t) or ff.get("rev_surprises_fmp"),
+                mgn_trend,
+                ff.get("provenance"),
+                ("operating_income_quarters" in ff and "eps_quarters" in ff),
+                bool(config.FMP_API_KEY)),
             "forward_eps": ff.get("forward_eps"), "forward_eps_low": ff.get("forward_eps_low"),
             "forward_eps_high": ff.get("forward_eps_high"),
             "forward_eps_spread_pct": ff.get("forward_eps_spread_pct"),
@@ -779,6 +875,7 @@ def portfolio_view(s):
             "garp_score": screen_mod.garp_score(val.get("E_econ"), val.get("P")),
             "garp_candidate": screen_mod.is_candidate(val.get("E_econ"), val.get("P")),
         })
+        rows[-1]["advice"] = advice.build(rows[-1])   # v8.3: Damodaran action synthesis
     # cross-sectional momentum rank across the held portfolio (mutates each v2 dict)
     momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
     mom_meta = _momentum_meta(rows)              # R3: per-row staleness + banner meta

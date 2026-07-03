@@ -4,6 +4,7 @@ growth, FX rates, and (later) daily momentum. Parse is separated from fetch so
 it is unit-testable against saved quoteSummary fixtures.
 """
 import time
+import threading
 
 
 def _raw(node):
@@ -116,6 +117,21 @@ def _session(requests_mod):
     return s, crumb
 
 
+# P2: cache (session, crumb) per process — the warm-up (2 requests + crumb) used
+# to run per ATTEMPT per ticker, adding seconds each. requests.Session is
+# thread-safe for concurrent GETs (urllib3 pool), so P1 parallel fetch is fine.
+_sess_lock = threading.Lock()
+_sess_cached = None
+
+
+def _get_session(requests_mod, force_new=False):
+    global _sess_cached
+    with _sess_lock:
+        if _sess_cached is None or force_new:
+            _sess_cached = _session(requests_mod)
+        return _sess_cached
+
+
 _QS_MODULES = "defaultKeyStatistics,financialData,earningsTrend,earningsHistory,price"
 
 
@@ -134,10 +150,14 @@ def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.
     (possibly an error dict) if every attempt is degraded — callers/normalize
     already flag a missing result block."""
     import requests as _r
+    injected = requests_mod is not None and requests_mod is not _r   # tests inject fakes
     requests_mod = requests_mod or _r
     last = {"_error": "no attempt"}
     for attempt in range(1, retries + 1):
-        s, crumb = _session(requests_mod)
+        # P2: reuse the cached session on the first attempt; re-warm on retries
+        # (a blocked/expired crumb is the usual reason the first round failed).
+        s, crumb = (_session(requests_mod) if injected
+                    else _get_session(requests_mod, force_new=(attempt > 1)))
         for host in ("query2", "query1"):
             try:
                 r = s.get(f"https://{host}.finance.yahoo.com/v10/finance/quoteSummary/{ticker}",

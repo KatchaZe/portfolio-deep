@@ -8,6 +8,43 @@ import config
 
 BASE = config.FMP_BASE
 
+# P5: shared requests.Session for connection reuse (TLS handshake once, not per
+# call). An injected requests_mod (unit tests) is passed through untouched.
+_session_cached = None
+
+
+def _http(requests_mod=None):
+    global _session_cached
+    if requests_mod is not None:
+        return requests_mod
+    import requests as _r
+    if _session_cached is None:
+        _session_cached = _r.Session()
+    return _session_cached
+
+
+def fetch_profile(ticker, key, requests_mod=None, timeout=15):
+    """Company profile (sector/beta/price/currency) — stable endpoint, then
+    legacy. Returns the raw json (list/dict) or [] on any failure. Single home
+    for the profile call (was duplicated inline in pipeline/refresh.py)."""
+    requests_mod = _http(requests_mod)
+    attempts = [
+        (f"{BASE}/profile", {"symbol": ticker, "apikey": key}),
+        (f"{config.FMP_LEGACY}/profile/{ticker}", {"apikey": key}),
+    ]
+    for url, params in attempts:
+        try:
+            r = requests_mod.get(url, params=params, timeout=timeout)
+            if r.status_code != 200:
+                continue
+            j = r.json()
+            if isinstance(j, (list, dict)) and j:
+                return j
+        except Exception:
+            continue
+    return []
+
+
 ENDPOINTS = {
     "profile": {},
     "quote": {},
@@ -21,8 +58,7 @@ ENDPOINTS = {
 
 
 def fetch(ticker, key, sleep=1.2, requests_mod=None):
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     bundle, calls = {}, 0
     for name, spec in ENDPOINTS.items():
         ep = spec.get("_ep", name)
@@ -54,8 +90,7 @@ def fetch(ticker, key, sleep=1.2, requests_mod=None):
 
 
 def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=8):
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/earnings", {"symbol": ticker, "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/earnings-surprises/{ticker}", {"apikey": key}),
@@ -75,8 +110,7 @@ def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=8):
 
 
 def fetch_quote(ticker, key, requests_mod=None, timeout=15):
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/quote", {"symbol": ticker, "apikey": key}),
         (f"{config.FMP_LEGACY}/quote/{ticker}", {"apikey": key}),
@@ -100,8 +134,7 @@ def fetch_history(ticker, key, requests_mod=None, timeout=25, days=400):
     historical-price-full (returns adjClose+volume) then the stable EOD endpoint.
     Returns the raw json (dict or list); {} if all attempts fail. Costs 1 FMP call
     (tier-2 fallback, used only when Yahoo is short/blocked)."""
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     attempts = [
         (f"{config.FMP_LEGACY}/historical-price-full/{ticker}", {"timeseries": days, "apikey": key}),
         (f"{BASE}/historical-price-eod/full", {"symbol": ticker, "apikey": key}),
@@ -154,8 +187,7 @@ def parse_history(j):
 
 
 def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=6):
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "annual", "limit": limit, "apikey": key}),
@@ -177,8 +209,7 @@ def fetch_estimates_quarter(ticker, key, requests_mod=None, timeout=20, limit=12
     """Analyst estimates at QUARTERLY granularity — gives a per-quarter EPS &
     revenue estimate we can pair with SEC actuals (surprise_backfill). Same endpoint
     family as fetch_estimates, just period=quarter. Returns a raw list or []."""
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "quarter", "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "quarter", "limit": limit, "apikey": key}),
@@ -217,8 +248,7 @@ def parse_estimates_quarterly(estimates):
 
 
 def fetch_peers(ticker, key, requests_mod=None, timeout=15):
-    import requests as _r
-    requests_mod = requests_mod or _r
+    requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/stock-peers", {"symbol": ticker, "apikey": key}),
         (f"{config.FMP_LEGACY}/stock_peers", {"symbol": ticker, "apikey": key}),

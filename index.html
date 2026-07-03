@@ -41,16 +41,25 @@
   .rm:hover{background:#dc2626}
   td[title]{cursor:help}
   .summary{font-size:12px;color:#475569;margin:8px 0;white-space:pre-wrap}
-  .verdict{font-size:10px;color:#64748b;max-width:340px;white-space:normal;text-align:left}
-  .erow{display:flex;gap:3px;align-items:center;justify-content:center;margin:1px 0}
-  .elbl{font-size:8px;color:#94a3b8;width:22px;text-align:right;margin-right:2px}
+  .verdict{font-size:11px;color:#64748b;max-width:340px;white-space:normal;text-align:left}
+  .erow{display:flex;gap:3px;align-items:center;justify-content:flex-start;margin:1px 0}
+  .elbl{font-size:9px;color:#94a3b8;width:28px;text-align:right;margin-right:4px;flex:none}
   .ecirc{width:11px;height:11px;border-radius:50%;display:inline-block;cursor:help;box-shadow:0 0 0 1px rgba(0,0,0,.08)}
+  /* How to / Ref tabs */
+  .ht{font-size:16px;margin:6px 0 4px}
+  .ht2{font-size:13.5px;margin:18px 0 6px;color:#0f172a}
+  .httab{width:100%;border-collapse:collapse;font-size:12.5px;margin:4px 0 10px}
+  .httab th{background:#f8fafc;font-size:10.5px;text-transform:uppercase;letter-spacing:.03em;color:#64748b;text-align:left;padding:7px 9px}
+  .httab td{text-align:left;white-space:normal;vertical-align:top;padding:7px 9px;border-bottom:1px solid #f1f5f9}
 </style>
 </head>
 <body>
 <header>
   <h1>Portfolio DEEP <span class="ver" id="ver"></span></h1>
-  <span class="quota" id="quota">quota …</span>
+  <span style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+    <span class="quota" id="persist" style="cursor:help">&#128190; …</span>
+    <span class="quota" id="quota">quota …</span>
+  </span>
 </header>
 <div class="wrap">
   <div class="controls">
@@ -72,6 +81,8 @@
     <div class="tab active" id="tab1" onclick="showTab(1)">My Portfolio</div>
     <div class="tab" id="tab2" onclick="showTab(2)">Watchlist</div>
     <div class="tab" id="tab3" onclick="showTab(3)">Allocation</div>
+    <div class="tab" id="tab4" onclick="showTab(4)">How to</div>
+    <div class="tab" id="tab5" onclick="showTab(5)">Ref</div>
   </div>
   <div class="panel">
     <div id="momBanner" style="display:none"></div>
@@ -127,6 +138,134 @@
         </div>
       </div>
     </div>
+
+    <!-- ===================== HOW TO (คู่มืออ่านค่าแต่ละส่วน) ===================== -->
+    <div id="p4" style="display:none;font-size:13px;line-height:1.75;max-width:980px">
+      <h2 class="ht">&#128214; How to — วิธีอ่านแดชบอร์ดนี้ (ตามหลัก Damodaran)</h2>
+      <p class="muted" style="font-size:12px">หลักคิดรวม: <b>Value ก่อนเสมอ</b> (ราคาเทียบมูลค่า) &rarr; <b>คุณภาพ</b> (moat + งบไว้ใจได้) &rarr; <b>จังหวะ</b> (momentum เป็นแค่ตัวจับเวลาเข้า ไม่ใช่เหตุผลซื้อ) — ตัวเลขทุกตัวมี tooltip เมื่อเอาเมาส์ชี้</p>
+
+      <h3 class="ht2">1) Card ของหุ้นแต่ละตัว</h3>
+      <table class="httab">
+        <tr><th>ส่วน</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
+        <tr><td><b>จุดสี หน้า ticker</b></td><td>Confidence tier ของข้อมูล (เขียว/เหลือง/แดง)</td><td>แดง = ข้อมูลขาดหลายช่อง อย่าเพิ่งเชื่อ Fair Value มาก · ⚑ = จำนวน data flags (ชี้ดูรายละเอียด)</td></tr>
+        <tr><td><b>คะแนน DEEP + ดาว</b></td><td>คะแนนรวม 0–5 จาก D-E-E-P (ถ่วงน้ำหนัก D 20% / E_exec 20% / E_econ 30% / P 30%)</td><td>&ge;4 = BUY, 3–4 = HOLD/Accumulate, 2–3 = HOLD, &lt;2 = SELL/AVOID — เทียบ "ระหว่างหุ้น" ได้เพราะ rubric เดียวกัน</td></tr>
+        <tr><td><b>EQ badge</b></td><td>Earnings quality: CLEAN / REVIEW / LOW</td><td>วัดว่ากำไรกลายเป็นเงินสดจริงไหม (cash conversion &ge;0.8 ดี, accruals &le;5% ของ assets, SBC &le;10% ของรายได้)</td></tr>
+        <tr><td><b>GARP badge</b></td><td>คะแนน ถูก&times;ดี (Economics + Price, /10)</td><td>candidate = ทั้งสองด้าน &ge;3 (Damodaran S13/S19: growth at a reasonable price)</td></tr>
+        <tr><td><b>Momentum</b></td><td>Composite 4 เงื่อนไข: 12-1 &gt;0 · 6M &gt;0 · เหนือ SMA200 · RSI&gt;50</td><td>Strong/Positive = จังหวะหนุน · ⚠ crash guard = ตลาด RISK-OFF ห้ามไล่ราคา (S9) · ⏳ = ข้อมูลเก่า กด Run Daily</td></tr>
+        <tr><td><b>Rank</b></td><td>อันดับ momentum 12-1 เทียบหุ้นตัวอื่นในพอร์ต/ลิสต์ (percentile)</td><td>Top = แข็งสุดในกลุ่ม — ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน</td></tr>
+        <tr><td><b>Action</b></td><td>สรุปคำสั่งรายวัน = สัญญาณ value ผสมสัญญาณ momentum</td><td>BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย</td></tr>
+        <tr><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside</td><td>FVP = Future Value Projection (หุ้นโตแรง moat กว้าง: spread&gt;10pp และ growth&gt;15%) · PEG = Fundamental PEG (กรณีทั่วไป) · RevDCF = หุ้นยังไม่มีกำไร แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า</td></tr>
+        <tr><td><b>Upside</b></td><td>(FV−ราคา)/ราคา + net หลังภาษี/ค่าเทรด (S6)</td><td>&gt;+15% = มี margin of safety · &lt;−15% = จ่ายแพงกว่ามูลค่า · หุ้น pre-profit: เทียบ actual %/y กับ implied — actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
+        <tr><td><b>Earnings &middot; EPS/Rev/Mgn &middot; 5q</b></td><td>ผล 5 ไตรมาสล่าสุด (เก่า&rarr;ใหม่): EPS และ Revenue = beat/meet/miss เทียบ estimate นักวิเคราะห์ · Mgn = แนวโน้ม operating margin YoY (expand/flat/contract)</td><td>เขียวต่อเนื่อง = execution ดี · แดงซ้ำ = ประมาณการโลกสวย/ธุรกิจแผ่ว · ชี้จุดสีดู Act vs Est · "&times; n/a" = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง · "&#10227; refresh" = ข้อมูลชุดเก่า กด Run Fundamental Refresh · PEAD = ทิศ drift หลังงบ (S25)</td></tr>
+        <tr><td><b>Verdict + &#128161;</b></td><td>สรุป 1 บรรทัด + คำแนะนำ action สังเคราะห์จากทุกค่าบน card</td><td>เรียงตาม มูลค่า &rarr; คุณภาพ &rarr; จังหวะ &rarr; Action — ใช้เป็นข้อสรุปเร็ว แล้วกดดู drawer (WACC/Ke/EVA + sub-scores) เพื่อ audit ที่มา</td></tr>
+      </table>
+
+      <h3 class="ht2">2) แถบข้อมูลด้านบน (ทุกแท็บ)</h3>
+      <table class="httab">
+        <tr><th>แถบ</th><th>แสดงอะไร / ตีความ</th></tr>
+        <tr><td><b>Market regime (S9)</b></td><td>S&amp;P เหนือ/ใต้ 200-DMA — RISK-ON = สัญญาณ momentum เชื่อถือได้ขึ้น · RISK-OFF = momentum crash-prone อย่าไล่ราคา</td></tr>
+        <tr><td><b>Market valuation (S32/33)</b></td><td>implied ERP เทียบ earnings-yield และ Fed spread — CHEAP/FAIR/EXPENSIVE เป็น "ตัวเอียงน้ำหนัก" ไม่ใช่สัญญาณเข้า-ออกตลาด</td></tr>
+        <tr><td><b>Holdings trailing 12M (S16/S35)</b></td><td>ผลตอบแทนถ่วง MV ของหุ้นที่ถืออยู่ตอนนี้เทียบ S&amp;P (illustrative ไม่ใช่ผลจริงของพอร์ต) — เตือนใจว่า active ส่วนใหญ่แพ้ index ระยะยาว ให้ดู net ของต้นทุน/ภาษี</td></tr>
+        <tr><td><b>Philosophy fit (S1/S42)</b></td><td>พอร์ตที่ถือ "กำลังเล่นแนวไหน" (value/quality/momentum) ตรงกับ profile ที่ตั้งไว้ไหม — ถ้าไม่ตรง แปลว่า drift โดยไม่รู้ตัว</td></tr>
+        <tr><td><b>&#128190; Drive badge</b></td><td>สถานะ backup ขึ้น Google Drive — ✓ ปกติ · ✗ มีปัญหา (ชี้ดูสาเหตุ) ข้อมูลจะไม่ถูก push ทับจนกว่า pull สำเร็จ</td></tr>
+      </table>
+
+      <h3 class="ht2">3) หน้า Allocation — หัวข้อ 1–7</h3>
+      <table class="httab">
+        <tr><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
+        <tr><td><b>GARP screen</b></td><td>จัดอันดับทุกตัว = Quality (Economics) &times; Cheap (Price)</td><td>candidate = &ge;3 ทั้งคู่ — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน (S13/S19)</td></tr>
+        <tr><td><b>1 &middot; Portfolio Snapshot</b></td><td>มูลค่าพอร์ต, จำนวนตัว, Est. Vol (annual), Severe drawdown, β, Diversification /100</td><td>Vol ~15–20% = โซนหุ้นล้วน · Severe drawdown คือ "ถ้าเกิด GFC ซ้ำ" — เทียบกับ Max loss ที่ตั้งไว้ · β&gt;1.3 = แรงกว่าตลาดมาก · Diversification &ge;60 ดี, &lt;40 = กระจุก</td></tr>
+        <tr><td><b>2 &middot; Capital Allocation</b></td><td>โดนัทแบ่งเงินตาม "ตัวขับความเสี่ยง" (sleeve) และสกุลเงิน</td><td>sleeve เดียว &ge;40% หรือสกุลเงินเดียว &ge;80% = ความเสี่ยงกระจุกที่มองไม่เห็นจากรายตัว</td></tr>
+        <tr><td><b>3 &middot; Capital vs Risk Weight</b></td><td>เทียบ %เงินที่ลง (เทา) กับ %ความเสี่ยงที่สร้าง (แดง) ต่อหุ้น</td><td>แดงยาวกว่าเทามาก (+3pp ขึ้นไป) = ตัวนั้น "กินความเสี่ยง" เกินเงินที่ลง — เป้าหมายแรกเวลาลดความเสี่ยง · แท่งเขียว = ช่วยลดความเสี่ยงรวม (diversifier)</td></tr>
+        <tr><td><b>4 &middot; Concentration Map</b></td><td>HHI, Effective N, Top-5/Top-10, ENB + สัดส่วน sector</td><td>Effective N = "ถือจริงกี่ตัว" (6 ตัวแต่ Eff N 4.2 = กระจุก) · HHI &gt;0.18 = เข้มข้น · ENB = จำนวน "เดิมพันอิสระ" ยิ่งน้อยยิ่งกระจุก</td></tr>
+        <tr><td><b>5 &middot; Stress Test</b></td><td>ขาดทุนโดยประมาณถ้า scenario ประวัติศาสตร์/สมมุติเกิดซ้ำ + VaR/CVaR</td><td>[JUDG-SCENARIO] = ภาพประกอบไม่ใช่พยากรณ์ · ใช้ตอบคำถามเดียว: "เลวร้ายสุดรับได้ไหม" — ถ้าไม่ได้ ให้ลดขนาด ไม่ใช่หวังว่าจะไม่เกิด</td></tr>
+        <tr><td><b>5b &middot; Downside Risk (S2/S4)</b></td><td>Vol รวม, Downside deviation, Sortino, Downside β</td><td>แยก "ผันผวน" จาก "เสี่ยงขาลงจริง" — Sortino &gt;1 ดี · downside β &gt;1 = วันตลาดลง เราลงแรงกว่า</td></tr>
+        <tr><td><b>6 &middot; Suitability</b></td><td>เทียบ drawdown ที่ผูกพัน กับ Max loss ที่บอกว่ารับได้</td><td>⛔ = พอร์ตเสี่ยงเกินใจรับ — FINDING สำคัญสุดของหน้านี้ แก้ด้วยการลดขนาด/เพิ่ม ballast (bond/cash/gold)</td></tr>
+        <tr><td><b>7 &middot; Rebalancing Plan</b></td><td>รายการ TRIM/ADD จาก % ปัจจุบัน &rarr; เป้าหมาย + vol ก่อน/หลัง</td><td>Must = เกิน policy band ต้องทำ · Should = ควรทำ — ขายผู้ชนะบางส่วนเข้าตัวที่ยังถูกคือวินัย ไม่ใช่การทำนายตลาด</td></tr>
+        <tr><td><b>What-if</b></td><td>ลองใส่เงินซื้อเพิ่ม แล้วดูสัดส่วนพอร์ต "หลังซื้อ"</td><td>ใช้เช็คก่อนซื้อจริงว่าเงินใหม่ทำให้กระจุกขึ้นหรือกระจายขึ้น</td></tr>
+      </table>
+      <p class="muted" style="font-size:12px">ลำดับใช้งานที่แนะนำ: เปิด Allocation ดูข้อ 6 ก่อน (รับได้ไหม) &rarr; ข้อ 3/4 (อะไรคือตัวกินความเสี่ยง) &rarr; ข้อ 7 (ต้องทำอะไร) &rarr; ค่อยกลับไป My Portfolio ตัดสินใจรายตัวด้วย card</p>
+    </div>
+
+    <!-- ===================== REF (นิยามทุกค่า) ===================== -->
+    <div id="p5" style="display:none;font-size:13px;line-height:1.75;max-width:980px">
+      <h2 class="ht">&#128218; Ref — นิยามค่าที่คำนวณ (Damodaran-based)</h2>
+
+      <h3 class="ht2">อัตราคิดลด &amp; ต้นทุนเงินทุน</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์ / เทียบกับอะไร</th></tr>
+        <tr><td><b>Rf</b></td><td>Risk-free rate = yield พันธบัตรสหรัฐ 10 ปี (ดึงสด ณ วัน refresh)</td><td>ฐานของทุกอย่าง — Rf ขึ้น &rarr; FV ทุกตัวลดลงโดยกลไก</td></tr>
+        <tr><td><b>ERP</b></td><td>Equity Risk Premium (implied, US) — ผลตอบแทนส่วนเพิ่มที่ตลาดหุ้นต้องจ่ายเหนือ Rf</td><td>ตั้งมือ (config) — แอปจะ flag เมื่อเก่ากว่า 3 เดือน · ERP สูง = ตลาดกลัว = หุ้นถูกลงทั้งกระดาน</td></tr>
+        <tr><td><b>Beta (β)</b></td><td>ความไวของหุ้นต่อตลาด</td><td>ใช้ใน Ke — β&gt;1 ผันผวนกว่าตลาด · ของพอร์ต = ถ่วงน้ำหนักรายตัว</td></tr>
+        <tr><td><b>Ke</b></td><td>Cost of equity = Rf + β&times;ERP — ผลตอบแทนขั้นต่ำที่ "ผู้ถือหุ้น" ควรได้</td><td>ใช้คิดลดกระแสเงินสดของผู้ถือหุ้น (FCFE) และเป็นเพดานเทียบ growth</td></tr>
+        <tr><td><b>Kd a-t</b></td><td>Cost of debt หลังภาษี = (Rf + default spread)&times;(1−tax) — spread ประเมินจาก interest coverage</td><td>ถูกกว่า Ke เสมอ (เจ้าหนี้เสี่ยงน้อยกว่า) · "a-t" = after-tax เพราะดอกเบี้ยหักภาษีได้</td></tr>
+        <tr><td><b>WACC</b></td><td>ต้นทุนเงินทุนถ่วงน้ำหนัก = Ke&times;(E/V) + Kd a-t&times;(D/V)</td><td>ไม้บรรทัดวัด ROIC — บริษัท "สร้างมูลค่า" ก็ต่อเมื่อ ROIC &gt; WACC</td></tr>
+      </table>
+
+      <h3 class="ht2">คุณภาพธุรกิจ</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์</th></tr>
+        <tr><td><b>ROIC*</b></td><td>NOPAT / Invested Capital — * คือปรับ R&amp;D เป็นสินทรัพย์ (capitalize อายุ 5 ปี) ตามวิธี Damodaran เพื่อไม่ลงโทษบริษัทที่ลงทุนอนาคตผ่าน R&amp;D</td><td>เทียบ WACC เท่านั้น (ตัวเลขเดี่ยว ๆ ไม่มีความหมาย)</td></tr>
+        <tr><td><b>Spread</b></td><td>ROIC − WACC = ส่วนเกินมูลค่าที่สร้างต่อเงินลงทุน 1 หน่วย</td><td>&ge;+10pp = moat แข็งแรง · 0 ถึง +10pp = ปกติ · ติดลบ = ทำลายมูลค่า (โตแค่ไหนก็ไม่ช่วย)</td></tr>
+        <tr><td><b>EVA</b></td><td>Economic Value Added = Spread &times; Invested Capital ($ ต่อปี)</td><td>แปลง spread เป็น "เม็ดเงินมูลค่าที่สร้างจริงต่อปี" — โตพร้อม EVA บวก = โตแบบมีคุณค่า</td></tr>
+        <tr><td><b>Incremental ROIC</b></td><td>&Delta;NOPAT / เงินลงทุนใหม่ปีล่าสุด</td><td>บอกว่า "เงินก้อนใหม่" ยังได้ผลตอบแทนดีไหม — ดีกว่าดู ROIC เฉลี่ยอย่างเดียว</td></tr>
+        <tr><td><b>Earnings quality (EQ)</b></td><td>3 เช็ค: cash conversion (CFO/NI), accruals/assets, SBC/revenue</td><td>CLEAN = ผ่านหมด · REVIEW = ติด 1–2 ข้อ · LOW = กำไรบนกระดาษ อย่าใช้ EPS ตรง ๆ · SBC คิดผ่าน dilution ไม่หักคะแนนซ้ำ (no double counting)</td></tr>
+      </table>
+
+      <h3 class="ht2">มูลค่า (Fair Value methods)</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>ใช้เมื่อไร</th></tr>
+        <tr><td><b>Fundamental PEG</b></td><td>Fair P/E จากโมเดล 2-stage (growth, ROIC, Ke) &times; forward EPS — ไม่ใช่ PEG ตลาดที่ใช้ค่าคงที่ 1.0</td><td>วิธีหลักกรณีทั่วไป (หุ้นมีกำไร โตปกติ)</td></tr>
+        <tr><td><b>FVP</b></td><td>Future Value Projection: EPS โต 5 ปี &times; exit P/E (คุมเพดาน 12–25x) คิดลดกลับด้วย Ke</td><td>วิธีหลักเมื่อ moat กว้าง (spread&gt;10pp) และโตแรง (&gt;15%) — เพราะ PEG จะกดหุ้นคุณภาพสูงเกินจริง</td></tr>
+        <tr><td><b>RevDCF (implied CAGR)</b></td><td>Reverse DCF: ราคาปัจจุบัน &rarr; ตลาดกำลัง price-in การเติบโตรายได้กี่ %/ปี 10 ปี (terminal margin ยึดจาก op margin จริง)</td><td>หุ้นยังไม่มีกำไร — เทียบ implied กับ actual: Plausible (&lt;1.5&times; ของที่ทำได้) / Ambitious / Aggressive / Exceptional (&gt;5&times; = priced for perfection)</td></tr>
+        <tr><td><b>Anchor FV / ★</b></td><td>วิธีที่ methodology verdict เลือกเป็นหลักในการคิด Upside</td><td>card แสดงทุกวิธีเสมอ — ถ้าสองวิธีต่างกันมาก แปลว่ามูลค่า "sensitive ต่อสมมติฐาน" ให้ลดความมั่นใจ</td></tr>
+        <tr><td><b>Upside / net</b></td><td>(FV−P)/P · net = หลังหักภาษี capital gains ~15% + ค่าเทรด ~0.2% (S6)</td><td>ตัดสินใจด้วย net เสมอ — S6: ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
+        <tr><td><b>EPS&times;n badge</b></td><td>forward EPS ใช้ค่า blend จาก n แหล่ง (Yahoo/FMP/Finnhub) + ช่วง min–max</td><td>spread ระหว่างแหล่ง &gt;25% = ประมาณการไม่นิ่ง ลดความเชื่อมั่น FV</td></tr>
+      </table>
+
+      <h3 class="ht2">คะแนน DEEP &amp; สัญญาณ</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์</th></tr>
+        <tr><td><b>D — Demand</b></td><td>การเติบโตรายได้ + ปรับ organic (หัก M&amp;A), เทียบ median กลุ่ม, durability จาก consensus fade</td><td>0–5 · &ge;25% โต = ฐาน 4–5</td></tr>
+        <tr><td><b>E — Execution</b></td><td>ฐานจาก EQ + แนวโน้ม margin + incremental ROIC</td><td>0–5 · ทีมบริหารแปลงโอกาสเป็นกำไรได้จริงไหม</td></tr>
+        <tr><td><b>E — Economics</b></td><td>ฐานจาก Spread + แนวโน้ม spread 5 ปี</td><td>0–5 · หัวใจของ moat — น้ำหนักมากสุดร่วมกับ P (30%)</td></tr>
+        <tr><td><b>P — Price</b></td><td>margin of safety เทียบ Anchor FV + ตำแหน่ง P/E ตัวเองใน 5 ปี</td><td>0–5 · MOS &ge;+40% = 5 · ต่ำกว่า −40% = 1</td></tr>
+        <tr><td><b>GARP /10</b></td><td>Economics + Price รวมกัน</td><td>candidate เมื่อ &ge;3 ทั้งคู่ (ถูก&times;ดี, S13/S19)</td></tr>
+        <tr><td><b>Momentum 12-1</b></td><td>ผลตอบแทน 12 เดือนโดย "ข้ามเดือนล่าสุด" (มาตรฐานงานวิจัย เลี่ยง short-term reversal)</td><td>ใช้จัด Rank Top/Mid/Bottom ระหว่างตัวที่ถือ</td></tr>
+        <tr><td><b>S9 crash guard</b></td><td>ตลาดใต้ 200-DMA = momentum เสี่ยง crash</td><td>veto สัญญาณ bullish ชั่วคราว — ไม่ใช่สัญญาณขายพื้นฐาน</td></tr>
+        <tr><td><b>PEAD (S25)</b></td><td>Post-Earnings Announcement Drift — ราคามีแนวโน้มไหลตามทิศ surprise ล่าสุดต่ออีกระยะ</td><td>▲/▼ + * = แรง · ใช้ประกอบจังหวะ ไม่ใช่เหตุผลหลัก</td></tr>
+      </table>
+
+      <h3 class="ht2">ความเสี่ยงพอร์ต (หน้า Allocation)</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์</th></tr>
+        <tr><td><b>HHI</b></td><td>ผลรวมกำลังสองของน้ำหนัก (0–1)</td><td>&lt;0.10 กระจายดี · &gt;0.18 เข้มข้น · 1.0 = ตัวเดียว</td></tr>
+        <tr><td><b>Effective N</b></td><td>1/HHI = จำนวนหุ้น "ที่ถือจริงเชิงเศรษฐกิจ"</td><td>เทียบจำนวนตัวจริง — ห่างมาก = กระจุก</td></tr>
+        <tr><td><b>ENB (risk)</b></td><td>Effective Number of Bets — จำนวนเดิมพันอิสระเมื่อคิด correlation แล้ว</td><td>ต่ำกว่า Effective N เสมอ · ยิ่งใกล้ 1 = ทั้งพอร์ตคือเดิมพันเดียว</td></tr>
+        <tr><td><b>DR (normal/crisis)</b></td><td>Diversification Ratio = ค่าเฉลี่ยถ่วง vol รายตัว / vol พอร์ต</td><td>ใกล้ 1 = การกระจายแทบไม่ช่วย · crisis DR สำคัญกว่า เพราะ correlation วิ่งเข้า 1 ตอนวิกฤต</td></tr>
+        <tr><td><b>%Risk weight</b></td><td>สัดส่วน risk contribution จาก covariance (ไม่ใช่สัดส่วนเงิน)</td><td>ต่างจาก %Capital มาก = ความเสี่ยงซ่อน — ดูหัวข้อ 3</td></tr>
+        <tr><td><b>VaR 95/99</b></td><td>ขาดทุนสูงสุดที่ "ไม่น่าจะเกิน" ใน horizon ที่เลือก ด้วยความเชื่อมั่น 95/99%</td><td>CVaR = ค่าเฉลี่ย "เมื่อทะลุ VaR แล้ว" — สะท้อน tail จริงกว่า</td></tr>
+        <tr><td><b>Downside dev / Sortino / Downside β (S2/S4)</b></td><td>วัดเฉพาะฝั่งขาลง: ส่วนเบี่ยงเบนขาลง · ผลตอบแทนต่อความเสี่ยงขาลง · ความไวเฉพาะวันตลาดลบ</td><td>Sortino &gt;1 ดี · downside β &gt;1 = ตกแรงกว่าตลาด</td></tr>
+        <tr><td><b>Suitability</b></td><td>drawdown ที่ผูกพัน (แย่สุดจาก stress/VaR) เทียบ Max loss ที่ผู้ใช้รับได้</td><td>เกิน = FINDING หลัก ต้องแก้ที่ "ขนาด" ก่อนเสมอ</td></tr>
+      </table>
+
+      <h3 class="ht2">รหัสอ้างอิง S-numbers และป้ายกำกับ</h3>
+      <table class="httab">
+        <tr><th>รหัส</th><th>หมายถึง</th></tr>
+        <tr><td><b>S1/S42</b></td><td>Investment philosophy fit — กลยุทธ์ที่เล่นต้องตรงกับตัวตน/ horizon /ภาษีของผู้ลงทุน</td></tr>
+        <tr><td><b>S2/S4</b></td><td>ความเสี่ยงคือ "ขาลง" ไม่ใช่แค่ความผันผวน — downside metrics</td></tr>
+        <tr><td><b>S3</b></td><td>พันธบัตร: ความเสี่ยงอัตราดอกเบี้ยผ่าน duration</td></tr>
+        <tr><td><b>S6</b></td><td>ต้นทุนเทรด + ภาษีกัดผลตอบแทนจริง — ตัดสินใจด้วยตัวเลข net</td></tr>
+        <tr><td><b>S9</b></td><td>Momentum ใช้ได้แต่ crash-prone — ต้องมี regime guard</td></tr>
+        <tr><td><b>S13/S19</b></td><td>GARP: ถูกอย่างเดียวไม่พอ ต้องดีด้วย (value + quality)</td></tr>
+        <tr><td><b>S16/S35</b></td><td>เทียบ benchmark เสมอ — active ส่วนใหญ่แพ้ index หลังหักต้นทุน</td></tr>
+        <tr><td><b>S25</b></td><td>PEAD — ตลาด underreact ต่อ earnings surprise</td></tr>
+        <tr><td><b>S32/33</b></td><td>Market valuation ผ่าน implied ERP — ใช้เอียงน้ำหนัก ไม่ใช่จับจังหวะเข้าออก</td></tr>
+        <tr><td><b>(MV-weighted, illustrative)</b></td><td>ถ่วงด้วยมูลค่าตลาดของสิ่งที่ถือ "ตอนนี้" ย้อนหลัง — เป็นภาพประกอบ ไม่ใช่ผลตอบแทนจริงที่ทำได้ (ไม่รวมจังหวะซื้อขาย/เงินเข้าออก)</td></tr>
+        <tr><td><b>[STORED]/[CALC]/[JUDG-PROXY]/[JUDG-SCENARIO]</b></td><td>ที่มาของตัวเลข: จากฐานข้อมูล / คำนวณจริง / ค่าประมาณแทนข้อมูลที่ขาด / ฉากทัศน์ประกอบการตัดสินใจ — ความน่าเชื่อลดหลั่นตามลำดับ</td></tr>
+      </table>
+      <p class="muted" style="font-size:12px">หมายเหตุ: ทุกค่าคำนวณจากข้อมูลฟรี (SEC/Yahoo/FMP/Stooq) มีข้อจำกัด — แอปจะ "ข้ามและติด flag" เสมอ ไม่เดาตัวเลข (skill invariant 17)</p>
+    </div>
   </div>
 </div>
 
@@ -136,7 +275,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-06-28e";
+const DASH_BUILD="2026-07-02d";
 function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':Number(x).toFixed(d)}
 function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
@@ -231,16 +370,31 @@ function consensusBadge(x){
   return ` <span title="${esc(tip)}" style="cursor:help;font-size:9px;font-weight:700;color:${color}">EPS×${n}</span>`;
 }
 function anchorCell(x){
-  if(x.anchor_value!=null)return `${f(x.anchor_value)}${consensusBadge(x)}<div class="muted" style="font-size:9px">${methodShort(x.anchor_method)}</div>`;
-  if(x.rev_implied_cagr!=null)return `<span style="font-size:11px;color:#7c3aed;font-weight:700">RevDCF</span>${consensusBadge(x)}<div style="font-size:9px;color:#7c3aed">implies ${x.rev_implied_cagr}% CAGR</div>`;
-  return '<span class="muted">&mdash;</span>';
+  // show EVERY computed method (FVP + PEG); ★ marks the anchor used for Upside
+  const m=methodShort(x.anchor_method);
+  const alts=[];
+  if(x.fv_fvp!=null)alts.push(['FVP',x.fv_fvp]);
+  if(x.fv_peg!=null)alts.push(['PEG',x.fv_peg]);
+  const altLine=alts.length
+    ? `<div class="muted" style="font-size:9px;margin-top:1px" title="Fair Value จากทุกวิธีที่คำนวณได้ — ★ = วิธีหลักที่เลือกใช้คิด Upside (ตาม methodology verdict)">`
+      + alts.map(a=>`${a[0]===m?'&#9733;':''}${a[0]} $${Number(a[1]).toFixed(2)}`).join(' · ')+`</div>`
+    : '';
+  if(x.anchor_value!=null)return `${f(x.anchor_value)}${consensusBadge(x)}<div class="muted" style="font-size:9px">${m}</div>${altLine}`;
+  if(x.rev_implied_cagr!=null)return `<span style="font-size:11px;color:#7c3aed;font-weight:700">RevDCF</span>${consensusBadge(x)}<div style="font-size:9px;color:#7c3aed">implies ${x.rev_implied_cagr}% CAGR</div>${altLine}`;
+  return '<span class="muted">&mdash;</span>'+altLine;
 }
 function upsideCell(x){
   if(x.upside_pct!=null){
     const net=(x.net_upside_pct!=null)?`<div class="muted" style="font-size:9px" title="after ~trading cost + capital-gains tax (Damodaran S6)">net ${(x.net_upside_pct>=0?'+':'')+x.net_upside_pct}%</div>`:'';
     return pct(x.upside_pct)+net;
   }
-  if(x.rev_verdict)return `<span title="${x.rev_verdict}" style="font-size:10px;color:#64748b">${(x.rev_verdict||'').split('—')[0].trim()||'priced-in'}</span>`;
+  if(x.rev_verdict){
+    // pre-profit: show ACTUAL revenue CAGR next to the market-implied one so the
+    // gap (performance vs expectation) is visible at a glance
+    const act=(x.rev_actual_1y!=null)
+      ? `<div style="font-size:9px;color:#334155" title="Revenue growth ที่ทำได้จริงล่าสุด (1y) เทียบกับ implied CAGR ที่ตลาด price-in">actual ${(x.rev_actual_1y>=0?'+':'')+x.rev_actual_1y}%/y${x.rev_implied_cagr!=null?` vs ${x.rev_implied_cagr}%`:''}</div>`:'';
+    return `<span title="${esc(x.rev_verdict)}" style="font-size:10px;color:#64748b">${(x.rev_verdict||'').split('—')[0].trim()||'priced-in'}</span>${act}`;
+  }
   return '<span class="muted">&mdash;</span>';
 }
 const EARN_COLOR={beat:'#16a34a',meet:'#f59e0b',miss:'#dc2626',
@@ -261,16 +415,26 @@ function _circ(list,kind){
       const est=kind==='eps'?(e.eps_estimate??'—'):fmtB(e.rev_estimate);
       tip=`${e.quarter||''} · ${(e.grade||'').toUpperCase()} ${sp}\n${kind.toUpperCase()} act ${act} vs est ${est}`;
     }
-    return `<span class="ecirc" style="background:${c}" title="${tip}"></span>`;
+    return `<span class="ecirc" style="background:${c}" title="${esc(tip)}"></span>`;
   }).join('');
+}
+function earnMiss(st,k){
+  // explicit "why is this row empty" marker (never a silent blank):
+  //   ⟳ stale-facts  -> old data schema, a Fundamental Refresh will fill it
+  //   × unavailable  -> primary AND fallback sources had no data
+  const s=(st||{})[k]||{};
+  const stale=s.reason==='stale-facts';
+  const tip=s.detail||'ไม่มีข้อมูล — แหล่งหลักและสำรองไม่ตอบ';
+  return `<span title="${esc(tip)}" style="font-size:8.5px;color:${stale?'#b45309':'#94a3b8'};cursor:help">${stale?'&#10227; refresh':'&times; n/a'}</span>`;
 }
 function earnCircles(x){
   const eps=x.earnings_surprises||[], rev=x.rev_surprises||[], mgn=x.margin_trend||[];
-  if(!eps.length && !rev.length && !mgn.length)return '<span class="muted">&mdash;</span>';
+  const st=x.earn_status;
+  if(!eps.length && !rev.length && !mgn.length && !st)return '<span class="muted">&mdash;</span>';
   let h='';
-  if(eps.length)h+=`<div class="erow"><span class="elbl">EPS</span>${_circ(eps,'eps')}</div>`;
-  if(rev.length)h+=`<div class="erow"><span class="elbl">Rev</span>${_circ(rev,'rev')}</div>`;
-  if(mgn.length)h+=`<div class="erow"><span class="elbl" title="Operating-margin YoY trend: expand / flat / contract">Mgn</span>${_circ(mgn,'mgn')}</div>`;
+  h+=`<div class="erow"><span class="elbl" title="EPS beat/miss vs analyst estimate — hover จุดสีเพื่อดู Act vs Est">EPS</span>${eps.length?_circ(eps,'eps'):earnMiss(st,'eps')}</div>`;
+  h+=`<div class="erow"><span class="elbl" title="Revenue beat/miss vs analyst estimate — hover จุดสีเพื่อดู Act vs Est">Rev</span>${rev.length?_circ(rev,'rev'):earnMiss(st,'rev')}</div>`;
+  h+=`<div class="erow"><span class="elbl" title="Operating-margin YoY trend: expand / flat / contract">Mgn</span>${mgn.length?_circ(mgn,'mgn'):earnMiss(st,'mgn')}</div>`;
   const pd=x.pead||{};
   if(pd.bias&&pd.bias!=='neutral'){
     const up=pd.bias==='up';
@@ -293,11 +457,13 @@ async function checkBuild(){
   }catch(e){}
 }
 async function load(){
-  const r=await fetch('/api/portfolio');
-  if(r.status===401){document.getElementById('p1').innerHTML='<div style="padding:14px;font-size:13px">🔒 This app is protected by a token.<br>Open <b>/?token=YOUR_APP_TOKEN</b> once (the APP_TOKEN you set on the server) — it will be remembered after that.</div>';return;}
-  const d=await r.json();
-  document.getElementById('ver').textContent='v'+(d.version||'7.3');
-  renderQuota(d.quota); renderPortfolio(d);
+  try{
+    const r=await fetch('/api/portfolio');
+    if(r.status===401){document.getElementById('p1').innerHTML='<div style="padding:14px;font-size:13px">🔒 This app is protected by a token.<br>Open <b>/?token=YOUR_APP_TOKEN</b> once (the APP_TOKEN you set on the server) — it will be remembered after that.</div>';return;}
+    const d=await r.json();
+    document.getElementById('ver').textContent='v'+(d.version||'7.3');
+    renderQuota(d.quota); renderPortfolio(d);
+  }catch(e){document.getElementById('p1').innerHTML='<div class="down" style="padding:14px;font-size:13px">&#9888; Could not load the portfolio ('+esc(String(e))+') — server may be cold-starting; retry in a few seconds.</div>';}
 }
 function renderQuota(q){
   if(!q)return; const el=document.getElementById('quota');
@@ -386,6 +552,11 @@ function renderBenchmark(b){
     +` — active strategies usually trail a low-cost index over time (Damodaran S16/S35); judge net of cost &amp; tax.`;
 }
 function tdInner(html){try{const t=document.createElement('table');t.innerHTML='<tbody><tr>'+html+'</tr></tbody>';const td=t.querySelector('td');return td?td.innerHTML:html;}catch(e){return html;}}
+function adviceLine(x){
+  // Damodaran ACTION synthesis (value -> quality -> timing) computed server-side
+  if(!x.advice)return '';
+  return `<div style="font-size:11px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;margin-top:5px;white-space:normal;text-align:left" title="สังเคราะห์จากทุกค่าบน card ตามลำดับ Damodaran: มูลค่า → คุณภาพ → จังหวะ">&#128161; ${esc(x.advice)}</div>`;
+}
 function cardCell(lbl,html){return `<div style="min-width:96px;flex:1 1 96px"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">${lbl}</div><div style="font-size:12px;margin-top:2px">${html}</div></div>`;}
 function pcard(x,watch){
   const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
@@ -405,8 +576,8 @@ function pcard(x,watch){
     ${cardCell('Action',tag(x.action,ACT_COLOR[x.action]))}
     ${cardCell('Anchor FV',anchorCell(x))}
     ${cardCell('Upside',upsideCell(x))}</div>`;
-  const earn=`<div style="margin:6px 0"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px">${earnCircles(x)}</div></div>`;
-  const verdict=`<div class="muted" style="font-size:11px;border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`;
+  const earn=`<div style="margin:6px 0"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px;padding-left:8px">${earnCircles(x)}</div></div>`;
+  const verdict=`<div class="muted" style="font-size:12px;border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`+adviceLine(x);
   const extra=watch
     ? `<div style="margin-top:8px"><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:6px 11px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></div>`
     : `<details style="margin-top:6px"><summary style="font-size:11px;color:#64748b;cursor:pointer">WACC / Ke / EVA + DEEP sub-scores</summary>${deepDrawer(x)}</details>`;
@@ -417,35 +588,13 @@ function renderPortfolio(d){
   renderMarket(d.market);
   renderBenchmark(d.benchmark);
   renderPhilosophy(d.philosophy);
-  const rows=(d.rows||[]).map(x=>{
-    const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
-    return `<tr class="prow" style="cursor:pointer" onclick="toggleDrawer(this)" title="Click for WACC/Ke/EVA + DEEP sub-score breakdown">
-      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b>${flagIcon(x)}<span class="rm" title="remove" onclick="event.stopPropagation();removeHolding('${x.ticker}')">&times;</span>
-        <div class="muted" style="font-size:10px">${esc(x.company)} · ${esc(x.sector)}</div></td>
-      <td>${f(x.price)}</td><td>${chg}</td>
-      <td>${f(x.shares,0)}</td><td>${f(x.avg_cost)}</td>
-      <td>${money(x.market_value)}</td>
-      <td>${x.pl==null?'<span class="muted">&mdash;</span>':`<span class="${x.pl>=0?'up':'down'}">${x.pl>=0?'+':''}${money(Math.abs(x.pl)).replace('$','$')}</span>`}</td>
-      <td>${pct(x.pl_pct)}</td>
-      <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span>
-        <div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div>${eqBadge(x)}${garpBadge(x)}</td>
-      ${momCell(x)}
-      ${rankCell(x)}
-      <td>${tag(x.action,ACT_COLOR[x.action])}</td>
-      <td>${anchorCell(x)}</td>
-      <td>${upsideCell(x)}</td>
-      <td>${earnCircles(x)}</td>
-      <td class="l verdict">${esc(x.verdict)} <span class="chev" style="display:inline-block;color:#94a3b8;transition:transform .15s">&#9662;</span></td>
-    </tr>
-    <tr class="pdrawer" style="display:none"><td colspan="16" style="padding:0">${deepDrawer(x)}</td></tr>`;}).join('');
+  // P4: the old <table> row builder was dead code (card layout replaced it) — removed.
   const t=d.totals||{};
-  const totRow=`<tr class="tot"><td class="l">TOTAL</td><td></td><td></td><td></td><td></td><td>${money(t.market_value)}</td>
-     <td>${t.pl==null?'':`<span class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))}</span>`}</td><td>${pct(t.pl_pct)}</td><td colspan="8"></td></tr>`;
   const __cards=(d.rows||[]).map(x=>pcard(x,false)).join('');
   const __tot=`<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:13px"><div><span class="muted" style="font-size:11px">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:11px">P/L</span> ${t.pl==null?'<span class="muted">&mdash;</span>':`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${pct(t.pl_pct)}</b>`}</div></div>`;
   document.getElementById('p1').innerHTML = (d.rows&&d.rows.length)?(__tot+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px">${__cards}</div>`):'<div class="muted" style="padding:10px;font-size:13px">No holdings yet — add one above.</div>';
 }
-function showTab(n){for(const i of [1,2,3]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){loadAllocation();loadRisk();loadScreen();}}
+function showTab(n){for(const i of [1,2,3,4,5]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){loadAllocation();loadRisk();loadScreen();}}
 
 const PALETTE=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0d9488','#d97706','#0891b2','#be185d','#65a30d','#9333ea','#ea580c','#475569','#0ea5e9'];
 let charts={};
@@ -463,10 +612,12 @@ function buildWhatifInputs(){
 }
 async function loadAllocation(){
   if(!document.getElementById('whatifInputs').innerHTML)buildWhatifInputs();
-  const r=await fetch('/api/allocation');const d=await r.json();
-  const bt=(d.before&&d.before.by_ticker)||[];
-  document.getElementById('allocEmpty').textContent=bt.length?'':'No holdings with cost yet — add shares + avg cost in My Portfolio first.';
-  makePie('pieTicker',bt);makePie('pieSector',(d.before&&d.before.by_sector)||[]);
+  try{
+    const r=await fetch('/api/allocation');const d=await r.json();
+    const bt=(d.before&&d.before.by_ticker)||[];
+    document.getElementById('allocEmpty').textContent=bt.length?'':'No holdings with cost yet — add shares + avg cost in My Portfolio first.';
+    makePie('pieTicker',bt);makePie('pieSector',(d.before&&d.before.by_sector)||[]);
+  }catch(e){document.getElementById('allocEmpty').textContent='⚠ allocation load failed: '+String(e);}
 }
 async function calcWhatif(){
   const ts=[...document.querySelectorAll('.wf-t')].map(e=>e.value.trim().toUpperCase());
@@ -523,33 +674,33 @@ function renderRisk(d){
     ${rcard('Severe drawdown',rp(s.severe_drawdown_pct),lossColor(s.severe_drawdown_pct))}
     ${rcard('Portfolio β',s.port_beta)}
     ${rcard('Diversification',s.diversification_score+'/100',scoreColor(s.diversification_score))}</div>
-    <div class="muted" style="font-size:10px;margin-top:5px">${esc(s.scope||'')} · DR normal <b>${dv.dr_normal??'—'}</b> / crisis <b>${dv.dr_crisis??'—'}</b> — ${esc((dv.score&&dv.score.band)||'')}</div>`;
+    <div class="muted" style="font-size:11px;margin-top:5px">${esc(s.scope||'')} · DR normal <b>${dv.dr_normal??'—'}</b> / crisis <b>${dv.dr_crisis??'—'}</b> — ${esc((dv.score&&dv.score.band)||'')}</div>`;
   // 2) allocation
   const alloc=`<div style="display:flex;gap:24px;flex-wrap:wrap">
     <div style="width:280px"><div class="muted" style="font-size:11px;text-align:center">By risk sleeve</div><canvas id="rcSleeve" height="220"></canvas></div>
     <div style="width:280px"><div class="muted" style="font-size:11px;text-align:center">By currency</div><canvas id="rcCcy" height="220"></canvas></div></div>`;
-  // 3) capital vs risk
-  const caprisk=`<canvas id="rcCapRisk" height="${Math.max(120,capRiskRows(cv).length*34)}"></canvas>
-    <div class="muted" style="font-size:10px;margin-top:4px">แท่งเทา = %เงินที่ลง · แท่งแดง = %ความเสี่ยงที่สร้าง (เขียว = ตัวช่วยลดความเสี่ยง). ${capRiskHint(cv)}</div>`;
+  // 3) capital vs risk (compact bars)
+  const caprisk=`<div style="max-width:760px;height:${Math.max(90,capRiskRows(cv).length*22)}px;position:relative"><canvas id="rcCapRisk"></canvas></div>
+    <div class="muted" style="font-size:11px;margin-top:4px">แท่งเทา = %เงินที่ลง · แท่งแดง = %ความเสี่ยงที่สร้าง (เขียว = ตัวช่วยลดความเสี่ยง). ${capRiskHint(cv)}</div>`;
   // 4) concentration
   const c=d.concentration||{};
   const conc=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
     ${rcard('HHI',c.hhi??'—')}${rcard('Effective N',c.eff_n??'—')}${rcard('Top-5',rp(c.top5_pct))}${rcard('Top-10',rp(c.top10_pct))}${rcard('ENB (risk)',(cv.enb_abs??'—'))}</div>
-    <div style="width:340px;max-width:100%"><canvas id="rcSector" height="180"></canvas></div>
+    <div style="width:300px;max-width:100%;height:110px;position:relative"><canvas id="rcSector"></canvas></div>
     <div style="font-size:11px;margin-top:6px">${hiddenConc(d.allocation,cv)}</div>`;
-  // 5) stress
+  // 5) stress (compact bars)
   const st=d.stress||{},vr=st.var||{};
-  const stress=`<canvas id="rcStress" height="${Math.max(140,(((st.historical||[]).length)+((st.hypothetical||[]).length))*30)}"></canvas>
+  const stress=`<div style="max-width:760px;height:${Math.max(100,(((st.historical||[]).length)+((st.hypothetical||[]).length))*20)}px;position:relative"><canvas id="rcStress"></canvas></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${rcard('VaR 95%',rp(vr.var95_pct),'#dc2626')}${rcard('VaR 99%',rp(vr.var99_pct),'#dc2626')}${rcard('CVaR 95%',rp(vr.cvar95_pct),'#991b1b')}</div>
-    <div class="muted" style="font-size:10px;margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
+    <div class="muted" style="font-size:11px;margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
   // 5b) downside-risk lens (Damodaran S2/S4)
   const dn=d.downside||{};
   const rr=d.rate_risk||{}, pa=(d.meta&&d.meta.pricing_assets)||[];
-  const rateLine=rr.has_bonds?`<div class="muted" style="font-size:10px;margin-top:4px">Bond rate risk (S3): +100bps &rarr; <b>${rr.loss_pct}%</b> on portfolio · ${esc(rr.tag||'')}</div>`:'';
-  const pricingLine=pa.length?`<div class="muted" style="font-size:10px;margin-top:4px;color:#b45309">&#9888; ${esc(pa.join(', '))} = pricing plays (no cash flow, S40-41) — high uncertainty, cap weight</div>`:'';
+  const rateLine=rr.has_bonds?`<div class="muted" style="font-size:11px;margin-top:4px">Bond rate risk (S3): +100bps &rarr; <b>${rr.loss_pct}%</b> on portfolio · ${esc(rr.tag||'')}</div>`:'';
+  const pricingLine=pa.length?`<div class="muted" style="font-size:11px;margin-top:4px;color:#b45309">&#9888; ${esc(pa.join(', '))} = pricing plays (no cash flow, S40-41) — high uncertainty, cap weight</div>`:'';
   const downside=`<div style="display:flex;gap:8px;flex-wrap:wrap">
     ${rcard('Vol (total)',rp(dn.vol_pct))}${rcard('Downside dev',rp(dn.semidev_pct),'#b45309')}${rcard('Sortino',dn.sortino??'—')}${rcard('Downside β',dn.downside_beta??'—')}</div>
-    <div class="muted" style="font-size:10px;margin-top:5px">${esc(dn.tag||'')} · วัดความเสี่ยง “ขาลง” แยกจากความผันผวนรวม — Sortino สูง=ดี · downside β = แรงตกเทียบ S&P เฉพาะวันตลาดลง (${dn.n||0} วัน)</div>${rateLine}${pricingLine}`;
+    <div class="muted" style="font-size:11px;margin-top:5px">${esc(dn.tag||'')} · วัดความเสี่ยง “ขาลง” แยกจากความผันผวนรวม — Sortino สูง=ดี · downside β = แรงตกเทียบ S&P เฉพาะวันตลาดลง (${dn.n||0} วัน)</div>${rateLine}${pricingLine}`;
   // 6) suitability banner
   const suit=d.suitability||{}; const ok=suit.within_tolerance;
   const suitB=`<div style="border-radius:9px;padding:11px 13px;font-size:12.5px;font-weight:600;background:${ok?'#dcfce7':'#fee2e2'};color:${ok?'#166534':'#991b1b'};border:1px solid ${ok?'#86efac':'#fecaca'}">
@@ -604,7 +755,7 @@ function panelExplain(d){
 }
 function panelLegend(m){
   const src=m.sources||{}; const srcTxt=Object.keys(src).map(t=>`${t}:${src[t]}`).join(' · ');
-  return `<div style="margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:8px;font-size:10px;color:#94a3b8">
+  return `<div style="margin-top:14px;border-top:1px dashed #e2e8f0;padding-top:8px;font-size:11px;color:#94a3b8">
     Tags: [STORED]=จาก data model · [CALC]=คำนวณ · [JUDG-PROXY]=ค่าสมมติ asset-class · [JUDG-SCENARIO]=stress illustrative.
     Covariance: <b>${esc(m.cov_mode||'?')}</b> ${esc(m.cov_tag||'')}${m.quota_degraded?' · ⚠ degraded to free source (quota)':''}<br>price source — ${esc(srcTxt)}</div>`;
 }
@@ -613,18 +764,18 @@ function drawRiskCharts(d){
   makePie('rcSleeve',al.by_sleeve||[]); makePie('rcCcy',al.by_currency||[]);
   const r=capRiskRows(d.capital_vs_risk||{}).slice(0,10);
   rcChart('rcCapRisk',{type:'bar',data:{labels:r.map(x=>x.ticker),datasets:[
-    {label:'%Capital',data:r.map(x=>x.cap),backgroundColor:'#94a3b8'},
-    {label:'%Risk',data:r.map(x=>x.risk),backgroundColor:r.map(x=>x.risk<0?'#16a34a':'#dc2626')}]},
-    options:{indexAxis:'y',plugins:{legend:{labels:{font:{size:10},boxWidth:12}}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:10}}}}}});
+    {label:'%Capital',data:r.map(x=>x.cap),backgroundColor:'#94a3b8',maxBarThickness:9},
+    {label:'%Risk',data:r.map(x=>x.risk),backgroundColor:r.map(x=>x.risk<0?'#16a34a':'#dc2626'),maxBarThickness:9}]},
+    options:{maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{labels:{font:{size:10},boxWidth:12}}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:10}}}}}});
   const sec=(al.by_sector||[]);
-  rcChart('rcSector',{type:'bar',data:{labels:sec.map(x=>x.label),datasets:[{label:'%',data:sec.map(x=>x.value),backgroundColor:'#2563eb'}]},
-    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+  rcChart('rcSector',{type:'bar',data:{labels:sec.map(x=>x.label),datasets:[{label:'%',data:sec.map(x=>x.value),backgroundColor:'#2563eb',maxBarThickness:12}]},
+    options:{maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
   const st=d.stress||{}; const sc=[...(st.historical||[]),...(st.hypothetical||[])].sort((a,b)=>a.loss_pct-b.loss_pct);
-  rcChart('rcStress',{type:'bar',data:{labels:sc.map(x=>x.label),datasets:[{label:'Est. loss %',data:sc.map(x=>x.loss_pct),backgroundColor:sc.map(x=>lossColor(x.loss_pct))}]},
-    options:{indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+  rcChart('rcStress',{type:'bar',data:{labels:sc.map(x=>x.label),datasets:[{label:'Est. loss %',data:sc.map(x=>x.loss_pct),backgroundColor:sc.map(x=>lossColor(x.loss_pct)),maxBarThickness:11}]},
+    options:{maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
 }
 
-async function loadWatchlist(){const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}
+async function loadWatchlist(){try{const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}catch(e){document.getElementById('watchNames').innerHTML='<span class="down">&#9888; watchlist load failed: '+esc(String(e))+'</span>';}}
 function renderWatchNames(names){
   document.getElementById('watchNames').innerHTML = names.length
     ? 'Watchlist: '+names.map(n=>`<span style="background:#e2e8f0;border-radius:6px;padding:2px 7px;margin:2px;display:inline-block">${n}<span class="rm" onclick="removeWatch('${n}')">&times;</span></span>`).join('')
@@ -643,22 +794,7 @@ async function runWatch(){
 }
 function renderWatchTable(rows){
   if(!rows.length){document.getElementById('watchTable').innerHTML='<span class="muted">No results — add tickers and run.</span>';return;}
-  const body=rows.map(x=>{
-    const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
-    return `<tr>
-      <td class="l">${dot(x.confidence_tier)}<b>${x.ticker}</b>${flagIcon(x)}<span class="rm" onclick="removeWatch('${x.ticker}')">&times;</span>
-        <div class="muted" style="font-size:10px">${esc(x.company)} · ${esc(x.sector)}</div></td>
-      <td>${f(x.price)}</td><td>${chg}</td>
-      ${momCell(x)}
-      ${rankCell(x)}
-      <td><b>${f(x.composite,2)}</b> <span style="font-size:10px">${x.stars||''}</span><div style="font-size:9px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</div>${garpBadge(x)}</td>
-      <td>${tag(x.action,ACT_COLOR[x.action])}</td>
-      <td>${anchorCell(x)}</td>
-      <td>${upsideCell(x)}</td>
-      <td>${earnCircles(x)}</td>
-      <td class="l verdict">${esc(x.verdict)}</td>
-      <td><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:5px 9px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></td>
-    </tr>`;}).join('');
+  // P4: old <tr> builder was dead code (card layout replaced it) — removed.
   document.getElementById('watchTable').innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px">${rows.map(x=>pcard(x,true)).join('')}</div>`;
 }
 async function promote(t){
@@ -706,8 +842,40 @@ async function daily(){
   try{const r=await fetch('/api/daily',{method:'POST'});renderPortfolio(await r.json());document.getElementById('summary').textContent='Daily updated.';}
   catch(e){document.getElementById('summary').textContent='Error: '+e}finally{b.disabled=false;sp.style.display='none'}
 }
+// ===================== persistence badge + keepalive (data-loss guard) =====================
+async function loadPersist(){
+  const el=document.getElementById('persist'); if(!el)return;
+  try{
+    const p=await (await fetch('/api/persist')).json();
+    if(!p.configured){
+      el.className='quota'; el.innerHTML='&#128190; local only';
+      el.title='ไม่ได้ตั้งค่า Google Drive backup — บน Render free tier ข้อมูลจะหายเมื่อ instance restart (ตั้ง GDRIVE_OAUTH_* ตาม GOOGLE_DRIVE_OAUTH_SETUP.md)';
+      return;
+    }
+    const bad=(p.pull_state==='error')||p.push_blocked||(p.push_result==='error');
+    if(bad){
+      el.className='quota warn'; el.innerHTML='&#128190; Drive &#10060;';
+      el.title='Google Drive backup มีปัญหา — '+(p.last_error||'pull/push ล้มเหลว')
+        +'\nการ push ถูกบล็อกไว้เพื่อป้องกันไฟล์ backup ถูกทับด้วย store ว่าง จะ retry อัตโนมัติทุก 1 นาที'
+        +'\nถ้าค้างนาน: refresh token อาจหมดอายุ (OAuth consent screen สถานะ Testing = token หมดใน 7 วัน — กด PUBLISH APP เป็น In production แล้วสร้าง token ใหม่)';
+    }else{
+      el.className='quota'; el.innerHTML='&#128190; Drive &#10003;';
+      el.title=`Google Drive backup ทำงานปกติ (${p.auth_mode})\nlast pull: ${p.last_pull||'—'} (${p.pull_state||p.pull_result||'—'})\nlast push: ${p.last_push||'—'} (${p.push_result||'—'})`;
+    }
+  }catch(e){el.innerHTML='&#128190; ?';}
+}
+// Render free tier spins the instance down after ~15 min idle (ephemeral disk).
+// While the dashboard tab is open, ping /healthz every 4 min so the server stays
+// warm mid-session, and re-check the persistence badge every 5 min.
+setInterval(()=>{if(!document.hidden)fetch('/healthz').catch(()=>{});},4*60*1000);
+setInterval(()=>{if(!document.hidden)loadPersist();},5*60*1000);
+// Coming back to a long-idle tab: the server may have cold-started — reload data
+// (drive_pull restores the store) instead of showing a stale/empty page.
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){load();loadPersist();}});
+
 checkBuild();
 load();
+loadPersist();
 </script>
 </body>
 </html>

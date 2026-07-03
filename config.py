@@ -10,6 +10,7 @@ import os
 FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 FMP_BASE = "https://financialmodelingprep.com/stable"     # stable endpoints (?symbol=)
 FMP_LEGACY = "https://financialmodelingprep.com/api/v3"   # fallback path style
+QUOTA_CAP = 250            # FMP free-tier daily call budget (single source of truth)
 
 # Optional extra free consensus sources for the EPS blend / cross-check (Phase 2).
 # Both are OPTIONAL — without a key the source is simply skipped (app still runs).
@@ -30,7 +31,8 @@ DEEP_VERSION = "8.2"
 # live feed, so it is a manually-refreshed constant — central HERE so the engine and
 # the validate sanity-band read the SAME value. Update both ERP and ERP_AS_OF when you
 # refresh it; the app FLAGS the value once it is older than ERP_STALE_MONTHS.
-ERP = 0.0423
+ERP = 0.0423                 # SOURCE OF TRUTH — ifa-stock-analysis-v8/scripts keep their own
+                             # CLI default; when refreshing here, update those too if used.
 ERP_AS_OF = "2026-01"        # year-month this ERP was last set
 ERP_STALE_MONTHS = 3         # flag the ERP as stale once it is older than this
 
@@ -96,4 +98,4 @@ CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
                    "collectible": 0.30, "cash": 0.01}
 
 # Build stamp — bump together with DASH_BUILD in index.html (frontend/deploy guard).
-BUILD = "2026-06-28e"
+BUILD = "2026-07-02d"

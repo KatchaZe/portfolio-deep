@@ -348,9 +348,24 @@ def fetch_companyfacts(cik, user_agent, requests_mod=None, timeout=30,
             log.warning("companyfacts cache read failed (%s): %s", cik10, e)
     _throttle(min_interval)
     url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik10}.json"
-    r = requests_mod.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests_mod.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        # H1: serve the EXPIRED cache (flagged) instead of failing the ticker.
+        # Filings change quarterly, so stale-but-real data beats no data during
+        # an SEC outage. Callers surface "_stale_cache" as a data flag.
+        if path and os.path.exists(path):
+            log.warning("SEC fetch failed (%s); serving stale cache: %s", cik10, e)
+            try:
+                with open(path, encoding="utf-8") as fh:
+                    stale = json.load(fh)
+                stale["_stale_cache"] = True
+                return stale
+            except Exception as e2:
+                log.warning("stale companyfacts cache read failed (%s): %s", cik10, e2)
+        raise
     if path:
         try:
             os.makedirs(cache_dir, exist_ok=True)
