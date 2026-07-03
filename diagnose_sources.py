@@ -14,7 +14,7 @@ import json
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import config
-from sources import sec_edgar, yahoo, fmp
+from sources import sec_edgar, yahoo, fmp, finnhub
 from pipeline import refresh, surprise_backfill
 
 
@@ -60,6 +60,17 @@ def main():
     else:
         est_q = {}
         print("\n[2/3] FMP skipped — no key in env")
+
+    # 3b) Finnhub (free EPS-surprise cross-check / fallback)
+    if config.FINNHUB_API_KEY:
+        raw_fh = finnhub.fetch_earnings(t, config.FINNHUB_API_KEY)
+        print(f"\n[3b] Finnhub fetch_earnings raw rows: {len(raw_fh)}")
+        peek("finnhub parse_earnings (EPS)", finnhub.parse_earnings(raw_fh))
+        fh_fwd = finnhub.parse_eps_estimate(
+            finnhub.fetch_eps_estimate(t, config.FINNHUB_API_KEY))
+        print(f"  finnhub forward EPS estimate:        {fh_fwd}  (None = premium/ไม่มี — ไม่กระทบ)")
+    else:
+        print("\n[3b] Finnhub skipped — no key in env")
 
     # 4) SEC actuals (the free side of the backfill pairing)
     cik, _ = refresh.resolve_cik(t)
