@@ -86,9 +86,14 @@
   </div>
   <div class="panel">
     <div id="momBanner" style="display:none"></div>
-    <div id="mktRegime" style="display:none"></div>
-    <div id="benchmark" style="display:none"></div>
-    <div id="philosophy" style="display:none"></div>
+    <div id="assumeBanner" style="display:none"></div>
+    <!-- Command strip (S9 / S32-33 / S16-35 / S1-42): 4 ไทล์ + 1 บรรทัดสังเคราะห์ -->
+    <div id="cmdStrip" style="display:none;grid-template-columns:repeat(auto-fit,minmax(178px,1fr));gap:8px;margin:8px 0 6px">
+      <div id="mktRegime" style="display:none"></div>
+      <div id="benchmark" style="display:none"></div>
+      <div id="philosophy" style="display:none"></div>
+    </div>
+    <div id="stripSynth" style="display:none"></div>
     <div id="buildStamp" style="display:none"></div>
     <div id="p1"></div>
     <div id="p2" style="display:none">
@@ -102,6 +107,7 @@
       <div id="watchTable" class="muted" style="font-size:12px">Add tickers then press “Run watchlist”. Data is fetched on demand and not stored.</div>
     </div>
     <div id="p3" style="display:none">
+      <div id="cashStance" style="display:none"></div>
       <div id="garpScreen"></div>
       <div id="garpDiv" style="border-top:2px solid #e2e8f0;margin:14px 0 12px;display:none"></div>
       <!-- ===================== RISK DESK (institutional view) ===================== -->
@@ -153,7 +159,8 @@
         <tr><td><b>GARP badge</b></td><td>คะแนน ถูก&times;ดี (Economics + Price, /10)</td><td>candidate = ทั้งสองด้าน &ge;3 (Damodaran S13/S19: growth at a reasonable price)</td></tr>
         <tr><td><b>Momentum</b></td><td>Composite 4 เงื่อนไข: 12-1 &gt;0 · 6M &gt;0 · เหนือ SMA200 · RSI&gt;50</td><td>Strong/Positive = จังหวะหนุน · ⚠ crash guard = ตลาด RISK-OFF ห้ามไล่ราคา (S9) · ⏳ = ข้อมูลเก่า กด Run Daily</td></tr>
         <tr><td><b>Rank</b></td><td>อันดับ momentum 12-1 เทียบหุ้นตัวอื่นในพอร์ต/ลิสต์ (percentile)</td><td>Top = แข็งสุดในกลุ่ม — ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน</td></tr>
-        <tr><td><b>Action</b></td><td>สรุปคำสั่งรายวัน = สัญญาณ value ผสมสัญญาณ momentum</td><td>BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย</td></tr>
+        <tr><td><b>Action</b></td><td>สรุปคำสั่งรายวัน = สัญญาณ value ผสมสัญญาณ momentum</td><td>BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย · ถ้าตลาด RISK-OFF จะแสดง <b>WAIT · crash guard</b> ทับสัญญาณฝั่งซื้อชั่วคราว (S9)</td></tr>
+        <tr><td><b>เกจ Price vs Value</b></td><td>แถบบนสุดของ card: ขีดดำ = ราคาปัจจุบันบนสเกล FV (เขียว = โซน margin of safety / เทา = fair / แดง = แพง) + upside gross &rarr; net</td><td>คำถามแรกของ Damodaran ตอบใน 1 วินาที — ตัดสินใจด้วย <b>net</b> เสมอ (S6) · หุ้น pre-profit แสดงเป็น 2 แท่ง implied vs actual แทน (Reverse DCF) · bond/gold/crypto ไม่มีเกจ เพราะเป็นเกม pricing (S40-41)</td></tr>
         <tr><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside</td><td>FVP = Future Value Projection (หุ้นโตแรง moat กว้าง: spread&gt;10pp และ growth&gt;15%) · PEG = Fundamental PEG (กรณีทั่วไป) · RevDCF = หุ้นยังไม่มีกำไร แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า</td></tr>
         <tr><td><b>Upside</b></td><td>(FV−ราคา)/ราคา + net หลังภาษี/ค่าเทรด (S6)</td><td>&gt;+15% = มี margin of safety · &lt;−15% = จ่ายแพงกว่ามูลค่า · หุ้น pre-profit: เทียบ actual %/y กับ implied — actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
         <tr><td><b>Earnings &middot; EPS/Rev/Mgn &middot; 5q</b></td><td>ผล 5 ไตรมาสล่าสุด (เก่า&rarr;ใหม่): EPS และ Revenue = beat/meet/miss เทียบ estimate นักวิเคราะห์ · Mgn = แนวโน้ม operating margin YoY (expand/flat/contract)</td><td>เขียวต่อเนื่อง = execution ดี · แดงซ้ำ = ประมาณการโลกสวย/ธุรกิจแผ่ว · ชี้จุดสีดู Act vs Est · "&times; n/a" = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง · "&#10227; refresh" = ข้อมูลชุดเก่า กด Run Fundamental Refresh · PEAD = ทิศ drift หลังงบ (S25)</td></tr>
@@ -173,7 +180,8 @@
       <h3 class="ht2">3) หน้า Allocation — หัวข้อ 1–7</h3>
       <table class="httab">
         <tr><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
-        <tr><td><b>GARP screen</b></td><td>จัดอันดับทุกตัว = Quality (Economics) &times; Cheap (Price)</td><td>candidate = &ge;3 ทั้งคู่ — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน (S13/S19)</td></tr>
+        <tr><td><b>&#128214; Portfolio Story</b></td><td>สรุป Risk Desk ทั้ง 7 ส่วนเป็น 5 บรรทัดตามหลัก Damodaran + FINDING หลักบรรทัดแรก</td><td>อ่านก่อน 1 นาที: ①ปรัชญา/กระจุก ②ขาลง≠vol ③เทียบ index ④tilt/ballast ⑤cost/tax — ส่วน 1–7 ด้านล่างคือหลักฐานของแต่ละบรรทัด</td></tr>
+        <tr><td><b>GARP screen + quadrant</b></td><td>จัดอันดับทุกตัว = Quality (Economics) &times; Cheap (Price) + แผนที่ 4 ช่อง</td><td>candidate = &ge;3 ทั้งคู่ (มุมขวาบนของ quadrant) — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน (S13/S19) · มุมขวาล่าง = ดีแต่แพง รอ pullback · มุมซ้ายบน = ถูกแต่ระวัง value trap</td></tr>
         <tr><td><b>1 &middot; Portfolio Snapshot</b></td><td>มูลค่าพอร์ต, จำนวนตัว, Est. Vol (annual), Severe drawdown, β, Diversification /100</td><td>Vol ~15–20% = โซนหุ้นล้วน · Severe drawdown คือ "ถ้าเกิด GFC ซ้ำ" — เทียบกับ Max loss ที่ตั้งไว้ · β&gt;1.3 = แรงกว่าตลาดมาก · Diversification &ge;60 ดี, &lt;40 = กระจุก</td></tr>
         <tr><td><b>2 &middot; Capital Allocation</b></td><td>โดนัทแบ่งเงินตาม "ตัวขับความเสี่ยง" (sleeve) และสกุลเงิน</td><td>sleeve เดียว &ge;40% หรือสกุลเงินเดียว &ge;80% = ความเสี่ยงกระจุกที่มองไม่เห็นจากรายตัว</td></tr>
         <tr><td><b>3 &middot; Capital vs Risk Weight</b></td><td>เทียบ %เงินที่ลง (เทา) กับ %ความเสี่ยงที่สร้าง (แดง) ต่อหุ้น</td><td>แดงยาวกว่าเทามาก (+3pp ขึ้นไป) = ตัวนั้น "กินความเสี่ยง" เกินเงินที่ลง — เป้าหมายแรกเวลาลดความเสี่ยง · แท่งเขียว = ช่วยลดความเสี่ยงรวม (diversifier)</td></tr>
@@ -275,7 +283,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-07-03a";
+const DASH_BUILD="2026-07-03b";
 function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':Number(x).toFixed(d)}
 function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
@@ -288,6 +296,26 @@ function garpBadge(x){
 async function loadScreen(){
   const el=document.getElementById('garpScreen'); if(!el)return;
   try{const r=await fetch('/api/screen'); const d=await r.json(); renderScreen(d.items||[]);}catch(e){el.innerHTML='';}
+}
+// Tier3: GARP quadrant map (S13/S19) — "ถูก × ดี" เป็นแนวคิด 2 มิติ ต้องเห็นเป็นภาพ
+function garpQuadrant(items){
+  const pts=(items||[]).filter(i=>i.economics!=null&&i.price!=null);
+  if(!pts.length)return '';
+  const X=v=>40+Math.max(0,Math.min(5,v))/5*270, Y=v=>170-Math.max(0,Math.min(5,v))/5*160;
+  const x3=X(3), y3=Y(3);
+  const dots=pts.map(i=>`<circle cx="${X(i.economics).toFixed(1)}" cy="${Y(i.price).toFixed(1)}" r="5" fill="${i.candidate?'#0d9488':'#94a3b8'}"><title>${esc(i.ticker)} — Quality ${i.economics} · Cheap ${i.price}${i.candidate?' · GARP candidate':''}</title></circle><text x="${X(i.economics).toFixed(1)}" y="${(Y(i.price)-8).toFixed(1)}" font-size="8.5" text-anchor="middle" font-weight="700" fill="#334155">${esc(i.ticker)}</text>`).join('');
+  return `<svg viewBox="0 0 320 196" style="width:100%;max-width:430px;display:block;margin:6px 0 4px">
+    <rect x="40" y="10" width="270" height="160" fill="#f8fafc" stroke="#e2e8f0"/>
+    <rect x="${x3}" y="10" width="${(310-x3).toFixed(1)}" height="${(y3-10).toFixed(1)}" fill="#dcfce7" opacity=".5"/>
+    <line x1="${x3}" y1="10" x2="${x3}" y2="170" stroke="#94a3b8" stroke-dasharray="4 3"/>
+    <line x1="40" y1="${y3}" x2="310" y2="${y3}" stroke="#94a3b8" stroke-dasharray="4 3"/>
+    <text x="${((x3+310)/2).toFixed(0)}" y="22" font-size="8.5" fill="#166534" text-anchor="middle">ถูก × ดี ★</text>
+    <text x="${((40+x3)/2).toFixed(0)}" y="22" font-size="8.5" fill="#9a3412" text-anchor="middle">ถูกแต่คุณภาพต่ำ (trap?)</text>
+    <text x="${((x3+310)/2).toFixed(0)}" y="164" font-size="8.5" fill="#475569" text-anchor="middle">ดีแต่แพง — รอ pullback</text>
+    <text x="${((40+x3)/2).toFixed(0)}" y="164" font-size="8.5" fill="#991b1b" text-anchor="middle">แพงและไม่เด่น</text>
+    <text x="175" y="188" font-size="8.5" fill="#64748b" text-anchor="middle">Quality (ROIC−WACC spread) &#8594;</text>
+    <text x="14" y="95" font-size="8.5" fill="#64748b" transform="rotate(-90 14 95)" text-anchor="middle">Cheap (margin of safety) &#8594;</text>
+    ${dots}</svg>`;
 }
 function renderScreen(items){
   const el=document.getElementById('garpScreen'); if(!el)return;
@@ -307,6 +335,7 @@ function renderScreen(items){
   el.innerHTML=`<div style="margin:6px 0 16px;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px;background:#fff">`
     +`<div style="font-size:14px;font-weight:800">&#128269; GARP screen — cheap &times; quality <span class="muted" style="font-weight:600;font-size:11px">(Damodaran S13/S19) &middot; ${cands} candidate(s)</span></div>`
     +`<div class="muted" style="font-size:11px;margin:5px 0 8px">จัดอันดับทุกตัวที่วิเคราะห์แล้ว = Economics (คุณภาพ/moat) × Price (margin of safety). candidate = ถูก×ดีทั้งคู่ (≥3 ทั้งสองด้าน)</div>`
+    +garpQuadrant(items)
     +`<table style="width:100%;border-collapse:collapse;font-size:12px"><thead><tr style="color:#64748b;text-align:left">`
     +`<th style="padding:5px 8px">Ticker</th><th style="padding:5px 8px">Sector</th>`
     +`<th style="padding:5px 8px;text-align:center" title="Economics subscore = ROIC−WACC spread (quality/moat)">Quality</th>`
@@ -437,8 +466,11 @@ function earnCircles(x){
   h+=`<div class="erow"><span class="elbl" title="Operating-margin YoY trend: expand / flat / contract">Mgn</span>${mgn.length?_circ(mgn,'mgn'):earnMiss(st,'mgn')}</div>`;
   const pd=x.pead||{};
   if(pd.bias&&pd.bias!=='neutral'){
-    const up=pd.bias==='up';
-    h+=`<div class="erow"><span class="elbl" title="${(pd.note||'').replace(/"/g,'&quot;')}">PEAD</span><span class="tag" style="background:${up?'#16a34a':'#dc2626'};font-size:9px" title="Damodaran S25: drift bias from the last earnings surprise">${up?'▲ up':'▼ down'}${pd.strength==='strong'?'*':''}</span></div>`;
+    // Tier1: อ่านรู้เรื่องเอง ไม่ต้อง hover (เดิมเป็น tag ▲ up*)
+    const up=pd.bias==='up', strong=pd.strength==='strong';
+    const bg=up?'#dcfce7':'#fee2e2', col=up?'#166534':'#991b1b';
+    const q=pd.quarter?` &middot; ${esc(pd.quarter)}`:'';
+    h+=`<div class="erow"><span class="elbl" title="Damodaran S25 (PEAD): ราคามักไหลตามทิศ earnings surprise ล่าสุดต่ออีกหลายสัปดาห์ — ใช้ประกอบจังหวะ ไม่ใช่เหตุผลหลัก">PEAD</span><span style="display:inline-block;font-size:9px;font-weight:700;background:${bg};color:${col};border-radius:4px;padding:1px 6px" title="${esc(pd.note||'')}">drift ${up?'&#8593;':'&#8595;'} ${strong?'strong':'mild'}${q}</span></div>`;
   }
   return h+`<div class="muted" style="font-size:8px">old→new</div>`;
 }
@@ -517,39 +549,75 @@ function toggleDrawer(tr){
   const open=dr.style.display!=='none'; dr.style.display=open?'none':'';
   const ch=tr.querySelector('.chev'); if(ch)ch.style.transform=open?'':'rotate(180deg)';
 }
+// ---- Command strip (S9 / S32-33 / S16-35 / S1-42): เรียง 4 ไทล์ + 1 บรรทัดสรุป ----
+function stile(label,val,sub,bg,bd,col){return `<div style="background:${bg||'#f8fafc'};border:1px solid ${bd||'#e2e8f0'};border-radius:10px;padding:8px 11px"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em">${label}</div><div style="font-size:14px;font-weight:800;color:${col||'#0f172a'}">${val}</div><div class="muted" style="font-size:10px;margin-top:1px;line-height:1.5">${sub||''}</div></div>`;}
+function stripOn(){const w=document.getElementById('cmdStrip');if(w)w.style.display='grid';}
 function renderMarket(mk){
-  const el=document.getElementById('mktRegime'); if(!el)return;
-  if(!mk||!mk.regime){el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0';el.innerHTML='Market regime &amp; valuation (S9 / S32-33): <b>&mdash;</b> waiting for data &middot; click <b>&#9654; Run Daily (price/momentum)</b>';return;}
+  const el=document.getElementById('mktRegime'); if(!el)return; stripOn();
+  el.style.cssText='display:contents';
+  if(!mk||!mk.regime){el.innerHTML=stile('Regime (S9)','&mdash;','กด &#9654; Run Daily เพื่อคำนวณ')+stile('Market value (S32/33)','&mdash;','ต้องมี regime ก่อน');return;}
   const off=mk.regime==='risk_off';
-  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;border:1px solid '
-    +(off?'#fecaca;background:#fef2f2;color:#991b1b':'#bbf7d0;background:#f0fdf4;color:#166534');
-  const dist=(mk.dist_pct!=null)?` (${mk.dist_pct>=0?'+':''}${mk.dist_pct}% vs 200-DMA)`:'';
-  el.innerHTML=off
-    ? `&#9888; Market regime: <b>RISK-OFF</b>${dist} — S&P below its 200-day average. Momentum is crash-prone (Damodaran S9); treat bullish signals with caution.`
-    : `&#9679; Market regime: <b>RISK-ON</b>${dist} — S&P above its 200-day average. Momentum signals more reliable.`;
-  const v=mk.valuation;
-  if(v&&v.regime){
+  const dist=(mk.dist_pct!=null)?`${mk.dist_pct>=0?'+':''}${mk.dist_pct}% vs 200-DMA`:'';
+  const t1=stile('Regime (S9)',off?'&#9888; RISK-OFF':'&#9679; RISK-ON',
+    dist+(off?' · momentum crash-prone — อย่าไล่ราคา':' · สัญญาณ momentum เชื่อถือได้ขึ้น'),
+    off?'#fef2f2':'#f0fdf4',off?'#fecaca':'#bbf7d0',off?'#991b1b':'#166534');
+  const v=mk.valuation||{}; let t2;
+  if(v.regime){
     const col={cheap:'#166534',fair:'#475569',expensive:'#991b1b'}[v.regime]||'#475569';
-    el.innerHTML+=`<div style="margin-top:4px;font-size:11px;color:${col}">Market valuation (S&P): <b>${v.regime.toUpperCase()}</b> — implied ERP ${v.implied_erp_pct}% · earnings-yield ${v.earnings_yield_pct}% · Fed spread ${v.fed_spread_pct}% &rarr; <b>${v.tilt}</b> <span style="color:#94a3b8">(Damodaran S32/33; manual inputs — not in-and-out timing)</span></div>`;
-  }
-}
-function renderPhilosophy(p){
-  const el=document.getElementById('philosophy'); if(!el)return;
-  if(!p||!p.running){el.style.display='none';return;}
-  const pr=p.profile||{}, col=p.fit_ok?'#4b3869':'#991b1b';
-  const notes=(p.notes&&p.notes.length)?` · <span style="color:#991b1b">${p.notes.join(' · ')}</span>`:'';
-  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;background:#faf5ff;color:#4b3869;border:1px solid #e9d5ff';
-  el.innerHTML=`&#129504; Philosophy fit (S1/S42): พอร์ตกำลังเล่น <b style="color:${col}">${p.running}</b> · avg DEEP ${p.avg_composite??'—'} · ${p.strong_momentum_pct}% strong momentum · ${p.garp_candidates} GARP — profile: <b>${pr.role||'?'}</b>/${pr.horizon||'?'}/${pr.tax_status||'?'}${notes}`;
+    t2=stile('Market value (S32/33)',v.regime.toUpperCase(),
+      `implied ERP ${v.implied_erp_pct}% · E/P ${v.earnings_yield_pct}% · Fed spread ${v.fed_spread_pct}% &rarr; ${esc(v.tilt||'')} <span style="color:#cbd5e1">(tilt ไม่ใช่สวิตช์เข้าออก)</span>`,
+      '#f8fafc','#e2e8f0',col);
+  }else t2=stile('Market value (S32/33)','&mdash;','ERP/PE ยังคำนวณไม่ได้ — เช็ค config');
+  el.innerHTML=t1+t2;
 }
 function renderBenchmark(b){
-  const el=document.getElementById('benchmark'); if(!el)return;
-  if(!b||(b.portfolio_12m==null&&b.market_12m==null)){el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;background:#f1f5f9;color:#64748b;border:1px solid #e2e8f0';el.innerHTML='&#128202; Benchmark vs S&P (S16/S35): <b>&mdash;</b> waiting for data &middot; click <b>&#9654; Run Daily</b>';return;}
-  const f=v=>v==null?'—':(v>=0?'+':'')+v+'%';
-  const exTxt=(b.excess_pp==null)?'':` · excess <b>${b.excess_pp>=0?'+':''}${b.excess_pp} pp</b>`;
-  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;'
-    +'background:#f1f5f9;color:#334155;border:1px solid #e2e8f0';
-  el.innerHTML=`&#128202; Holdings trailing 12M (MV-weighted, illustrative): <b>${f(b.portfolio_12m)}</b> vs S&P <b>${f(b.market_12m)}</b>${exTxt}`
-    +` — active strategies usually trail a low-cost index over time (Damodaran S16/S35); judge net of cost &amp; tax.`;
+  const el=document.getElementById('benchmark'); if(!el)return; stripOn();
+  el.style.cssText='display:contents';
+  if(!b||(b.portfolio_12m==null&&b.market_12m==null)){el.innerHTML=stile('vs S&P 12M (S16/S35)','&mdash;','กด &#9654; Run Daily เพื่อคำนวณ');return;}
+  const fmt=v=>v==null?'—':(v>=0?'+':'')+v+'%';
+  const ex=b.excess_pp, lag=ex!=null&&ex<0;
+  el.innerHTML=stile('vs S&P 12M (S16/S35)',ex==null?'&mdash;':(ex>=0?'+':'')+ex+' pp',
+    `พอร์ต ${fmt(b.portfolio_12m)} vs S&amp;P ${fmt(b.market_12m)} · MV-weighted, illustrative — active ส่วนใหญ่แพ้ index หลังหัก cost/tax`,
+    '#f8fafc','#e2e8f0',lag?'#b45309':'#166534');
+}
+function renderPhilosophy(p){
+  const el=document.getElementById('philosophy'); if(!el)return; stripOn();
+  el.style.cssText='display:contents';
+  if(!p||!p.running){el.innerHTML=stile('Philosophy (S1/S42)','&mdash;','ยังไม่มีข้อมูลพอร์ต');return;}
+  const pr=p.profile||{};
+  const sub=`avg DEEP ${p.avg_composite??'—'} · momentum ${p.strong_momentum_pct}% · GARP ${p.garp_candidates} — profile <b>${esc(pr.role||'?')}</b>/${esc(pr.horizon||'?')}/${esc(pr.tax_status||'?')}`
+    +((p.notes&&p.notes.length)?` · <span style="color:#991b1b">${esc(p.notes.join(' · '))}</span>`:'')
+    +` <span style="color:#cbd5e1">(แก้ profile: data/philosophy_profile.json)</span>`;
+  el.innerHTML=stile('Philosophy (S1/S42)',(p.fit_ok?'&#10003; ':'&#9888; ')+esc(p.running),sub,'#faf5ff','#e9d5ff',p.fit_ok?'#4b3869':'#991b1b');
+}
+function renderSynth(d){
+  // S42 governing line: อ่านทั้ง 4 ไทล์แล้วสรุปเป็นประโยคเดียวว่า "วันนี้ให้ทำอะไร"
+  const el=document.getElementById('stripSynth'); if(!el)return;
+  const mk=(d&&d.market)||{}, v=mk.valuation||{}, b=(d&&d.benchmark)||{}, p=(d&&d.philosophy)||{};
+  if(!mk.regime && !p.running){el.style.display='none';return;}
+  const parts=[];
+  if(mk.regime)parts.push(mk.regime==='risk_off'?'<b>ตลาด RISK-OFF</b> — crash guard เปิด ห้ามไล่ราคา':'ตลาด RISK-ON');
+  if(v.regime==='fair')parts.push('valuation FAIR &rarr; <b>ไม่มี tilt</b>');
+  else if(v.regime==='cheap')parts.push('<b>ตลาดถูก</b> &rarr; '+esc(v.tilt||''));
+  else if(v.regime==='expensive')parts.push('<b>ตลาดแพง</b> &rarr; '+esc(v.tilt||''));
+  if(p.running)parts.push(p.fit_ok?'พอร์ตตรงปรัชญา &rarr; เดินตามสัญญาณ DEEP ปกติ':'<b>&#9888; พอร์ตเพี้ยนจาก profile</b> — ทบทวนก่อนเทรดใหม่ (S42)');
+  if(b.excess_pp!=null)parts.push('vs index '+(b.excess_pp>=0?'+':'')+b.excess_pp+'pp'+(b.excess_pp<0?' — อย่าเพิ่ม turnover เพื่อไล่ตาม (S6/S35)':''));
+  el.style.cssText='display:block;background:#0f172a;color:#e2e8f0;border-radius:8px;padding:7px 12px;font-size:12px;margin:0 0 8px';
+  el.innerHTML='&#129517; <b>วันนี้:</b> '+parts.join(' · ');
+}
+function renderAssumptions(mk){
+  // S32/33 hygiene: market overlay ทั้งชั้นพิงค่า manual (ERP/PE) — stale ต้องตะโกน
+  const el=document.getElementById('assumeBanner'); if(!el)return;
+  const v=(mk||{}).valuation||{};
+  const months=a=>{if(!a)return null;const m=String(a).match(/^(\d{4})-(\d{2})/);if(!m)return null;const n=new Date();return (n.getFullYear()-(+m[1]))*12+(n.getMonth()+1-(+m[2]));};
+  const em=months(v.erp_as_of), pm=months(v.market_pe_as_of), lim=v.erp_stale_months||3;
+  const bad=[];
+  if(em!=null&&em>lim)bad.push(`ERP${v.implied_erp_pct!=null?' '+v.implied_erp_pct+'%':''} as-of ${v.erp_as_of} (<b>เก่า ${em} เดือน</b>)`);
+  if(pm!=null&&pm>lim)bad.push(`Market P/E as-of ${v.market_pe_as_of} (<b>เก่า ${pm} เดือน</b>)`);
+  if(!bad.length){el.style.display='none';return;}
+  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;background:#fff7ed;color:#9a3412;border:1px solid #fdba74';
+  el.innerHTML='&#9888; <b>สมมติฐานหมดอายุ:</b> '+bad.join(' · ')
+    +' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดต <b>ERP / ERP_AS_OF / MARKET_PE / MARKET_PE_AS_OF</b> ใน <b>config.py</b> (จากหน้า Damodaran &amp; multpl.com รายเดือน) แล้ว restart';
 }
 function tdInner(html){try{const t=document.createElement('table');t.innerHTML='<tbody><tr>'+html+'</tr></tbody>';const td=t.querySelector('td');return td?td.innerHTML:html;}catch(e){return html;}}
 function adviceLine(x){
@@ -558,43 +626,123 @@ function adviceLine(x){
   return `<div style="font-size:11px;color:#334155;background:#f8fafc;border:1px solid #e2e8f0;border-radius:6px;padding:5px 8px;margin-top:5px;white-space:normal;text-align:left" title="สังเคราะห์จากทุกค่าบน card ตามลำดับ Damodaran: มูลค่า → คุณภาพ → จังหวะ">&#128161; ${esc(x.advice)}</div>`;
 }
 function cardCell(lbl,html){return `<div style="min-width:96px;flex:1 1 96px"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">${lbl}</div><div style="font-size:12px;margin-top:2px">${html}</div></div>`;}
+// ---- Tier1: moat chip / guard badges / display-level action override (S9) ----
+function moatChip(x){
+  const s=(x.key_metrics||{}).spread_pct;
+  if(s==null)return '';
+  const good=s>=10, mid=(s>=0&&s<10);
+  const bg=good?'#dcfce7':mid?'#fef9c3':'#fee2e2', col=good?'#166534':mid?'#854d0e':'#991b1b';
+  const note=good?'moat แข็งแรง':mid?'สร้างมูลค่าเหนือทุนเล็กน้อย':'ทำลายมูลค่า (ROIC ต่ำกว่า WACC — โตแค่ไหนก็ไม่ช่วย)';
+  return ` <span style="display:inline-block;font-size:8px;font-weight:700;background:${bg};color:${col};border-radius:4px;padding:1px 5px" title="ROIC−WACC spread ${s>=0?'+':''}${s}pp — ${note}. คุณภาพวัดที่ spread ไม่ใช่ที่การเติบโต (รายละเอียดใน drawer)">Moat ${s>=0?'+':''}${s}pp</span>`;
+}
+function dispAction(x){
+  // S9: ตลาด RISK-OFF — Action ฝั่งซื้อเชื่อไม่ได้ชั่วคราว override เฉพาะการแสดงผล (ค่า server ไม่แตะ)
+  const crash=((x.momentum_v2||{}).crash_guard)===true;
+  if(crash&&['STRONG BUY','BUY','ACCUMULATE'].includes(x.action))
+    return `<span class="tag" style="background:#64748b;border:1px solid #dc2626" title="S9 crash guard: ตลาด RISK-OFF — momentum พังแรงสุดตอนตลาดกลับทิศ · สัญญาณเดิม: ${esc(x.action)}">WAIT &middot; crash guard</span>`;
+  return tag(x.action,ACT_COLOR[x.action]);
+}
+function guardBadges(x){
+  const m=x.momentum_v2||{}; let h='';
+  if(m.crash_guard===true)
+    h+=`<div style="background:#fef2f2;border:1px solid #fecaca;color:#991b1b;border-radius:7px;padding:4px 9px;font-size:11px;margin:4px 0">&#9888; <b>S9 crash guard:</b> ตลาด RISK-OFF (S&amp;P ใต้ 200-DMA) — สัญญาณ momentum เชื่อไม่ได้ชั่วคราว ห้ามไล่ราคา</div>`;
+  const rv=m.reversal||{};
+  if(rv.risk===true)
+    h+=`<div style="background:#fefce8;border:1px solid #fde68a;color:#854d0e;border-radius:7px;padding:4px 9px;font-size:11px;margin:4px 0">&#9888; <b>S9 reversal:</b> วิ่งสะสม ~3 ปี ${momPct(rv.cum_return)} และอยู่ใกล้ยอดของช่วง — โซนกลับตัวระยะยาว อย่าไล่ราคา</div>`;
+  return h;
+}
+// ---- Tier3: asset-class card (S3 bonds / S40-41 pricing assets) — mirror ของ config.ASSET_CLASS_MAP
+const ASSET_CLASS={"TLT":"bond","IEF":"bond","SHY":"bond","AGG":"bond","BND":"bond","LQD":"bond","TIP":"bond","GOVT":"bond","GLD":"gold","IAU":"gold","BTC-USD":"crypto","ETH-USD":"crypto","IBIT":"crypto"};
+function pricingBadge(ac){
+  if(ac==='bond')return `<span style="display:inline-block;font-size:9px;font-weight:700;background:#e0f2fe;color:#075985;border-radius:4px;padding:1px 6px" title="Damodaran S3: ตราสารหนี้ — ความเสี่ยงหลักคืออัตราดอกเบี้ย (duration) ไม่ใช้ FV แบบหุ้น">BOND &middot; rate risk (S3)</span>`;
+  return `<span style="display:inline-block;font-size:9px;font-weight:700;background:#f3e8ff;color:#6b21a8;border-radius:4px;padding:1px 6px" title="Damodaran S40-41: ไม่มีกระแสเงินสด → ตีมูลค่า (valuation) ไม่ได้ ได้แต่ตีราคา (pricing) — จำกัดน้ำหนัก อย่าปนกับส่วน value">PRICING ASSET (S40-41)</span>`;
+}
+// ---- Tier2: Value-first gauge — มูลค่าต้องมาก่อนราคาเสมอ (S5/S12-13) ----
+function valueGauge(x){
+  if(x.upside_pct!=null&&x.anchor_value!=null){
+    const ratio=1/(1+x.upside_pct/100);                     // price / FV
+    const pos=Math.max(2,Math.min(98,(ratio-0.5)*100));     // สเกล 0.5x → 1.5x ของ FV
+    const net=x.net_upside_pct, meth=methodShort(x.anchor_method);
+    return `<div style="margin:9px 0 2px;font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">Price vs Value &middot; FV ${f(x.anchor_value)} (${meth})</div>
+      <div style="position:relative;height:12px;border-radius:6px;overflow:hidden;display:flex" title="เขียว = ราคาต่ำกว่า FV เกิน 15% (โซน margin of safety) · เทา = fair ±15% · แดง = แพงกว่า FV เกิน 15% — ขีดดำ = ราคาปัจจุบัน">
+        <div style="flex:35;background:#bbf7d0"></div><div style="flex:30;background:#e2e8f0"></div><div style="flex:35;background:#fecaca"></div>
+        <div style="position:absolute;left:${pos.toFixed(1)}%;top:0;width:3px;height:12px;background:#0f172a;border-radius:2px"></div></div>
+      <div style="display:flex;justify-content:space-between;font-size:11px;margin-top:2px">
+        <b class="${x.upside_pct>=0?'up':'down'}">upside ${x.upside_pct>=0?'+':''}${x.upside_pct}%${net!=null?` &rarr; net <span style="font-size:12.5px">${net>=0?'+':''}${net}%</span>`:''}</b>
+        <span class="muted" style="font-size:9px" title="net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">net หลัง cost/tax (S6)</span></div>`;
+  }
+  if(x.rev_implied_cagr!=null){
+    const imp=x.rev_implied_cagr, act=x.rev_actual_1y, mx=Math.max(imp||0,act||0,1);
+    const bar=(v,c)=>`<div style="flex:1;height:9px;background:#f1f5f9;border-radius:5px"><div style="height:9px;width:${Math.max(3,Math.min(100,v/mx*100)).toFixed(0)}%;background:${c};border-radius:5px"></div></div>`;
+    const verd=(x.rev_verdict||'').split('—')[0].trim();
+    const vc={Plausible:['#dcfce7','#166534'],Ambitious:['#ffedd5','#9a3412'],Aggressive:['#fee2e2','#991b1b'],Exceptional:['#fee2e2','#991b1b']}[verd]||['#e2e8f0','#475569'];
+    return `<div style="margin:9px 0 2px;font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase" title="Reverse DCF: ราคาปัจจุบัน price-in การเติบโตรายได้กี่ %/ปี (10 ปี) เทียบที่ทำได้จริงล่าสุด">Market prices-in vs ทำได้จริง (10y CAGR)</div>
+      <div style="display:flex;align-items:center;gap:6px;font-size:10px"><span style="width:76px;flex:none">implied <b>${imp}%</b></span>${bar(imp,'#fca5a5')}</div>
+      ${act!=null?`<div style="display:flex;align-items:center;gap:6px;font-size:10px;margin-top:2px"><span style="width:76px;flex:none">actual <b>${act}%</b>/y</span>${bar(act,'#86efac')}</div>`:''}
+      <div style="margin-top:3px"><span style="display:inline-block;font-size:9px;font-weight:700;background:${vc[0]};color:${vc[1]};border-radius:4px;padding:1px 6px" title="${esc(x.rev_verdict||'')}">${esc(verd||'priced-in')}</span> <span class="muted" style="font-size:9px">ช่องว่างระหว่างแท่ง = ศรัทธาที่ตลาดจ่ายล่วงหน้า</span></div>`;
+  }
+  return '';
+}
 function pcard(x,watch){
-  const chg=x.change==null?'<span class="muted">&mdash;</span>':`<span class="${x.change>=0?'up':'down'}">${x.change>=0?'+':''}${f(x.change)}%</span>`;
+  const chg=x.change==null?'':` <span class="${x.change>=0?'up':'down'}" style="font-size:11px">${x.change>=0?'+':''}${f(x.change)}%</span>`;
   const reco=`<span style="font-size:10px;font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</span>`;
   const rmFn=watch?`removeWatch('${x.ticker}')`:`removeHolding('${x.ticker}')`;
-  const right=watch
-    ? `<div style="text-align:right"><div style="font-size:13px;font-weight:700">${f(x.price)}</div>${chg}</div>`
-    : `<div style="text-align:right"><div style="font-size:13px;font-weight:700">${f(x.price)}</div>${chg}<div style="font-size:11px;margin-top:2px">${x.pl==null?'<span class="muted">&mdash;</span>':`<span class="${x.pl>=0?'up':'down'}">${x.pl>=0?'+':''}${money(Math.abs(x.pl))}</span> <span class="muted">${pct(x.pl_pct)}</span>`}</div></div>`;
+  const ac=ASSET_CLASS[x.ticker];
+  // Value-first (S5): ราคา/P&L เป็นบริบทมุมขวาแบบจาง — มูลค่า (gauge) คือพระเอกของ card
+  const right=`<div style="text-align:right"><div style="font-size:12px;font-weight:600;color:#475569">${f(x.price)}${chg}</div>`
+    +(watch?'':`<div class="muted" style="font-size:10px;margin-top:2px">P/L ${x.pl==null?'&mdash;':`${x.pl>=0?'+':'-'}${money(Math.abs(x.pl)).replace(/<[^>]*>/g,'')} (${x.pl_pct>=0?'+':''}${f(x.pl_pct,1)}%)`}</div>`)+`</div>`;
   const head=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
-    <div>${dot(x.confidence_tier)}<b style="font-size:14px">${x.ticker}</b>${flagIcon(x)} <span class="rm" title="remove" onclick="${rmFn}">&times;</span>
+    <div>${dot(x.confidence_tier)}<b style="font-size:14px">${x.ticker}</b>${flagIcon(x)}${ac?' '+pricingBadge(ac):''} <span class="rm" title="remove" onclick="${rmFn}">&times;</span>
       <div class="muted" style="font-size:10px">${esc(x.company)} &middot; ${esc(x.sector)}</div></div>
     ${right}</div>`;
-  const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:16px">${f(x.composite,2)}</b><span style="font-size:11px">${x.stars||''}</span>${reco}${eqBadge(x)}${garpBadge(x)}</div>`;
-  const grid=`<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
+  const extra=watch
+    ? `<div style="margin-top:8px"><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:6px 11px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></div>`
+    : `<details style="margin-top:6px"><summary style="font-size:11px;color:#64748b;cursor:pointer">WACC / Ke / EVA + DEEP sub-scores</summary>${deepDrawer(x)}</details>`;
+  if(ac){
+    // S3/S40-41: bond/gold/crypto — ไม่มีกระแสเงินสดแบบหุ้น จึงไม่แสดง FV/GARP/EQ (เกม pricing ไม่ใช่ valuation)
+    const note=ac==='bond'
+      ?'ตราสารหนี้ — ความเสี่ยงหลักคืออัตราดอกเบี้ย (duration) ดูผลใน Allocation &rarr; Bond rate risk'
+      :'ไม่แสดง FV / Upside / GARP — สินทรัพย์นี้เล่นเกม <b>pricing</b> ไม่ใช่ valuation (S40-41): กำไรมาจากคนถัดไปจ่ายแพงกว่าเท่านั้น จำกัดน้ำหนัก';
+    const grid0=`<div style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 6px">
+      ${cardCell('Momentum',tdInner(momCell(x)))}
+      ${cardCell('Rank',tdInner(rankCell(x)))}
+      ${cardCell('Action',dispAction(x))}</div>`;
+    return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}
+      <div class="muted" style="font-size:11px;margin:8px 0 2px">${note}</div>${grid0}${guardBadges(x)}${adviceLine(x)}${extra}</div>`;
+  }
+  const vg=valueGauge(x);
+  const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:16px">${f(x.composite,2)}</b><span style="font-size:11px">${x.stars||''}</span>${reco}${moatChip(x)}${eqBadge(x)}${garpBadge(x)}</div>`;
+  const grid=vg
+    ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
     ${cardCell('Momentum',tdInner(momCell(x)))}
     ${cardCell('Rank',tdInner(rankCell(x)))}
-    ${cardCell('Action',tag(x.action,ACT_COLOR[x.action]))}
+    ${cardCell('Action',dispAction(x))}</div>`
+    : `<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
+    ${cardCell('Momentum',tdInner(momCell(x)))}
+    ${cardCell('Rank',tdInner(rankCell(x)))}
+    ${cardCell('Action',dispAction(x))}
     ${cardCell('Anchor FV',anchorCell(x))}
     ${cardCell('Upside',upsideCell(x))}</div>`;
   const earn=`<div style="margin:6px 0"><div style="font-size:9px;color:#94a3b8;letter-spacing:.03em;text-transform:uppercase">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px;padding-left:8px">${earnCircles(x)}</div></div>`;
   const verdict=`<div class="muted" style="font-size:12px;border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`+adviceLine(x);
-  const extra=watch
-    ? `<div style="margin-top:8px"><button onclick="promote('${x.ticker}')" style="border:0;border-radius:6px;padding:6px 11px;background:#0d9488;color:#fff;font-weight:700;cursor:pointer;font-size:11px">+ Portfolio</button></div>`
-    : `<details style="margin-top:6px"><summary style="font-size:11px;color:#64748b;cursor:pointer">WACC / Ke / EVA + DEEP sub-scores</summary>${deepDrawer(x)}</details>`;
-  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}${deep}${grid}${earn}${verdict}${extra}</div>`;
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}${vg}${deep}${grid}${guardBadges(x)}${earn}${verdict}${extra}</div>`;
 }
 function renderPortfolio(d){
+  // เก็บ payload ล่าสุดไว้ให้ Allocation/Risk ใช้ (Portfolio MoS, Story, Cash stance) — client-side ล้วน
+  window.__last={rows:d.rows||[],market:d.market,benchmark:d.benchmark,philosophy:d.philosophy};
   renderMomBanner(d.momentum_meta);
+  renderAssumptions(d.market);
   renderMarket(d.market);
   renderBenchmark(d.benchmark);
   renderPhilosophy(d.philosophy);
+  renderSynth(d);
   // P4: the old <table> row builder was dead code (card layout replaced it) — removed.
   const t=d.totals||{};
   const __cards=(d.rows||[]).map(x=>pcard(x,false)).join('');
   const __tot=`<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:13px"><div><span class="muted" style="font-size:11px">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:11px">P/L</span> ${t.pl==null?'<span class="muted">&mdash;</span>':`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${pct(t.pl_pct)}</b>`}</div></div>`;
   document.getElementById('p1').innerHTML = (d.rows&&d.rows.length)?(__tot+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px">${__cards}</div>`):'<div class="muted" style="padding:10px;font-size:13px">No holdings yet — add one above.</div>';
 }
-function showTab(n){for(const i of [1,2,3,4,5]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){loadAllocation();loadRisk();loadScreen();}}
+function showTab(n){for(const i of [1,2,3,4,5]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){renderCashStance();loadAllocation();loadRisk();loadScreen();}}
 
 const PALETTE=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0d9488','#d97706','#0891b2','#be185d','#65a30d','#9333ea','#ea580c','#475569','#0ea5e9'];
 let charts={};
@@ -662,6 +810,87 @@ function capRiskRows(cv){
   if(cov.length && cov[0].signed_risk_pct!=null) return cov.map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.signed_risk_pct,diff:x.diff_pp,abs:x.abs_risk_share_pct}));
   return (cv.beta_based||[]).map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.risk_pct,diff:x.diff_pp,abs:x.risk_pct}));
 }
+// ---- Tier2: Portfolio Margin of Safety — MV-weighted upside ของ holdings (client-side จาก payload เดิม) ----
+function portMoS(){
+  const rows=(window.__last&&window.__last.rows)||[];
+  let ws=0,g=0,n=0,wn=0,nets=0;
+  for(const r of rows){
+    const mv=r.market_value,u=r.upside_pct;
+    if(mv&&u!=null){ws+=mv;g+=mv*u;n++;if(r.net_upside_pct!=null){nets+=mv*r.net_upside_pct;wn+=mv;}}
+  }
+  if(!ws||!n)return null;
+  return {gross:Math.round(g/ws*10)/10,net:wn?Math.round(nets/wn*10)/10:null,n,of:rows.length};
+}
+function portMoSCard(){
+  const m=portMoS();
+  if(!m)return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:160px;flex:1 1 160px"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em">Portfolio MoS (S4)</div><div style="font-size:15px;font-weight:800" class="muted">&mdash;</div><div class="muted" style="font-size:10px">ต้องมี Fair Value ต่อหุ้นก่อน (Run Fundamental Refresh)</div></div>`;
+  const col=m.gross>=15?'#166534':m.gross>=0?'#475569':'#991b1b';
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:160px;flex:1 1 160px" title="margin of safety ระดับพอร์ต = ค่าเฉลี่ยถ่วงน้ำหนัก MV ของ upside รายตัว (${m.n}/${m.of} ตัวที่มี FV) — ส่วนเผื่อรวมของพอร์ตต่อความผิดพลาดในการประเมิน (S4)">
+    <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em">Portfolio MoS (S4)</div>
+    <div style="font-size:17px;font-weight:800;color:${col}">${m.gross>=0?'+':''}${m.gross}%</div>
+    <div class="muted" style="font-size:10px">${m.net!=null?`net หลัง cost/tax ${m.net>=0?'+':''}${m.net}% · `:''}${m.n}/${m.of} ตัวมี FV</div></div>`;
+}
+// ---- Tier3: Portfolio Story — สรุป Risk Desk ทั้ง 7 ส่วนตาม 5 หลัก Damodaran ----
+function riskStory(d){
+  const L=window.__last||{}; const mk=L.market||{},v=mk.valuation||{},b=L.benchmark||{},p=L.philosophy||{};
+  const s=d.snapshot||{},cv=d.capital_vs_risk||{},rows=capRiskRows(cv),st=d.stress||{},vr=st.var||{};
+  const suit=d.suitability||{},dv=d.diversification||{},reb=d.rebalance||{},dn=d.downside||{},al=d.allocation||{};
+  const worst=[...(st.historical||[]),...(st.hypothetical||[])].sort((a,b2)=>a.loss_pct-b2.loss_pct)[0];
+  const top=rows[0], sleeve=((al.by_sleeve||[])[0])||null, firstAct=(reb.trades||[])[0];
+  const finding=suit.within_tolerance===false
+    ?`<div style="background:#fef2f2;border:2px solid #dc2626;border-radius:10px;padding:9px 12px;font-size:12.5px;margin-bottom:8px">&#128308; <b>FINDING หลัก:</b> stress drawdown <b>${rp(suit.binding_drawdown_pct)}</b> เกินขีดรับได้ <b>${rp(-(suit.tolerance_pct||0))}</b>${firstAct?` &rarr; Action แรก: <b>${esc(firstAct.action)} ${esc(firstAct.ticker)} ${rp(firstAct.from_pct)} &rarr; ${rp(firstAct.to_pct)}</b>`:''} <span class="muted">(รายละเอียด: ส่วน 6+7)</span></div>`
+    :`<div style="background:#f0fdf4;border:1px solid #86efac;border-radius:10px;padding:8px 12px;font-size:12px;margin-bottom:8px">&#9989; Drawdown ผูกพัน ${rp(suit.binding_drawdown_pct)} ยังอยู่ในขีดรับได้ ${rp(-(suit.tolerance_pct||0))}</div>`;
+  const row=(t,ref,txt,warn)=>`<div style="display:flex;gap:8px;padding:6px 10px;border-top:.5px solid #e2e8f0;font-size:12px${warn?';background:#fffbeb':''}"><span style="flex:none;width:152px"><b>${t}</b><br><span class="muted" style="font-size:9px">${ref}</span></span><span style="line-height:1.6">${txt}</span></div>`;
+  const rws=[];
+  { // ① ปรัชญา + concentration (S1/S42)
+    const bits=[];
+    if(p.running)bits.push(`พอร์ตกำลังเล่น <b>${esc(p.running)}</b>${p.fit_ok?' &#10003; ตรง profile':' &#9888; ไม่ตรง profile'}`);
+    const conc=sleeve&&sleeve.value>=40;
+    if(conc)bits.push(`เงินกระจุก <b>${esc(sleeve.label)} ${rp(sleeve.value)}</b>`);
+    if(top)bits.push(`ตัวขับความเสี่ยงหลัก <b>${esc(top.ticker)}</b> (${rp(top.abs)} ของความเสี่ยงรวม)`);
+    rws.push(row('&#9312; รู้ว่าเล่นปรัชญาอะไร','S1/S42 · ส่วน 2·4',bits.join(' · ')||'<span class="muted">—</span>',conc));
+  }
+  { // ② ขาลง ≠ vol (S2/S4)
+    const err=(dn.vol_pct==null)&&dn.tag&&String(dn.tag).indexOf('error')>=0;
+    const bits=[`Vol <b>${rp(s.port_vol_pct)}</b> แต่ขาลงจริง: ${worst?`<b>${esc(worst.label)} ~${rp(worst.loss_pct)}</b> · `:''}VaR95 <b>${rp(vr.var95_pct)}</b> · CVaR <b>${rp(vr.cvar95_pct)}</b>`];
+    if(err)bits.push('<span style="color:#991b1b">5b คำนวณไม่ได้ (returns ว่าง) — ลอง Run risk แบบ data=auto อีกครั้ง</span>');
+    rws.push(row('&#9313; วัดที่ขาลง ไม่ใช่ vol','S2/S4 · ส่วน 5·5b',bits.join(' · '),err));
+  }
+  { // ③ ถ่อมตัวเทียบ index (S16/S35)
+    const t=b.excess_pp==null?'<span class="muted">ยังไม่มีข้อมูล benchmark — กด Run Daily</span>'
+      :`12M: พอร์ต ${b.portfolio_12m>=0?'+':''}${b.portfolio_12m}% vs S&amp;P ${b.market_12m>=0?'+':''}${b.market_12m}% (<b>${b.excess_pp>=0?'+':''}${b.excess_pp}pp</b>)${b.excess_pp<0?' — อย่าเพิ่ม turnover เพื่อไล่ตาม':''}`;
+    rws.push(row('&#9314; ถ่อมตัวเทียบ index','S16/S35 · แถบบน',t,false));
+  }
+  { // ④ tilt เท่านั้น + ballast (S32-34, S3/S38-41)
+    const noBallast=((dv.score&&dv.score.sub&&dv.score.sub.gap_coverage)===0);
+    const bits=[v.regime?`ตลาด <b>${esc(v.regime.toUpperCase())}</b> &rarr; ${esc(v.tilt||'')}`:'<span class="muted">market overlay ยังไม่มีข้อมูล</span>'];
+    if(noBallast)bits.push(`<b>ไม่มี ballast</b> (bond/gold/cash 0%) · DR crisis ${dv.dr_crisis??'—'} — การกระจายแทบไม่ช่วยตอนวิกฤต`);
+    rws.push(row('&#9315; Timing = tilt เท่านั้น','S32-34 · S3/S38-41',bits.join(' · '),noBallast));
+  }
+  { // ⑤ cost/tax ก่อนเชื่อ (S6)
+    let t;
+    if(reb.no_trade)t='NO TRADE — ไม่มีต้นทุน/ภาษีต้องจ่าย พอร์ตอยู่ใน policy band';
+    else{
+      const turn=(reb.trades||[]).reduce((a2,x2)=>a2+Math.abs(x2.amount_pct||0),0)/2;
+      t=`แผน rebalance ขยับ ~<b>${turn.toFixed(1)}%</b> ของพอร์ต — ค่าเทรด ~${(turn/100*0.2).toFixed(2)}% + ภาษีกำไรที่ realize (15%) &rarr; <b>ทำเป็นขั้น</b> เริ่มจาก Must ก่อน อย่ารวดเดียว`;
+    }
+    rws.push(row('&#9316; หัก cost/tax ก่อนเชื่อ','S6 · ส่วน 7',t,!reb.no_trade));
+  }
+  return finding+`<div style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden">${rws.join('')}</div>
+    <div class="muted" style="font-size:10px;margin-top:5px">อ่าน 5 บรรทัดนี้ก่อน — ส่วน 1–7 ด้านล่างคือห้องเครื่อง (หลักฐาน/รายละเอียด) ของแต่ละบรรทัด</div>`;
+}
+// ---- Tier3: Cash stance (S32/33) — สะพานจาก market overlay สู่หน้า Allocation ----
+function renderCashStance(){
+  const el=document.getElementById('cashStance'); if(!el)return;
+  const v=((window.__last||{}).market||{}).valuation||{};
+  if(!v.regime){el.style.display='none';return;}
+  const map={cheap:['&#8593; เพิ่มการลงทุน (ตลาดถูกเทียบความเสี่ยง)','#166534','#f0fdf4','#bbf7d0'],
+             fair:['= คงเดิม — ไม่มี timing tilt','#475569','#f8fafc','#e2e8f0'],
+             expensive:['&#8595; เพิ่มสัดส่วน cash / ลด high-beta','#991b1b','#fef2f2','#fecaca']};
+  const m2=map[v.regime]; if(!m2){el.style.display='none';return;}
+  el.style.cssText=`display:block;margin:2px 0 10px;padding:7px 11px;border-radius:8px;font-size:12px;background:${m2[2]};border:1px solid ${m2[3]};color:${m2[1]}`;
+  el.innerHTML=`&#129517; Cash stance (S32/33): <b>${m2[0]}</b> — จาก market valuation <b>${esc(v.regime.toUpperCase())}</b> · เป็น tilt เบา ๆ ผ่าน allocation ไม่ใช่สวิตช์เข้า-ออกตลาด (S34 บอกว่าแบบนั้นล้มเหลว)`;
+}
 function renderRisk(d){
   const body=document.getElementById('riskBody');
   if(!d||d.status!=='ok'){body.innerHTML='<div class="muted" style="padding:10px;font-size:12px">'+esc((d&&d.message)||'No risk data — add holdings with price first.')+'</div>';return;}
@@ -693,13 +922,20 @@ function renderRisk(d){
   const stress=`<div style="max-width:760px;height:${Math.max(100,(((st.historical||[]).length)+((st.hypothetical||[]).length))*20)}px;position:relative"><canvas id="rcStress"></canvas></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${rcard('VaR 95%',rp(vr.var95_pct),'#dc2626')}${rcard('VaR 99%',rp(vr.var99_pct),'#dc2626')}${rcard('CVaR 95%',rp(vr.cvar95_pct),'#991b1b')}</div>
     <div class="muted" style="font-size:11px;margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
-  // 5b) downside-risk lens (Damodaran S2/S4)
+  // 5b) downside-risk lens (Damodaran S2/S4) — Tier2: จับคู่ Total → Downside + Portfolio MoS
   const dn=d.downside||{};
   const rr=d.rate_risk||{}, pa=(d.meta&&d.meta.pricing_assets)||[];
   const rateLine=rr.has_bonds?`<div class="muted" style="font-size:11px;margin-top:4px">Bond rate risk (S3): +100bps &rarr; <b>${rr.loss_pct}%</b> on portfolio · ${esc(rr.tag||'')}</div>`:'';
   const pricingLine=pa.length?`<div class="muted" style="font-size:11px;margin-top:4px;color:#b45309">&#9888; ${esc(pa.join(', '))} = pricing plays (no cash flow, S40-41) — high uncertainty, cap weight</div>`:'';
+  const beta=s.port_beta, dnb=dn.downside_beta;
+  const asym=(dnb!=null&&beta!=null&&Number(dnb)>Number(beta));
+  const pairCard=`<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:230px;flex:1 1 230px">
+      <div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em">Total &rarr; Downside (S2/S4)</div>
+      <div style="font-size:13px;margin-top:3px">Vol <b>${rp(dn.vol_pct)}</b> &rarr; Downside dev <b style="color:#b45309">${rp(dn.semidev_pct)}</b> &middot; Sortino <b>${dn.sortino??'—'}</b></div>
+      <div style="font-size:13px">&beta; <b>${beta??'—'}</b> &rarr; Downside &beta; <b style="color:#b45309">${dnb??'—'}</b></div>
+      ${asym?'<div style="font-size:10px;color:#b45309;margin-top:2px">&#9888; downside &beta; &gt; &beta; — พอร์ตนี้ "ขาลงแรงกว่าขาขึ้น"</div>':''}</div>`;
   const downside=`<div style="display:flex;gap:8px;flex-wrap:wrap">
-    ${rcard('Vol (total)',rp(dn.vol_pct))}${rcard('Downside dev',rp(dn.semidev_pct),'#b45309')}${rcard('Sortino',dn.sortino??'—')}${rcard('Downside β',dn.downside_beta??'—')}</div>
+    ${pairCard}${portMoSCard()}</div>
     <div class="muted" style="font-size:11px;margin-top:5px">${esc(dn.tag||'')} · วัดความเสี่ยง “ขาลง” แยกจากความผันผวนรวม — Sortino สูง=ดี · downside β = แรงตกเทียบ S&P เฉพาะวันตลาดลง (${dn.n||0} วัน)</div>${rateLine}${pricingLine}`;
   // 6) suitability banner
   const suit=d.suitability||{}; const ok=suit.within_tolerance;
@@ -718,7 +954,8 @@ function renderRisk(d){
       ${(reb.trades||[]).map(t=>`<tr><td class="l"><b>${t.ticker}</b></td><td><span class="tag" style="background:${t.action==='TRIM'?'#ea580c':'#0d9488'}">${t.action}</span></td><td>${rp(t.from_pct)}</td><td>${rp(t.to_pct)}</td><td>${rp(t.amount_pct)}</td><td class="l">${t.priority}</td></tr>`).join('')}
       </tbody></table>`;
   }
-  body.innerHTML = rsec('1 · Portfolio Snapshot',snap)
+  body.innerHTML = rsec('&#128214; Portfolio Story — สรุปตาม 5 หลัก Damodaran','<div>'+riskStory(d)+'</div>','อ่านก่อน 1 นาที')
+    + rsec('1 · Portfolio Snapshot',snap)
     + rsec('2 · Capital Allocation (by risk driver)',alloc)
     + rsec('3 · Capital Weight vs Risk Weight',caprisk,m.cov_tag||'')
     + rsec('4 · Concentration Map',conc)

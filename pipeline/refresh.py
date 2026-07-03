@@ -668,6 +668,10 @@ def fetch_daily(tickers, fmp_key=""):
         try:
             rf, _ = yahoo.fetch_treasury_10y()
             mkt["valuation"] = market_valuation.overlay(rf, config.ERP, config.MARKET_PE)
+            # additive: expose assumption freshness so the UI can flag stale ERP/PE (S32/33)
+            mkt["valuation"]["erp_as_of"] = config.ERP_AS_OF
+            mkt["valuation"]["market_pe_as_of"] = config.MARKET_PE_AS_OF
+            mkt["valuation"]["erp_stale_months"] = config.ERP_STALE_MONTHS
         except Exception as e:
             log.warning("market valuation overlay failed: %s", e)
         out["^MARKET"] = mkt                                # reserved key -> commit routes to s["market"]

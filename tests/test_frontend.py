@@ -23,6 +23,12 @@ def test_new_ui_present():
         "function garpBadge", 'id="mktRegime"', 'id="benchmark"', 'id="philosophy"',
         "renderMarket(d.market)", "renderBenchmark(d.benchmark)", "renderPhilosophy(d.philosophy)",
         "Downside Risk (S2/S4)", "function checkBuild", "function renderScreen", 'id="garpScreen"',
+        # Philosophies UI upgrade (Tier 1-3, build 2026-07-03b)
+        "function valueGauge", "function moatChip", "function guardBadges", "function dispAction",
+        "function renderSynth", "function renderAssumptions", "function riskStory",
+        "function portMoS", "function garpQuadrant", "function renderCashStance",
+        'id="cmdStrip"', 'id="assumeBanner"', 'id="stripSynth"', 'id="cashStance"',
+        "crash guard", "Portfolio Story",
     ]
     missing = [t for t in required if t not in HTML]
     assert not missing, ("index.html missing new UI tokens: %s" % missing)
@@ -31,7 +37,8 @@ def test_new_ui_present():
 
 def test_backend_keys_referenced():
     keys = ["d.market", "d.benchmark", "d.philosophy", "d.rate_risk", "d.downside",
-            "garp_score", "garp_candidate", "net_upside_pct", "x.pead"]
+            "garp_score", "garp_candidate", "net_upside_pct", "x.pead",
+            "erp_as_of", "market_pe_as_of", "crash_guard", "reversal"]
     missing = [k for k in keys if k not in HTML]
     assert not missing, ("backend payload keys not consumed by index.html: %s" % missing)
     print("backend keys referenced OK")
