@@ -21,7 +21,8 @@ TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
          "tests.test_hardening", "tests.test_app_fixes", "tests.test_gdrive",
          "tests.test_risk", "tests.test_no_regression", "tests.test_costs", "tests.test_downside", "tests.test_pead", "tests.test_screen", "tests.test_market_valuation", "tests.test_assetclass", "tests.test_philosophy", "tests.test_frontend",
          "tests.test_advice", "tests.test_earn_status", "tests.test_sec_stale_cache",
-         "tests.test_price_fullbars", "tests.test_parallel_fetch"]
+         "tests.test_price_fullbars", "tests.test_parallel_fetch",
+         "tests.test_fmp_freetier"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

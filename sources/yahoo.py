@@ -61,9 +61,17 @@ def parse_earnings_history(qs_json):
     for h in hist:
         act = _raw(h.get("epsActual"))
         est = _raw(h.get("epsEstimate"))
-        sp = _raw(h.get("surprisePercent"))
-        if sp is None and act is not None and est not in (None, 0):
+        # BUGFIX (2026-07): Yahoo's surprisePercent raw is a FRACTION (0.041 =
+        # +4.1%), not a percent — trusting it as-is graded real beats as "meet".
+        # Prefer computing from act/est (unit-unambiguous); fall back to the
+        # fraction ×100 only when the estimate is missing.
+        sp = None
+        if act is not None and est not in (None, 0):
             sp = (act - est) / abs(est) * 100
+        else:
+            raw_sp = _raw(h.get("surprisePercent"))
+            if raw_sp is not None:
+                sp = raw_sp * 100
         if act is None and est is None:
             continue
         out.append({"quarter": h.get("quarter", {}).get("fmt") if isinstance(h.get("quarter"), dict)

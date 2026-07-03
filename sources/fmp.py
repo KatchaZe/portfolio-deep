@@ -53,7 +53,7 @@ ENDPOINTS = {
     "balance_annual": {"_ep": "balance-sheet-statement", "period": "annual", "limit": 2},
     "cashflow_annual": {"_ep": "cash-flow-statement", "period": "annual", "limit": 5},
     "key_metrics_ttm": {"_ep": "key-metrics-ttm"},
-    "estimates": {"_ep": "analyst-estimates", "period": "annual", "limit": 6},
+    "estimates": {"_ep": "analyst-estimates", "period": "annual", "limit": 5},  # free tier caps limit at 5
 }
 
 
@@ -89,8 +89,14 @@ def fetch(ticker, key, sleep=1.2, requests_mod=None):
     return bundle
 
 
-def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=8):
+def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=5):
+    """EPS+revenue actual-vs-estimate history. FREE-TIER LIMITS (verified live
+    2026-07): 'limit' must be <= 5 or the stable endpoint 402s, and legacy
+    /api/v3 endpoints 403 for accounts created after Aug 2025 (kept last for
+    grandfathered users). The stable response carries epsActual/epsEstimated
+    AND revenueActual/revenueEstimated, so it feeds BOTH circle rows."""
     requests_mod = _http(requests_mod)
+    limit = min(limit, 5)                      # free tier caps 'limit' at 5 (402 above)
     attempts = [
         (f"{BASE}/earnings", {"symbol": ticker, "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/earnings-surprises/{ticker}", {"apikey": key}),
@@ -135,9 +141,11 @@ def fetch_history(ticker, key, requests_mod=None, timeout=25, days=400):
     Returns the raw json (dict or list); {} if all attempts fail. Costs 1 FMP call
     (tier-2 fallback, used only when Yahoo is short/blocked)."""
     requests_mod = _http(requests_mod)
+    # stable FIRST: legacy /api/v3 403s for post-Aug-2025 accounts (kept as a
+    # fallback for grandfathered keys only).
     attempts = [
-        (f"{config.FMP_LEGACY}/historical-price-full/{ticker}", {"timeseries": days, "apikey": key}),
         (f"{BASE}/historical-price-eod/full", {"symbol": ticker, "apikey": key}),
+        (f"{config.FMP_LEGACY}/historical-price-full/{ticker}", {"timeseries": days, "apikey": key}),
     ]
     for url, params in attempts:
         try:
@@ -186,8 +194,9 @@ def parse_history(j):
             "dates": [p[0] for p in parsed]}
 
 
-def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=6):
+def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=5):
     requests_mod = _http(requests_mod)
+    limit = min(limit, 5)                      # free tier caps 'limit' at 5 (402 above)
     attempts = [
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "annual", "limit": limit, "apikey": key}),
@@ -208,7 +217,10 @@ def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=6):
 def fetch_estimates_quarter(ticker, key, requests_mod=None, timeout=20, limit=12):
     """Analyst estimates at QUARTERLY granularity — gives a per-quarter EPS &
     revenue estimate we can pair with SEC actuals (surprise_backfill). Same endpoint
-    family as fetch_estimates, just period=quarter. Returns a raw list or []."""
+    family as fetch_estimates, just period=quarter. Returns a raw list or [].
+    NOTE (2026-07): period=quarter is PREMIUM on the current free tier (402), so
+    this usually returns [] — harmless: the caller only tries it when /earnings
+    left EPS/Rev empty, and /earnings (limit<=5) now fills both on free tier."""
     requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "quarter", "limit": limit, "apikey": key}),

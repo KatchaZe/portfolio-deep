@@ -142,7 +142,14 @@ def drive_pull(local_path):
                  or an empty local store would overwrite the good remote backup.
     Never raises."""
     if not enabled():
-        return "error" if _auth_mode() else "absent"
+        if _auth_mode():
+            # configured but libs won't import — record WHY so the badge tooltip
+            # is self-explanatory (this path used to leave last_error empty).
+            STATUS["pull_result"] = "error"
+            STATUS["last_error"] = ("pull: GDRIVE_* is set but Google libs are not "
+                                    "importable — pip install google-api-python-client google-auth")
+            return "error"
+        return "absent"
     STATUS["last_pull"] = _now()
     try:
         from googleapiclient.http import MediaIoBaseDownload

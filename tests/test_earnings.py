@@ -52,6 +52,23 @@ def test_surprise_fallback_and_caps():
     print("surprise fallback + empty-safe OK")
 
 
+def test_yahoo_surprisepercent_is_a_fraction():
+    """BUGFIX regression (2026-07, real NVDA data): Yahoo's surprisePercent raw
+    is a FRACTION (0.041 = +4.1%). Trusting it as a percent graded real beats
+    as 'meet'. act/est present -> computed % wins; est missing -> fraction*100."""
+    # real-world shape: act 1.05 vs est 1.00867 (+4.1% beat), raw sp 0.041
+    hist = [{"quarter": {"fmt": "2025-07-31"}, "epsActual": {"raw": 1.05},
+             "epsEstimate": {"raw": 1.00867}, "surprisePercent": {"raw": 0.041}}]
+    out = yahoo.parse_earnings_history(_qs(hist))
+    assert out[0]["grade"] == "beat" and out[0]["surprise_pct"] == 4.1, out
+    # estimate missing -> fall back to the fraction, scaled to percent
+    hist = [{"quarter": {"fmt": "2025-07-31"}, "epsActual": {"raw": 1.05},
+             "surprisePercent": {"raw": 0.041}}]
+    out = yahoo.parse_earnings_history(_qs(hist))
+    assert out[0]["surprise_pct"] == 4.1 and out[0]["grade"] == "beat", out
+    print("yahoo surprisePercent-fraction regression OK")
+
+
 def test_confidence_nudge_bounds():
     def ff_with(grades):
         ff = FinancialFacts("TEST")
@@ -78,5 +95,6 @@ def test_confidence_nudge_bounds():
 if __name__ == "__main__":
     test_grading_and_order()
     test_surprise_fallback_and_caps()
+    test_yahoo_surprisepercent_is_a_fraction()
     test_confidence_nudge_bounds()
     print("\nALL EARNINGS TESTS PASSED ✅")
