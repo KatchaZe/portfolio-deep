@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Portfolio DEEP v7.3</title>
+<title>Portfolio DEEP Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
 <style>
   :root { color-scheme: light; }
@@ -148,49 +148,443 @@
     <!-- ===================== HOW TO (คู่มืออ่านค่าแต่ละส่วน) ===================== -->
     <div id="p4" style="display:none;font-size:13px;line-height:1.75;max-width:980px">
       <h2 class="ht">&#128214; How to — วิธีอ่านแดชบอร์ดนี้ (ตามหลัก Damodaran)</h2>
-      <p class="muted" style="font-size:12px">หลักคิดรวม: <b>Value ก่อนเสมอ</b> (ราคาเทียบมูลค่า) &rarr; <b>คุณภาพ</b> (moat + งบไว้ใจได้) &rarr; <b>จังหวะ</b> (momentum เป็นแค่ตัวจับเวลาเข้า ไม่ใช่เหตุผลซื้อ) — ตัวเลขทุกตัวมี tooltip เมื่อเอาเมาส์ชี้</p>
+      <p class="muted" style="font-size:12px">หลักคิดรวม: <b>Value ก่อนเสมอ</b> (ราคาเทียบมูลค่า) &rarr; <b>คุณภาพ</b> (moat + งบไว้ใจได้) &rarr; <b>จังหวะ</b> (momentum เป็นแค่ตัวจับเวลาเข้า ไม่ใช่เหตุผลซื้อ) — ตัวเลขทุกตัวมี tooltip เมื่อเอาเมาส์ชี้ · รูปด้านล่างคือ <b>mock up ของหน้าจอจริง</b> หมายเลขในวงกลมชี้ว่าแต่ละ component คืออะไร แล้วอ่านคำอธิบายเต็มจากตารางใต้รูป (เลขตรงกัน)</p>
 
-      <h3 class="ht2">1) Card ของหุ้นแต่ละตัว</h3>
+      <h3 class="ht2">1) Card ของหุ้นรายตัว (My Portfolio / Watchlist)</h3>
+      <svg viewBox="0 0 980 560" style="width:100%;max-width:980px;display:block;margin:6px 0 4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px" xmlns="http://www.w3.org/2000/svg">
+        <!-- ==== card body ==== -->
+        <rect x="300" y="14" width="390" height="520" rx="12" fill="#fff" stroke="#cbd5e1"/>
+        <!-- 1 header: confidence dot + ticker + flags -->
+        <circle cx="320" cy="42" r="4.5" fill="#16a34a"/>
+        <text x="330" y="46" font-size="14" font-weight="800" fill="#0f172a">NVDA</text>
+        <text x="378" y="46" font-size="10" font-weight="700" fill="#d97706">&#9873;2</text>
+        <rect x="650" y="32" width="18" height="15" rx="4" fill="#ef4444"/><text x="659" y="44" font-size="10" fill="#fff" text-anchor="middle">&#215;</text>
+        <text x="320" y="61" font-size="9" fill="#94a3b8">NVIDIA Corp &#183; Technology</text>
+        <!-- 2 price + P/L (context, right) -->
+        <text x="640" y="46" font-size="11.5" font-weight="600" fill="#475569" text-anchor="end">$175.20 <tspan fill="#16a34a">+1.2%</tspan></text>
+        <text x="640" y="60" font-size="9" fill="#94a3b8" text-anchor="end">P/L +$12,400 (+38.2%)</text>
+        <!-- 3 value gauge -->
+        <text x="320" y="84" font-size="8" fill="#94a3b8">PRICE VS VALUE &#183; FV $210.50 (FVP)</text>
+        <rect x="320" y="90" width="122" height="12" fill="#bbf7d0"/><rect x="442" y="90" width="105" height="12" fill="#e2e8f0"/><rect x="547" y="90" width="123" height="12" fill="#fecaca"/>
+        <rect x="428" y="88" width="3" height="16" rx="1" fill="#0f172a"/>
+        <!-- 4 upside gross -> net -->
+        <text x="320" y="118" font-size="11" font-weight="700" fill="#16a34a">upside +20.2% &#8594; net +16.9%</text>
+        <text x="670" y="118" font-size="8.5" fill="#94a3b8" text-anchor="end">net &#3627;&#3621;&#3633;&#3591; cost/tax (S6)</text>
+        <!-- 5 DEEP composite + stars + reco -->
+        <text x="320" y="147" font-size="16" font-weight="800" fill="#0f172a">4.25</text>
+        <text x="360" y="146" font-size="10" fill="#0f172a">&#9733;&#9733;&#9733;&#9733;&#189;</text>
+        <text x="415" y="146" font-size="10" font-weight="700" fill="#16a34a">BUY</text>
+        <!-- 6 chips: moat / EQ / GARP -->
+        <rect x="448" y="135" width="66" height="14" rx="4" fill="#dcfce7"/><text x="481" y="145" font-size="8.5" font-weight="700" fill="#166534" text-anchor="middle">Moat +32pp</text>
+        <rect x="518" y="135" width="56" height="14" rx="4" fill="#dcfce7"/><text x="546" y="145" font-size="8.5" font-weight="700" fill="#166534" text-anchor="middle">EQ CLEAN</text>
+        <rect x="578" y="135" width="56" height="14" rx="4" fill="#0d9488"/><text x="606" y="145" font-size="8.5" font-weight="700" fill="#fff" text-anchor="middle">GARP 8.5</text>
+        <!-- 7 grid row: Momentum / Rank / Action -->
+        <rect x="320" y="160" width="112" height="46" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="328" y="172" font-size="7.5" fill="#94a3b8">MOMENTUM</text>
+        <rect x="328" y="177" width="46" height="13" rx="6" fill="#15803d"/><text x="351" y="187" font-size="8" fill="#fff" text-anchor="middle">Strong</text>
+        <text x="328" y="201" font-size="8" fill="#94a3b8">6M +18.3% &#183; rank &#9432;</text>
+        <rect x="438" y="160" width="110" height="46" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="446" y="172" font-size="7.5" fill="#94a3b8">RANK</text>
+        <rect x="446" y="177" width="34" height="13" rx="6" fill="#15803d"/><text x="463" y="187" font-size="8" fill="#fff" text-anchor="middle">Top</text>
+        <text x="446" y="201" font-size="8" fill="#94a3b8">83 %ile (12-1)</text>
+        <rect x="554" y="160" width="114" height="46" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="562" y="172" font-size="7.5" fill="#94a3b8">ACTION</text>
+        <rect x="562" y="177" width="36" height="13" rx="6" fill="#16a34a"/><text x="580" y="187" font-size="8" fill="#fff" text-anchor="middle">BUY</text>
+        <text x="562" y="201" font-size="8" fill="#94a3b8">value &#215; momentum</text>
+        <!-- 8 anchor FV / 9 upside cell -->
+        <rect x="320" y="212" width="170" height="54" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="328" y="224" font-size="7.5" fill="#94a3b8">ANCHOR FV</text>
+        <text x="328" y="240" font-size="13" font-weight="800" fill="#0f172a">210.50 <tspan font-size="8" fill="#16a34a" font-weight="700">EPS&#215;3</tspan></text>
+        <text x="328" y="256" font-size="8" fill="#94a3b8">&#9733;FVP $210.50 &#183; PEG $188.40</text>
+        <rect x="496" y="212" width="172" height="54" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="504" y="224" font-size="7.5" fill="#94a3b8">UPSIDE</text>
+        <text x="504" y="240" font-size="13" font-weight="800" fill="#16a34a">+20.2%</text>
+        <text x="504" y="256" font-size="8" fill="#94a3b8">net +16.9% (S6) &#183; pre-profit: implied vs actual</text>
+        <!-- 10 guard badge (shown only in risk-off) -->
+        <rect x="320" y="276" width="348" height="24" rx="7" fill="#fef2f2" stroke="#fecaca" stroke-dasharray="4 3"/>
+        <text x="328" y="292" font-size="8.5" fill="#991b1b">&#9888; S9 crash guard: &#3605;&#3621;&#3634;&#3604; RISK-OFF &#8212; &#3627;&#3657;&#3634;&#3617;&#3652;&#3621;&#3656;&#3619;&#3634;&#3588;&#3634; (&#3649;&#3626;&#3604;&#3591;&#3648;&#3593;&#3614;&#3634;&#3632;&#3648;&#3617;&#3639;&#3656;&#3629;&#3648;&#3585;&#3636;&#3604;)</text>
+        <!-- 11 earnings circles -->
+        <text x="320" y="322" font-size="8" fill="#94a3b8">EARNINGS &#183; EPS / REV / MGN &#183; 5Q</text>
+        <text x="348" y="340" font-size="9" fill="#94a3b8" text-anchor="end">EPS</text>
+        <circle cx="360" cy="337" r="5.5" fill="#16a34a"/><circle cx="376" cy="337" r="5.5" fill="#16a34a"/><circle cx="392" cy="337" r="5.5" fill="#f59e0b"/><circle cx="408" cy="337" r="5.5" fill="#16a34a"/><circle cx="424" cy="337" r="5.5" fill="#16a34a"/>
+        <text x="348" y="356" font-size="9" fill="#94a3b8" text-anchor="end">Rev</text>
+        <circle cx="360" cy="353" r="5.5" fill="#16a34a"/><circle cx="376" cy="353" r="5.5" fill="#f59e0b"/><circle cx="392" cy="353" r="5.5" fill="#16a34a"/><circle cx="408" cy="353" r="5.5" fill="#16a34a"/><circle cx="424" cy="353" r="5.5" fill="#dc2626"/>
+        <text x="348" y="372" font-size="9" fill="#94a3b8" text-anchor="end">Mgn</text>
+        <circle cx="360" cy="369" r="5.5" fill="#16a34a"/><circle cx="376" cy="369" r="5.5" fill="#16a34a"/><circle cx="392" cy="369" r="5.5" fill="#16a34a"/><circle cx="408" cy="369" r="5.5" fill="#f59e0b"/><circle cx="424" cy="369" r="5.5" fill="#f59e0b"/>
+        <text x="670" y="340" font-size="8" fill="#cbd5e1" text-anchor="end">&#3648;&#3585;&#3656;&#3634; &#8594; &#3651;&#3627;&#3617;&#3656;</text>
+        <text x="348" y="390" font-size="9" fill="#94a3b8" text-anchor="end">PEAD</text>
+        <rect x="356" y="380" width="96" height="14" rx="4" fill="#dcfce7"/><text x="404" y="390" font-size="8.5" font-weight="700" fill="#166534" text-anchor="middle">drift &#8593; strong &#183; Q1</text>
+        <!-- 12 verdict + advice -->
+        <line x1="320" y1="404" x2="668" y2="404" stroke="#e2e8f0"/>
+        <text x="320" y="420" font-size="9" fill="#64748b">BUY &#9733;&#9733;&#9733;&#9733;&#189; - FVP $210.50 (+20% upside); range $188-$210. ROIC 42% vs WACC 9.8%...</text>
+        <rect x="320" y="428" width="348" height="44" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="328" y="444" font-size="8.5" fill="#334155">&#128161; &#3617;&#3641;&#3621;&#3588;&#3656;&#3634;: &#3605;&#3656;&#3635;&#3585;&#3623;&#3656;&#3634; FV (+20%) | &#3588;&#3640;&#3603;&#3616;&#3634;&#3614;: moat &#3649;&#3586;&#3655;&#3591;&#3649;&#3619;&#3591; (+32pp) &#183; EQ CLEAN</text>
+        <text x="328" y="460" font-size="8.5" fill="#334155">| &#3592;&#3633;&#3591;&#3627;&#3623;&#3632;: momentum &#3626;&#3609;&#3633;&#3610;&#3626;&#3609;&#3640;&#3609; | Action: &#3595;&#3639;&#3657;&#3629;/&#3648;&#3614;&#3636;&#3656;&#3617;&#3649;&#3610;&#3610;&#3649;&#3610;&#3656;&#3591;&#3652;&#3617;&#3657;</text>
+        <!-- 13 drawer -->
+        <text x="320" y="496" font-size="9.5" fill="#64748b">&#9656; WACC / Ke / EVA + DEEP sub-scores (&#3585;&#3604;&#3648;&#3614;&#3639;&#3656;&#3629;&#3585;&#3634;&#3591; audit trail)</text>
+        <!-- ==== leader lines + numbered callouts (left) ==== -->
+        <g font-size="10" font-weight="700">
+          <line x1="280" y1="42" x2="314" y2="42" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="42" r="9" fill="#0f172a"/><text x="270" y="45.5" fill="#fff" text-anchor="middle">1</text>
+          <text x="256" y="45.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">&#3592;&#3640;&#3604;&#3626;&#3637; confidence + &#9873; flags</text>
+          <line x1="280" y1="96" x2="316" y2="96" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="96" r="9" fill="#0f172a"/><text x="270" y="99.5" fill="#fff" text-anchor="middle">3</text>
+          <text x="256" y="99.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">&#3648;&#3585;&#3592; Price vs Value</text>
+          <line x1="280" y1="142" x2="316" y2="142" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="142" r="9" fill="#0f172a"/><text x="270" y="145.5" fill="#fff" text-anchor="middle">5</text>
+          <text x="256" y="145.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">&#3588;&#3632;&#3649;&#3609;&#3609; DEEP + &#3604;&#3634;&#3623; + &#3588;&#3635;&#3649;&#3609;&#3632;&#3609;&#3635;</text>
+          <line x1="280" y1="183" x2="316" y2="183" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="183" r="9" fill="#0f172a"/><text x="270" y="186.5" fill="#fff" text-anchor="middle">7</text>
+          <text x="256" y="186.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">Momentum / Rank / Action</text>
+          <line x1="280" y1="239" x2="316" y2="239" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="239" r="9" fill="#0f172a"/><text x="270" y="242.5" fill="#fff" text-anchor="middle">8</text>
+          <text x="256" y="242.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">Anchor FV &#3607;&#3640;&#3585;&#3623;&#3636;&#3608;&#3637; + &#9733; + EPS&#215;n</text>
+          <line x1="280" y1="352" x2="316" y2="352" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="352" r="9" fill="#0f172a"/><text x="270" y="355.5" fill="#fff" text-anchor="middle">11</text>
+          <text x="256" y="355.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">&#3612;&#3621;&#3591;&#3610; 5 &#3652;&#3605;&#3619;&#3617;&#3634;&#3626; + PEAD</text>
+          <line x1="280" y1="493" x2="316" y2="493" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="270" cy="493" r="9" fill="#0f172a"/><text x="270" y="496.5" fill="#fff" text-anchor="middle">13</text>
+          <text x="256" y="496.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">Drawer: WACC/Ke/EVA + sub-scores</text>
+        </g>
+        <!-- ==== callouts (right) ==== -->
+        <g font-size="10" font-weight="700">
+          <line x1="672" y1="52" x2="708" y2="52" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="52" r="9" fill="#0f172a"/><text x="718" y="55.5" fill="#fff" text-anchor="middle">2</text>
+          <text x="732" y="55.5" font-size="9" font-weight="600" fill="#334155">&#3619;&#3634;&#3588;&#3634; + P/L (&#3610;&#3619;&#3636;&#3610;&#3607;&#3617;&#3640;&#3617;&#3586;&#3623;&#3634;)</text>
+          <line x1="672" y1="112" x2="708" y2="112" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="112" r="9" fill="#0f172a"/><text x="718" y="115.5" fill="#fff" text-anchor="middle">4</text>
+          <text x="732" y="115.5" font-size="9" font-weight="600" fill="#334155">upside gross &#8594; net (S6)</text>
+          <line x1="638" y1="142" x2="708" y2="142" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="142" r="9" fill="#0f172a"/><text x="718" y="145.5" fill="#fff" text-anchor="middle">6</text>
+          <text x="732" y="145.5" font-size="9" font-weight="600" fill="#334155">Moat / EQ / GARP badges</text>
+          <line x1="672" y1="239" x2="708" y2="239" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="239" r="9" fill="#0f172a"/><text x="718" y="242.5" fill="#fff" text-anchor="middle">9</text>
+          <text x="732" y="242.5" font-size="9" font-weight="600" fill="#334155">&#3594;&#3656;&#3629;&#3591; Upside / implied CAGR</text>
+          <line x1="672" y1="288" x2="708" y2="288" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="288" r="9" fill="#0f172a"/><text x="718" y="291.5" fill="#fff" text-anchor="middle">10</text>
+          <text x="732" y="291.5" font-size="9" font-weight="600" fill="#334155">S9 guard badges (crash / reversal)</text>
+          <line x1="672" y1="450" x2="708" y2="450" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="450" r="9" fill="#0f172a"/><text x="718" y="453.5" fill="#fff" text-anchor="middle">12</text>
+          <text x="732" y="453.5" font-size="9" font-weight="600" fill="#334155">Verdict + &#128161; advice &#3626;&#3633;&#3591;&#3648;&#3588;&#3619;&#3634;&#3632;&#3627;&#3660;</text>
+        </g>
+      </svg>
       <table class="httab">
-        <tr><th>ส่วน</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
-        <tr><td><b>จุดสี หน้า ticker</b></td><td>Confidence tier ของข้อมูล (เขียว/เหลือง/แดง)</td><td>แดง = ข้อมูลขาดหลายช่อง อย่าเพิ่งเชื่อ Fair Value มาก · ⚑ = จำนวน data flags (ชี้ดูรายละเอียด)</td></tr>
-        <tr><td><b>คะแนน DEEP + ดาว</b></td><td>คะแนนรวม 0–5 จาก D-E-E-P (ถ่วงน้ำหนัก D 20% / E_exec 20% / E_econ 30% / P 30%)</td><td>&ge;4 = BUY, 3–4 = HOLD/Accumulate, 2–3 = HOLD, &lt;2 = SELL/AVOID — เทียบ "ระหว่างหุ้น" ได้เพราะ rubric เดียวกัน</td></tr>
-        <tr><td><b>EQ badge</b></td><td>Earnings quality: CLEAN / REVIEW / LOW</td><td>วัดว่ากำไรกลายเป็นเงินสดจริงไหม (cash conversion &ge;0.8 ดี, accruals &le;5% ของ assets, SBC &le;10% ของรายได้)</td></tr>
-        <tr><td><b>GARP badge</b></td><td>คะแนน ถูก&times;ดี (Economics + Price, /10)</td><td>candidate = ทั้งสองด้าน &ge;3 (Damodaran S13/S19: growth at a reasonable price)</td></tr>
-        <tr><td><b>Momentum</b></td><td>Composite 4 เงื่อนไข: 12-1 &gt;0 · 6M &gt;0 · เหนือ SMA200 · RSI&gt;50</td><td>Strong/Positive = จังหวะหนุน · ⚠ crash guard = ตลาด RISK-OFF ห้ามไล่ราคา (S9) · ⏳ = ข้อมูลเก่า กด Run Daily</td></tr>
-        <tr><td><b>Rank</b></td><td>อันดับ momentum 12-1 เทียบหุ้นตัวอื่นในพอร์ต/ลิสต์ (percentile)</td><td>Top = แข็งสุดในกลุ่ม — ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน</td></tr>
-        <tr><td><b>Action</b></td><td>สรุปคำสั่งรายวัน = สัญญาณ value ผสมสัญญาณ momentum</td><td>BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย · ถ้าตลาด RISK-OFF จะแสดง <b>WAIT · crash guard</b> ทับสัญญาณฝั่งซื้อชั่วคราว (S9)</td></tr>
-        <tr><td><b>เกจ Price vs Value</b></td><td>แถบบนสุดของ card: ขีดดำ = ราคาปัจจุบันบนสเกล FV (เขียว = โซน margin of safety / เทา = fair / แดง = แพง) + upside gross &rarr; net</td><td>คำถามแรกของ Damodaran ตอบใน 1 วินาที — ตัดสินใจด้วย <b>net</b> เสมอ (S6) · หุ้น pre-profit แสดงเป็น 2 แท่ง implied vs actual แทน (Reverse DCF) · bond/gold/crypto ไม่มีเกจ เพราะเป็นเกม pricing (S40-41)</td></tr>
-        <tr><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside</td><td>FVP = Future Value Projection (หุ้นโตแรง moat กว้าง: spread&gt;10pp และ growth&gt;15%) · PEG = Fundamental PEG (กรณีทั่วไป) · RevDCF = หุ้นยังไม่มีกำไร แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า</td></tr>
-        <tr><td><b>Upside</b></td><td>(FV−ราคา)/ราคา + net หลังภาษี/ค่าเทรด (S6)</td><td>&gt;+15% = มี margin of safety · &lt;−15% = จ่ายแพงกว่ามูลค่า · หุ้น pre-profit: เทียบ actual %/y กับ implied — actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
-        <tr><td><b>Earnings &middot; EPS/Rev/Mgn &middot; 5q</b></td><td>ผล 5 ไตรมาสล่าสุด (เก่า&rarr;ใหม่): EPS และ Revenue = beat/meet/miss เทียบ estimate นักวิเคราะห์ · Mgn = แนวโน้ม operating margin YoY (expand/flat/contract)</td><td>เขียวต่อเนื่อง = execution ดี · แดงซ้ำ = ประมาณการโลกสวย/ธุรกิจแผ่ว · ชี้จุดสีดู Act vs Est · "&times; n/a" = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง · "&#10227; refresh" = ข้อมูลชุดเก่า กด Run Fundamental Refresh · PEAD = ทิศ drift หลังงบ (S25)</td></tr>
-        <tr><td><b>Verdict + &#128161;</b></td><td>สรุป 1 บรรทัด + คำแนะนำ action สังเคราะห์จากทุกค่าบน card</td><td>เรียงตาม มูลค่า &rarr; คุณภาพ &rarr; จังหวะ &rarr; Action — ใช้เป็นข้อสรุปเร็ว แล้วกดดู drawer (WACC/Ke/EVA + sub-scores) เพื่อ audit ที่มา</td></tr>
+        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
+        <tr><td><b>1</b></td><td><b>จุดสี หน้า ticker + &#9873;</b></td><td>Confidence tier ของข้อมูล (เขียว &ge;80 / เหลือง &ge;50 / แดง &lt;50) + จำนวน data flags</td><td>แดง = ข้อมูลขาดหลายช่อง อย่าเพิ่งเชื่อ Fair Value มาก · ⚑ = จำนวน data flags (ชี้ดูรายละเอียด) · ปุ่ม &times; = ลบออกจากพอร์ต</td></tr>
+        <tr><td><b>2</b></td><td><b>ราคา + P/L</b></td><td>ราคาล่าสุด + %เปลี่ยน และกำไร/ขาดทุนของ position (มุมขวา ตัวจาง)</td><td>ตั้งใจให้เป็น "บริบท" ไม่ใช่พระเอก — มูลค่า (เกจ #3) ต้องมาก่อนราคาเสมอ (S5) · Watchlist ไม่มี P/L แต่มีปุ่ม + Portfolio</td></tr>
+        <tr><td><b>3</b></td><td><b>เกจ Price vs Value</b></td><td>ขีดดำ = ราคาปัจจุบันบนสเกล FV (เขียว = โซน margin of safety / เทา = fair &plusmn;15% / แดง = แพง) + FV และวิธีที่ใช้</td><td>คำถามแรกของ Damodaran ตอบใน 1 วินาที · หุ้น pre-profit แสดงเป็น 2 แท่ง implied vs actual แทน (Reverse DCF) · bond/gold/crypto ไม่มีเกจ เพราะเป็นเกม pricing (S40-41)</td></tr>
+        <tr><td><b>4</b></td><td><b>Upside gross &rarr; net</b></td><td>(FV−ราคา)/ราคา แล้วหักค่าเทรด ~0.2% + ภาษี capital gains ~15%</td><td>ตัดสินใจด้วย <b>net</b> เสมอ (S6) — ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
+        <tr><td><b>5</b></td><td><b>คะแนน DEEP + ดาว</b></td><td>คะแนนรวม 0–5 จาก D-E-E-P (ถ่วงน้ำหนัก D 20% / E_exec 20% / E_econ 30% / P 30%)</td><td>&ge;4 = BUY, 3–4 = HOLD/Accumulate, 2–3 = HOLD, &lt;2 = SELL/AVOID — เทียบ "ระหว่างหุ้น" ได้เพราะ rubric เดียวกัน</td></tr>
+        <tr><td><b>6</b></td><td><b>Moat / EQ / GARP badges</b></td><td>Moat = ROIC−WACC spread (pp) · EQ = earnings quality CLEAN/REVIEW/LOW · GARP = ถูก&times;ดี (Economics + Price, /10)</td><td>Moat &ge;+10pp = แข็งแรง, ติดลบ = ทำลายมูลค่า · EQ วัดว่ากำไรกลายเป็นเงินสดจริงไหม (cash conversion &ge;0.8, accruals &le;5% ของ assets, SBC &le;10% ของรายได้) · GARP candidate = ทั้งสองด้าน &ge;3 (S13/S19)</td></tr>
+        <tr><td><b>7</b></td><td><b>Momentum / Rank / Action</b></td><td>Momentum = composite 4 เงื่อนไข (12-1 &gt;0 · 6M &gt;0 · เหนือ SMA200 · RSI&gt;50) · Rank = percentile 12-1 เทียบตัวอื่นในพอร์ต/ลิสต์ · Action = value &times; momentum</td><td>Strong/Positive = จังหวะหนุน · ⏳ = ข้อมูลเก่า กด Run Daily · Rank Top = ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน · Action: BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย · ตลาด RISK-OFF จะแสดง <b>WAIT · crash guard</b> ทับสัญญาณฝั่งซื้อชั่วคราว (S9)</td></tr>
+        <tr><td><b>8</b></td><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside · EPS&times;n = forward EPS blend จาก n แหล่ง</td><td>FVP = Future Value Projection (หุ้นโตแรง moat กว้าง: spread&gt;10pp และ growth&gt;15%) · PEG = Fundamental PEG (กรณีทั่วไป) · RevDCF = หุ้นยังไม่มีกำไร แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า · สองวิธีต่างกันมาก = FV sensitive ต่อสมมติฐาน ลดความมั่นใจ</td></tr>
+        <tr><td><b>9</b></td><td><b>ช่อง Upside</b></td><td>ตัวเลข upside + net ซ้ำในตาราง grid · หุ้น pre-profit: actual %/y เทียบ implied CAGR</td><td>&gt;+15% = มี margin of safety · &lt;−15% = จ่ายแพงกว่ามูลค่า · pre-profit: actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
+        <tr><td><b>10</b></td><td><b>S9 guard badges</b></td><td>แถบเตือนแดง = crash guard (ตลาดใต้ 200-DMA) · แถบเหลือง = reversal (วิ่งสะสม ~3 ปี &ge;+150% และใกล้ยอด)</td><td>แสดงเฉพาะเมื่อเกิดจริง — เป็น "veto จังหวะเข้า" ชั่วคราว ไม่ใช่สัญญาณขายพื้นฐาน (S9: momentum พังแรงสุดตอนตลาดกลับทิศ / 3–5 ปี = โซน mean reversion)</td></tr>
+        <tr><td><b>11</b></td><td><b>Earnings &middot; EPS/Rev/Mgn &middot; 5q</b></td><td>ผล 5 ไตรมาสล่าสุด (เก่า&rarr;ใหม่): EPS และ Revenue = beat/meet/miss เทียบ estimate นักวิเคราะห์ · Mgn = แนวโน้ม operating margin YoY (expand/flat/contract) · PEAD = ทิศ drift หลังงบ (S25)</td><td>เขียวต่อเนื่อง = execution ดี · แดงซ้ำ = ประมาณการโลกสวย/ธุรกิจแผ่ว · ชี้จุดสีดู Act vs Est · "&times; n/a" = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง · "&#10227; refresh" = ข้อมูลชุดเก่า กด Run Fundamental Refresh</td></tr>
+        <tr><td><b>12</b></td><td><b>Verdict + &#128161; advice</b></td><td>สรุป 1 บรรทัด + คำแนะนำ action สังเคราะห์จากทุกค่าบน card</td><td>เรียงตาม มูลค่า &rarr; คุณภาพ &rarr; จังหวะ &rarr; Action ตามลำดับ Damodaran — momentum ไม่มีวัน override value</td></tr>
+        <tr><td><b>13</b></td><td><b>Drawer</b></td><td>กดกางดู WACC / Ke / Kd / ROIC* / Spread / EVA + sub-score breakdown (audit trail)</td><td>ทุกคะแนนตรวจย้อนได้ว่ามาจากตัวเลขไหน — ฐาน + adjustment ทีละรายการ (เขียว = บวก, แดง = ลบ, เทา = ข้ามเพราะไม่มีข้อมูล)</td></tr>
+        <tr><td>&#8211;</td><td><b>Card แบบ bond/gold/crypto</b></td><td>ถ้า ticker อยู่ใน asset-class map (TLT, GLD, BTC-USD, …) card จะไม่แสดง FV/GARP/EQ แต่ติดป้าย <b>BOND · rate risk (S3)</b> หรือ <b>PRICING ASSET (S40-41)</b></td><td>สินทรัพย์ไม่มีกระแสเงินสด ตีมูลค่าไม่ได้ ได้แต่ตีราคา — จำกัดน้ำหนัก อย่าปนกับส่วน valuation · bond ดูผลอัตราดอกเบี้ยที่ Allocation &rarr; Bond rate risk</td></tr>
       </table>
 
-      <h3 class="ht2">2) แถบข้อมูลด้านบน (ทุกแท็บ)</h3>
+      <h3 class="ht2">2) Top header + Command strip (แถบบนของทุกแท็บ)</h3>
+      <svg viewBox="0 0 980 320" style="width:100%;max-width:980px;display:block;margin:6px 0 4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px" xmlns="http://www.w3.org/2000/svg">
+        <!-- header bar -->
+        <rect x="150" y="14" width="680" height="38" rx="8" fill="#0f172a"/>
+        <text x="164" y="38" font-size="12" font-weight="800" fill="#fff">Portfolio DEEP <tspan font-size="9" fill="#94a3b8">v8.2</tspan></text>
+        <rect x="556" y="21" width="106" height="23" rx="6" fill="#fff"/><text x="609" y="36" font-size="9" fill="#475569" text-anchor="middle">&#128190; Drive &#10003;</text>
+        <rect x="668" y="21" width="152" height="23" rx="6" fill="#fff"/><text x="744" y="36" font-size="8.5" fill="#475569" text-anchor="middle">FMP today 37/250 (15%) &#183; holdings 8</text>
+        <!-- run buttons -->
+        <rect x="150" y="62" width="198" height="28" rx="8" fill="#7c3aed"/><text x="249" y="80" font-size="9.5" font-weight="700" fill="#fff" text-anchor="middle">&#9654; Run Fundamental Refresh</text>
+        <rect x="356" y="62" width="204" height="28" rx="8" fill="#2563eb"/><text x="458" y="80" font-size="9.5" font-weight="700" fill="#fff" text-anchor="middle">&#9654; Run Daily (price/momentum)</text>
+        <text x="570" y="80" font-size="8.5" fill="#475569">Refreshed 8, errors 0, FMP calls 40 (Rf 4.28%)</text>
+        <!-- stale banners (conditional) -->
+        <rect x="150" y="100" width="680" height="24" rx="7" fill="#fef3c7" stroke="#fde68a" stroke-dasharray="4 3"/>
+        <text x="160" y="116" font-size="9" fill="#92400e">&#9888; Momentum as of 2026-06-30 (4 days old) — click &#9654; Run Daily to refresh <tspan fill="#b45309" font-weight="700">(แสดงเฉพาะเมื่อ momentum เก่าเกิน 4 วัน)</tspan></text>
+        <rect x="150" y="130" width="680" height="24" rx="7" fill="#fff7ed" stroke="#fdba74" stroke-dasharray="4 3"/>
+        <text x="160" y="146" font-size="9" fill="#9a3412">&#9888; สมมติฐานหมดอายุ: ERP as-of 2026-01 (เก่า 6 เดือน) — อัปเดต config.py <tspan fill="#b45309" font-weight="700">(แสดงเมื่อ ERP/PE เก่าเกิน 3 เดือน)</tspan></text>
+        <!-- command strip: 4 tiles -->
+        <rect x="150" y="164" width="163" height="56" rx="10" fill="#f0fdf4" stroke="#bbf7d0"/>
+        <text x="158" y="177" font-size="7" fill="#94a3b8">REGIME (S9)</text>
+        <text x="158" y="192" font-size="11" font-weight="800" fill="#166534">&#9679; RISK-ON</text>
+        <text x="158" y="206" font-size="7.5" fill="#94a3b8">+4.2% vs 200-DMA · momentum เชื่อถือได้ขึ้น</text>
+        <rect x="322" y="164" width="163" height="56" rx="10" fill="#fff" stroke="#e2e8f0"/>
+        <text x="330" y="177" font-size="7" fill="#94a3b8">MARKET VALUE (S32/33)</text>
+        <text x="330" y="192" font-size="11" font-weight="800" fill="#475569">FAIR</text>
+        <text x="330" y="206" font-size="7.5" fill="#94a3b8">implied ERP 4.23% · E/P 3.98% &#8594; no tilt</text>
+        <rect x="494" y="164" width="163" height="56" rx="10" fill="#fff" stroke="#e2e8f0"/>
+        <text x="502" y="177" font-size="7" fill="#94a3b8">VS S&amp;P 12M (S16/S35)</text>
+        <text x="502" y="192" font-size="11" font-weight="800" fill="#166534">+3.2 pp</text>
+        <text x="502" y="206" font-size="7.5" fill="#94a3b8">พอร์ต +18.4% vs S&amp;P +15.2% · illustrative</text>
+        <rect x="666" y="164" width="164" height="56" rx="10" fill="#faf5ff" stroke="#e9d5ff"/>
+        <text x="674" y="177" font-size="7" fill="#94a3b8">PHILOSOPHY (S1/S42)</text>
+        <text x="674" y="192" font-size="11" font-weight="800" fill="#4b3869">&#10003; value / quality</text>
+        <text x="674" y="206" font-size="7.5" fill="#94a3b8">avg DEEP 3.8 · GARP 3 · ตรง profile</text>
+        <!-- synth line -->
+        <rect x="150" y="230" width="680" height="26" rx="8" fill="#0f172a"/>
+        <text x="160" y="247" font-size="9" fill="#e2e8f0">&#129517; <tspan font-weight="700">วันนี้:</tspan> ตลาด RISK-ON · valuation FAIR &#8594; ไม่มี tilt · พอร์ตตรงปรัชญา &#8594; เดินตามสัญญาณ DEEP ปกติ · vs index +3.2pp</text>
+        <!-- build stamp -->
+        <text x="150" y="276" font-size="8" fill="#94a3b8">build 2026-07-04a · server 2026-07-04a</text>
+        <!-- callouts left -->
+        <g font-size="10" font-weight="700">
+          <line x1="280" y1="76" x2="146" y2="76" stroke="#94a3b8" stroke-dasharray="3 2" transform="translate(0,0)"/><circle cx="136" cy="76" r="9" fill="#0f172a"/><text x="136" y="79.5" fill="#fff" text-anchor="middle">3</text>
+          <text x="122" y="79.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">ปุ่ม refresh 2 จังหวะ</text>
+          <line x1="146" y1="112" x2="150" y2="112" stroke="#94a3b8"/><circle cx="136" cy="112" r="9" fill="#0f172a"/><text x="136" y="115.5" fill="#fff" text-anchor="middle">4</text>
+          <text x="122" y="115.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">banner momentum เก่า</text>
+          <line x1="146" y1="190" x2="150" y2="190" stroke="#94a3b8"/><circle cx="136" cy="190" r="9" fill="#0f172a"/><text x="136" y="193.5" fill="#fff" text-anchor="middle">6</text>
+          <text x="122" y="193.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">Command strip 4 ไทล์</text>
+          <line x1="146" y1="243" x2="150" y2="243" stroke="#94a3b8"/><circle cx="136" cy="243" r="9" fill="#0f172a"/><text x="136" y="246.5" fill="#fff" text-anchor="middle">10</text>
+          <text x="122" y="246.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">&#129517; บรรทัดสังเคราะห์ "วันนี้"</text>
+          <line x1="146" y1="273" x2="150" y2="273" stroke="#94a3b8"/><circle cx="136" cy="273" r="9" fill="#0f172a"/><text x="136" y="276.5" fill="#fff" text-anchor="middle">11</text>
+          <text x="122" y="276.5" font-size="9" font-weight="600" fill="#334155" text-anchor="end">build stamp (UI vs server)</text>
+        </g>
+        <!-- callouts right -->
+        <g font-size="10" font-weight="700">
+          <line x1="609" y1="21" x2="609" y2="10" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="628" cy="10" r="9" fill="#0f172a"/><text x="628" y="13.5" fill="#fff" text-anchor="middle">1</text>
+          <text x="642" y="13.5" font-size="9" font-weight="600" fill="#334155">&#128190; Drive badge</text>
+          <line x1="820" y1="44" x2="838" y2="44" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="848" cy="44" r="9" fill="#0f172a"/><text x="848" y="47.5" fill="#fff" text-anchor="middle">2</text>
+          <text x="862" y="47.5" font-size="9" font-weight="600" fill="#334155">FMP quota</text>
+          <line x1="830" y1="142" x2="838" y2="142" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="848" cy="142" r="9" fill="#0f172a"/><text x="848" y="145.5" fill="#fff" text-anchor="middle">5</text>
+          <text x="862" y="145.5" font-size="9" font-weight="600" fill="#334155">banner สมมติฐานเก่า</text>
+        </g>
+        <!-- tile corner numbers 6-9 -->
+        <g font-size="9" font-weight="700">
+          <circle cx="313" cy="164" r="8" fill="#0f172a"/><text x="313" y="167.5" fill="#fff" text-anchor="middle">6</text>
+          <circle cx="485" cy="164" r="8" fill="#0f172a"/><text x="485" y="167.5" fill="#fff" text-anchor="middle">7</text>
+          <circle cx="657" cy="164" r="8" fill="#0f172a"/><text x="657" y="167.5" fill="#fff" text-anchor="middle">8</text>
+          <circle cx="830" cy="164" r="8" fill="#0f172a"/><text x="830" y="167.5" fill="#fff" text-anchor="middle">9</text>
+        </g>
+      </svg>
       <table class="httab">
-        <tr><th>แถบ</th><th>แสดงอะไร / ตีความ</th></tr>
-        <tr><td><b>Market regime (S9)</b></td><td>S&amp;P เหนือ/ใต้ 200-DMA — RISK-ON = สัญญาณ momentum เชื่อถือได้ขึ้น · RISK-OFF = momentum crash-prone อย่าไล่ราคา</td></tr>
-        <tr><td><b>Market valuation (S32/33)</b></td><td>implied ERP เทียบ earnings-yield และ Fed spread — CHEAP/FAIR/EXPENSIVE เป็น "ตัวเอียงน้ำหนัก" ไม่ใช่สัญญาณเข้า-ออกตลาด</td></tr>
-        <tr><td><b>Holdings trailing 12M (S16/S35)</b></td><td>ผลตอบแทนถ่วง MV ของหุ้นที่ถืออยู่ตอนนี้เทียบ S&amp;P (illustrative ไม่ใช่ผลจริงของพอร์ต) — เตือนใจว่า active ส่วนใหญ่แพ้ index ระยะยาว ให้ดู net ของต้นทุน/ภาษี</td></tr>
-        <tr><td><b>Philosophy fit (S1/S42)</b></td><td>พอร์ตที่ถือ "กำลังเล่นแนวไหน" (value/quality/momentum) ตรงกับ profile ที่ตั้งไว้ไหม — ถ้าไม่ตรง แปลว่า drift โดยไม่รู้ตัว</td></tr>
-        <tr><td><b>&#128190; Drive badge</b></td><td>สถานะ backup ขึ้น Google Drive — ✓ ปกติ · ✗ มีปัญหา (ชี้ดูสาเหตุ) ข้อมูลจะไม่ถูก push ทับจนกว่า pull สำเร็จ</td></tr>
+        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร / ตีความ</th></tr>
+        <tr><td><b>1</b></td><td><b>&#128190; Drive badge</b></td><td>สถานะ backup ขึ้น Google Drive — ✓ ปกติ · ✗ มีปัญหา (ชี้ดูสาเหตุ) · ระบบจะ <b>บล็อกการ push</b> จนกว่า pull สำเร็จ เพื่อกัน store ว่างไปทับ backup ดี (data-loss guard)</td></tr>
+        <tr><td><b>2</b></td><td><b>FMP quota</b></td><td>โควตา API ฟรีของวันนี้ (250 calls/วัน) — ใกล้เต็มจะเตือนสีส้ม · หุ้น 1 ตัวใช้ ~5 calls ต่อ Fundamental Refresh</td></tr>
+        <tr><td><b>3</b></td><td><b>ปุ่ม Run 2 จังหวะ</b></td><td><b>Fundamental Refresh</b> = ดึงงบ SEC + consensus (ทำหลังงบออก/เพิ่มหุ้นใหม่ ใช้ quota) · <b>Run Daily</b> = ราคา + momentum (ฟรี ทำได้ทุกวัน)</td></tr>
+        <tr><td><b>4</b></td><td><b>Banner momentum เก่า</b></td><td>แสดงเมื่อข้อมูล momentum เก่าเกิน 4 วัน — สัญญาณจังหวะทั้งหน้าอาจล้าสมัย กด Run Daily ก่อนใช้</td></tr>
+        <tr><td><b>5</b></td><td><b>Banner สมมติฐานเก่า</b></td><td>แสดงเมื่อ ERP / Market P/E (ค่า manual ใน config.py) เก่าเกิน 3 เดือน — market overlay ทั้งชั้นพิงสองค่านี้ ต้องอัปเดตรายเดือนจากหน้า Damodaran / multpl.com</td></tr>
+        <tr><td><b>6</b></td><td><b>ไทล์ Regime (S9)</b></td><td>S&amp;P เหนือ/ใต้ 200-DMA — RISK-ON = สัญญาณ momentum เชื่อถือได้ขึ้น · RISK-OFF = momentum crash-prone อย่าไล่ราคา (crash guard เปิดทุก card)</td></tr>
+        <tr><td><b>7</b></td><td><b>ไทล์ Market value (S32/33)</b></td><td>implied ERP เทียบ earnings-yield และ Fed spread — CHEAP/FAIR/EXPENSIVE เป็น "ตัวเอียงน้ำหนัก" (tilt) ไม่ใช่สัญญาณเข้า-ออกตลาด (S34: timing แบบสวิตช์ล้มเหลว)</td></tr>
+        <tr><td><b>8</b></td><td><b>ไทล์ vs S&amp;P 12M (S16/S35)</b></td><td>ผลตอบแทนถ่วง MV ของหุ้นที่ถืออยู่ตอนนี้เทียบ S&amp;P (illustrative ไม่ใช่ผลจริงของพอร์ต) — เตือนใจว่า active ส่วนใหญ่แพ้ index ระยะยาว ให้ดู net ของต้นทุน/ภาษี</td></tr>
+        <tr><td><b>9</b></td><td><b>ไทล์ Philosophy (S1/S42)</b></td><td>พอร์ตที่ถือ "กำลังเล่นแนวไหน" (value/quality/momentum) ตรงกับ profile ที่ตั้งไว้ไหม — ถ้าไม่ตรง แปลว่า drift โดยไม่รู้ตัว · แก้ profile ที่ data/philosophy_profile.json</td></tr>
+        <tr><td><b>10</b></td><td><b>&#129517; บรรทัด "วันนี้"</b></td><td>อ่านทั้ง 4 ไทล์แล้วสรุปเป็นประโยคเดียวว่าวันนี้ควรทำอะไร (ชั้นกำกับ S42) — regime &rarr; tilt &rarr; philosophy fit &rarr; vs index</td></tr>
+        <tr><td><b>11</b></td><td><b>Build stamp</b></td><td>เทียบเวอร์ชัน UI กับ server — ถ้าไม่ตรงจะขึ้นเตือนแดงให้ hard refresh (Ctrl+F5)</td></tr>
       </table>
 
-      <h3 class="ht2">3) หน้า Allocation — หัวข้อ 1–7</h3>
+      <h3 class="ht2">3) หน้า Allocation — ส่วนบน (Cash stance · GARP screen · Risk Desk controls · Portfolio Story)</h3>
+      <svg viewBox="0 0 980 480" style="width:100%;max-width:980px;display:block;margin:6px 0 4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px" xmlns="http://www.w3.org/2000/svg">
+        <!-- 1 cash stance -->
+        <rect x="150" y="14" width="680" height="24" rx="8" fill="#fff" stroke="#e2e8f0"/>
+        <text x="160" y="30" font-size="9" fill="#475569">&#129517; Cash stance (S32/33): <tspan font-weight="700">= คงเดิม — ไม่มี timing tilt</tspan> · จาก market valuation FAIR (tilt เบา ๆ ไม่ใช่สวิตช์เข้า-ออกตลาด)</text>
+        <circle cx="150" cy="14" r="8" fill="#0f172a"/><text x="150" y="17.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+        <!-- GARP card -->
+        <rect x="150" y="48" width="680" height="184" rx="12" fill="#fff" stroke="#cbd5e1"/>
+        <text x="164" y="68" font-size="11" font-weight="800" fill="#0f172a">&#128269; GARP screen — cheap &#215; quality <tspan font-size="8.5" font-weight="600" fill="#94a3b8">(Damodaran S13/S19) · 2 candidate(s)</tspan></text>
+        <!-- 2 quadrant -->
+        <rect x="164" y="80" width="200" height="128" fill="#f8fafc" stroke="#e2e8f0"/>
+        <rect x="264" y="80" width="100" height="64" fill="#dcfce7" opacity=".6"/>
+        <line x1="264" y1="80" x2="264" y2="208" stroke="#94a3b8" stroke-dasharray="4 3"/>
+        <line x1="164" y1="144" x2="364" y2="144" stroke="#94a3b8" stroke-dasharray="4 3"/>
+        <text x="314" y="92" font-size="7.5" fill="#166534" text-anchor="middle">ถูก &#215; ดี &#9733;</text>
+        <text x="214" y="92" font-size="7.5" fill="#9a3412" text-anchor="middle">ถูกแต่คุณภาพต่ำ (trap?)</text>
+        <text x="314" y="202" font-size="7.5" fill="#475569" text-anchor="middle">ดีแต่แพง — รอ pullback</text>
+        <text x="214" y="202" font-size="7.5" fill="#991b1b" text-anchor="middle">แพงและไม่เด่น</text>
+        <circle cx="322" cy="106" r="5" fill="#0d9488"/><text x="322" y="99" font-size="7.5" font-weight="700" fill="#334155" text-anchor="middle">NVDA</text>
+        <circle cx="224" cy="118" r="5" fill="#94a3b8"/><text x="224" y="111" font-size="7.5" font-weight="700" fill="#334155" text-anchor="middle">TMDX</text>
+        <circle cx="330" cy="170" r="5" fill="#94a3b8"/><text x="330" y="163" font-size="7.5" font-weight="700" fill="#334155" text-anchor="middle">MSFT</text>
+        <text x="264" y="222" font-size="7.5" fill="#64748b" text-anchor="middle">Quality (ROIC&#8722;WACC spread) &#8594;</text>
+        <text x="158" y="86" font-size="7.5" fill="#64748b">&#8593; Cheap (MoS)</text>
+        <circle cx="164" cy="80" r="8" fill="#0f172a"/><text x="164" y="83.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+        <!-- 3 ranked table -->
+        <text x="400" y="92" font-size="8" font-weight="700" fill="#64748b">TICKER&#160;&#160;&#160;SECTOR&#160;&#160;&#160;&#160;&#160;&#160;QUALITY&#160;&#160;CHEAP&#160;&#160;GARP/10&#160;&#160;CANDIDATE&#160;&#160;DEEP RECO</text>
+        <line x1="400" y1="98" x2="816" y2="98" stroke="#e2e8f0"/>
+        <text x="400" y="114" font-size="8.5" fill="#334155"><tspan font-weight="700">NVDA</tspan>&#160;&#160;&#160;&#160;Technology&#160;&#160;&#160;&#160;&#160;5&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;4&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;<tspan font-weight="700">9.0</tspan>&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#9989; candidate&#160;&#160;&#160;&#160;BUY</text>
+        <text x="400" y="132" font-size="8.5" fill="#334155"><tspan font-weight="700">TMDX</tspan>&#160;&#160;&#160;&#160;Healthcare&#160;&#160;&#160;&#160;&#160;&#160;2&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;4&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;6.0&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#8212;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;HOLD</text>
+        <text x="400" y="150" font-size="8.5" fill="#334155"><tspan font-weight="700">MSFT</tspan>&#160;&#160;&#160;&#160;Technology&#160;&#160;&#160;&#160;&#160;4&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;2&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;6.0&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#8212;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;&#160;HOLD / Accumulate</text>
+        <text x="400" y="176" font-size="8" fill="#94a3b8">จัดอันดับทุกตัวที่วิเคราะห์แล้ว = Economics (คุณภาพ/moat) &#215; Price (margin of safety)</text>
+        <text x="400" y="190" font-size="8" fill="#94a3b8">candidate = &#8805;3 ทั้งคู่ — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน</text>
+        <circle cx="400" cy="80" r="8" fill="#0f172a"/><text x="400" y="83.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+        <!-- 4 risk desk controls -->
+        <text x="150" y="260" font-size="11" font-weight="800" fill="#0f172a">&#128737;&#65039; Risk Desk <tspan font-size="8.5" font-weight="600" fill="#94a3b8">— Capital weight &#8800; Risk weight</tspan></text>
+        <rect x="452" y="246" width="92" height="22" rx="6" fill="#fff" stroke="#cbd5e1"/><text x="498" y="260" font-size="8" fill="#475569" text-anchor="middle">Max loss รับได้ 20%</text>
+        <rect x="550" y="246" width="74" height="22" rx="6" fill="#fff" stroke="#cbd5e1"/><text x="587" y="260" font-size="8" fill="#475569" text-anchor="middle">Horizon 1y</text>
+        <rect x="630" y="246" width="86" height="22" rx="6" fill="#fff" stroke="#cbd5e1"/><text x="673" y="260" font-size="8" fill="#475569" text-anchor="middle">data auto (FMP&#8594;stooq)</text>
+        <rect x="722" y="246" width="108" height="22" rx="6" fill="#0f172a"/><text x="776" y="260" font-size="8" font-weight="700" fill="#fff" text-anchor="middle">&#8635; Run risk analysis</text>
+        <circle cx="452" cy="246" r="8" fill="#0f172a"/><text x="452" y="249.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+        <!-- portfolio story -->
+        <rect x="150" y="280" width="680" height="184" rx="12" fill="#fff" stroke="#cbd5e1"/>
+        <text x="164" y="300" font-size="11" font-weight="800" fill="#0f172a">&#128214; Portfolio Story — สรุปตาม 5 หลัก Damodaran <tspan font-size="8.5" font-weight="600" fill="#94a3b8">อ่านก่อน 1 นาที</tspan></text>
+        <!-- 5 finding -->
+        <rect x="164" y="308" width="652" height="26" rx="8" fill="#fef2f2" stroke="#dc2626" stroke-width="1.5"/>
+        <text x="174" y="325" font-size="8.5" fill="#991b1b">&#128308; <tspan font-weight="700">FINDING หลัก:</tspan> stress drawdown -32.5% เกินขีดรับได้ -20.0% &#8594; Action แรก: <tspan font-weight="700">TRIM NVDA 28% &#8594; 20%</tspan> (รายละเอียด: ส่วน 6+7)</text>
+        <circle cx="164" cy="308" r="8" fill="#0f172a"/><text x="164" y="311.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+        <!-- 6 five principle rows -->
+        <rect x="164" y="342" width="652" height="112" rx="8" fill="#fff" stroke="#e2e8f0"/>
+        <text x="174" y="358" font-size="8" fill="#334155">&#9312; รู้ว่าเล่นปรัชญาอะไร (S1/S42 · ส่วน 2·4) — พอร์ตกำลังเล่น value/quality &#10003; · ตัวขับความเสี่ยงหลัก NVDA (41% ของความเสี่ยงรวม)</text>
+        <line x1="164" y1="366" x2="816" y2="366" stroke="#f1f5f9"/>
+        <text x="174" y="380" font-size="8" fill="#334155">&#9313; วัดที่ขาลง ไม่ใช่ vol (S2/S4 · ส่วน 5·5b) — Vol 18.4% แต่ขาลงจริง: GFC ซ้ำ ~-38% · VaR95 -21% · CVaR -26%</text>
+        <line x1="164" y1="388" x2="816" y2="388" stroke="#f1f5f9"/>
+        <text x="174" y="402" font-size="8" fill="#334155">&#9314; ถ่อมตัวเทียบ index (S16/S35) — 12M: พอร์ต +18.4% vs S&amp;P +15.2% (+3.2pp)</text>
+        <line x1="164" y1="410" x2="816" y2="410" stroke="#f1f5f9"/>
+        <text x="174" y="424" font-size="8" fill="#334155">&#9315; Timing = tilt เท่านั้น (S32-34 · S3/S38-41) — ตลาด FAIR &#8594; ไม่มี tilt · ไม่มี ballast (bond/gold/cash 0%) — DR crisis 1.08</text>
+        <line x1="164" y1="432" x2="816" y2="432" stroke="#f1f5f9"/>
+        <text x="174" y="446" font-size="8" fill="#334155">&#9316; หัก cost/tax ก่อนเชื่อ (S6 · ส่วน 7) — แผน rebalance ขยับ ~8% ของพอร์ต &#8594; ทำเป็นขั้น เริ่มจาก Must ก่อน</text>
+        <circle cx="164" cy="342" r="8" fill="#0f172a"/><text x="164" y="345.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+      </svg>
       <table class="httab">
-        <tr><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
-        <tr><td><b>&#128214; Portfolio Story</b></td><td>สรุป Risk Desk ทั้ง 7 ส่วนเป็น 5 บรรทัดตามหลัก Damodaran + FINDING หลักบรรทัดแรก</td><td>อ่านก่อน 1 นาที: ①ปรัชญา/กระจุก ②ขาลง≠vol ③เทียบ index ④tilt/ballast ⑤cost/tax — ส่วน 1–7 ด้านล่างคือหลักฐานของแต่ละบรรทัด</td></tr>
-        <tr><td><b>GARP screen + quadrant</b></td><td>จัดอันดับทุกตัว = Quality (Economics) &times; Cheap (Price) + แผนที่ 4 ช่อง</td><td>candidate = &ge;3 ทั้งคู่ (มุมขวาบนของ quadrant) — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน (S13/S19) · มุมขวาล่าง = ดีแต่แพง รอ pullback · มุมซ้ายบน = ถูกแต่ระวัง value trap</td></tr>
-        <tr><td><b>1 &middot; Portfolio Snapshot</b></td><td>มูลค่าพอร์ต, จำนวนตัว, Est. Vol (annual), Severe drawdown, β, Diversification /100</td><td>Vol ~15–20% = โซนหุ้นล้วน · Severe drawdown คือ "ถ้าเกิด GFC ซ้ำ" — เทียบกับ Max loss ที่ตั้งไว้ · β&gt;1.3 = แรงกว่าตลาดมาก · Diversification &ge;60 ดี, &lt;40 = กระจุก</td></tr>
-        <tr><td><b>2 &middot; Capital Allocation</b></td><td>โดนัทแบ่งเงินตาม "ตัวขับความเสี่ยง" (sleeve) และสกุลเงิน</td><td>sleeve เดียว &ge;40% หรือสกุลเงินเดียว &ge;80% = ความเสี่ยงกระจุกที่มองไม่เห็นจากรายตัว</td></tr>
-        <tr><td><b>3 &middot; Capital vs Risk Weight</b></td><td>เทียบ %เงินที่ลง (เทา) กับ %ความเสี่ยงที่สร้าง (แดง) ต่อหุ้น</td><td>แดงยาวกว่าเทามาก (+3pp ขึ้นไป) = ตัวนั้น "กินความเสี่ยง" เกินเงินที่ลง — เป้าหมายแรกเวลาลดความเสี่ยง · แท่งเขียว = ช่วยลดความเสี่ยงรวม (diversifier)</td></tr>
-        <tr><td><b>4 &middot; Concentration Map</b></td><td>HHI, Effective N, Top-5/Top-10, ENB + สัดส่วน sector</td><td>Effective N = "ถือจริงกี่ตัว" (6 ตัวแต่ Eff N 4.2 = กระจุก) · HHI &gt;0.18 = เข้มข้น · ENB = จำนวน "เดิมพันอิสระ" ยิ่งน้อยยิ่งกระจุก</td></tr>
-        <tr><td><b>5 &middot; Stress Test</b></td><td>ขาดทุนโดยประมาณถ้า scenario ประวัติศาสตร์/สมมุติเกิดซ้ำ + VaR/CVaR</td><td>[JUDG-SCENARIO] = ภาพประกอบไม่ใช่พยากรณ์ · ใช้ตอบคำถามเดียว: "เลวร้ายสุดรับได้ไหม" — ถ้าไม่ได้ ให้ลดขนาด ไม่ใช่หวังว่าจะไม่เกิด</td></tr>
-        <tr><td><b>5b &middot; Downside Risk (S2/S4)</b></td><td>Vol รวม, Downside deviation, Sortino, Downside β</td><td>แยก "ผันผวน" จาก "เสี่ยงขาลงจริง" — Sortino &gt;1 ดี · downside β &gt;1 = วันตลาดลง เราลงแรงกว่า</td></tr>
-        <tr><td><b>6 &middot; Suitability</b></td><td>เทียบ drawdown ที่ผูกพัน กับ Max loss ที่บอกว่ารับได้</td><td>⛔ = พอร์ตเสี่ยงเกินใจรับ — FINDING สำคัญสุดของหน้านี้ แก้ด้วยการลดขนาด/เพิ่ม ballast (bond/cash/gold)</td></tr>
-        <tr><td><b>7 &middot; Rebalancing Plan</b></td><td>รายการ TRIM/ADD จาก % ปัจจุบัน &rarr; เป้าหมาย + vol ก่อน/หลัง</td><td>Must = เกิน policy band ต้องทำ · Should = ควรทำ — ขายผู้ชนะบางส่วนเข้าตัวที่ยังถูกคือวินัย ไม่ใช่การทำนายตลาด</td></tr>
-        <tr><td><b>What-if</b></td><td>ลองใส่เงินซื้อเพิ่ม แล้วดูสัดส่วนพอร์ต "หลังซื้อ"</td><td>ใช้เช็คก่อนซื้อจริงว่าเงินใหม่ทำให้กระจุกขึ้นหรือกระจายขึ้น</td></tr>
+        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
+        <tr><td><b>1</b></td><td><b>Cash stance (S32/33)</b></td><td>สะพานจาก market overlay สู่หน้า Allocation: ตลาด CHEAP/FAIR/EXPENSIVE &rarr; ควรถือ cash มากขึ้น/เท่าเดิม/น้อยลง</td><td>เป็น tilt เบา ๆ ผ่าน allocation ไม่ใช่สวิตช์เข้า-ออกตลาด (S34 บอกว่าแบบนั้นล้มเหลว)</td></tr>
+        <tr><td><b>2</b></td><td><b>GARP quadrant</b></td><td>แผนที่ 2 มิติ: แกนนอน = Quality (ROIC−WACC spread) · แกนตั้ง = Cheap (margin of safety) · จุดสีเขียวทึบ = candidate</td><td>มุมขวาบน = ถูก&times;ดี ★ ควรดูก่อน · มุมขวาล่าง = ดีแต่แพง รอ pullback · มุมซ้ายบน = ถูกแต่ระวัง value trap · มุมซ้ายล่าง = แพงและไม่เด่น</td></tr>
+        <tr><td><b>3</b></td><td><b>GARP screen (ตาราง)</b></td><td>จัดอันดับทุกตัวที่วิเคราะห์แล้ว = Quality (Economics) &times; Cheap (Price) รวมเป็น GARP /10</td><td>candidate = &ge;3 ทั้งคู่ (S13/S19: growth at a reasonable price) — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน</td></tr>
+        <tr><td><b>4</b></td><td><b>Risk Desk controls</b></td><td>Max loss = ขีดขาดทุนที่ใจรับได้ (ใช้ตัดสิน Suitability) · Horizon = กรอบเวลา VaR · data = auto ใช้ FMP quota เพื่อความแม่น / free ใช้ stooq ฟรีล้วน</td><td>ตั้ง Max loss ให้ตรงใจจริงก่อนกด Run — ทั้งหน้า Risk Desk ตัดสิน "รับได้/ไม่ได้" จากค่านี้</td></tr>
+        <tr><td><b>5</b></td><td><b>FINDING หลัก</b></td><td>บรรทัดแรกของ Portfolio Story — ข้อค้นพบสำคัญสุด (มักเป็น Suitability) + Action แรกที่ควรทำ</td><td>แดง = drawdown เกินขีดรับได้ ต้องแก้ที่ "ขนาด" ก่อนเสมอ · เขียว = ยังอยู่ในขีตรับได้</td></tr>
+        <tr><td><b>6</b></td><td><b>Portfolio Story 5 บรรทัด</b></td><td>สรุป Risk Desk ทั้ง 7 ส่วนเป็น 5 บรรทัดตามหลัก Damodaran: ①ปรัชญา/กระจุก ②ขาลง≠vol ③เทียบ index ④tilt/ballast ⑤cost/tax</td><td>อ่านก่อน 1 นาที — ส่วน 1–7 ด้านล่างคือหลักฐาน (ห้องเครื่อง) ของแต่ละบรรทัด</td></tr>
+      </table>
+
+      <h3 class="ht2">4) หน้า Allocation — Risk Desk ส่วน 1–7 (กราฟแต่ละตัวอ่านอย่างไร)</h3>
+      <svg viewBox="0 0 980 790" style="width:100%;max-width:980px;display:block;margin:6px 0 4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px" xmlns="http://www.w3.org/2000/svg">
+        <!-- L1: snapshot -->
+        <rect x="20" y="14" width="460" height="128" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="32" y="32" font-size="10" font-weight="800" fill="#0f172a">1 · Portfolio Snapshot</text>
+        <circle cx="20" cy="14" r="8" fill="#0f172a"/><text x="20" y="17.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">1</text>
+        <g font-size="7">
+          <rect x="32" y="40" width="140" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="40" y="52" fill="#94a3b8">VALUE</text><text x="40" y="66" font-size="11" font-weight="800" fill="#0f172a">$142,300</text>
+          <rect x="178" y="40" width="140" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="186" y="52" fill="#94a3b8">EST. VOL (ANNUAL)</text><text x="186" y="66" font-size="11" font-weight="800" fill="#0f172a">18.4%</text>
+          <rect x="324" y="40" width="140" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="332" y="52" fill="#94a3b8">SEVERE DRAWDOWN</text><text x="332" y="66" font-size="11" font-weight="800" fill="#dc2626">-32.5%</text>
+          <rect x="32" y="80" width="140" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="40" y="92" fill="#94a3b8">PORTFOLIO &#946;</text><text x="40" y="106" font-size="11" font-weight="800" fill="#0f172a">1.18</text>
+          <rect x="178" y="80" width="140" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="186" y="92" fill="#94a3b8">DIVERSIFICATION</text><text x="186" y="106" font-size="11" font-weight="800" fill="#d97706">54/100</text>
+          <rect x="324" y="80" width="140" height="34" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="332" y="92" fill="#94a3b8">POSITIONS</text><text x="332" y="106" font-size="11" font-weight="800" fill="#0f172a">8</text>
+        </g>
+        <text x="32" y="132" font-size="7.5" fill="#94a3b8">DR normal 1.24 / crisis 1.08 — กระจายเชิงจำนวนชื่อ แต่ independent bets จำกัด</text>
+        <!-- L2: capital allocation donuts -->
+        <rect x="20" y="152" width="460" height="150" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="32" y="170" font-size="10" font-weight="800" fill="#0f172a">2 · Capital Allocation (by risk driver)</text>
+        <circle cx="20" cy="152" r="8" fill="#0f172a"/><text x="20" y="155.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">2</text>
+        <g fill="none" stroke-width="16">
+          <circle cx="120" cy="230" r="32" stroke="#2563eb" stroke-dasharray="110.6 90.5" transform="rotate(-90 120 230)"/>
+          <circle cx="120" cy="230" r="32" stroke="#16a34a" stroke-dasharray="60.3 140.8" transform="rotate(108 120 230)"/>
+          <circle cx="120" cy="230" r="32" stroke="#f59e0b" stroke-dasharray="30.2 171" transform="rotate(216 120 230)"/>
+          <circle cx="300" cy="230" r="32" stroke="#2563eb" stroke-dasharray="181 20.1" transform="rotate(-90 300 230)"/>
+          <circle cx="300" cy="230" r="32" stroke="#dc2626" stroke-dasharray="20.1 181" transform="rotate(232 300 230)"/>
+        </g>
+        <text x="120" y="284" font-size="8" fill="#64748b" text-anchor="middle">By risk sleeve</text>
+        <text x="300" y="284" font-size="8" fill="#64748b" text-anchor="middle">By currency</text>
+        <text x="180" y="210" font-size="7.5" fill="#334155">&#9632; Semiconductor 55%</text>
+        <text x="180" y="222" font-size="7.5" fill="#334155">&#9632; Growth/Tech 30%</text>
+        <text x="180" y="234" font-size="7.5" fill="#334155">&#9632; Defensive 15%</text>
+        <text x="352" y="216" font-size="7.5" fill="#334155">&#9632; USD 96%</text>
+        <text x="352" y="228" font-size="7.5" fill="#334155">&#9632; DKK 4%</text>
+        <text x="352" y="250" font-size="7" fill="#b45309">&#9888; สกุลเดียว &#8805;80% = FX กระจุก</text>
+        <!-- L3: capital vs risk bars -->
+        <rect x="20" y="312" width="460" height="168" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="32" y="330" font-size="10" font-weight="800" fill="#0f172a">3 · Capital Weight vs Risk Weight <tspan font-size="7.5" font-weight="600" fill="#94a3b8">[CALC]</tspan></text>
+        <circle cx="20" cy="312" r="8" fill="#0f172a"/><text x="20" y="315.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">3</text>
+        <g font-size="8" fill="#334155">
+          <text x="70" y="352" text-anchor="end">NVDA</text>
+          <rect x="78" y="344" width="98" height="7" fill="#94a3b8"/><rect x="78" y="353" width="143" height="7" fill="#dc2626"/>
+          <text x="228" y="360" font-size="7.5" fill="#991b1b">เงิน 28% &#8594; เสี่ยง 41% (+13pp)</text>
+          <text x="70" y="384" text-anchor="end">MSFT</text>
+          <rect x="78" y="376" width="77" height="7" fill="#94a3b8"/><rect x="78" y="385" width="66" height="7" fill="#dc2626"/>
+          <text x="228" y="392" font-size="7.5" fill="#64748b">เงิน 22% &#8594; เสี่ยง 19% (−3pp)</text>
+          <text x="70" y="416" text-anchor="end">TLT</text>
+          <rect x="78" y="408" width="42" height="7" fill="#94a3b8"/><rect x="78" y="417" width="18" height="7" fill="#16a34a"/>
+          <text x="228" y="424" font-size="7.5" fill="#166534">เงิน 12% &#8594; เสี่ยง −5% (diversifier)</text>
+        </g>
+        <text x="32" y="448" font-size="7.5" fill="#94a3b8">แท่งเทา = %เงินที่ลง · แท่งแดง = %ความเสี่ยงที่สร้าง (จาก covariance) · แท่งเขียว = ช่วยลดความเสี่ยงรวม</text>
+        <text x="32" y="462" font-size="7.5" fill="#94a3b8">แดงยาวกว่าเทา +3pp ขึ้นไป = ตัวนั้น "กินความเสี่ยง" เกินเงินที่ลง — เป้าหมายแรกเวลาลดความเสี่ยง</text>
+        <!-- L4: concentration -->
+        <rect x="20" y="490" width="460" height="140" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="32" y="508" font-size="10" font-weight="800" fill="#0f172a">4 · Concentration Map</text>
+        <circle cx="20" cy="490" r="8" fill="#0f172a"/><text x="20" y="493.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">4</text>
+        <g font-size="7">
+          <rect x="32" y="516" width="84" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="40" y="528" fill="#94a3b8">HHI</text><text x="40" y="541" font-size="10" font-weight="800" fill="#dc2626">0.21</text>
+          <rect x="122" y="516" width="84" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="130" y="528" fill="#94a3b8">EFFECTIVE N</text><text x="130" y="541" font-size="10" font-weight="800" fill="#0f172a">4.8</text>
+          <rect x="212" y="516" width="84" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="220" y="528" fill="#94a3b8">TOP-5</text><text x="220" y="541" font-size="10" font-weight="800" fill="#0f172a">82%</text>
+          <rect x="302" y="516" width="84" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="310" y="528" fill="#94a3b8">ENB (RISK)</text><text x="310" y="541" font-size="10" font-weight="800" fill="#d97706">3.1</text>
+        </g>
+        <g font-size="7.5" fill="#334155">
+          <text x="90" y="568" text-anchor="end">Semiconductor</text><rect x="96" y="561" width="150" height="8" fill="#2563eb"/><text x="252" y="568">44%</text>
+          <text x="90" y="584" text-anchor="end">Technology</text><rect x="96" y="577" width="100" height="8" fill="#2563eb"/><text x="202" y="584">29%</text>
+          <text x="90" y="600" text-anchor="end">Healthcare</text><rect x="96" y="593" width="60" height="8" fill="#2563eb"/><text x="162" y="600">17%</text>
+        </g>
+        <text x="32" y="620" font-size="7.5" fill="#94a3b8">ถือ 8 ตัวแต่ Effective N 4.8 = เชิงเศรษฐกิจถือจริง ~5 ตัว · ENB = เดิมพันอิสระหลังคิด correlation ยิ่งน้อยยิ่งกระจุก</text>
+        <!-- R1: stress -->
+        <rect x="500" y="14" width="460" height="168" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="512" y="32" font-size="10" font-weight="800" fill="#0f172a">5 · Stress Test <tspan font-size="7.5" font-weight="600" fill="#94a3b8">[JUDG-SCENARIO] Illustrative, not a forecast</tspan></text>
+        <circle cx="500" cy="14" r="8" fill="#0f172a"/><text x="500" y="17.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">5</text>
+        <g font-size="8" fill="#334155">
+          <text x="600" y="50" text-anchor="end">GFC 2008</text><rect x="608" y="42" width="152" height="9" fill="#dc2626"/><text x="766" y="50" fill="#991b1b">-38%</text>
+          <text x="600" y="68" text-anchor="end">COVID 2020</text><rect x="608" y="60" width="96" height="9" fill="#ea580c"/><text x="710" y="68" fill="#9a3412">-24%</text>
+          <text x="600" y="86" text-anchor="end">Rate shock 2022</text><rect x="608" y="78" width="72" height="9" fill="#ea580c"/><text x="686" y="86" fill="#9a3412">-18%</text>
+          <text x="600" y="104" text-anchor="end">Tech de-rating</text><rect x="608" y="96" width="64" height="9" fill="#d97706"/><text x="678" y="104" fill="#92400e">-16%</text>
+        </g>
+        <g font-size="7">
+          <rect x="512" y="118" width="100" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="520" y="130" fill="#94a3b8">VAR 95%</text><text x="520" y="143" font-size="10" font-weight="800" fill="#dc2626">-21%</text>
+          <rect x="618" y="118" width="100" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="626" y="130" fill="#94a3b8">VAR 99%</text><text x="626" y="143" font-size="10" font-weight="800" fill="#dc2626">-30%</text>
+          <rect x="724" y="118" width="100" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="732" y="130" fill="#94a3b8">CVAR 95%</text><text x="732" y="143" font-size="10" font-weight="800" fill="#991b1b">-26%</text>
+        </g>
+        <text x="512" y="168" font-size="7.5" fill="#94a3b8">Reverse stress: ตลาด (equity beta) ต้องลง ~17% จึงแตะขีดรับขาดทุน 20% · ใช้ตอบคำถามเดียว: "เลวร้ายสุดรับได้ไหม"</text>
+        <!-- R2: downside -->
+        <rect x="500" y="192" width="460" height="118" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="512" y="210" font-size="10" font-weight="800" fill="#0f172a">5b · Downside Risk (S2/S4)</text>
+        <circle cx="500" cy="192" r="8" fill="#0f172a"/><text x="500" y="195.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">6</text>
+        <rect x="512" y="220" width="216" height="60" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="520" y="232" font-size="7" fill="#94a3b8">TOTAL &#8594; DOWNSIDE</text>
+        <text x="520" y="248" font-size="8.5" fill="#334155">Vol <tspan font-weight="700">18.4%</tspan> &#8594; Downside dev <tspan font-weight="700" fill="#b45309">13.2%</tspan> · Sortino <tspan font-weight="700">0.9</tspan></text>
+        <text x="520" y="262" font-size="8.5" fill="#334155">&#946; <tspan font-weight="700">1.18</tspan> &#8594; Downside &#946; <tspan font-weight="700" fill="#b45309">1.31</tspan></text>
+        <text x="520" y="275" font-size="7" fill="#b45309">&#9888; downside &#946; &gt; &#946; — พอร์ตนี้ "ขาลงแรงกว่าขาขึ้น"</text>
+        <rect x="736" y="220" width="212" height="60" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
+        <text x="744" y="232" font-size="7" fill="#94a3b8">PORTFOLIO MoS (S4)</text>
+        <text x="744" y="250" font-size="12" font-weight="800" fill="#166534">+12.4%</text>
+        <text x="744" y="264" font-size="7.5" fill="#94a3b8">net หลัง cost/tax +9.1% · 6/8 ตัวมี FV</text>
+        <text x="512" y="300" font-size="7.5" fill="#94a3b8">แยก "ผันผวน" จาก "เสี่ยงขาลงจริง" — Sortino &gt;1 ดี · downside &#946; &gt;1 = วันตลาดลง เราลงแรงกว่า · + Bond rate risk (S3) ถ้ามีบอนด์</text>
+        <!-- R3: suitability -->
+        <rect x="500" y="320" width="460" height="54" rx="10" fill="#fee2e2" stroke="#fecaca"/>
+        <text x="512" y="342" font-size="9.5" font-weight="700" fill="#991b1b">&#9940; Suitability: drawdown ที่ผูกพัน <tspan font-weight="800">-32.5%</tspan> เทียบขีดรับได้ <tspan font-weight="800">-20.0%</tspan></text>
+        <text x="512" y="360" font-size="8.5" fill="#991b1b">เกินระดับที่ผู้ใช้รับได้ — FINDING หลัก</text>
+        <circle cx="500" cy="320" r="8" fill="#0f172a"/><text x="500" y="323.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">7</text>
+        <!-- R4: rebalance -->
+        <rect x="500" y="384" width="460" height="160" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="512" y="402" font-size="10" font-weight="800" fill="#0f172a">7 · Rebalancing Plan</text>
+        <circle cx="500" cy="384" r="8" fill="#0f172a"/><text x="500" y="387.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">8</text>
+        <g font-size="7">
+          <rect x="512" y="410" width="100" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="520" y="422" fill="#94a3b8">VOL NOW</text><text x="520" y="435" font-size="10" font-weight="800" fill="#0f172a">18.4%</text>
+          <rect x="618" y="410" width="100" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="626" y="422" fill="#94a3b8">VOL AFTER</text><text x="626" y="435" font-size="10" font-weight="800" fill="#16a34a">15.9%</text>
+          <rect x="724" y="410" width="140" height="32" rx="6" fill="#f8fafc" stroke="#e2e8f0"/><text x="732" y="422" fill="#94a3b8">TOP RISK NOW &#8594; AFTER</text><text x="732" y="435" font-size="10" font-weight="800" fill="#0f172a">NVDA &#8594; MSFT</text>
+        </g>
+        <g font-size="8.5" fill="#334155">
+          <text x="512" y="466" font-size="7.5" font-weight="700" fill="#64748b">TICKER&#160;&#160;&#160;ACTION&#160;&#160;&#160;FROM&#160;&#160;&#160;&#160;TO&#160;&#160;&#160;&#160;&#160;&#916;&#160;&#160;&#160;&#160;&#160;&#160;PRIORITY</text>
+          <line x1="512" y1="472" x2="948" y2="472" stroke="#e2e8f0"/>
+          <text x="512" y="488"><tspan font-weight="700">NVDA</tspan>&#160;&#160;&#160;&#160;<tspan fill="#ea580c" font-weight="700">TRIM</tspan>&#160;&#160;&#160;&#160;&#160;28.0%&#160;&#160;20.0%&#160;&#160;8.0%&#160;&#160;Must</text>
+          <text x="512" y="506"><tspan font-weight="700">TLT</tspan>&#160;&#160;&#160;&#160;&#160;&#160;<tspan fill="#0d9488" font-weight="700">ADD</tspan>&#160;&#160;&#160;&#160;&#160;&#160;8.0%&#160;&#160;&#160;11.0%&#160;&#160;3.0%&#160;&#160;Should</text>
+        </g>
+        <text x="512" y="532" font-size="7.5" fill="#94a3b8">Must = เกิน policy band ต้องทำ · Should = ควรทำ — ขายผู้ชนะบางส่วนเข้าตัวที่ยังถูกคือวินัย ไม่ใช่การทำนายตลาด</text>
+        <!-- R5: bottom line -->
+        <rect x="500" y="554" width="460" height="76" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="512" y="572" font-size="10" font-weight="800" fill="#0f172a">Bottom line + Tags</text>
+        <circle cx="500" cy="554" r="8" fill="#0f172a"/><text x="500" y="557.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">9</text>
+        <text x="512" y="588" font-size="7.5" fill="#334155">&#8226; พอร์ตขับเคลื่อนโดย NVDA (41% ของความเสี่ยงรวม) &#8226; Scenario เจ็บสุด: GFC ~-38% &#8226; ⛔ Drawdown เกินที่รับได้ &#8226; Action แรก: TRIM NVDA</text>
+        <text x="512" y="604" font-size="7.5" fill="#94a3b8">Tags: [STORED] = จาก data model · [CALC] = คำนวณจริง · [JUDG-PROXY] = ค่าสมมติ · [JUDG-SCENARIO] = ฉากทัศน์ประกอบ</text>
+        <text x="512" y="618" font-size="7.5" fill="#94a3b8">Covariance: realized [CALC] · price source — NVDA:fmp · MSFT:fmp · TLT:stooq</text>
+        <!-- bottom: cost pies + what-if -->
+        <rect x="20" y="646" width="940" height="128" rx="10" fill="#fff" stroke="#cbd5e1"/>
+        <text x="32" y="664" font-size="10" font-weight="800" fill="#0f172a">Current allocation (by cost basis) + What-if</text>
+        <circle cx="20" cy="646" r="8" fill="#0f172a"/><text x="20" y="649.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">10</text>
+        <g fill="none" stroke-width="14">
+          <circle cx="110" cy="716" r="26" stroke="#2563eb" stroke-dasharray="98 65.4" transform="rotate(-90 110 716)"/>
+          <circle cx="110" cy="716" r="26" stroke="#16a34a" stroke-dasharray="65.4 98" transform="rotate(126 110 716)"/>
+          <circle cx="230" cy="716" r="26" stroke="#7c3aed" stroke-dasharray="114 49.4" transform="rotate(-90 230 716)"/>
+          <circle cx="230" cy="716" r="26" stroke="#f59e0b" stroke-dasharray="49.4 114" transform="rotate(162 230 716)"/>
+        </g>
+        <text x="110" y="758" font-size="7.5" fill="#64748b" text-anchor="middle">By holding (ต้นทุน)</text>
+        <text x="230" y="758" font-size="7.5" fill="#64748b" text-anchor="middle">By sector (ต้นทุน)</text>
+        <g font-size="8">
+          <rect x="320" y="690" width="90" height="20" rx="5" fill="#f8fafc" stroke="#cbd5e1"/><text x="328" y="703" fill="#94a3b8">TICKER</text>
+          <rect x="416" y="690" width="110" height="20" rx="5" fill="#f8fafc" stroke="#cbd5e1"/><text x="424" y="703" fill="#94a3b8">buy amount $</text>
+          <rect x="320" y="716" width="150" height="22" rx="6" fill="#7c3aed"/><text x="395" y="730" font-size="8" font-weight="700" fill="#fff" text-anchor="middle">Calculate after-allocation</text>
+          <circle cx="320" cy="690" r="8" fill="#0f172a"/><text x="320" y="693.5" font-size="9" font-weight="700" fill="#fff" text-anchor="middle">11</text>
+          <text x="540" y="703" font-size="7.5" fill="#94a3b8">ใส่ ticker + จำนวนเงิน (สูงสุด 5 รายการ) แล้วกดคำนวณ &#8594; แสดงพาย "After (current + what-if)"</text>
+          <text x="540" y="717" font-size="7.5" fill="#94a3b8">ใช้เช็คก่อนซื้อจริงว่าเงินใหม่ทำให้กระจุกขึ้นหรือกระจายขึ้น</text>
+        </g>
+      </svg>
+      <table class="httab">
+        <tr><th style="width:34px">#</th><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
+        <tr><td><b>1</b></td><td><b>1 &middot; Portfolio Snapshot</b></td><td>มูลค่าพอร์ต, จำนวนตัว, Est. Vol (annual), Severe drawdown, β, Diversification /100 + DR normal/crisis</td><td>Vol ~15–20% = โซนหุ้นล้วน · Severe drawdown คือ "ถ้าเกิด scenario เลวร้ายสุดซ้ำ" — เทียบกับ Max loss ที่ตั้งไว้ · β&gt;1.3 = แรงกว่าตลาดมาก · Diversification &ge;60 ดี, &lt;40 = กระจุก · DR crisis ใกล้ 1 = การกระจายแทบไม่ช่วยตอนวิกฤต</td></tr>
+        <tr><td><b>2</b></td><td><b>2 &middot; Capital Allocation (โดนัท 2 วง)</b></td><td>แบ่งเงินตาม "ตัวขับความเสี่ยง" (risk sleeve เช่น Semiconductor / Growth-Tech / Defensive) และตามสกุลเงิน</td><td>sleeve เดียว &ge;40% หรือสกุลเงินเดียว &ge;80% = ความเสี่ยงกระจุกที่มองไม่เห็นจากรายตัว — sector คนละชื่ออาจเป็น risk driver เดียวกัน</td></tr>
+        <tr><td><b>3</b></td><td><b>3 &middot; Capital vs Risk Weight (กราฟแท่งคู่)</b></td><td>เทียบ %เงินที่ลง (แท่งเทา) กับ %ความเสี่ยงที่สร้าง (แท่งแดง จาก covariance จริง) ต่อหุ้น</td><td>แดงยาวกว่าเทามาก (+3pp ขึ้นไป) = ตัวนั้น "กินความเสี่ยง" เกินเงินที่ลง — เป้าหมายแรกเวลาลดความเสี่ยง · แท่งเขียว (ค่าลบ) = diversifier ช่วยลดความเสี่ยงรวม</td></tr>
+        <tr><td><b>4</b></td><td><b>4 &middot; Concentration Map</b></td><td>HHI, Effective N, Top-5/Top-10, ENB + กราฟแท่งสัดส่วน sector</td><td>Effective N = "ถือจริงกี่ตัว" (8 ตัวแต่ Eff N 4.8 = กระจุก) · HHI &gt;0.18 = เข้มข้น · ENB = จำนวน "เดิมพันอิสระ" หลังคิด correlation ยิ่งน้อยยิ่งกระจุก (ต่ำกว่า Eff N เสมอ)</td></tr>
+        <tr><td><b>5</b></td><td><b>5 &middot; Stress Test (แท่งแดง + การ์ด VaR)</b></td><td>ขาดทุนโดยประมาณถ้า scenario ประวัติศาสตร์ (GFC/COVID/Rate 2022) หรือสมมุติ (tech de-rate ฯลฯ) เกิดซ้ำ + VaR 95/99 + CVaR + reverse stress</td><td>[JUDG-SCENARIO] = ภาพประกอบไม่ใช่พยากรณ์ · ใช้ตอบคำถามเดียว: "เลวร้ายสุดรับได้ไหม" — ถ้าไม่ได้ ให้ลดขนาด ไม่ใช่หวังว่าจะไม่เกิด · reverse stress = ตลาดต้องลงกี่ % จึงแตะขีดรับได้</td></tr>
+        <tr><td><b>6</b></td><td><b>5b &middot; Downside Risk (S2/S4)</b></td><td>คู่ Total &rarr; Downside: Vol เทียบ Downside deviation, β เทียบ Downside β, Sortino + การ์ด Portfolio MoS (margin of safety ระดับพอร์ต)</td><td>แยก "ผันผวน" จาก "เสี่ยงขาลงจริง" — Sortino &gt;1 ดี · downside β &gt; β = ขาลงแรงกว่าขาขึ้น · Portfolio MoS = ค่าเฉลี่ยถ่วง MV ของ upside รายตัว = ส่วนเผื่อความผิดพลาดของทั้งพอร์ต</td></tr>
+        <tr><td><b>7</b></td><td><b>6 &middot; Suitability</b></td><td>เทียบ drawdown ที่ผูกพัน (แย่สุดจาก stress/VaR99) กับ Max loss ที่บอกว่ารับได้</td><td>⛔ = พอร์ตเสี่ยงเกินใจรับ — FINDING สำคัญสุดของหน้านี้ แก้ด้วยการลดขนาด/เพิ่ม ballast (bond/cash/gold)</td></tr>
+        <tr><td><b>8</b></td><td><b>7 &middot; Rebalancing Plan</b></td><td>รายการ TRIM/ADD จาก % ปัจจุบัน &rarr; เป้าหมาย + เทียบ vol / top-risk ก่อน-หลังทำ</td><td>Must = เกิน policy band ต้องทำ · Should = ควรทำ — ขายผู้ชนะบางส่วนเข้าตัวที่ยังถูกคือวินัย ไม่ใช่การทำนายตลาด · อย่าลืมหัก cost/tax (S6) ทำเป็นขั้น</td></tr>
+        <tr><td><b>9</b></td><td><b>Bottom line + Tags</b></td><td>สรุป bullet ทั้งหน้า + ป้ายที่มาของตัวเลข + แหล่งราคาต่อ ticker</td><td>[STORED] / [CALC] / [JUDG-PROXY] / [JUDG-SCENARIO] — ความน่าเชื่อลดหลั่นตามลำดับ · "quota degraded" = ใช้แหล่งฟรีแทน FMP เพราะโควตาใกล้หมด</td></tr>
+        <tr><td><b>10</b></td><td><b>Current allocation (by cost basis)</b></td><td>พาย 2 วง: สัดส่วนตาม "ต้นทุนที่ลงจริง" (shares &times; avg cost) แยกรายตัวและราย sector</td><td>ต่างจากส่วนบนที่ใช้มูลค่าตลาด — พายนี้ตอบว่า "เงินต้นเราไปกองอยู่ที่ไหน"</td></tr>
+        <tr><td><b>11</b></td><td><b>What-if</b></td><td>ลองใส่เงินซื้อเพิ่ม (สูงสุด 5 รายการ) แล้วดูสัดส่วนพอร์ต "หลังซื้อ"</td><td>ใช้เช็คก่อนซื้อจริงว่าเงินใหม่ทำให้กระจุกขึ้นหรือกระจายขึ้น</td></tr>
       </table>
       <p class="muted" style="font-size:12px">ลำดับใช้งานที่แนะนำ: เปิด Allocation ดูข้อ 6 ก่อน (รับได้ไหม) &rarr; ข้อ 3/4 (อะไรคือตัวกินความเสี่ยง) &rarr; ข้อ 7 (ต้องทำอะไร) &rarr; ค่อยกลับไป My Portfolio ตัดสินใจรายตัวด้วย card</p>
     </div>
@@ -242,6 +636,10 @@
         <tr><td><b>Momentum 12-1</b></td><td>ผลตอบแทน 12 เดือนโดย "ข้ามเดือนล่าสุด" (มาตรฐานงานวิจัย เลี่ยง short-term reversal)</td><td>ใช้จัด Rank Top/Mid/Bottom ระหว่างตัวที่ถือ</td></tr>
         <tr><td><b>S9 crash guard</b></td><td>ตลาดใต้ 200-DMA = momentum เสี่ยง crash</td><td>veto สัญญาณ bullish ชั่วคราว — ไม่ใช่สัญญาณขายพื้นฐาน</td></tr>
         <tr><td><b>PEAD (S25)</b></td><td>Post-Earnings Announcement Drift — ราคามีแนวโน้มไหลตามทิศ surprise ล่าสุดต่ออีกระยะ</td><td>▲/▼ + * = แรง · ใช้ประกอบจังหวะ ไม่ใช่เหตุผลหลัก</td></tr>
+        <tr><td><b>Momentum composite</b></td><td>โหวต 4 เงื่อนไข: 12-1 &gt;0 · ROC 6M &gt;0 · ราคาเหนือ SMA200 · RSI(14) &gt;50</td><td>4/4 = Strong · 3/4 = Positive · 2/4 = Neutral · 1/4 = Weak · 0/4 = Negative (คิดเป็นสัดส่วนเมื่อประวัติสั้น)</td></tr>
+        <tr><td><b>Rank (Top/Mid/Bottom)</b></td><td>percentile ของ 12-1 momentum เทียบตัวอื่นในพอร์ต/ลิสต์ (cross-sectional)</td><td>Top = &ge;67 %ile · Mid = 33–67 · Bottom = &lt;33 — ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน</td></tr>
+        <tr><td><b>RSI / MACD / DBBMV (secondary)</b></td><td>สัญญาณชุดรอง (อยู่ใน tooltip ของ Momentum): RSI&lt;30 = oversold bounce, MACD cross = trend, DBBMV = Bollinger แบบปรับ volume</td><td>Damodaran S11 แยกชนิด bias: RSI/DBBMV = <b>contrarian</b> (เล่น mean-reversion) · MACD = <b>trend</b> — อย่าปนกับ momentum หลัก (12-1)</td></tr>
+        <tr><td><b>SMA200 / 200-DMA</b></td><td>ค่าเฉลี่ยเคลื่อนที่ 200 วัน — เส้นแบ่ง trend ระยะยาว</td><td>ราคา/ดัชนีเหนือเส้น = uptrend · SPY ใต้เส้น = ตลาด RISK-OFF (เปิด crash guard)</td></tr>
       </table>
 
       <h3 class="ht2">ความเสี่ยงพอร์ต (หน้า Allocation)</h3>
@@ -257,21 +655,81 @@
         <tr><td><b>Suitability</b></td><td>drawdown ที่ผูกพัน (แย่สุดจาก stress/VaR) เทียบ Max loss ที่ผู้ใช้รับได้</td><td>เกิน = FINDING หลัก ต้องแก้ที่ "ขนาด" ก่อนเสมอ</td></tr>
       </table>
 
-      <h3 class="ht2">รหัสอ้างอิง S-numbers และป้ายกำกับ</h3>
+      <h3 class="ht2">รหัสอ้างอิง S-numbers (ครบทุกตัวที่ใช้ใน dashboard)</h3>
+      <p class="muted" style="font-size:12px"><b>S = ลำดับตอน (session)</b> ในคอร์ส Investment Philosophies ของ Aswath Damodaran (ฉบับปี 2026, 43 ตอน) — dashboard อ้างเลขตอนกำกับไว้ทุกจุดที่นำหลักคิดมาใช้ เพื่อให้ตรวจย้อนได้ว่าฟีเจอร์ไหนมาจากคำสอนข้อไหน</p>
       <table class="httab">
-        <tr><th>รหัส</th><th>หมายถึง</th></tr>
-        <tr><td><b>S1/S42</b></td><td>Investment philosophy fit — กลยุทธ์ที่เล่นต้องตรงกับตัวตน/ horizon /ภาษีของผู้ลงทุน</td></tr>
-        <tr><td><b>S2/S4</b></td><td>ความเสี่ยงคือ "ขาลง" ไม่ใช่แค่ความผันผวน — downside metrics</td></tr>
-        <tr><td><b>S3</b></td><td>พันธบัตร: ความเสี่ยงอัตราดอกเบี้ยผ่าน duration</td></tr>
-        <tr><td><b>S6</b></td><td>ต้นทุนเทรด + ภาษีกัดผลตอบแทนจริง — ตัดสินใจด้วยตัวเลข net</td></tr>
-        <tr><td><b>S9</b></td><td>Momentum ใช้ได้แต่ crash-prone — ต้องมี regime guard</td></tr>
-        <tr><td><b>S13/S19</b></td><td>GARP: ถูกอย่างเดียวไม่พอ ต้องดีด้วย (value + quality)</td></tr>
-        <tr><td><b>S16/S35</b></td><td>เทียบ benchmark เสมอ — active ส่วนใหญ่แพ้ index หลังหักต้นทุน</td></tr>
-        <tr><td><b>S25</b></td><td>PEAD — ตลาด underreact ต่อ earnings surprise</td></tr>
-        <tr><td><b>S32/33</b></td><td>Market valuation ผ่าน implied ERP — ใช้เอียงน้ำหนัก ไม่ใช่จับจังหวะเข้าออก</td></tr>
-        <tr><td><b>(MV-weighted, illustrative)</b></td><td>ถ่วงด้วยมูลค่าตลาดของสิ่งที่ถือ "ตอนนี้" ย้อนหลัง — เป็นภาพประกอบ ไม่ใช่ผลตอบแทนจริงที่ทำได้ (ไม่รวมจังหวะซื้อขาย/เงินเข้าออก)</td></tr>
-        <tr><td><b>[STORED]/[CALC]/[JUDG-PROXY]/[JUDG-SCENARIO]</b></td><td>ที่มาของตัวเลข: จากฐานข้อมูล / คำนวณจริง / ค่าประมาณแทนข้อมูลที่ขาด / ฉากทัศน์ประกอบการตัดสินใจ — ความน่าเชื่อลดหลั่นตามลำดับ</td></tr>
+        <tr><th>รหัส</th><th>หัวข้อคำสอน</th><th>ใช้ตรงไหนใน dashboard</th></tr>
+        <tr><td><b>S1</b></td><td>ปรัชญาการลงทุนต้อง "เข้ากับคุณ" (risk aversion / horizon / ภาษี) — ตอนเปิดคอร์ส</td><td>ไทล์ Philosophy + profile (data/philosophy_profile.json)</td></tr>
+        <tr><td><b>S2–S4</b></td><td>ความเสี่ยงคือ "ขาลง" ไม่ใช่แค่ความผันผวน · standalone vs marginal risk · margin of safety</td><td>ส่วน 5b Downside (semideviation, Sortino, downside β), %Risk weight, Portfolio MoS</td></tr>
+        <tr><td><b>S3</b></td><td>ตราสารหนี้: ความเสี่ยงหลักคืออัตราดอกเบี้ยผ่าน duration</td><td>ป้าย BOND บน card + Bond rate risk (+100bps) ในส่วน 5b</td></tr>
+        <tr><td><b>S5</b></td><td>Price &ne; Value — มูลค่ามาจากกระแสเงินสด + เติบโต + ความเสี่ยงเท่านั้น · แยกเกม valuation vs pricing</td><td>เกจ Price vs Value เป็นพระเอกของ card (ราคา/P&amp;L เป็นบริบทมุมขวา)</td></tr>
+        <tr><td><b>S6</b></td><td>ต้นทุนเทรด + ภาษีกัดผลตอบแทนจริง — วัดทุกอย่างแบบ net</td><td>net upside บนทุก card · คำเตือน turnover ใน Story ข้อ ⑤</td></tr>
+        <tr><td><b>S9</b></td><td>Random walks &amp; momentum: 12-1 momentum มีจริง · 3–5 ปี = reversal · momentum crash ตอนตลาดกลับทิศ</td><td>Momentum composite, ↻ reversal flag, crash guard + ไทล์ Regime</td></tr>
+        <tr><td><b>S10</b></td><td>Seasonality / calendar effects — หลักฐานอ่อน</td><td><i>ตั้งใจไม่ implement</i> (การ "ไม่ทำ" คือความสอดคล้อง)</td></tr>
+        <tr><td><b>S11</b></td><td>Technical analysis: แยก indicator ตาม bias ที่ exploit (contrarian vs trend)</td><td>taxonomy ของ RSI/DBBMV (contrarian) vs MACD (trend) ใน tooltip Momentum</td></tr>
+        <tr><td><b>S12–S13</b></td><td>Value screening + margin of safety — ถูกอย่างเดียวไม่พอ ต้องคัดสองแกน</td><td>P-score (MoS แบบขั้นบันได) + GARP screen</td></tr>
+        <tr><td><b>S16</b></td><td>Active ส่วนใหญ่แพ้ index — ต้องมี benchmark เสมอ</td><td>ไทล์ vs S&amp;P 12M + Story ข้อ ③</td></tr>
+        <tr><td><b>S17–S21</b></td><td>Growth investing: growth เพิ่มมูลค่าเฉพาะเมื่อ ROIC &gt; cost of capital · S19 GARP · S21 expectations/reverse DCF</td><td>Moat chip (spread), Fundamental PEG, FVP, RevDCF implied CAGR</td></tr>
+        <tr><td><b>S22–S26</b></td><td>Information trading: ตลาดเรียนรู้ข่าวช้า · S25 PEAD · earnings quality (accruals/SBC)</td><td>แถว PEAD บน card, EQ badge (CLEAN/REVIEW/LOW)</td></tr>
+        <tr><td><b>S27–S29</b></td><td>Arbitrage (long-short / derivatives)</td><td><i>ตั้งใจไม่ implement</i> — นอกขอบเขตพอร์ต long-only</td></tr>
+        <tr><td><b>S30–S34</b></td><td>Market timing: เข้า-ออกตลาดล้มเหลวเกือบเสมอ (S34) · แต่วัด "ตลาดถูก/แพง" ได้ผ่าน implied ERP (S32 mean reversion, S33 valuing the market)</td><td>ไทล์ Market value + Cash stance (tilt เท่านั้น ไม่มีสวิตช์)</td></tr>
+        <tr><td><b>S35–S37</b></td><td>ความถ่อมตัวเชิงโครงสร้าง: ผลงานดีไม่ persist · วัด net ของต้นทุน</td><td>benchmark line "อย่าเพิ่ม turnover เพื่อไล่ตาม"</td></tr>
+        <tr><td><b>S38–S41</b></td><td>Alternatives (gold / crypto / collectibles): ไม่มีกระแสเงินสด &rarr; ตีมูลค่าไม่ได้ ได้แต่ตีราคา (S40–41 pricing assets)</td><td>ป้าย PRICING ASSET บน card · จำกัดน้ำหนัก · CLASS_PROXY_VOL (crypto 0.70)</td></tr>
+        <tr><td><b>S42</b></td><td>Grand Finale: พอร์ตต้องประกาศปรัชญาตัวเอง — ผสมได้ถ้ามีลำดับกำกับ (value ตัดสิน &rarr; momentum เลือกจังหวะ)</td><td>ไทล์ Philosophy fit + 🧭 บรรทัดสังเคราะห์ "วันนี้"</td></tr>
+        <tr><td><b>(MV-weighted, illustrative)</b></td><td colspan="2">ถ่วงด้วยมูลค่าตลาดของสิ่งที่ถือ "ตอนนี้" ย้อนหลัง — เป็นภาพประกอบ ไม่ใช่ผลตอบแทนจริงที่ทำได้ (ไม่รวมจังหวะซื้อขาย/เงินเข้าออก)</td></tr>
+        <tr><td><b>[STORED]/[CALC]/[JUDG-PROXY]/[JUDG-SCENARIO]</b></td><td colspan="2">ที่มาของตัวเลข: จากฐานข้อมูล / คำนวณจริง / ค่าประมาณแทนข้อมูลที่ขาด / ฉากทัศน์ประกอบการตัดสินใจ — ความน่าเชื่อลดหลั่นตามลำดับ · "quota degraded" = ตกไปใช้แหล่งฟรีเพราะโควตา FMP ใกล้หมด</td></tr>
       </table>
+      <h3 class="ht2">เกณฑ์คำตัดสิน &amp; Action ทุกค่าที่แสดงได้</h3>
+      <table class="httab">
+        <tr><th>คำตัดสิน</th><th>ค่าที่เป็นไปได้ + เกณฑ์</th></tr>
+        <tr><td><b>DEEP recommendation</b></td><td>composite &ge;4 = <b>BUY</b> · 3–4 = <b>HOLD / Accumulate</b> · 2–3 = <b>HOLD</b> · &lt;2 = <b>SELL / AVOID</b></td></tr>
+        <tr><td><b>Action (value &times; momentum)</b></td><td>BUY&times;Bullish = <b>STRONG BUY</b> · BUY&times;Neutral = <b>BUY</b> · BUY&times;Bearish = <b>WAIT</b> · HOLD&times;Bullish = <b>ACCUMULATE</b> · HOLD&times;Neutral = <b>HOLD</b> · HOLD&times;Bearish = <b>WATCH</b> · SELL&times;Bullish = <b>TRIM</b> · SELL&times;Neutral = <b>SELL</b> · SELL&times;Bearish = <b>STRONG SELL</b></td></tr>
+        <tr><td><b>WAIT · crash guard</b></td><td>Override การแสดงผลชั่วคราว: ตลาด RISK-OFF + Action ฝั่งซื้อ (STRONG BUY/BUY/ACCUMULATE) &rarr; แสดง WAIT · crash guard แทน (S9) — ค่าจริงบน server ไม่เปลี่ยน</td></tr>
+        <tr><td><b>beat / meet / miss</b></td><td>EPS &amp; Revenue surprise เทียบ estimate: &gt;+2% = <b>beat</b> (เขียว) · &plusmn;2% = <b>meet</b> (เหลือง) · &lt;−2% = <b>miss</b> (แดง)</td></tr>
+        <tr><td><b>expand / flat / contract</b></td><td>Operating margin YoY: &gt;+0.5pp = <b>expand</b> (เขียว) · &plusmn;0.5pp = <b>flat</b> (เหลือง) · &lt;−0.5pp = <b>contract</b> (แดง)</td></tr>
+        <tr><td><b>RevDCF verdict</b></td><td>อัตราเร่ง = implied CAGR &divide; actual growth: &lt;1.5&times; = <b>Plausible</b> · 1.5–3&times; = <b>Ambitious</b> · 3–5&times; = <b>Aggressive</b> · &ge;5&times; = <b>Exceptional</b> (priced for perfection) · รายได้หด = Cannot benchmark</td></tr>
+        <tr><td><b>EQ verdict</b></td><td>เช็ค 3 ข้อ (cash conversion &lt;0.8 / accruals &gt;5% assets / SBC &gt;10% rev): ผ่านหมด = <b>CLEAN</b> · ติด 1–2 = <b>REVIEW</b> · ติด &ge;3 = <b>LOW</b></td></tr>
+        <tr><td><b>Confidence tier (จุดสี)</b></td><td>คะแนนความครบของข้อมูล 0–100: <b>เขียว &ge;80</b> · <b>เหลือง &ge;50</b> · <b>แดง &lt;50</b> — หักตามช่องที่ขาด/flag ร้ายแรง, บวกจาก track record beat และ consensus หลายแหล่งที่แคบ</td></tr>
+        <tr><td><b>Market regime</b></td><td><b>RISK-ON</b> = SPY เหนือ SMA200 · <b>RISK-OFF</b> = ใต้ SMA200 (momentum crash-prone, เปิด crash guard)</td></tr>
+        <tr><td><b>Market valuation</b></td><td>implied ERP &ge;5.5% = <b>CHEAP</b> (lean in) · 4.0–5.5% = <b>FAIR</b> (no tilt) · &le;4.0% = <b>EXPENSIVE</b> (raise cash / trim high-beta)</td></tr>
+        <tr><td><b>PEAD drift</b></td><td>bias จาก surprise ล่าสุด: beat = <b>drift ↑</b> · miss = <b>drift ↓</b> · <b>strong</b> เมื่อ |surprise| &ge;10% และ EPS/Rev ไม่ขัดกัน · ไม่มีข้อมูล = ไม่แสดง</td></tr>
+        <tr><td><b>Rebalance priority</b></td><td><b>Must</b> = น้ำหนักเกิน hard cap (single-name 20% / risk-budget 30% ของความเสี่ยงรวม) · <b>Should</b> = เติมตัวที่ต่ำกว่า soft cap (80% ของ hard cap)</td></tr>
+        <tr><td><b>Suitability verdict</b></td><td>drawdown ผูกพัน (แย่สุดจาก stress / −VaR99) &ge; −Max loss = <b>ภายในระดับที่รับได้ ✅</b> · ต่ำกว่า = <b>เกินระดับที่รับได้ ⛔ (FINDING หลัก)</b></td></tr>
+        <tr><td><b>Diversification band</b></td><td>&ge;80 กระจายกว้าง · 60–79 พอสมควร · 40–59 กระจายเชิงจำนวนชื่อ แต่ bets จำกัด · 20–39 กระจุกไม่กี่ bet · &lt;20 = พึ่ง driver เดียว</td></tr>
+      </table>
+
+      <h3 class="ht2">ตัวย่อ &amp; สัญลักษณ์ทั้งหมดบน dashboard</h3>
+      <table class="httab">
+        <tr><th>ตัวย่อ / สัญลักษณ์</th><th>ความหมาย</th></tr>
+        <tr><td><b>FV / Anchor FV</b></td><td>Fair Value (มูลค่ายุติธรรมต่อหุ้น) — Anchor = วิธีหลักที่เลือกใช้คิด Upside (★)</td></tr>
+        <tr><td><b>MoS</b></td><td>Margin of Safety = ส่วนเผื่อความผิดพลาด (FV−ราคา)/ราคา — ระดับพอร์ตคือ Portfolio MoS</td></tr>
+        <tr><td><b>P/L · MV · cost basis</b></td><td>กำไร/ขาดทุนของ position · Market Value (shares&times;ราคา) · ต้นทุน (shares&times;avg cost)</td></tr>
+        <tr><td><b>EPS · fwd EPS · EPS&times;n</b></td><td>กำไรต่อหุ้น · forward EPS = ประมาณการ 12 เดือนข้างหน้า (NTM) · &times;n = blend จาก n แหล่ง (Yahoo/FMP/Finnhub) — เขียว = แหล่งเห็นตรงกัน, แดง = spread &gt;25%</td></tr>
+        <tr><td><b>Rev · Mgn · OpM</b></td><td>Revenue (รายได้) · Margin trend · Operating margin = กำไรจากการดำเนินงาน/รายได้</td></tr>
+        <tr><td><b>TTM · NTM · FY · YoY · CAGR</b></td><td>Trailing 12 เดือน · Next 12 เดือน · ปีบัญชี · เทียบปีต่อปี · อัตราเติบโตทบต้นต่อปี</td></tr>
+        <tr><td><b>12-1 · ROC · 6M/12M</b></td><td>momentum 12 เดือนข้ามเดือนล่าสุด · Rate of Change (ผลตอบแทนช่วง n เดือน)</td></tr>
+        <tr><td><b>NOPAT · IC</b></td><td>Net Operating Profit After Tax = กำไรดำเนินงานหลังภาษี · Invested Capital = หนี้ + ส่วนผู้ถือหุ้น − เงินสด (ตัวหารของ ROIC)</td></tr>
+        <tr><td><b>ROIC* / R&amp;D-capitalized</b></td><td>* = ปรับ R&amp;D เป็นสินทรัพย์อายุ 5 ปีตามวิธี Damodaran ก่อนคิด ROIC — ไม่ลงโทษบริษัทที่ลงทุนอนาคตผ่าน R&amp;D</td></tr>
+        <tr><td><b>SBC · CFO · CC · accruals</b></td><td>Stock-Based Compensation (คิดผ่าน dilution) · Cash Flow from Operations · Cash Conversion = CFO/NI · กำไรที่ยังไม่เป็นเงินสด (NI−CFO)/assets</td></tr>
+        <tr><td><b>PEG · FVP · RevDCF</b></td><td>3 วิธีคิด FV: Fundamental PEG (2-stage fair P/E) · Future Value Projection (EPS โต 5 ปี &times; exit P/E คิดลด) · Reverse DCF (implied CAGR ที่ตลาด price-in)</td></tr>
+        <tr><td><b>GARP · PEAD · DCA</b></td><td>Growth At a Reasonable Price (ถูก&times;ดี) · Post-Earnings Announcement Drift · Dollar-Cost Averaging (ทยอยซื้อ)</td></tr>
+        <tr><td><b>pp · bps · %ile · B</b></td><td>percentage point (จุดเปอร์เซ็นต์) · basis point (0.01%) · percentile · พันล้าน (billion)</td></tr>
+        <tr><td><b>sleeve · ballast · tilt</b></td><td>กลุ่ม "ตัวขับความเสี่ยง" เดียวกัน (ไม่ใช่แค่ sector) · สินทรัพย์ถ่วงพอร์ต (bond/gold/cash) ที่ไม่วิ่งตามหุ้น · การเอียงน้ำหนักเบา ๆ (ไม่ใช่เข้า-ออกตลาด)</td></tr>
+        <tr><td><b>policy band · turnover</b></td><td>กรอบน้ำหนักที่ยอมให้ position วิ่งได้ก่อนต้อง rebalance · สัดส่วนพอร์ตที่ซื้อขายต่อปี (ยิ่งสูงยิ่งโดน cost/tax กัด — S6)</td></tr>
+        <tr><td><b>จุดสี ● (เขียว/เหลือง/แดง)</b></td><td>Confidence tier ของข้อมูลหุ้นตัวนั้น (ดูเกณฑ์ในตารางบน)</td></tr>
+        <tr><td><b>&#9873;n</b></td><td>จำนวน data flags — เรื่องที่ระบบอยากให้รู้เกี่ยวกับคุณภาพ/ที่มาของข้อมูล (ชี้ดูรายการเต็ม)</td></tr>
+        <tr><td><b>★</b></td><td>วิธี FV ที่ถูกเลือกเป็น anchor (ใช้คิด Upside จริง)</td></tr>
+        <tr><td><b>&#9203;</b></td><td>ข้อมูล momentum เก่าเกิน 4 วัน — กด Run Daily</td></tr>
+        <tr><td><b>&#9888; (ส้ม/แดง)</b></td><td>ส้ม = ราคา split-only อาจตีค่า 12M ต่ำไปสำหรับหุ้นปันผล · แดง = S9 crash guard (ตลาด RISK-OFF)</td></tr>
+        <tr><td><b>&#8635; (ม่วง)</b></td><td>S9 reversal risk — วิ่งสะสม ~3 ปี &ge;+150% และใกล้ยอดของช่วง = โซนกลับตัวระยะยาว</td></tr>
+        <tr><td><b>&#10227; refresh / &times; n/a</b></td><td>แถวผลงบว่างพร้อมเหตุผล: ⟳ = ข้อมูลชุดเก่า (กด Run Fundamental Refresh) · &times; = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง</td></tr>
+        <tr><td><b>&#128190; Drive ✓/✗ · local only</b></td><td>สถานะ backup Google Drive: ✓ ปกติ · ✗ pull/push ล้มเหลว (push ถูกบล็อกกัน backup โดนทับ) · local only = ยังไม่ได้ตั้งค่า</td></tr>
+        <tr><td><b>&#129517; / &#128161; / &#9432;</b></td><td>บรรทัดสังเคราะห์ "วันนี้" (S42) · advice ราย card (value&rarr;quality&rarr;timing) · มี tooltip เมื่อชี้</td></tr>
+        <tr><td><b>drift ↑ / ↓</b></td><td>ทิศ PEAD หลังงบล่าสุด (strong/mild)</td></tr>
+        <tr><td><b>SEC · FMP · Finnhub · AV · Stooq</b></td><td>แหล่งข้อมูล: SEC EDGAR (งบ, ฟรี, ทางการ) · Financial Modeling Prep (โควตา 250/วัน) · Finnhub / Alpha Vantage (EPS cross-check, optional) · Stooq (ราคา fallback ฟรี)</td></tr>
+        <tr><td><b>quota / headroom</b></td><td>โควตา FMP ฟรีของวันนี้ และจำนวน ticker ที่ยัง refresh ได้ (~5 calls/ตัว)</td></tr>
+      </table>
+
       <p class="muted" style="font-size:12px">หมายเหตุ: ทุกค่าคำนวณจากข้อมูลฟรี (SEC/Yahoo/FMP/Stooq) มีข้อจำกัด — แอปจะ "ข้ามและติด flag" เสมอ ไม่เดาตัวเลข (skill invariant 17)</p>
     </div>
   </div>
@@ -283,7 +741,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-07-03b";
+const DASH_BUILD="2026-07-04a";
 function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':Number(x).toFixed(d)}
 function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}

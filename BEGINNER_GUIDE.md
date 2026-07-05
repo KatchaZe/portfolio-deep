@@ -20,11 +20,11 @@
 | ชั้น | ไฟล์ | หน้าที่ | ภาษามนุษย์ |
 |---|---|---|---|
 | sources | `sources/sec_edgar.py` (หลัก) `yahoo.py` `fmp.py` `stooq.py` `finnhub.py` `alphavantage.py` `gdrive_store.py` | ดึงข้อมูลดิบจากเน็ต (SEC=หลัก, ที่เหลือเสริม/สำรอง) | "ไปเอาตัวเลขมา" |
-| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `risk_prices.py` `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate | "ทำความสะอาด + สั่งงาน" |
-| domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) | **คณิตศาสตร์ DEEP + momentum + risk** | "สมองที่ให้คะแนน" |
-| store | `store.py` | เซฟลงไฟล์ `data/portfolio.json` (+ mirror ขึ้น Google Drive) | "ความจำ" |
-| api | `app.py` (FastAPI) | รับคำสั่งจากหน้าจอ (รวม `/api/risk`) | "พนักงานรับเรื่อง" |
-| ui | `index.html` | หน้าเว็บ 3 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk) | "หน้าร้าน" |
+| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `market_valuation.py` `screen.py` `risk_prices.py` `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate (ดึงขนานกัน 4 workers) | "ทำความสะอาด + สั่งงาน" |
+| domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก + S9 crash guard) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) · `advice.py` (💡 คำแนะนำไทย) · `pead.py` `costs.py` `philosophy.py` | **คณิตศาสตร์ DEEP + momentum + risk + advice** | "สมองที่ให้คะแนน" |
+| store | `store.py` | เซฟลงไฟล์ `data/portfolio.json` (+ mirror ขึ้น Google Drive — push ถูกบล็อกจนกว่า pull สำเร็จ กัน backup โดนทับ) | "ความจำ" |
+| api | `app.py` (FastAPI) | รับคำสั่งจากหน้าจอ (รวม `/api/risk` `/api/screen` `/api/persist`) | "พนักงานรับเรื่อง" |
+| ui | `index.html` | หน้าเว็บ 5 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk · How to · Ref) + command strip 4 ไทล์ทุกแท็บ | "หน้าร้าน" |
 
 > **เวอร์ชันปัจจุบัน:** engine ที่ใช้งานคือ **DEEP v8.2** (`config.py → DEEP_VERSION="8.2"`); `deep_v73.py` เก็บไว้เพื่อ rollback. สัญญาณ momentum หลักมาจาก `domain/momentum.py` (QuantInsti: MOM_12_1/ROC/SMA200/RSI) — ส่วน `indicators.py` (RSI<30/DBBMV) เป็นแค่ตัวยืนยันรอง.
 
@@ -202,9 +202,11 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 ## ✅ 6. Checklist ก่อน commit / deploy ทุกครั้ง
 
-- [ ] `python run_tests.py` → เห็น `ALL TEST SUITES PASSED ✅`
+- [ ] `python run_tests.py` → เห็น `ALL TEST SUITES PASSED ✅` (35 suites)
+- [ ] ถ้าแก้ `index.html`: bump **`DASH_BUILD`** (บนสุดของ script) และ **`config.BUILD`** ให้ตรงกันเสมอ (test_frontend บังคับ)
 - [ ] รันแอป `uvicorn app:app --port 8000` แล้วเปิดดูจริง ไม่มี error ใน terminal
 - [ ] ลองกดทุกปุ่ม: Add holding / Refresh / Daily / Watchlist run / Allocation → Run risk analysis / What-if
+- [ ] เช็ค badge 💾 Drive บน header เป็น ✓ (ถ้า ✗ = push ถูกบล็อก ข้อมูลยังไม่ backup)
 - [ ] ถ้า deploy สาธารณะ: ตั้ง `APP_TOKEN` แล้ว (ห้าม commit ค่า token ลง git!)
 - [ ] ไม่มีข้อมูลส่วนตัว (email/key) อยู่ในโค้ดที่จะ push (เช็ค `config.py`)
 

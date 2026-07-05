@@ -247,9 +247,8 @@ def extract(companyfacts):
         "shares_diluted": _val(latest("WeightedAverageNumberOfDilutedSharesOutstanding", prefer=("shares",))
                                or latest("CommonStockSharesOutstanding", prefer=("shares",))),
         "total_debt": total_debt,
-        "cash": fresh("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents"),
-        "equity": fresh("StockholdersEquity", "Equity",
-                        "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest"),
+        "cash": fresh(*CASH_TAGS),
+        "equity": fresh(*EQUITY_TAGS),
         "capex": ttm("PaymentsToAcquirePropertyPlantAndEquipment") or ttm("PurchaseOfPropertyPlantAndEquipment"),
         "dep_amort": ttm("DepreciationAndAmortization") or ttm("Depreciation") or ttm("DepreciationDepletionAndAmortization"),
         "income_before_tax": ttm("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest")

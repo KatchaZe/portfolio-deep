@@ -1,8 +1,8 @@
 flowchart TD
     subgraph SRC["1 · SOURCE ADAPTERS  (fetch only, mockable)"]
-        SEC["sec_edgar.py  ★PRIMARY★<br/>financials: robust TTM (FY+YTD−priorYTD)<br/>+ CFO/assets/AR/interest/R&D/acq/deferred rev<br/>quarterly rev & op-income · freshest-tag · FX-aware"]
-        FMP["fmp.py<br/>profile: sector·beta·price · earnings · quote<br/>analyst-estimate path · revenue surprise · peers<br/>adjClose history (momentum/risk)"]
-        YH["yahoo.py<br/>forward EPS (adj) · momentum chart · 5y prices<br/>EPS surprise · revenue est (curQ) · ^TNX · FX"]
+        SEC["sec_edgar.py  ★PRIMARY★<br/>financials: robust TTM (FY+YTD−priorYTD)<br/>+ CFO/assets/AR/interest/R&D/acq/deferred rev<br/>quarterly rev & op-income & EPS · freshest-tag · FX-aware<br/>disk cache 12h + stale-cache fallback (H1)"]
+        FMP["fmp.py<br/>profile: sector·beta·price · earnings (EPS+Rev surprise) · quote<br/>analyst-estimate path · quarterly estimates · peers<br/>adjClose history (momentum tier-2 + risk) · free-tier caps (limit≤5)"]
+        YH["yahoo.py<br/>forward EPS (adj) · momentum chart · 5y prices<br/>EPS surprise · revenue est (curQ) · ^TNX · FX<br/>cached session+crumb (P2) · retry + host rotation"]
         STQ["stooq.py<br/>free daily OHLC (no key)<br/>price/momentum + risk-returns FALLBACK"]
         FH["finnhub.py / alphavantage.py<br/>optional 3rd/4th EPS-surprise cross-check"]
     end
@@ -10,39 +10,45 @@ flowchart TD
     subgraph PIPE["2 · PIPELINE"]
         NORM["normalize.py<br/>merge SEC + FMP + Yahoo → FinancialFacts (+FX, provenance)"]
         VAL["validate.py<br/>sanity rules · forward-EPS resolution<br/>assumption flags → confidence score + tier (🟢🟡🔴)"]
-        TRACKS["rev_track · margin_track · consensus<br/>surprise_backfill · pricecache<br/>EPS/Rev/Margin track record + EPS blend"]
+        TRACKS["rev_track · margin_track · consensus<br/>surprise_backfill · pricecache (R4)<br/>EPS/Rev/Margin track record + EPS blend"]
+        MKTV["market_valuation.py<br/>S32/33 overlay: implied ERP band →<br/>cheap/fair/expensive + tilt (no on/off timing)"]
+        SCRN["screen.py<br/>S13/S19 GARP: cheap × quality rank"]
         RISKP["risk_prices.py<br/>daily returns FMP→Stooq→proxy (risk only)"]
-        REF["refresh.py (orchestration)<br/>fetch/commit_fundamentals · fetch/commit_daily<br/>watchlist · allocation · portfolio_view"]
+        REF["refresh.py (orchestration)<br/>fetch/commit_fundamentals · fetch/commit_daily (PARALLEL, P1: 4 workers)<br/>watchlist · allocation · portfolio_view · _earn_status (why-empty)"]
     end
 
     subgraph DOM["3 · DOMAIN  (pure · deterministic · tested)"]
         FACTS["FinancialFacts<br/>values + provenance + confidence<br/>+ v8.2 fields (CFO, R&D, consensus path, peers…)"]
-        MOM["momentum.py ★PRIMARY signal★<br/>MOM_12_1 · ROC_6M · SMA200 · RSI(14) → composite"]
-        IND["indicators.py (secondary)<br/>RSI / MACD / DBBMV mean-reversion + Action"]
+        MOM["momentum.py ★PRIMARY signal★<br/>MOM_12_1 · ROC_6M · SMA200 · RSI(14) → composite<br/>+ S9: reversal_flag (3-5y) · market_state (SPY vs 200-DMA) · crash_guard"]
+        IND["indicators.py (secondary)<br/>RSI / MACD / DBBMV mean-reversion + Action grid (S11 taxonomy)"]
+        ADV["advice.py (v8.3, Thai)<br/>Damodaran action synthesis:<br/>VALUE → QUALITY → TIMING → Action"]
+        EXT["pead.py (S25 drift) · costs.py (S6 net) · philosophy.py (S1/S42 fit)"]
         subgraph ENG["engine/  (versioned, swappable)"]
             CON["contract.py<br/>Valuation + DeepEngine ABC"]
-            V82["deep_v82.py  ★active★<br/>true WACC·Ke·R&D-ROIC·EQ·2-stage PEG·EV RevDCF·rubric"]
+            V82["deep_v82.py  ★active★<br/>true WACC·Ke·R&D-ROIC·EQ·2-stage PEG·FVP·EV RevDCF·rubric"]
             V73["deep_v73.py  (rollback)"]
             REG["__init__.py registry<br/>get_engine(DEEP_VERSION=8.2)"]
         end
-        RISK["engine/risk.py (Risk Desk math)<br/>weights·cov·DR·RC/ENB·stress·VaR·sizing·rebalance"]
+        RISK["engine/risk.py (Risk Desk math)<br/>weights·cov·DR·RC/ENB·stress·VaR·downside(S2/S4)<br/>rate_stress(S3)·sizing·rebalance"]
     end
 
     subgraph STORE["4 · STORE  (store.py — local JSON + cloud mirror)"]
-        PORT["portfolio.json (local working copy)<br/>holdings(shares+avg cost) · watchlist<br/>facts · results · momentum · fmp_usage<br/>rev_snapshots · rev_surprises (accrue)"]
+        PORT["portfolio.json (local working copy)<br/>holdings(shares+avg cost) · watchlist<br/>facts · results · momentum · market(^regime) · fmp_usage<br/>rev_snapshots · rev_surprises (accrue)"]
         RCACHE["risk_cache.json<br/>risk return-series cache (separate file)"]
-        GD["gdrive_store.py<br/>OAuth user creds · scope drive.file<br/>drive_pull() on load · drive_push() on save<br/>best-effort · no-op when unconfigured"]
+        GD["gdrive_store.py<br/>OAuth user creds · scope drive.file<br/>drive_pull() on load · background push worker<br/>★PUSH GUARD★: push BLOCKED until a pull succeeds<br/>(protects backup from an empty cold-start store)"]
         CLOUD["☁ Google Drive (your account)<br/>portfolio.json — survives Render<br/>free-tier redeploys / cold starts"]
     end
 
     subgraph API["5 · FASTAPI (app.py)"]
-        EP["/portfolio /holding(+/remove) /refresh /daily<br/>/watchlist(/add /remove /run /promote)<br/>/allocation(/whatif) /risk /quota /healthz"]
+        EP["/portfolio /holding(+/remove) /refresh /daily<br/>/watchlist(/add /remove /run /promote)<br/>/allocation(/whatif) /risk /screen /persist /quota /healthz"]
     end
 
-    subgraph UI["6 · DASHBOARD (index.html, 3 tabs)"]
-        T1["Tab 1 · My Portfolio<br/>P/L · DEEP★ (v8.2) · momentum · action<br/>earnings circles EPS+Rev+Mgn 🟢🟡🔴 · confidence"]
-        T2["Tab 2 · Watchlist<br/>run on-demand · earnings circles<br/>+ Portfolio · remove"]
-        T3["Tab 3 · Allocation → RISK DESK<br/>%Capital vs %Risk · concentration · stress/VaR<br/>suitability · rebalance · (cost pies + what-if below)"]
+    subgraph UI["6 · DASHBOARD (index.html, 5 tabs · build stamp guard)"]
+        T0["Command strip (ทุกแท็บ)<br/>Regime S9 · Market value S32/33 · vs S&P S16/S35 · Philosophy S1/S42<br/>+ 🧭 synthesis line · stale-assumption banner · 💾 persist badge + keepalive"]
+        T1["Tab 1 · My Portfolio (cards)<br/>value gauge (Price vs Value) · DEEP★ + Moat/EQ/GARP chips<br/>Momentum/Rank/Action · Anchor FV (ทุกวิธี+★) · net upside (S6)<br/>earnings circles EPS+Rev+Mgn + PEAD · 💡 advice · drawer (WACC/Ke/EVA)"]
+        T2["Tab 2 · Watchlist<br/>same cards, run on-demand · + Portfolio · remove"]
+        T3["Tab 3 · Allocation<br/>Cash stance · GARP screen + quadrant → RISK DESK:<br/>Portfolio Story · %Capital vs %Risk · concentration · stress/VaR<br/>downside S2/S4 · suitability · rebalance · (cost pies + what-if)"]
+        T4["Tab 4 · How to — annotated SVG mockups ของ card / banner / allocation<br/>Tab 5 · Ref — นิยามครบ: Damodaran terms · S1–S42 · ตัวย่อ/สัญลักษณ์"]
     end
 
     SEC --> NORM
@@ -60,6 +66,10 @@ flowchart TD
     REF --> IND
     REF --> REG
     REF --> TRACKS
+    REF --> MKTV
+    REF --> SCRN
+    REF --> ADV
+    REF --> EXT
     TRACKS --> PORT
     REF --> PORT
     PORT --> EP
@@ -67,14 +77,15 @@ flowchart TD
     RISK --> EP
     RISKP -. caches .-> RCACHE
     PORT -. read-only .-> RISK
-    PORT -. "drive_push() on save" .-> GD
+    PORT -. "background push (guarded)" .-> GD
     GD -. "drive_pull() on load" .-> PORT
     GD <-->|sync| CLOUD
+    EP --> T0
     EP --> T1
     EP --> T2
     EP --> T3
     YH -. daily momentum (no FMP quota) .-> REF
-    QUOTA["quota guard<br/>FMP 250/day · warn 90%"]
+    QUOTA["quota guard<br/>FMP 250/day · ~5 calls/ticker (fundamentals)<br/>partitioned UP FRONT for parallel fetch · warn 90%"]
     QUOTA -. guards .-> REF
     QUOTA -. guards .-> RISKP
     FIX["tests/fixtures<br/>AVGO ABBV ORCL NVO MSFT"]

@@ -21,7 +21,7 @@ allocation view. (v7.3 is retained for one-line rollback — see below.)
   blend** (median + dispersion).
 - **Trust:** every value carries provenance + a confidence tier; inputs with no free
   source are **skipped + flagged**, never guessed (incl. beta→1.0, tax→21%, growth→8%,
-  ERP staleness, terminal-margin fallback); a 20-module regression suite locks numbers.
+  ERP staleness, terminal-margin fallback); a 35-module regression suite locks numbers.
   See **`DATA_AUDIT.md`** for the full real-vs-assumed provenance audit.
 
 See `DESIGN.md` for architecture and **`BEGINNER_GUIDE.md` for a step-by-step beginner guide** (run, modify, upgrade the engine).
@@ -42,25 +42,50 @@ Open http://localhost:8000
 
 ---
 
-## 2. The three tabs
+## 2. The five tabs
 
-**My Portfolio** — your holdings. Add a ticker with **shares + average cost** →
-it fetches + analyses automatically. Shows price, momentum (hover for RSI/MACD/DBBMV
-breakdown), DEEP★ score + recommendation, Action, anchor fair value + upside (or
-"RevDCF implies X%" for priced-for-perfection names), **P/L $ and %**, an **Earnings**
-track record (🟢 beat / 🟡 meet / 🔴 miss circles — see §3b), confidence dot, and a
-one-line verdict. **Run Fundamental Refresh** (SEC+FMP+Yahoo) / **Run Daily**
-(Yahoo price+momentum, free). Remove with the red ✕.
+Every tab shares a **command strip** at the top (Damodaran overlay): market **Regime
+(S9)** — SPY vs its 200-DMA (risk-on/off, drives the per-card crash guard) · **Market
+value (S32/33)** — implied-ERP cheap/fair/expensive with a cash *tilt* (never an
+in/out switch) · **vs S&P 12M (S16/S35)** — MV-weighted holdings return vs the index
+(illustrative) · **Philosophy fit (S1/S42)** — what the portfolio is *actually*
+running vs your profile, plus a 🧭 one-line "วันนี้" synthesis. Stale manual
+assumptions (ERP / MARKET_PE in `config.py`) raise a banner. The header shows the
+💾 Drive-persistence badge and the FMP quota.
 
-**Watchlist** — type a ticker → **Run watchlist** to analyse on demand (not stored;
-names are remembered). Per row: **+ Portfolio** (prompts for shares + avg cost, then
-moves it to My Portfolio) and ✕ remove.
+**My Portfolio** — your holdings as **cards** (value-first layout). Add a ticker with
+**shares + average cost** → it fetches + analyses automatically. Each card: a
+**Price-vs-Value gauge** (black marker on a green/grey/red FV scale; pre-profit names
+show implied-vs-actual CAGR bars instead), DEEP★ score + recommendation with
+**Moat (ROIC−WACC) / EQ / GARP** chips, Momentum + cross-sectional **Rank** + Action
+(with the S9 **WAIT · crash guard** display override in a risk-off market), **Anchor
+FV showing every computed method** (★ = the anchor; `EPS×n` blend badge), upside
+gross → **net after cost/tax (S6)**, the **Earnings** track record (EPS/Rev/Mgn
+circles + PEAD drift — see §3b; empty rows are explained: `⟳ refresh` vs `× n/a`),
+a one-line verdict + 💡 **Thai action advice** (value → quality → timing), and an
+expandable drawer (WACC/Ke/EVA + sub-score audit trail). Bond/gold/crypto holdings
+render a reduced card tagged **BOND (S3)** / **PRICING ASSET (S40-41)**.
+**Run Fundamental Refresh** (SEC+FMP+Yahoo) / **Run Daily** (price+momentum, free).
 
-**Allocation** — opens with the new **Risk Desk** (see §2b): %Capital vs %Risk,
-concentration, correlation/diversification, stress tests, and a rebalancing plan.
-Below it (unchanged) are the two cost-basis doughnut pies (by holding, by sector)
-and **What-if**: enter up to 5 (ticker, buy $) → **Calculate** to see the
-allocation before vs after.
+**Watchlist** — type a ticker → **Run watchlist** to analyse on demand with the same
+cards (not stored; names are remembered). Per card: **+ Portfolio** (prompts for
+shares + avg cost) and ✕ remove.
+
+**Allocation** — opens with the **Cash stance (S32/33)** line and the **GARP screen**
+(cheap × quality ranking + quadrant map, S13/S19), then the **Risk Desk** (see §2b)
+headed by a **Portfolio Story** (main FINDING + 5 Damodaran principles): %Capital vs
+%Risk, concentration, correlation/diversification, stress tests, downside lens, and a
+rebalancing plan. Below it (unchanged) are the two cost-basis doughnut pies (by
+holding, by sector) and **What-if**: enter up to 5 (ticker, buy $) → **Calculate** to
+see the allocation before vs after.
+
+**How to** — annotated SVG mockups of the stock card, the top banner, and every
+Allocation section/graph, with numbered callouts and Thai explanations.
+
+**Ref** — full glossary: discount rates & cost of capital, business quality, fair-value
+methods, DEEP scores & signals, portfolio-risk metrics, the complete **S1–S42**
+Damodaran session map, every verdict/Action with its thresholds, and all
+abbreviations & symbols used anywhere on the dashboard.
 
 ---
 
@@ -130,10 +155,13 @@ The **Anchor FV** cell also shows an `EPS×N` badge = how many sources the forwa
 
 - **Fundamentals change quarterly** (on earnings) — refresh after a company reports,
   or monthly. **Daily price/momentum** is free (Yahoo) — run it anytime.
-- FMP free tier = **250 calls/day**; this app uses FMP only for the *profile*
-  (sector/beta/price) ≈ **1 call per ticker**, because financials come from SEC.
-  So you can hold/scan dozens of tickers comfortably. The header bar shows usage and
-  warns at 90%; refreshes that would exceed the cap are skipped.
+- FMP free tier = **250 calls/day**; a fundamentals refresh budgets a worst case of
+  ≈ **5 calls per ticker** (profile + quote fallback + earnings + estimates +
+  quarterly-estimate backfill) — financials themselves come free from SEC. Tickers are
+  fetched **in parallel** (4 workers) with the quota partitioned up front, so the
+  pre-check stays exact. The header bar shows usage and warns at 90%; refreshes that
+  would exceed the cap are skipped. Daily momentum spends FMP only when Yahoo is
+  blocked *and* the cache can't serve (price series are disk-cached per trading day).
 
 ---
 
@@ -177,9 +205,10 @@ from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output s
 
 ```powershell
 python capture.py        # one-time: fetch real fixtures (or commit them)
-python run_tests.py      # 20 modules: FMP/SEC/engine + momentum, consensus blend,
+python run_tests.py      # 35 modules: FMP/SEC/engine + momentum, consensus blend,
                          # margin trend, Stooq, revenue surprise, assumption flags,
-                         # + risk engine + no-regression isolation
+                         # risk engine, no-regression isolation, advice, earn-status,
+                         # gdrive push-guard, parallel fetch, frontend tokens + build stamp
 ```
 The fixtures freeze real numbers for AVGO/ABBV/ORCL/NVO/MSFT so a data regression
 fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B). New

@@ -35,7 +35,7 @@ and allocation view.
 portfolio-deep/
   config.py                  # tickers, CIKs, FMP base, SEC UA, DEEP_VERSION, ERP (+as-of/stale)
   app.py                     # FastAPI endpoints (incl. /api/risk + risk helpers)
-  index.html                 # 3-tab dashboard (vanilla JS + Chart.js); Tab 3 = Risk Desk
+  index.html                 # 5-tab dashboard (vanilla JS + Chart.js); Tab 3 = Risk Desk, Tab 4/5 = How to / Ref
   store.py                   # local JSON + Google Drive mirror: holdings, watchlist, facts, results, momentum, fmp_usage, rev_*
   sources/                   # fetch only — no math, each mockable
     sec_edgar.py             #   PRIMARY financials: robust TTM, freshest-tag pick, currency-aware (+v8.2 fields)
@@ -48,7 +48,12 @@ portfolio-deep/
   domain/                    # pure, deterministic, unit-tested
     facts.py                 #   FinancialFacts dataclass (+ provenance / confidence / tier; v8.2 fields)
     momentum.py              #   PRIMARY signal: MOM_12_1 · ROC_6M · SMA200 · RSI(14) → composite (QuantInsti)
-    indicators.py            #   secondary: RSI / MACD / DBBMV mean-reversion + Action grid
+                             #   + S9: reversal_flag (3-5y), market_state (SPY vs 200-DMA), crash_guard
+    indicators.py            #   secondary: RSI / MACD / DBBMV mean-reversion + Action grid (S11 taxonomy)
+    advice.py                #   v8.3 Thai action synthesis per row: VALUE → QUALITY → TIMING → Action
+    pead.py                  #   S25 post-earnings drift bias from the latest surprise
+    costs.py                 #   S6 net upside after round-trip trading cost + capital-gains tax
+    philosophy.py            #   S1/S42 philosophy-fit: what the portfolio actually runs vs profile
     engine/                  #   versioned DEEP engine
       contract.py            #     Valuation (output) + DeepEngine ABC  ← the stable contract
       deep_v82.py            #     DeepV82Engine ("8.2", ACTIVE): true WACC/Ke, R&D-ROIC, EQ, 2-stage PEG, EV RevDCF, rubric
@@ -62,16 +67,18 @@ portfolio-deep/
     rev_track.py             #   build-forward revenue beat/miss (snapshot estimate -> grade vs SEC actual)
     margin_track.py          #   operating-margin YoY trend per SEC quarter (expand/flat/contract)
     surprise_backfill.py     #   immediate EPS/Rev beat/miss from SEC actual × FMP estimate
-    pricecache.py            #   disk cache for the long (2y) adjusted price series (R4)
+    pricecache.py            #   disk cache for the long (2y/5y) adjusted price series (R4)
+    market_valuation.py      #   S32/33 market overlay: implied-ERP band → cheap/fair/expensive + tilt
+    screen.py                #   S13/S19 GARP screen: cheap × quality rank over stored subscores
     risk_prices.py           #   risk-only daily-return source (FMP adj → Stooq → proxy), quota-guarded
-    refresh.py               #   orchestration: fetch/commit_fundamentals · fetch/commit_daily ·
-                             #                  watchlist · allocation · portfolio_view · resolve_cik
-  tests/                     # 20 suites (run_tests.py) — see §10
+    refresh.py               #   orchestration: fetch/commit_fundamentals · fetch/commit_daily (PARALLEL, 4 workers) ·
+                             #                  watchlist · allocation · portfolio_view · _earn_status · resolve_cik
+  tests/                     # 35 suites (run_tests.py) — see §10
     fixtures/                #   frozen real JSON: AVGO, ABBV, ORCL, NVO, MSFT (sec/yahoo/fmp profile)
     test_engine_v82.py · test_momentum.py · test_risk.py · test_no_regression.py · …
   capture.py                 # fetch real fixtures (SEC + FMP profile + Yahoo)
   verify.py                  # run SEC extraction on fixtures, compare to known-good
-  run_tests.py               # run all 20 suites
+  run_tests.py               # run all 35 suites
   requirements.txt · render.yaml · Procfile · .gitignore
   data/portfolio.json        # created at runtime (+ data/risk_cache.json, data/cache/)
 ```
@@ -194,30 +201,54 @@ Example verdict (v8.2):
 
 ---
 
-## 7. Dashboard — three tabs (`index.html`)
+## 7. Dashboard — five tabs (`index.html`)
 
-**Tab 1 · My Portfolio** (stored): `Ticker(+✕) | Price | Chg | Shares | AvgCost | MktVal |
-P/L $ | P/L % | DEEP★+reco | Momentum(+RSI/MACD/DBBMV tooltip) | Action | Anchor FV (or
-RevDCF implies %) | Upside | Earnings | Verdict`, plus a TOTAL row and a confidence dot.
-The **Earnings** cell shows up to three rows of up to 4 circles (oldest→newest) — 🟢 beat /
-🟡 meet / 🔴 miss, hover for quarter/actual vs estimate/surprise%:
+**Shared banner (all tabs)** — a **command strip** of four Damodaran tiles:
+Regime (S9, SPY vs 200-DMA → per-card crash guard) · Market value (S32/33 implied-ERP
+band + tilt) · vs S&P 12M (S16/S35, MV-weighted illustrative) · Philosophy fit (S1/S42),
+plus a 🧭 one-line synthesis (`renderSynth`), a stale-assumption banner
+(`renderAssumptions`, flags ERP / MARKET_PE older than 3 months), a stale-momentum
+banner, the 💾 Drive-persistence badge (`/api/persist`), the FMP quota badge, and a
+build-stamp guard (`DASH_BUILD` vs `config.BUILD` via `/healthz`). A keepalive pings
+`/healthz` every 4 min while the tab is open (Render free tier spins down at ~15 min).
+
+**Tab 1 · My Portfolio** (stored) — **card layout** (`pcard`), value-first (S5):
+header (confidence dot + ⚑ flags + price/P&L as muted context) → **Price-vs-Value gauge**
+(`valueGauge`; pre-profit names show implied-vs-actual CAGR bars) → DEEP★ + reco +
+**Moat/EQ/GARP chips** → Momentum / cross-sectional Rank / Action (`dispAction` applies the
+S9 WAIT·crash-guard display override) → **Anchor FV** (every computed method, ★ = anchor,
+`EPS×n` blend badge) + upside gross → net (S6) → S9 guard badges → **Earnings** circles +
+PEAD chip → verdict + 💡 Thai advice (`domain/advice.py`) → drawer (WACC/Ke/EVA +
+sub-score audit trail). The **Earnings** block shows up to three rows of up to 5 circles
+(oldest→newest) — 🟢 beat / 🟡 meet / 🔴 miss, hover for actual vs estimate:
 - **EPS** (vs consensus, cross-checked across Yahoo + FMP + Finnhub + Alpha Vantage).
 - **Rev** (immediate from FMP when available, else built forward — see §9).
 - **Mgn** (operating-margin YoY trend from SEC: expand/flat/contract — fills immediately).
-Add/update a holding with **shares + avg cost** (auto-fetches). **Run Fundamental Refresh** /
-**Run Daily**. Remove with the red ✕ (deletes its cached data).
+Empty rows are explained, never silent (`_earn_status`): `⟳ refresh` = pre-schema facts,
+`× n/a` = primary and fallback sources both empty. Bond/gold/crypto tickers render a
+reduced card tagged BOND (S3) / PRICING ASSET (S40-41) — no FV/GARP/EQ.
 
 **Tab 2 · Watchlist** (names persisted, data ephemeral): add a ticker → **Run watchlist**
-to analyse on demand (not stored). Same columns incl. the **Earnings** circles. Per row
-**+ Portfolio** (prompts for shares + avg cost, then moves it to Tab 1) and ✕ remove.
+to analyse on demand (not stored). Same cards. Per card **+ Portfolio** (prompts for
+shares + avg cost, then moves it to Tab 1) and ✕ remove.
 
-**Tab 3 · Allocation → Risk Desk** (institutional risk view, served by `GET /api/risk`):
+**Tab 3 · Allocation** — opens with **Cash stance (S32/33)** and the **GARP screen +
+quadrant** (S13/S19, `/api/screen`), then the **Risk Desk** (served by `GET /api/risk`)
+headed by a **Portfolio Story** (main FINDING + 5 Damodaran principle rows, `riskStory`):
 %Capital vs %Risk, concentration (HHI/Effective-N/ENB), correlation/diversification
 (DR normal + crisis), stress tests (historical + hypothetical + VaR/CVaR + reverse stress),
-suitability vs your max-loss tolerance, and a rebalancing plan (before→after). All math is
-pure Python (`domain/engine/risk.py`); numbers carry epistemic tags. Below it (unchanged) are
-the cost-basis doughnuts (by holding, by sector) and **What-if**: up to 5 (ticker, buy $) →
+**5b downside lens (S2/S4** incl. Portfolio MoS**)**, suitability vs your max-loss
+tolerance, and a rebalancing plan (before→after). All math is pure Python
+(`domain/engine/risk.py`); numbers carry epistemic tags. Below it (unchanged) are the
+cost-basis doughnuts (by holding, by sector) and **What-if**: up to 5 (ticker, buy $) →
 **Calculate** → before-vs-after pies. See `RISK_FEATURE.md` for the developer reference.
+
+**Tab 4 · How to** — annotated SVG mockups (numbered callouts + Thai legend tables) of
+the stock card, the top banner/command strip, and every Allocation section & graph.
+
+**Tab 5 · Ref** — the full glossary: discount rates / quality / FV methods / DEEP scores /
+portfolio-risk metrics, the complete S1–S42 session map, every verdict & Action with
+thresholds, and all abbreviations & symbols.
 
 ---
 
@@ -230,6 +261,7 @@ the cost-basis doughnuts (by holding, by sector) and **What-if**: up to 5 (ticke
   "facts":     { "NVDA": { ...FinancialFacts.to_dict()... } },   // holdings only
   "results":   { "NVDA": { ...Valuation.to_dict()... } },
   "momentum":  { "NVDA": { ...momentum.compute() (primary) + indicators.compute() (secondary)... } },
+  "market":    { "regime": "risk_on", "ret_12m": 0.15, "valuation": { ...S32/33 overlay + as-of dates... } },  // S9 regime (reserved key ^MARKET)
   "fmp_usage": { "2026-06-09": 12 },           // daily FMP-call counter (quota guard)
   "updated":   { "NVDA": "2026-06-09" },
   "rev_snapshots": { "NVDA": { "2026-07-31": {"est": 5.4e10, "captured": "2026-06-09"} } },  // pending estimates
@@ -264,7 +296,10 @@ signal wired into confidence).
 
 ## 9. Quota strategy (`store.py` counter + `app.py` guard)
 
-- Budget **250 FMP calls/day**; this app spends ~**1 call/ticker** (profile only).
+- Budget **250 FMP calls/day**; a fundamentals refresh budgets a worst case of
+  ~**5 calls/ticker** (profile + quote fallback + earnings + estimates + quarterly-est
+  backfill) — the quota is **partitioned up front** (`_partition_by_quota`) so the
+  pre-check stays exact under the parallel (4-worker) fetch.
 - `store.add_fmp_calls` / `fmp_used_today` track usage; `app._quota` exposes
   used/cap/percent + **warns at 90%** and shows "~N ticker-fetches left".
   `refresh_fundamentals` skips any ticker that would exceed the cap.

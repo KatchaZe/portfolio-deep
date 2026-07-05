@@ -1,5 +1,5 @@
 """
-FastAPI app — DEEP v7.3 portfolio dashboard (v2.1, hardened).
+FastAPI app — DEEP portfolio dashboard (v2.1, hardened; engine version = config.DEEP_VERSION).
 
 Run:
     set FMP_API_KEY (optional, for sector/beta via FMP profile)
@@ -44,7 +44,7 @@ logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("portfolio")
 
-app = FastAPI(title="Portfolio DEEP v7.3")
+app = FastAPI(title=f"Portfolio DEEP v{config.DEEP_VERSION}")
 BASE = os.path.dirname(os.path.abspath(__file__))
 QUOTA_CAP = config.QUOTA_CAP
 APP_TOKEN = os.environ.get("APP_TOKEN", "")
