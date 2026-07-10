@@ -432,6 +432,77 @@ def portfolio_returns(returns_by_ticker, tickers, weights):
     return out
 
 
+# --------------------------------------------------------------------------- #
+#  Correlation Monitor (Correlation tab) — pairwise / sector / downside / roll  #
+#  All pure; consume the same return series the risk desk already fetched.      #
+# --------------------------------------------------------------------------- #
+def pair_corr(a, b):
+    """Pearson correlation of two daily-return series over their common tail
+    window. Returns None if <2 overlapping points or a series is flat."""
+    n = min(len(a or []), len(b or []))
+    if n < 2:
+        return None
+    a, b = a[-n:], b[-n:]
+    sa, sb = _stdev(a), _stdev(b)
+    if sa <= 0 or sb <= 0:
+        return None
+    ma, mb = _mean(a), _mean(b)
+    cov = sum((a[i] - ma) * (b[i] - mb) for i in range(n)) / (n - 1)
+    return cov / (sa * sb)
+
+
+def sector_corr(matrix, tickers, sectors):
+    """Average pairwise correlation WITHIN each sector (intra) + the whole-portfolio
+    average pairwise correlation. `matrix` is a ticker×ticker correlation matrix.
+    Returns {'sector_avg': {sector: {avg, n}}, 'avg_pairwise': float|None}."""
+    n = len(tickers)
+    by, all_pairs = {}, []
+    for i in range(n):
+        for j in range(i + 1, n):
+            v = matrix[i][j]
+            all_pairs.append(v)
+            si, sj = sectors.get(tickers[i]), sectors.get(tickers[j])
+            if si and si == sj:
+                by.setdefault(si, []).append(v)
+    sector_avg = {s: {"avg": round(sum(vs) / len(vs), 3), "n": len(vs)}
+                  for s, vs in by.items()}
+    avg_pairwise = round(sum(all_pairs) / len(all_pairs), 3) if all_pairs else None
+    return {"sector_avg": sector_avg, "avg_pairwise": avg_pairwise}
+
+
+def top_pairs(matrix, tickers, k=5):
+    """k highest- and k lowest-correlated pairs as [ticker_a, ticker_b, rho]."""
+    n = len(tickers)
+    pairs = [[tickers[i], tickers[j], round(matrix[i][j], 3)]
+             for i in range(n) for j in range(i + 1, n)]
+    pairs.sort(key=lambda p: -p[2])
+    return {"high": pairs[:k], "low": list(reversed(pairs[-k:]))}
+
+
+def downside_corr(a, b, market, threshold=0.0):
+    """Correlation of a,b restricted to days when the MARKET return < threshold
+    (Damodaran S2/S4: risk is downside, not symmetric vol). None if <2 down-days."""
+    n = min(len(a or []), len(b or []), len(market or []))
+    if n < 2:
+        return None
+    a, b, market = a[-n:], b[-n:], market[-n:]
+    idx = [i for i in range(n) if market[i] < threshold]
+    if len(idx) < 2:
+        return None
+    return pair_corr([a[i] for i in idx], [b[i] for i in idx])
+
+
+def rolling_corr(a, b, window=60):
+    """Trailing-window Pearson correlation series (one value per step once the
+    window is full) — for a sparkline / 'is correlation trending up now?' read."""
+    n = min(len(a or []), len(b or []))
+    if n < window or window < 2:
+        return []
+    a, b = a[-n:], b[-n:]
+    return [round(pair_corr(a[e - window:e], b[e - window:e]) or 0.0, 3)
+            for e in range(window, n + 1)]
+
+
 def semideviation(returns, mar=0.0):
     """Annualized DOWNSIDE deviation: only returns below the minimum-acceptable
     return (MAR=0) count. sqrt(mean over ALL obs of squared shortfalls) annualized.

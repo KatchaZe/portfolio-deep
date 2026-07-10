@@ -81,6 +81,7 @@
     <div class="tab active" id="tab1" onclick="showTab(1)">My Portfolio</div>
     <div class="tab" id="tab2" onclick="showTab(2)">Watchlist</div>
     <div class="tab" id="tab3" onclick="showTab(3)">Allocation</div>
+    <div class="tab" id="tab6" onclick="showTab(6)">Correlation</div>
     <div class="tab" id="tab4" onclick="showTab(4)">How to</div>
     <div class="tab" id="tab5" onclick="showTab(5)">Ref</div>
   </div>
@@ -143,6 +144,38 @@
           <div style="width:300px"><div class="muted" style="font-size:11px;text-align:center">By sector</div><canvas id="pieSectorAfter" height="240"></canvas></div>
         </div>
       </div>
+    </div>
+
+    <!-- ===================== CORRELATION MONITOR (tab6) ===================== -->
+    <div id="p6" style="display:none">
+      <style>
+        #p6 .cqcard{background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:13px 15px;margin-bottom:12px}
+        #p6 .cqrcard{background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:9px 11px}
+        #p6 .cqrcard b{font-size:17px}
+        #p6 .cqlbl{font-size:9px;color:#94a3b8;letter-spacing:.04em;text-transform:uppercase}
+        #p6 .cqchip{display:inline-block;font-size:10px;font-weight:700;border-radius:5px;padding:1px 7px}
+        #p6 .cqleg{border-radius:10px;padding:10px 13px;font-size:12px;line-height:1.55;border:1px solid}
+        #p6 .cqpill{background:#faf5ff;border:1px solid #e9d5ff;border-radius:9px;padding:7px 10px}
+        #p6 table.cqhm{border-collapse:separate;border-spacing:2px}
+        #p6 table.cqhm th{font-size:10px;color:#475569;font-weight:700;padding:2px}
+        #p6 table.cqhm th.col{writing-mode:vertical-rl;transform:rotate(180deg);height:46px;vertical-align:bottom}
+        #p6 table.cqhm th.row{text-align:right;padding-right:6px;white-space:nowrap}
+        #p6 table.cqhm td{width:36px;height:28px;text-align:center;font-size:10px;font-weight:700;border-radius:4px;cursor:default}
+        #p6 .cqseg button{border:0;font-size:12px;font-weight:700;padding:8px 14px;cursor:pointer}
+        #p6 .cqgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:12px;align-items:start}
+      </style>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin:2px 0 10px">
+        <div style="font-size:15px;font-weight:800">&#128279; Correlation Monitor <span class="muted" style="font-size:11px;font-weight:600">— พอร์ต balance หรือกระจุก? (Damodaran S2&ndash;4 &middot; S35&ndash;41)</span></div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <span class="cqseg" style="display:inline-flex;border:1px solid #cbd5e1;border-radius:8px;overflow:hidden">
+            <button id="cmNormal" onclick="setCorrMode('normal')" style="background:#0d9488;color:#fff">Normal</button>
+            <button id="cmCrisis" onclick="setCorrMode('crisis')" style="background:#fff;color:#475569">Crisis</button></span>
+          <label class="muted" style="font-size:11px" title="auto = FMP adjusted เมื่อ quota พอ แล้ว fallback stooq · free = ไม่ใช้ FMP quota">data
+            <select id="corrEnrich" style="padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="auto">auto (FMP&rarr;stooq)</option><option value="free">free (stooq)</option></select></label>
+          <button onclick="loadCorr()" style="border:0;border-radius:7px;padding:7px 13px;background:#0f172a;color:#fff;font-weight:700;cursor:pointer;font-size:12px"><span class="spin" id="spCorr"></span> &#8635; Run correlation</button>
+        </div>
+      </div>
+      <div id="corrBody"><div class="muted" style="font-size:12px;padding:8px">กด &ldquo;Run correlation&rdquo; เพื่อคำนวณ correlation รายตัว, สรุประดับ sector, benchmark (SPY/QQQ/GLD/IBIT) และ Diversification Philosophy ตามหลัก Damodaran.</div></div>
     </div>
 
     <!-- ===================== HOW TO (คู่มืออ่านค่าแต่ละส่วน) ===================== -->
@@ -587,6 +620,20 @@
         <tr><td><b>11</b></td><td><b>What-if</b></td><td>ลองใส่เงินซื้อเพิ่ม (สูงสุด 5 รายการ) แล้วดูสัดส่วนพอร์ต "หลังซื้อ"</td><td>ใช้เช็คก่อนซื้อจริงว่าเงินใหม่ทำให้กระจุกขึ้นหรือกระจายขึ้น</td></tr>
       </table>
       <p class="muted" style="font-size:12px">ลำดับใช้งานที่แนะนำ: เปิด Allocation ดูข้อ 6 ก่อน (รับได้ไหม) &rarr; ข้อ 3/4 (อะไรคือตัวกินความเสี่ยง) &rarr; ข้อ 7 (ต้องทำอะไร) &rarr; ค่อยกลับไป My Portfolio ตัดสินใจรายตัวด้วย card</p>
+
+      <h3 class="ht2">7) หน้า Correlation — พอร์ต balance หรือกระจุก (Damodaran S2&ndash;4 &middot; S35&ndash;41)</h3>
+      <p class="muted" style="font-size:12px">กด &ldquo;Run correlation&rdquo; ครั้งเดียว (ใช้ผลร่วมกับ Risk Desk &middot; cache รายวัน จึงไม่เปลือง FMP quota) แล้วสลับปุ่ม <b>Normal / Crisis</b> เพื่อดูว่าการกระจาย &ldquo;หายไป&rdquo; แค่ไหนตอนวิกฤต &middot; ใช้ราคา ~1.5 ปี (FMP adjusted &rarr; Stooq)</p>
+      <table class="httab">
+        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>ตีความ (Damodaran)</th></tr>
+        <tr><td><b>A</b></td><td><b>Diversification Philosophy</b> (การ์ดม่วง)</td><td>gauge <b>ENB&divide;Eff N</b> + <b>Fragility &Delta;ENB</b> + avg corr &middot; 6 เสา (โครงสร้าง/ตัวขับ/ความเปราะ/ตัวถ่วง/beta honesty/action) &middot; story ไทย &middot; ตาราง A1 %Cap vs %Risk</td><td>สรุปเชิงปรัชญาราย &ldquo;พอร์ต&rdquo; &middot; ENB&divide;EffN &lt;0.5 = correlation กินการกระจาย &middot; A1 แดง = หุ้นที่ %risk เกิน %capital = ตัวขับความเสี่ยงจริง (S2/S4 marginal)</td></tr>
+        <tr><td><b>B</b></td><td><b>Correlation Heatmap</b> รายตัว</td><td>ตาราง corr หุ้น&times;หุ้น จัดกลุ่มตาม sector (เส้นคั่น) &middot; เขียว=ต่ำ แดง=สูง เขียวเข้ม=ลบ</td><td>ยิ่งแดง = สองตัววิ่งตามกัน ถือคู่กันแทบเป็นเดิมพันเดียว &middot; คู่ corr ลบ = diversifier จริง</td></tr>
+        <tr><td><b>C</b></td><td><b>Sector Summary</b></td><td>%น้ำหนักพอร์ต + avg corr ในกลุ่ม ต่อ sector</td><td>%สูง <b>และ</b> corr สูง = จุดกระจุกตัวจริง (เงินเยอะ + ตัวในกลุ่มซ้ำกัน)</td></tr>
+        <tr><td><b>D</b></td><td><b>คู่สัมพันธ์ สูงสุด/ต่ำสุด</b></td><td>5 คู่ corr สูงสุด (จุดลด overlap) และต่ำสุด (ตัวช่วยกระจาย)</td><td>เป้าหมายแรกเวลาลดความเสี่ยง = คู่ที่แดงสุด</td></tr>
+        <tr><td><b>E</b></td><td><b>Benchmark &amp; Asset-Class</b> (SPY/QQQ/GLD/IBIT)</td><td>พอร์ตทั้งก้อน + แต่ละหุ้น + สินทรัพย์กันเอง เทียบกับ S&amp;P500 / Nasdaq / Gold / Bitcoin</td><td>พอร์ต corr Nasdaq สูง = แทบเป็น index (S35&ndash;36 beta honesty) &middot; Gold/BTC = pricing asset ถือเพราะ corr ต่ำ (S38&ndash;41)</td></tr>
+        <tr><td><b>Crisis</b></td><td><b>ปุ่มสลับ Normal/Crisis</b></td><td>Crisis floor คู่ equity&harr;equity (รวม SPY/QQQ/IBIT) เข้า ~0.9 &middot; Gold ไม่ถูก floor</td><td>S2: correlation วิ่งเข้า 1 ตอนตลาดพัง &mdash; ดูว่า ENB/การกระจายหายไปแค่ไหน &middot; Gold ที่ยังต่ำ = ตัวถ่วงจริง</td></tr>
+        <tr><td><b>A7</b></td><td><b>Rolling 60d corr</b> (เส้นใต้สุด)</td><td>corr พอร์ต vs S&amp;P แบบ rolling 60 วัน</td><td>ถ้ากำลังไต่ขึ้น = ความเสี่ยงกระจุกกำลังก่อตัว (สัญญาณเตือนล่วงหน้า)</td></tr>
+      </table>
+      <p class="muted" style="font-size:12px">ใช้คู่กับ Allocation: Allocation บอก &ldquo;ตัวไหนกินความเสี่ยง&rdquo; (ราย stock) &rarr; Correlation บอก &ldquo;ทำไม&rdquo; (หุ้นวิ่งตามกัน) และ &ldquo;พอร์ตเปราะแค่ไหนตอนวิกฤต&rdquo; (ราย portfolio)</p>
     </div>
 
     <!-- ===================== REF (นิยามทุกค่า) ===================== -->
@@ -653,6 +700,23 @@
         <tr><td><b>VaR 95/99</b></td><td>ขาดทุนสูงสุดที่ "ไม่น่าจะเกิน" ใน horizon ที่เลือก ด้วยความเชื่อมั่น 95/99%</td><td>CVaR = ค่าเฉลี่ย "เมื่อทะลุ VaR แล้ว" — สะท้อน tail จริงกว่า</td></tr>
         <tr><td><b>Downside dev / Sortino / Downside β (S2/S4)</b></td><td>วัดเฉพาะฝั่งขาลง: ส่วนเบี่ยงเบนขาลง · ผลตอบแทนต่อความเสี่ยงขาลง · ความไวเฉพาะวันตลาดลบ</td><td>Sortino &gt;1 ดี · downside β &gt;1 = ตกแรงกว่าตลาด</td></tr>
         <tr><td><b>Suitability</b></td><td>drawdown ที่ผูกพัน (แย่สุดจาก stress/VaR) เทียบ Max loss ที่ผู้ใช้รับได้</td><td>เกิน = FINDING หลัก ต้องแก้ที่ "ขนาด" ก่อนเสมอ</td></tr>
+      </table>
+
+      <h3 class="ht2">Correlation / Diversification (หน้า Correlation)</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์ / ตีความ</th></tr>
+        <tr><td><b>Correlation (&rho;)</b></td><td>ความสัมพันธ์การเคลื่อนไหวรายวันของหุ้น 2 ตัว (&minus;1 ถึง +1) จากผลตอบแทน ~1.5 ปี</td><td>+1 วิ่งตามกันเป๊ะ &middot; 0 ไม่เกี่ยว &middot; ลบ = สวนทาง (diversifier จริง)</td></tr>
+        <tr><td><b>Intra-sector corr</b></td><td>ค่าเฉลี่ย correlation ของหุ้นภายใน sector เดียวกัน</td><td>&gt;0.7 = กลุ่มนั้นซ้ำกันเชิงความเสี่ยง ถือหลายตัวเท่าถือตัวเดียว</td></tr>
+        <tr><td><b>avg pairwise corr</b></td><td>ค่าเฉลี่ย correlation ของทุกคู่ในพอร์ต</td><td>Normal &lt;0.35 ดี &middot; &gt;0.55 กระจุก &middot; Crisis &lt;0.65 ดี</td></tr>
+        <tr><td><b>Crisis correlation</b></td><td>corr ระบอบวิกฤต: floor คู่ equity&harr;equity เข้า ~0.9 (<code>crisis_cov</code>)</td><td>S2 &mdash; diversification &ldquo;หายไป&rdquo; ตอนตลาดพัง &middot; non-equity (Gold) ไม่ถูก floor</td></tr>
+        <tr><td><b>Downside corr</b></td><td>correlation คิดเฉพาะวันที่ตลาด (S&amp;P) ติดลบ</td><td>มักสูงกว่า Pearson &mdash; S2/S4 &ldquo;ความเสี่ยงคือขาลง ไม่ใช่ความผันผวน&rdquo;</td></tr>
+        <tr><td><b>Rolling corr</b></td><td>correlation แบบ trailing 60 วัน (พอร์ต vs S&amp;P)</td><td>ดูแนวโน้ม &mdash; ไต่ขึ้น = ความเสี่ยงกระจุกกำลังก่อตัว</td></tr>
+        <tr><td><b>ENB &divide; Eff N</b></td><td>อัตราส่วนประสิทธิภาพการกระจาย = เดิมพันอิสระ &divide; ตัวที่ถือเชิงเศรษฐกิจ</td><td>1.0 สมบูรณ์ &middot; &lt;0.7 เฝ้าระวัง &middot; &lt;0.5 = correlation กินการกระจาย</td></tr>
+        <tr><td><b>Fragility &Delta;ENB</b></td><td>ENB ตกจาก Normal &rarr; Crisis คิดเป็น %</td><td>ยิ่งตกมาก = พอร์ตเปราะตอนวิกฤต (การกระจายพึ่ง corr ต่ำที่หายไป)</td></tr>
+        <tr><td><b>R&sup2; vs index</b></td><td>corr พอร์ต-กับ-index ยกกำลังสอง = variance พอร์ตที่ index อธิบายได้</td><td>S35&ndash;36 beta honesty &mdash; สูง = ถือ beta เฉย ๆ (&ldquo;แทบเป็น index&rdquo;)</td></tr>
+        <tr><td><b>Pricing vs Valuation asset</b></td><td>Gold/BTC ไม่มีกระแสเงินสด = เกม pricing (ไม่ใช่ valuation)</td><td>S38&ndash;41 &mdash; ถือเพราะ corr ต่ำ ไม่ใช่มูลค่าพื้นฐาน &rarr; จำกัดน้ำหนัก + ป้ายเตือน</td></tr>
+        <tr><td><b>Marginal risk (%Risk)</b></td><td>สัดส่วนความเสี่ยงพอร์ตที่หุ้นตัวนั้นสร้างจริง (จาก covariance เต็ม)</td><td>%Risk &gt; %Capital = ตัวขับความเสี่ยง (S2/S4 marginal) &mdash; เป้าหมายแรกเวลาลด</td></tr>
+        <tr><td><b>IBIT (proxy)</b></td><td>spot-Bitcoin ETF ใช้แทน BTC-USD ในการวัด corr</td><td>ปฏิทินตรงวันหุ้น (ไม่ต้อง align วันหยุด) + สัญลักษณ์ปกติ &mdash; ต่อ corr รายวันแทบไม่ต่างจาก BTC</td></tr>
       </table>
 
       <h3 class="ht2">รหัสอ้างอิง S-numbers (ครบทุกตัวที่ใช้ใน dashboard)</h3>
@@ -1200,7 +1264,7 @@ function renderPortfolio(d){
   const __tot=`<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:13px"><div><span class="muted" style="font-size:11px">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:11px">P/L</span> ${t.pl==null?'<span class="muted">&mdash;</span>':`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${pct(t.pl_pct)}</b>`}</div></div>`;
   document.getElementById('p1').innerHTML = (d.rows&&d.rows.length)?(__tot+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(330px,1fr));gap:12px">${__cards}</div>`):'<div class="muted" style="padding:10px;font-size:13px">No holdings yet — add one above.</div>';
 }
-function showTab(n){for(const i of [1,2,3,4,5]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){renderCashStance();loadAllocation();loadRisk();loadScreen();}}
+function showTab(n){for(const i of [1,2,3,4,5,6]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){renderCashStance();loadAllocation();loadRisk();loadScreen();} if(n===6)loadCorr();}
 
 const PALETTE=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0d9488','#d97706','#0891b2','#be185d','#65a30d','#9333ea','#ea580c','#475569','#0ea5e9'];
 let charts={};
@@ -1468,6 +1532,138 @@ function drawRiskCharts(d){
   const st=d.stress||{}; const sc=[...(st.historical||[]),...(st.hypothetical||[])].sort((a,b)=>a.loss_pct-b.loss_pct);
   rcChart('rcStress',{type:'bar',data:{labels:sc.map(x=>x.label),datasets:[{label:'Est. loss %',data:sc.map(x=>x.loss_pct),backgroundColor:sc.map(x=>lossColor(x.loss_pct)),maxBarThickness:11}]},
     options:{maintainAspectRatio:false,indexAxis:'y',plugins:{legend:{display:false}},scales:{x:{ticks:{callback:v=>v+'%',font:{size:9}}},y:{ticks:{font:{size:9}}}}}});
+}
+
+// ===================== CORRELATION MONITOR (tab6, additive — new fns only) =====================
+let __corr=null, corrMode='normal';
+async function loadCorr(){
+  const body=document.getElementById('corrBody'); if(!body)return;
+  const sp=document.getElementById('spCorr'); if(sp)sp.style.display='inline-block';
+  const en=(document.getElementById('corrEnrich')||{}).value||'auto';
+  body.innerHTML='<div class="muted" style="font-size:12px;padding:10px">Computing correlation… (price history + covariance)</div>';
+  try{
+    const r=await fetch(`/api/risk?enrich=${en}`);
+    const txt=await r.text(); let d;
+    try{d=JSON.parse(txt);}catch(_){d={status:'error',message:'Server '+r.status+': '+txt.slice(0,160)};}
+    __corr=d; if(d.quota)renderQuota(d.quota); renderCorr(d);
+  }catch(e){body.innerHTML='<div class="down" style="padding:10px;font-size:12px">Error: '+esc(String(e))+'</div>';}
+  finally{if(sp)sp.style.display='none';}
+}
+function setCorrMode(m){corrMode=m;
+  const a=document.getElementById('cmNormal'),b=document.getElementById('cmCrisis');
+  if(a){a.style.background=m==='normal'?'#0d9488':'#fff';a.style.color=m==='normal'?'#fff':'#475569';}
+  if(b){b.style.background=m==='crisis'?'#dc2626':'#fff';b.style.color=m==='crisis'?'#fff':'#475569';}
+  if(__corr)renderCorr(__corr);
+}
+function corrColor(v){
+  if(v==null)return['#e2e8f0','#94a3b8']; if(v<0)return['#0d9488','#fff'];
+  if(v>=0.9)return['#b91c1c','#fff']; if(v>=0.8)return['#dc2626','#fff']; if(v>=0.65)return['#f97316','#fff'];
+  if(v>=0.5)return['#f59e0b','#3b2a00']; if(v>=0.35)return['#eab308','#3b2a00']; if(v>=0.2)return['#84cc16','#1a2e05'];
+  return['#22c55e','#052e16'];
+}
+function cnum(x,dp){dp=(dp==null)?2:dp; return (x==null||isNaN(x))?'—':(+x).toFixed(dp);}
+function corrCell(v){const c=corrColor(v);return `<td style="background:${c[0]};color:${c[1]}" title="${cnum(v,2)} (${corrMode})">${cnum(v,2)}</td>`;}
+
+function renderCorr(d){
+  const body=document.getElementById('corrBody'); if(!body)return;
+  if(!d||d.status==='insufficient'){body.innerHTML='<div class="muted" style="padding:10px;font-size:12px">'+esc((d&&d.message)||'ต้องมี ≥2 holding ที่มีราคา — เพิ่ม holding หรือกด Run Daily ก่อน')+'</div>';return;}
+  const co=d.correlation;
+  if(!co||co.status==='error'){body.innerHTML='<div class="down" style="padding:10px;font-size:12px">Correlation unavailable: '+esc((co&&co.message)||'—')+'</div>';return;}
+  body.innerHTML = corrPhilHTML(co) + `<div class="cqgrid"><div>${corrHeatHTML(co)}</div><div>${corrSectorHTML(co,d)}${corrPairsHTML(co)}</div></div>` + corrBenchHTML(co) + corrLegendHTML(co);
+}
+
+function corrPhilHTML(co){
+  const ph=co.philosophy||{}, g=ph.gauge||{}, mode=corrMode;
+  const enb=(mode==='crisis'?g.enb_crisis:g.enb), ratio=(g.eff_n&&enb)?(enb/g.eff_n):null;
+  const rc=ratio==null?['#94a3b8','—']:ratio>=0.7?['#16a34a','ดี']:ratio>=0.5?['#d97706','เฝ้าระวัง']:['#dc2626','กระจุก'];
+  const ap=(co.avg_pairwise||{})[mode], dwn=((co.benchmark||{}).downside||{}).downside;
+  const story=mode==='crisis'?ph.story_crisis:ph.story_normal, frag=g.fragility_pct;
+  const pills=(ph.pillars||[]).map(p=>`<div class="cqpill"><div style="font-size:11px;font-weight:700">${esc(p.name)} <span class="cqchip" style="background:#ede9fe;color:#6d28d9">${esc(p.s)}</span></div><div style="font-size:11px;margin-top:2px">${esc(p.value)}</div><div class="muted" style="font-size:9px">${esc(p.note)}</div></div>`).join('');
+  const mg=(co.marginal||[]); let a1='';
+  if(mg.length){a1=`<div class="cqlbl" style="margin-top:12px">A1 · %Capital vs %Risk (S2/S4 marginal) · แดง = %risk เกิน %capital</div>
+    <div style="overflow-x:auto;margin-top:4px"><table class="cqhm"><tr><th class="row"></th>${mg.map(r=>`<th class="col">${esc(r.ticker)}</th>`).join('')}</tr>
+    <tr><th class="row" style="font-size:9px">%Cap</th>${mg.map(r=>`<td style="background:#94a3b8;color:#fff">${cnum(r.cap_pct,0)}</td>`).join('')}</tr>
+    <tr><th class="row" style="font-size:9px">%Risk</th>${mg.map(r=>{const drv=(r.risk_pct||0)>(r.cap_pct||0);return `<td style="background:${drv?'#dc2626':'#16a34a'};color:#fff" title="%risk ${cnum(r.risk_pct,0)} vs %cap ${cnum(r.cap_pct,0)}">${cnum(r.risk_pct,0)}</td>`;}).join('')}</tr></table></div>`;}
+  return `<div class="cqcard" style="border-color:#ddd6fe">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">
+      <div><b style="font-size:13px">&#129517; Diversification Philosophy</b> <span class="muted" style="font-size:10px">· ราย "พอร์ต" ตามเสา Damodaran — คู่กับ VALUE→QUALITY→TIMING ราย "หุ้น" ที่ Allocation</span></div>
+      <span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
+      <div class="cqrcard" style="min-width:150px"><div class="cqlbl">ENB ÷ Eff N (${mode})</div><b style="color:${rc[0]};font-size:20px">${cnum(ratio,2)}</b> <span style="color:${rc[0]};font-size:11px">${rc[1]}</span><div class="muted" style="font-size:9px">ENB ${cnum(enb,1)} / Eff N ${cnum(g.eff_n,1)}</div></div>
+      <div class="cqrcard" style="min-width:160px"><div class="cqlbl">Fragility ΔENB · N→Crisis</div><b style="color:#dc2626;font-size:20px">${cnum(g.enb,1)}→${cnum(g.enb_crisis,1)}</b><div class="muted" style="font-size:9px">${frag!=null?('การกระจายหาย ~'+frag+'% ตอนวิกฤต'):'corr วิ่งเข้า 1'}</div></div>
+      <div class="cqrcard" style="min-width:150px"><div class="cqlbl">avg corr (${mode})</div><b style="font-size:20px">${cnum(ap,2)}</b><div class="muted" style="font-size:9px">downside corr ${cnum(dwn,2)} · S4</div></div>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:8px;margin-top:10px">${pills}</div>
+    <div class="cqleg" style="background:#f5f3ff;border-color:#ddd6fe;color:#4b3869;margin-top:10px">${esc(story||'')}</div>${a1}</div>`;
+}
+
+function corrHeatHTML(co){
+  const order=co.order||[], mode=corrMode, mat=(mode==='crisis'?co.crisis_matrix:co.matrix)||[], secs=co.sectors||{};
+  let h=`<table class="cqhm"><tr><th></th>`;
+  order.forEach((c,j)=>{const sep=(j>0&&secs[c]!==secs[order[j-1]])?'border-left:2px solid #0f172a22':'';h+=`<th class="col" style="${sep}">${esc(c)}</th>`;});
+  h+='</tr>';
+  order.forEach((r,i)=>{
+    const sepR=(i>0&&secs[r]!==secs[order[i-1]])?'border-top:2px solid #0f172a22':'';
+    h+=`<tr><th class="row" style="${sepR}" title="${esc(secs[r]||'')}">${esc(r)}</th>`;
+    order.forEach((c,j)=>{const v=(mat[i]||[])[j]; const sc=corrColor(v); const bd=(j>0&&secs[c]!==secs[order[j-1]])?'border-left:2px solid #0f172a22;':'';
+      const isD=(i===j); const bg=isD?'#0f172a':sc[0], fg=isD?'#fff':sc[1];
+      h+=`<td style="${bd}${sepR?'border-top:2px solid #0f172a22;':''}background:${bg};color:${fg}" title="${esc(r)} × ${esc(c)} = ${cnum(v,2)} (${mode})">${cnum(v,2)}</td>`;});
+    h+='</tr>';
+  });
+  h+='</table>';
+  return `<div class="cqcard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div><b style="font-size:13px">Correlation Heatmap — รายตัว</b> <span class="muted" style="font-size:10px">(จัดกลุ่มตาม sector)</span></div><span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></div>
+    <div style="overflow-x:auto;margin-top:8px">${h}</div>
+    <div style="display:flex;align-items:center;gap:0;margin-top:8px;font-size:10px;color:#64748b"><span>ต่ำ</span>
+      <i style="width:24px;height:11px;display:inline-block;background:#22c55e"></i><i style="width:24px;height:11px;display:inline-block;background:#84cc16"></i><i style="width:24px;height:11px;display:inline-block;background:#eab308"></i><i style="width:24px;height:11px;display:inline-block;background:#f59e0b"></i><i style="width:24px;height:11px;display:inline-block;background:#f97316"></i><i style="width:24px;height:11px;display:inline-block;background:#dc2626"></i>
+      <span>สูง</span><span class="muted" style="margin-left:auto">hover ดูค่า · เขียวเข้ม=corr ลบ (diversifier)</span></div></div>`;
+}
+
+function corrSectorHTML(co,d){
+  const mode=corrMode, sa=((co.sector_avg||{})[mode])||{}, bysec=((d.allocation||{}).by_sector)||[];
+  const rows=bysec.map(s=>{const a=(sa[s.label]||{}).avg, w=s.value;
+    const ac=a==null?'#94a3b8':a>=0.7?'#dc2626':a>=0.5?'#d97706':'#16a34a', wc=w>=45?'#dc2626':w>=30?'#d97706':'#2563eb';
+    return `<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><div style="width:110px;flex:none;font-size:12px;font-weight:600">${esc(s.label)}</div>
+      <div style="flex:1;background:#eef2f7;border-radius:6px;height:16px;overflow:hidden"><div style="height:100%;border-radius:6px;width:${Math.min(w,100)}%;background:${wc}"></div></div>
+      <div style="width:120px;flex:none;text-align:right;font-size:11px"><b>${cnum(w,1)}%</b> · <span style="color:${ac}">corr ${a==null?'—':cnum(a,2)}</span></div></div>`;}).join('');
+  return `<div class="cqcard"><b style="font-size:13px">Sector Summary</b><div class="muted" style="font-size:10px;margin-bottom:6px">แถบ = %น้ำหนักพอร์ต · ขวา = avg corr ในกลุ่ม</div>${rows||'<span class="muted" style="font-size:11px">—</span>'}</div>`;
+}
+
+function corrPairsHTML(co){
+  const mode=corrMode, p=((co.pairs||{})[mode])||{high:[],low:[]};
+  const row=x=>{const c=corrColor(x[2]);return `<tr><td style="padding:4px 6px;border-top:.5px solid #e2e8f0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:${c[0]}"></span>${esc(x[0])}–${esc(x[1])}</td><td style="padding:4px 6px;border-top:.5px solid #e2e8f0;text-align:right;font-weight:700">${cnum(x[2],2)}</td></tr>`;};
+  return `<div class="cqcard"><b style="font-size:13px">คู่สัมพันธ์ สูงสุด / ต่ำสุด</b><div class="muted" style="font-size:10px;margin-bottom:4px">คู่ต่ำ = ตัวช่วยกระจายจริง</div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><div class="cqlbl" style="color:#dc2626">สูงสุด</div><table style="width:100%;border-collapse:collapse;font-size:12px">${(p.high||[]).map(row).join('')}</table></div>
+    <div><div class="cqlbl" style="color:#16a34a">ต่ำสุด</div><table style="width:100%;border-collapse:collapse;font-size:12px">${(p.low||[]).map(row).join('')}</table></div></div></div>`;
+}
+
+function corrBenchHTML(co){
+  const b=co.benchmark; if(!b)return '';
+  const mode=corrMode, refs=b.refs||[], order=co.order||[];
+  const pv=(o)=>o?(mode==='crisis'?o.crisis:o.normal):null;
+  const chips=refs.map(r=>{const v=pv((b.portfolio||{})[r.sym]); const c=corrColor(v);
+    return `<div style="flex:1 1 130px;min-width:130px;background:${c[0]};color:${c[1]};border-radius:10px;padding:8px 12px" title="พอร์ต × ${esc(r.name)} = ${cnum(v,2)} (${mode})"><div style="font-size:10px;opacity:.9">${esc(r.name)} · ${esc(r.sym)}</div><b style="font-size:19px">${cnum(v,2)}</b></div>`;}).join('');
+  let hb=`<table class="cqhm"><tr><th></th>${refs.map(r=>`<th class="col">${esc(r.sym)}</th>`).join('')}</tr>`;
+  order.forEach(t=>{hb+=`<tr><th class="row">${esc(t)}</th>${refs.map(r=>corrCell(pv(((b.holdings||{})[t]||{})[r.sym])) ).join('')}</tr>`;});
+  hb+='</table>';
+  let rr=`<table class="cqhm"><tr><th></th>${refs.map(r=>`<th class="col">${esc(r.sym)}</th>`).join('')}</tr>`;
+  refs.forEach(a=>{rr+=`<tr><th class="row">${esc(a.sym)}</th>`+refs.map(bb=>{if(a.sym===bb.sym)return '<td style="background:#0f172a;color:#fff">1.00</td>';const key=(b.refref||{})[a.sym+'-'+bb.sym]||(b.refref||{})[bb.sym+'-'+a.sym];return corrCell(pv(key));}).join('')+'</tr>';});
+  rr+='</table>';
+  return `<div class="cqcard"><div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px"><div><b style="font-size:13px">Benchmark &amp; Asset-Class Correlation</b> <span class="muted" style="font-size:10px">· S&amp;P 500 · Nasdaq-100 · Gold · Bitcoin(IBIT)</span></div><span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></div>
+    <div class="cqlbl" style="margin-top:10px">A · พอร์ตทั้งก้อน vs benchmark</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">${chips}</div>
+    <div class="cqgrid" style="margin-top:12px"><div><div class="cqlbl">B · แต่ละหุ้น vs benchmark</div><div style="overflow-x:auto;margin-top:4px">${hb}</div></div>
+    <div><div class="cqlbl">C · สินทรัพย์ vs สินทรัพย์</div><div style="overflow-x:auto;margin-top:4px">${rr}</div></div></div>
+    <div class="cqleg" style="background:#fffbeb;border-color:#fde68a;color:#78350f;margin-top:12px"><b>อ่านการ์ดนี้</b> — Crisis floor เฉพาะคู่ equity↔equity (รวม SPY/QQQ/IBIT) เข้า ~0.9 · <b>Gold ไม่ถูก floor</b> (non-equity) → ถ้ายังต่ำตอน Crisis = ตัวถ่วงจริง · IBIT = spot-BTC ETF (แทน BTC-USD, ปฏิทินตรงวันหุ้น) และถูก floor เพราะ engine นับ crypto เป็น equity-beta ตอนวิกฤต.</div></div>`;
+}
+
+function corrLegendHTML(co){
+  const roll=((co.rolling||{}).port_vs_spy)||[]; let spark='';
+  if(roll.length>2){const w=180,h=28,mn=Math.min(...roll),mx=Math.max(...roll),rg=(mx-mn)||1;
+    const pts=roll.map((v,i)=>`${(i/(roll.length-1)*w).toFixed(1)},${(h-((v-mn)/rg)*h).toFixed(1)}`).join(' ');
+    spark=`<div style="margin-top:6px"><span class="muted" style="font-size:11px">A7 · Rolling 60d corr พอร์ต vs S&amp;P (${cnum(roll[0],2)}→${cnum(roll[roll.length-1],2)}):</span>
+      <svg width="${w}" height="${h}" style="vertical-align:middle;margin-left:6px"><polyline points="${pts}" fill="none" stroke="#2563eb" stroke-width="1.5"/></svg>
+      <span class="muted" style="font-size:10px"> ${roll[roll.length-1]>roll[0]?'▲ กำลังไต่ขึ้น (เตือน)':'▼/flat'}</span></div>`;}
+  return `<div class="cqleg" style="background:#f1f5f9;border-color:#e2e8f0;color:#334155;margin-top:2px">
+    <b>Damodaran S2–4:</b> heatmap = marginal risk เชิงภาพ (ยิ่งแดง=วิ่งตามกัน) · ปุ่ม <b>Crisis</b> = correlation วิ่งเข้า ~0.9 ตอนตลาดพัง (การกระจายหาย) · ENB ต่ำกว่า Eff N เพราะ correlation กินการกระจาย.${spark}</div>`;
 }
 
 async function loadWatchlist(){try{const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}catch(e){document.getElementById('watchNames').innerHTML='<span class="down">&#9888; watchlist load failed: '+esc(String(e))+'</span>';}}

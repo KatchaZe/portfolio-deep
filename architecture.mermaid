@@ -22,14 +22,14 @@ flowchart TD
         MOM["momentum.py ★PRIMARY signal★<br/>MOM_12_1 · ROC_6M · SMA200 · RSI(14) → composite<br/>+ S9: reversal_flag (3-5y) · market_state (SPY vs 200-DMA) · crash_guard"]
         IND["indicators.py (secondary)<br/>RSI / MACD / DBBMV mean-reversion + Action grid (S11 taxonomy)"]
         ADV["advice.py (v8.3, Thai)<br/>Damodaran action synthesis:<br/>VALUE → QUALITY → TIMING → Action"]
-        EXT["pead.py (S25 drift) · costs.py (S6 net) · philosophy.py (S1/S42 fit)"]
+        EXT["pead.py (S25 drift) · costs.py (S6 net) · philosophy.py (S1/S42 fit)<br/>diversification.py (per-portfolio diversification philosophy S2-4/S35-41)"]
         subgraph ENG["engine/  (versioned, swappable)"]
             CON["contract.py<br/>Valuation + DeepEngine ABC"]
             V82["deep_v82.py  ★active★<br/>true WACC·Ke·R&D-ROIC·EQ·2-stage PEG·FVP·EV RevDCF·rubric"]
             V73["deep_v73.py  (rollback)"]
             REG["__init__.py registry<br/>get_engine(DEEP_VERSION=8.2)"]
         end
-        RISK["engine/risk.py (Risk Desk math)<br/>weights·cov·DR·RC/ENB·stress·VaR·downside(S2/S4)<br/>rate_stress(S3)·sizing·rebalance"]
+        RISK["engine/risk.py (Risk Desk math)<br/>weights·cov·DR·RC/ENB·stress·VaR·downside(S2/S4)<br/>rate_stress(S3)·sizing·rebalance<br/>correlation monitor: pair/sector/downside/rolling corr"]
     end
 
     subgraph STORE["4 · STORE  (store.py — local JSON + cloud mirror)"]
@@ -43,12 +43,13 @@ flowchart TD
         EP["/portfolio /holding(+/remove) /refresh /daily<br/>/watchlist(/add /remove /run /promote)<br/>/allocation(/whatif) /risk /screen /persist /quota /healthz"]
     end
 
-    subgraph UI["6 · DASHBOARD (index.html, 5 tabs · build stamp guard)"]
+    subgraph UI["6 · DASHBOARD (index.html, 6 tabs · build stamp guard)"]
         T0["Command strip (ทุกแท็บ)<br/>Regime S9 · Market value S32/33 · vs S&P S16/S35 · Philosophy S1/S42<br/>+ 🧭 synthesis line · stale-assumption banner · 💾 persist badge + keepalive"]
         T1["Tab 1 · My Portfolio (cards)<br/>value gauge (Price vs Value) · DEEP★ + Moat/EQ/GARP chips<br/>Momentum/Rank/Action · Anchor FV (ทุกวิธี+★) · net upside (S6)<br/>earnings circles EPS+Rev+Mgn + PEAD · 💡 advice · drawer (WACC/Ke/EVA)"]
         T2["Tab 2 · Watchlist<br/>same cards, run on-demand · + Portfolio · remove"]
         T3["Tab 3 · Allocation<br/>Cash stance · GARP screen + quadrant → RISK DESK:<br/>Portfolio Story · %Capital vs %Risk · concentration · stress/VaR<br/>downside S2/S4 · suitability · rebalance · (cost pies + what-if)"]
-        T4["Tab 4 · How to — annotated SVG mockups ของ card / banner / allocation<br/>Tab 5 · Ref — นิยามครบ: Damodaran terms · S1–S42 · ตัวย่อ/สัญลักษณ์"]
+        T6["Tab 6 · Correlation (S2-4/S35-41) · reuses /api/risk · Normal/Crisis toggle<br/>Diversification Philosophy: ENB/EffN · fragility ΔENB · 6 pillars · story · A1 Cap-vs-Risk<br/>ticker heatmap · sector summary · top pairs · Benchmark+Asset (SPY/QQQ/GLD/IBIT) · rolling corr"]
+        T4["Tab 4 · How to — annotated SVG mockups ของ card / banner / allocation + Correlation<br/>Tab 5 · Ref — นิยามครบ: Damodaran terms · S1–S42 · Correlation/Diversification · ตัวย่อ/สัญลักษณ์"]
     end
 
     SEC --> NORM

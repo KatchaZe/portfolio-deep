@@ -21,10 +21,10 @@
 |---|---|---|---|
 | sources | `sources/sec_edgar.py` (หลัก) `yahoo.py` `fmp.py` `stooq.py` `finnhub.py` `alphavantage.py` `gdrive_store.py` | ดึงข้อมูลดิบจากเน็ต (SEC=หลัก, ที่เหลือเสริม/สำรอง) | "ไปเอาตัวเลขมา" |
 | pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `market_valuation.py` `screen.py` `risk_prices.py` `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate (ดึงขนานกัน 4 workers) | "ทำความสะอาด + สั่งงาน" |
-| domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก + S9 crash guard) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) · `advice.py` (💡 คำแนะนำไทย) · `pead.py` `costs.py` `philosophy.py` | **คณิตศาสตร์ DEEP + momentum + risk + advice** | "สมองที่ให้คะแนน" |
+| domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก + S9 crash guard) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) · `advice.py` (💡 คำแนะนำไทย) · `pead.py` `costs.py` `philosophy.py` · `diversification.py` (Correlation: div. philosophy ราย portfolio) | **คณิตศาสตร์ DEEP + momentum + risk + advice** | "สมองที่ให้คะแนน" |
 | store | `store.py` | เซฟลงไฟล์ `data/portfolio.json` (+ mirror ขึ้น Google Drive — push ถูกบล็อกจนกว่า pull สำเร็จ กัน backup โดนทับ) | "ความจำ" |
 | api | `app.py` (FastAPI) | รับคำสั่งจากหน้าจอ (รวม `/api/risk` `/api/screen` `/api/persist`) | "พนักงานรับเรื่อง" |
-| ui | `index.html` | หน้าเว็บ 5 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk · How to · Ref) + command strip 4 ไทล์ทุกแท็บ | "หน้าร้าน" |
+| ui | `index.html` | หน้าเว็บ 6 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk · Correlation · How to · Ref) + command strip 4 ไทล์ทุกแท็บ | "หน้าร้าน" |
 
 > **เวอร์ชันปัจจุบัน:** engine ที่ใช้งานคือ **DEEP v8.2** (`config.py → DEEP_VERSION="8.2"`); `deep_v73.py` เก็บไว้เพื่อ rollback. สัญญาณ momentum หลักมาจาก `domain/momentum.py` (QuantInsti: MOM_12_1/ROC/SMA200/RSI) — ส่วน `indicators.py` (RSI<30/DBBMV) เป็นแค่ตัวยืนยันรอง.
 

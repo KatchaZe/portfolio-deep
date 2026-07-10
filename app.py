@@ -39,6 +39,7 @@ import store as st
 from pipeline import refresh, risk_prices
 from pipeline import screen as screen_mod
 from domain.engine import risk as riskeng
+from domain import diversification
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -360,7 +361,8 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
 
     # ---- price history -> returns (network, accuracy-first, quota-guarded) ----
     rdata, calls, rmeta = risk_prices.fetch_returns(
-        tickers + ["SPY"], fmp_key if prefer_fmp else "", quota_used, quota_cap, prefer_fmp=prefer_fmp)
+        tickers + ["SPY", "QQQ", "GLD", "IBIT"], fmp_key if prefer_fmp else "",
+        quota_used, quota_cap, prefer_fmp=prefer_fmp)
 
     have_realized = all((rdata.get(t, {}).get("n") or 0) >= 60 for t in tickers)
     aligned = riskeng.align_returns({t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers)
@@ -457,6 +459,109 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
                 {t: pw.get(t, 0.0) for t in tickers}, betas, sectors)], default=None),
         }
 
+    # ---- Correlation Monitor (Correlation tab) — reuse cov/cov_c + benchmark refs ----
+    # Defensive: correlation must NEVER break the risk payload.
+    try:
+        corr = riskeng.corr_from_cov(cov)
+        corr_c = riskeng.corr_from_cov(cov_c)
+        sc = riskeng.sector_corr(corr, tickers, sectors)
+        sc_c = riskeng.sector_corr(corr_c, tickers, sectors)
+        _, rc_sum_c = riskeng.risk_contributions(tickers, wvec, cov_c)
+        enb = rc_sum.get("enb_abs")
+        enb_c = rc_sum_c.get("enb_abs")
+
+        # display order: group by sector, then heaviest weight first
+        corr_order = sorted(range(len(tickers)),
+                            key=lambda i: (sectors.get(tickers[i]) or "zz", -weights[tickers[i]]))
+        order_tk = [tickers[i] for i in corr_order]
+        m = len(order_tk)
+        mtx = [[round(corr[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
+        mtx_c = [[round(corr_c[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
+
+        # benchmark refs — kept OUT of weights (yardsticks, not holdings)
+        REFS = [("SPY", "S&P 500", "equity"), ("QQQ", "Nasdaq-100", "equity"),
+                ("GLD", "Gold", "gold"), ("IBIT", "Bitcoin", "crypto")]
+        floor = riskeng.CRISIS_EQUITY_CORR
+        ac_all = {**{t: asset_class.get(t, "equity") for t in tickers},
+                  **{sym: cls for sym, _nm, cls in REFS}}
+
+        def _is_eq(sym):
+            a = (ac_all.get(sym) or "equity").lower()
+            return not any(k in a for k in ("bond", "gold", "cash", "real"))
+
+        def _crisis(v, a, b):                  # mirror crisis_cov: floor equity↔equity only
+            if v is None:
+                return None
+            return round(max(v, floor), 3) if (_is_eq(a) and _is_eq(b)) else round(v, 3)
+
+        rets = {t: rdata.get(t, {}).get("returns", []) for t in tickers}
+        ref_rets = {sym: rdata.get(sym, {}).get("returns", []) for sym, _nm, _cls in REFS}
+        spy_rets = ref_rets.get("SPY", [])
+        port_rets = riskeng.portfolio_returns(rets, tickers, weights)
+
+        def _pc(a, b):
+            v = riskeng.pair_corr(a, b)
+            return round(v, 3) if v is not None else None
+
+        bench_port = {}
+        for sym, _nm, _cls in REFS:
+            v = _pc(port_rets, ref_rets.get(sym, []))
+            bench_port[sym] = {"normal": v, "crisis": _crisis(v, "PORT", sym)}
+        bench_hold = {}
+        for t in order_tk:
+            bench_hold[t] = {sym: {"normal": _pc(rets.get(t, []), ref_rets.get(sym, [])),
+                                   "crisis": _crisis(_pc(rets.get(t, []), ref_rets.get(sym, [])), t, sym)}
+                             for sym, _nm, _cls in REFS}
+        bench_ref = {}
+        for i in range(len(REFS)):
+            for j in range(i + 1, len(REFS)):
+                a, b = REFS[i][0], REFS[j][0]
+                v = _pc(ref_rets.get(a, []), ref_rets.get(b, []))
+                bench_ref[f"{a}-{b}"] = {"normal": v, "crisis": _crisis(v, a, b)}
+
+        dcorr = riskeng.downside_corr(port_rets, spy_rets, spy_rets)
+        pearson = _pc(port_rets, spy_rets)
+        roll = riskeng.rolling_corr(port_rets, spy_rets, 60)
+
+        marginal = [{"ticker": r["ticker"], "cap_pct": r["capital_pct"],
+                     "risk_pct": r.get("abs_risk_share_pct"), "diff_pp": r.get("diff_pp")}
+                    for r in rc_rows]
+
+        top_sec = by_sector[0]["label"] if by_sector else None
+        top_sec_wt = by_sector[0]["value"] if by_sector else None
+        top_sec_corr = (sc["sector_avg"].get(top_sec, {}) or {}).get("avg") if top_sec else None
+
+        philosophy = diversification.diversification_philosophy(
+            n_holdings=len(tickers), enb=enb, enb_crisis=enb_c, eff_n=conc.get("eff_n"),
+            top_sector=top_sec, top_sector_wt=top_sec_wt, top_sector_corr=top_sec_corr,
+            avg_pairwise=sc["avg_pairwise"], avg_pairwise_crisis=sc_c["avg_pairwise"],
+            bench_nasdaq_corr=bench_port.get("QQQ", {}).get("normal"), downside_corr=dcorr,
+            top_risk_driver=(rc_rows[0]["ticker"] if rc_rows else None))
+
+        correlation = {
+            "order": order_tk,
+            "sectors": {t: sectors.get(t) for t in tickers},
+            "matrix": mtx, "crisis_matrix": mtx_c,
+            "sector_avg": {"normal": sc["sector_avg"], "crisis": sc_c["sector_avg"]},
+            "avg_pairwise": {"normal": sc["avg_pairwise"], "crisis": sc_c["avg_pairwise"]},
+            "pairs": {"normal": riskeng.top_pairs(corr, tickers),
+                      "crisis": riskeng.top_pairs(corr_c, tickers)},
+            "concentration": {"enb": enb, "enb_crisis": enb_c,
+                              "eff_n": conc.get("eff_n"), "n": conc.get("n")},
+            "benchmark": {"refs": [{"sym": s2, "name": nm, "cls": cl} for s2, nm, cl in REFS],
+                          "portfolio": bench_port, "holdings": bench_hold, "refref": bench_ref,
+                          "downside": {"pearson": pearson, "downside": dcorr}},
+            "rolling": {"port_vs_spy": roll},
+            "marginal": marginal,
+            "philosophy": philosophy,
+            "meta": {"cov_mode": cov_mode, "tag": cov_tag, "n_window": common_n,
+                     "refs_fetched": {s2: bool(ref_rets.get(s2)) for s2, _nm, _cls in REFS}},
+        }
+    except Exception as _ce:                    # never break the risk payload
+        import traceback as _tb
+        _tb.print_exc()
+        correlation = {"status": "error", "message": f"{type(_ce).__name__}: {_ce}"}
+
     snapshot = {
         "as_of": s.get("updated", {}).get("_daily") or None,
         "total_value": round(total_value, 2),
@@ -474,6 +579,7 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         "status": "ok",
         "snapshot": snapshot,
         "allocation": {"by_sector": by_sector, "by_currency": by_currency, "by_sleeve": by_sleeve},
+        "correlation": correlation,
         "concentration": conc,
         "capital_vs_risk": {
             "beta_based": beta_rc,                 # Phase-1 one-factor view

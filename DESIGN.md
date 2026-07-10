@@ -35,7 +35,7 @@ and allocation view.
 portfolio-deep/
   config.py                  # tickers, CIKs, FMP base, SEC UA, DEEP_VERSION, ERP (+as-of/stale)
   app.py                     # FastAPI endpoints (incl. /api/risk + risk helpers)
-  index.html                 # 5-tab dashboard (vanilla JS + Chart.js); Tab 3 = Risk Desk, Tab 4/5 = How to / Ref
+  index.html                 # 6-tab dashboard (vanilla JS + Chart.js); Tab 3 = Risk Desk, Tab 6 = Correlation, Tab 4/5 = How to / Ref
   store.py                   # local JSON + Google Drive mirror: holdings, watchlist, facts, results, momentum, fmp_usage, rev_*
   sources/                   # fetch only — no math, each mockable
     sec_edgar.py             #   PRIMARY financials: robust TTM, freshest-tag pick, currency-aware (+v8.2 fields)
@@ -54,11 +54,13 @@ portfolio-deep/
     pead.py                  #   S25 post-earnings drift bias from the latest surprise
     costs.py                 #   S6 net upside after round-trip trading cost + capital-gains tax
     philosophy.py            #   S1/S42 philosophy-fit: what the portfolio actually runs vs profile
+    diversification.py       #   per-PORTFOLIO diversification philosophy (Correlation tab; S2-4/S35-41; gauge/pillars/story)
     engine/                  #   versioned DEEP engine
       contract.py            #     Valuation (output) + DeepEngine ABC  ← the stable contract
       deep_v82.py            #     DeepV82Engine ("8.2", ACTIVE): true WACC/Ke, R&D-ROIC, EQ, 2-stage PEG, EV RevDCF, rubric
       deep_v73.py            #     DeepV73Engine ("7.3"): kept for one-line rollback
       risk.py                #     Risk Desk math (pure): weights/cov/DR/RC/ENB/stress/VaR/sizing/rebalance
+                             #     + Correlation Monitor: pair_corr/sector_corr/top_pairs/downside_corr/rolling_corr
       __init__.py            #     registry: register(), get_engine(version)
   pipeline/
     normalize.py             #   merge SEC + FMP + Yahoo → FinancialFacts (+FX, base confidence)

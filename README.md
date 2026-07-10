@@ -42,7 +42,7 @@ Open http://localhost:8000
 
 ---
 
-## 2. The five tabs
+## 2. The six tabs
 
 Every tab shares a **command strip** at the top (Damodaran overlay): market **Regime
 (S9)** — SPY vs its 200-DMA (risk-on/off, drives the per-card crash guard) · **Market
@@ -78,6 +78,15 @@ headed by a **Portfolio Story** (main FINDING + 5 Damodaran principles): %Capita
 rebalancing plan. Below it (unchanged) are the two cost-basis doughnut pies (by
 holding, by sector) and **What-if**: enter up to 5 (ticker, buy $) → **Calculate** to
 see the allocation before vs after.
+
+**Correlation** — a manual **Run correlation** button (reuses `/api/risk`, cached
+daily so it never spends extra FMP quota) with a **Normal/Crisis** toggle. Shows a
+per-portfolio **Diversification Philosophy** (Damodaran S2–4 · S35–41: ENB÷Eff N,
+fragility ΔENB, six pillars, a Thai story, and the A1 %Capital-vs-%Risk table), a
+**ticker×ticker heatmap** grouped by sector, a **sector summary**, top/low pairs, a
+**Benchmark & Asset-Class** card (portfolio & holdings vs SPY · QQQ · GLD · IBIT plus
+asset-vs-asset), and a rolling-60-day correlation sparkline. Fully additive — the Risk
+Desk and every other tab are unchanged.
 
 **How to** — annotated SVG mockups of the stock card, the top banner, and every
 Allocation section/graph, with numbered callouts and Thai explanations.
