@@ -30,16 +30,27 @@ def test_clean_ticker():
 def test_atomic_save_roundtrip(tmp):
     config.DATA_DIR = tmp
     store.PATH = os.path.join(tmp, "portfolio.json")
-    s = store.load()                       # fresh defaults
-    store.set_holding(s, "nvda", 10, 100.0)
-    store.save(s)
-    # no leftover temp files, live file present
-    leftovers = [f for f in os.listdir(tmp) if f.endswith(".tmp")]
-    assert leftovers == [], leftovers
-    again = store.load()
-    assert again["holdings"]["NVDA"]["shares"] == 10
-    assert isinstance(store.LOCK, type(threading.RLock())), "store.LOCK must be a re-entrant lock"
-    print("atomic save + roundtrip + LOCK OK")
+    # This is an OFFLINE unit test (see module docstring). But store.save() / store.load()
+    # would otherwise touch the Google-Drive mirror whenever Drive creds are present in the
+    # environment: save() spawns a background 'drive-push' daemon thread that keeps the temp
+    # portfolio.json open, which makes TemporaryDirectory cleanup fail on Windows
+    # (WinError 32 — file in use). Force Drive OFF so the test is truly isolated + deterministic.
+    _orig_enabled = store.gdrive_store.enabled
+    store.gdrive_store.enabled = lambda: False
+    try:
+        s = store.load()                       # fresh defaults
+        store.set_holding(s, "nvda", 10, 100.0)
+        store.save(s)
+        store.wait_push(timeout=5.0)           # belt-and-suspenders: drain any pending pusher
+        # no leftover temp files, live file present
+        leftovers = [f for f in os.listdir(tmp) if f.endswith(".tmp")]
+        assert leftovers == [], leftovers
+        again = store.load()
+        assert again["holdings"]["NVDA"]["shares"] == 10
+        assert isinstance(store.LOCK, type(threading.RLock())), "store.LOCK must be a re-entrant lock"
+        print("atomic save + roundtrip + LOCK OK")
+    finally:
+        store.gdrive_store.enabled = _orig_enabled
 
 
 class _FakeResp:
