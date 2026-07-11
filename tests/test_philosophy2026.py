@@ -115,6 +115,18 @@ def test_assumptions_override():
         config.ERP, config.ERP_AS_OF, config.MARKET_PE, config.MARKET_PE_AS_OF = orig
 
 
+def test_portfolio_returns_missing_series():
+    """Regression (Correlation tab, 2026-07-11): a holding with NO price history
+    must not crash portfolio_returns with IndexError — it just isn't covered."""
+    rets = {"A": [0.01, -0.02, 0.03], "B": [0.02, 0.01, -0.01], "C": []}
+    w = {"A": 0.4, "B": 0.4, "C": 0.2}
+    out = R.portfolio_returns(rets, ["A", "B", "C"], w)
+    assert len(out) == 3, out
+    assert abs(out[0] - (0.4 * 0.01 + 0.4 * 0.02)) < 1e-12, out
+    assert R.portfolio_returns({"A": [], "B": []}, ["A", "B"], w) == []
+    print("portfolio_returns missing-series regression OK")
+
+
 def test_assumptions_validation_bands():
     """POST validation mirrors: erp_pct 1-10 (percent), market_pe 5-60."""
     ok_erp = lambda x: 1.0 <= x <= 10.0
@@ -130,5 +142,6 @@ if __name__ == "__main__":
     test_regression_beta()
     test_lease_capitalized_into_ic_and_wacc()
     test_assumptions_override()
+    test_portfolio_returns_missing_series()
     test_assumptions_validation_bands()
     print("\nALL test_philosophy2026 PASSED")

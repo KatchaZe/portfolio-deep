@@ -194,6 +194,17 @@
       <h2 class="ht">&#128214; How to — วิธีอ่านแดชบอร์ดนี้ (ตามหลัก Damodaran)</h2>
       <p class="muted" style="font-size:12px">หลักคิดรวม: <b>Value ก่อนเสมอ</b> (ราคาเทียบมูลค่า) &rarr; <b>คุณภาพ</b> (moat + งบไว้ใจได้) &rarr; <b>จังหวะ</b> (momentum เป็นแค่ตัวจับเวลาเข้า ไม่ใช่เหตุผลซื้อ) — ตัวเลขทุกตัวมี tooltip เมื่อเอาเมาส์ชี้ · รูปด้านล่างคือ <b>mock up ของหน้าจอจริง</b> หมายเลขในวงกลมชี้ว่าแต่ละ component คืออะไร แล้วอ่านคำอธิบายเต็มจากตารางใต้รูป (เลขตรงกัน)</p>
 
+      <h3 class="ht2">0) &#128200; Assumptions รายเดือน — ERP % และ S&amp;P PE (ฟอร์มใต้ช่อง Add holding)</h3>
+      <table class="httab">
+        <tr><th style="width:170px">หัวข้อ</th><th>รายละเอียด</th></tr>
+        <tr><td><b>คืออะไร</b></td><td>ค่า "สมมติฐานตลาด" 2 ตัวที่ไม่มี feed สดฟรี ต้องอัพเดตมือเดือนละครั้ง: <b>ERP</b> (implied equity risk premium ของสหรัฐ — ใช้คิด Ke = Rf + &beta;&times;ERP &rarr; WACC &rarr; fair value <u>ทุกตัว</u>) และ <b>S&amp;P PE</b> (trailing P/E ของตลาด — ใช้ตัดสิน market overlay ถูก/แพง S32&ndash;33)</td></tr>
+        <tr><td><b>เอาค่าจากไหน</b></td><td>ERP: หน้า Damodaran — <span style="word-break:break-all">pages.stern.nyu.edu/~adamodar</span> (Data &rarr; Implied ERP, อัพเดตต้นเดือน; ก.ค. 2026 = 4.45% US) หรือโพสต์ ERP รายเดือนใน blog/LinkedIn ของเขา &middot; S&amp;P PE: <span style="word-break:break-all">multpl.com/s-p-500-pe-ratio</span></td></tr>
+        <tr><td><b>ทำอย่างไร</b></td><td>กรอกตัวเลข (ERP เป็น <b>เปอร์เซ็นต์</b> เช่น 4.45 ไม่ใช่ 0.0445) &rarr; กด Save &rarr; ระบบ validate (ERP 1&ndash;10% · PE 5&ndash;60) &rarr; บันทึกลง store แล้ว <b>mirror ขึ้น Google Drive อัตโนมัติ</b> — redeploy/restart ค่าไม่หาย</td></tr>
+        <tr><td><b>มีผลเมื่อไร</b></td><td>Ke/WACC และ market overlay ใช้ค่าใหม่ทันที แต่ตัวเลขที่ "แสดงอยู่" มาจากการคำนวณครั้งก่อน &rarr; กด <b>Run Daily</b> (อัพเดตแผง market/แบนเนอร์) + <b>Run Fundamental Refresh</b> (คำนวณ fair value ใหม่)</td></tr>
+        <tr><td><b>แถบ "ปัจจุบัน"</b></td><td>ข้างปุ่ม Save: ค่า live ที่ระบบใช้จริง + ที่มา (<b>manual</b> = คุณกรอกเอง · <b>default</b> = ค่าตั้งต้นใน config) — ถ้าเห็นธง ⚑ ERP เก่าเกิน 3 เดือน = ถึงเวลาอัพเดต</td></tr>
+        <tr><td><b>แบนเนอร์ส้ม "หมดอายุ"</b></td><td>อ่านจาก <b>snapshot ของ Run Daily ครั้งก่อน</b> (คนละแหล่งกับแถบ "ปัจจุบัน") — ถ้าเพิ่งกรอกค่าใหม่แล้วยังเห็นแบนเนอร์ = แค่ยังไม่ได้กด Run Daily</td></tr>
+      </table>
+
       <h3 class="ht2">1) Card ของหุ้นรายตัว (My Portfolio / Watchlist)</h3>
       <svg viewBox="0 0 980 560" style="width:100%;max-width:980px;display:block;margin:6px 0 4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px" xmlns="http://www.w3.org/2000/svg">
         <!-- ==== card body ==== -->
@@ -805,6 +816,18 @@
         <tr><td><b>quota / headroom</b></td><td>โควตา FMP ฟรีของวันนี้ และจำนวน ticker ที่ยัง refresh ได้ (~5 calls/ตัว)</td></tr>
       </table>
 
+      <h3 class="ht2">ค่าใหม่ (Philosophy-2026 alignment · build 2026-07-11)</h3>
+      <table class="httab">
+        <tr><th style="width:190px">ค่า</th><th>นิยาม</th><th>แหล่ง/วิธีอ่าน</th></tr>
+        <tr><td><b>Assumptions: ERP %</b></td><td>Implied equity risk premium (US) — ส่วนชดเชยความเสี่ยงตลาดหุ้นเหนือ Rf ใช้ใน Ke = Rf + &beta;&times;ERP ของทุกตัว</td><td><b>กรอกมือรายเดือน</b>จากหน้า Damodaran (pages.stern.nyu.edu/~adamodar &rarr; Implied ERP) — เก็บใน store + sync Google Drive · ธง stale เมื่อเก่า &gt;3 เดือน</td></tr>
+        <tr><td><b>Assumptions: S&amp;P PE</b></td><td>Trailing P/E ของ S&amp;P 500 — ใช้คิด earnings yield ใน market overlay (S32&ndash;33)</td><td><b>กรอกมือรายเดือน</b>จาก multpl.com/s-p-500-pe-ratio · sync Drive เหมือน ERP</td></tr>
+        <tr><td><b>Hist VaR / CVaR (การ์ดม่วง)</b></td><td>VaR จาก <b>ผลตอบแทนจริงย้อนหลัง</b> (percentile) ไม่สมมุติ normal — เห็น fat tail ตามที่เคยเกิด (S2/S4)</td><td>คู่กับ VaR ปกติ (parametric): ถ้า Hist สูงกว่ามาก = พอร์ตมีหางอ้วนกว่าที่โมเดล normal บอก</td></tr>
+        <tr><td><b>Operating leases &rarr; IC</b></td><td>หนี้สินสัญญาเช่า (ASC 842) ถูกบวกเข้า debt + invested capital ก่อนคิด ROIC/WACC (Damodaran: lease = debt)</td><td>SEC tag OperatingLeaseLiability · เห็น flag "operating leases … capitalized" บน card</td></tr>
+        <tr><td><b>beta_calc</b></td><td>Regression beta คำนวณเอง (weekly ~2y เทียบ SPY) — cross-check ค่า beta จาก FMP; ใช้แทนเมื่อ FMP ไม่มีค่า</td><td>คำนวณตอน Run Daily · risk meta ติดธงเมื่อสองค่าต่างกัน &gt;0.4</td></tr>
+        <tr><td><b>Pricing-asset cap 5%</b></td><td>เพดานน้ำหนักต่อตัวของสินทรัพย์ไม่มีกระแสเงินสด (crypto/collectible) — เข้มกว่าหุ้นปกติ (20%) ตาม S40&ndash;41</td><td>เห็นใน Position Sizing: binding = "pricing-asset cap"</td></tr>
+        <tr><td><b>Empirical duration</b></td><td>Duration ของ bond ETF จาก regression ราคา vs &Delta;10Y yield (^TNX) — override ตาราง proxy เมื่อคำนวณได้</td><td>rate risk tag เปลี่ยนจาก [JUDG-PROXY] เป็น [CALC] เมื่อใช้ค่าจริง</td></tr>
+      </table>
+
       <p class="muted" style="font-size:12px">หมายเหตุ: ทุกค่าคำนวณจากข้อมูลฟรี (SEC/Yahoo/FMP/Stooq) มีข้อจำกัด — แอปจะ "ข้ามและติด flag" เสมอ ไม่เดาตัวเลข (skill invariant 17)</p>
     </div>
   </div>
@@ -816,12 +839,13 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-07-10b";
+const DASH_BUILD="2026-07-11a";
 // --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
 async function loadAssumptions(){
   const el=document.getElementById('assumeMsg'); if(!el)return;
   try{
     const a=await (await fetch('/api/assumptions')).json();
+    window._assume=a;                       // ให้ renderAssumptions เทียบ snapshot vs live
     const src=(a.source||{});
     el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':'default'})`+
       ` · PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'})`+
@@ -1180,9 +1204,15 @@ function renderAssumptions(mk){
   if(em!=null&&em>lim)bad.push(`ERP${v.implied_erp_pct!=null?' '+v.implied_erp_pct+'%':''} as-of ${v.erp_as_of} (<b>เก่า ${em} เดือน</b>)`);
   if(pm!=null&&pm>lim)bad.push(`Market P/E as-of ${v.market_pe_as_of} (<b>เก่า ${pm} เดือน</b>)`);
   if(!bad.length){el.style.display='none';return;}
+  // แบนเนอร์นี้อ่านจาก SNAPSHOT ของ Run Daily ครั้งก่อน — ถ้าฟอร์ม Assumptions
+  // ถูกอัพเดตไปแล้ว (ค่า live ใหม่กว่า snapshot) ให้บอกว่าแค่กด Run Daily พอ
+  const cur=window._assume||{};
+  const snapshotStale=cur.erp_as_of&&v.erp_as_of&&cur.erp_as_of>v.erp_as_of;
   el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:12px;background:#fff7ed;color:#9a3412;border:1px solid #fdba74';
   el.innerHTML='&#9888; <b>สมมติฐานหมดอายุ:</b> '+bad.join(' · ')
-    +' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดต <b>ERP / ERP_AS_OF / MARKET_PE / MARKET_PE_AS_OF</b> ใน <b>config.py</b> (จากหน้า Damodaran &amp; multpl.com รายเดือน) แล้ว restart';
+    +(snapshotStale
+      ?` — <b>ค่าปัจจุบันในระบบอัพเดตแล้ว (ERP ${cur.erp_pct}% · ${esc(cur.erp_as_of)})</b> — แผงนี้เป็น snapshot จาก Run Daily ครั้งก่อน &middot; กด <b>Run Daily</b> เพื่อคำนวณ market overlay ใหม่`
+      :' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดตที่ฟอร์ม <b>&#128200; Assumptions</b> ด้านบน (เอาค่าจากหน้า Damodaran &amp; multpl.com รายเดือน — ดูวิธีในแท็บ How to ข้อ 0) แล้วกด <b>Run Daily</b> + <b>Run Fundamental Refresh</b>');
 }
 function tdInner(html){try{const t=document.createElement('table');t.innerHTML='<tbody><tr>'+html+'</tr></tbody>';const td=t.querySelector('td');return td?td.innerHTML:html;}catch(e){return html;}}
 function adviceLine(x){

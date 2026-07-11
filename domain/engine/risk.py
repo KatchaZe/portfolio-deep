@@ -447,14 +447,20 @@ def reverse_stress(weights, betas, tolerance_pct, default_beta=1.0):
 #  Downside-risk lens (Damodaran S2/S4: total vs downside, standalone vs market) #
 # --------------------------------------------------------------------------- #
 def portfolio_returns(returns_by_ticker, tickers, weights):
-    """Weighted daily portfolio-return series from aligned per-ticker returns. Pure."""
+    """Weighted daily portfolio-return series from aligned per-ticker returns. Pure.
+
+    FIX (2026-07-11): a holding with NO price history (every source failed /
+    quota-degraded) used to crash this with IndexError ([][-n:][i]) and take the
+    whole Correlation tab down. Missing series now contribute 0 (they are simply
+    not covered by the series) instead of raising."""
     aligned = align_returns(returns_by_ticker, tickers)
-    n = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
+    have = [t for t in tickers if aligned[t]]
+    n = min((len(aligned[t]) for t in have), default=0)
     if n == 0:
         return []
     out = []
     for i in range(n):
-        out.append(sum(weights.get(t, 0.0) * aligned[t][-n:][i] for t in tickers))
+        out.append(sum(weights.get(t, 0.0) * aligned[t][-n:][i] for t in have))
     return out
 
 
