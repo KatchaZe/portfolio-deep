@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Portfolio DEEP Dashboard</title>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"></script>
+<!-- P2-9: vendored Chart.js first (no CDN dependency); CDN only as fallback -->
+<script src="/static/chart.umd.js"></script>
+<script>if(!window.Chart){document.write('<script src="https://cdn.jsdelivr.net/npm/chart.js@4.5.0/dist/chart.umd.js"><\/script>');}</script>
 <style>
   :root { color-scheme: light; }
   *{box-sizing:border-box}
@@ -75,6 +77,15 @@
     <input id="ac" class="n" type="number" step="any" placeholder="avg cost $">
     <button onclick="addHolding()"><span class="spin" id="spA" style="border-top-color:#fff"></span> + Add / Update</button>
     <span id="addMsg" style="font-size:12px;color:#64748b"></span>
+  </div>
+
+  <!-- Monthly assumptions (S4/S33): manual ERP + S&P PE -> saved to store -> Google Drive -->
+  <div class="addform" id="assumeForm">
+    <span style="font-size:12px;color:#475569" title="ค่ารายเดือนจากหน้า Damodaran (implied ERP) และ multpl (S&P trailing P/E) — บันทึกลง portfolio.json แล้ว mirror ขึ้น Google Drive อัตโนมัติ; มีผลกับ Ke/WACC และ market overlay ทันที">&#128200; Assumptions (รายเดือน):</span>
+    <input id="erpIn" class="n" type="number" step="0.01" min="1" max="10" placeholder="ERP % เช่น 4.45" style="width:130px">
+    <input id="peIn" class="n" type="number" step="0.1" min="5" max="60" placeholder="S&P PE เช่น 25.1" style="width:130px">
+    <button onclick="saveAssumptions()" style="background:#b45309"><span class="spin" id="spAs" style="border-top-color:#fff"></span> Save</button>
+    <span id="assumeMsg" style="font-size:12px;color:#64748b">&hellip;</span>
   </div>
 
   <div class="tabs">
@@ -805,7 +816,39 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-07-04a";
+const DASH_BUILD="2026-07-10b";
+// --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
+async function loadAssumptions(){
+  const el=document.getElementById('assumeMsg'); if(!el)return;
+  try{
+    const a=await (await fetch('/api/assumptions')).json();
+    const src=(a.source||{});
+    el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':'default'})`+
+      ` · PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'})`+
+      (a.erp_stale?` <span style="color:#b45309;font-weight:700">⚑ ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');
+    const e=document.getElementById('erpIn'), p=document.getElementById('peIn');
+    if(e&&!e.value)e.placeholder=`ERP % (${a.erp_pct})`;
+    if(p&&!p.value)p.placeholder=`S&P PE (${a.market_pe})`;
+  }catch(err){el.textContent='โหลดค่า assumptions ไม่ได้';}
+}
+async function saveAssumptions(){
+  const e=document.getElementById('erpIn').value, p=document.getElementById('peIn').value;
+  const msg=document.getElementById('assumeMsg'), sp=document.getElementById('spAs');
+  if(!e&&!p){msg.textContent='กรอกอย่างน้อย 1 ค่า (ERP % หรือ S&P PE)';return;}
+  const q=[]; if(e)q.push('erp_pct='+encodeURIComponent(e)); if(p)q.push('market_pe='+encodeURIComponent(p));
+  sp.style.display='inline-block';
+  try{
+    const r=await fetch('/api/assumptions?'+q.join('&'),{method:'POST'});
+    const d=await r.json();
+    if(d.error){msg.innerHTML='<span style="color:#dc2626">'+esc(d.error)+'</span>';}
+    else{
+      msg.innerHTML='<span style="color:#16a34a">✓ บันทึกแล้ว (sync Google Drive)</span> — '+esc(d.note||'');
+      document.getElementById('erpIn').value='';document.getElementById('peIn').value='';
+      await loadAssumptions(); load();          // refresh view with new assumption
+    }
+  }catch(err){msg.innerHTML='<span style="color:#dc2626">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
+  sp.style.display='none';
+}
 function f(x,d=2){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':Number(x).toFixed(d)}
 function money(x){return (x===null||x===undefined)?'<span class="muted">&mdash;</span>':'$'+Number(x).toLocaleString(undefined,{maximumFractionDigits:0})}
 function tag(t,c){return t?`<span class="tag" style="background:${c||'#64748b'}">${t}</span>`:'<span class="muted">&mdash;</span>'}
@@ -1443,6 +1486,7 @@ function renderRisk(d){
   const st=d.stress||{},vr=st.var||{};
   const stress=`<div style="max-width:760px;height:${Math.max(100,(((st.historical||[]).length)+((st.hypothetical||[]).length))*20)}px;position:relative"><canvas id="rcStress"></canvas></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${rcard('VaR 95%',rp(vr.var95_pct),'#dc2626')}${rcard('VaR 99%',rp(vr.var99_pct),'#dc2626')}${rcard('CVaR 95%',rp(vr.cvar95_pct),'#991b1b')}</div>
+    ${(st.var_hist&&st.var_hist.var95_pct!=null)?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${rcard('Hist VaR 95%',rp(st.var_hist.var95_pct),'#7c3aed')}${rcard('Hist VaR 99%',rp(st.var_hist.var99_pct),'#7c3aed')}${rcard('Hist CVaR 95%',rp(st.var_hist.cvar95_pct),'#6d28d9')}</div><div class="muted" style="font-size:10px;margin-top:2px">Historical VaR (P1-7, S2/S4): จาก returns จริง ${st.var_hist.n} วัน — เห็น fat tail ตามที่เคยเกิด ไม่สมมุติ normal</div>`:''}
     <div class="muted" style="font-size:11px;margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
   // 5b) downside-risk lens (Damodaran S2/S4) — Tier2: จับคู่ Total → Downside + Portfolio MoS
   const dn=d.downside||{};
@@ -1767,6 +1811,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden){load();lo
 checkBuild();
 load();
 loadPersist();
+loadAssumptions();
 </script>
 </body>
 </html>

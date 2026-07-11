@@ -391,6 +391,32 @@ def stress_test(weights, betas, sectors, scenarios=None, default_beta=1.0):
     return out
 
 
+def historical_var(port_returns, horizon_years=1.0, min_n=60):
+    """P1-7 (S2/S4): HISTORICAL VaR/CVaR from the realized daily portfolio-return
+    series — no normality assumption, so fat tails show up as they happened.
+    Scales the daily percentile loss by √(252·horizon). None-fields when history
+    is too thin (< min_n days). Complements (does not replace) parametric VaR."""
+    rs = [r for r in (port_returns or []) if r is not None]
+    n = len(rs)
+    if n < min_n:
+        return {"var95_pct": None, "var99_pct": None, "cvar95_pct": None,
+                "n": n, "method": "historical (insufficient history)"}
+    xs = sorted(rs)                                    # worst first
+    scale = math.sqrt(TRADING_DAYS * horizon_years)
+
+    def pct_loss(q):
+        i = max(0, min(n - 1, int(q * n)))
+        return -xs[i]
+
+    v95, v99 = pct_loss(0.05), pct_loss(0.01)
+    tail = xs[:max(1, int(0.05 * n))]
+    c95 = -(sum(tail) / len(tail))
+    return {"var95_pct": round(v95 * scale * 100, 1),
+            "var99_pct": round(v99 * scale * 100, 1),
+            "cvar95_pct": round(c95 * scale * 100, 1),
+            "n": n, "method": "historical"}
+
+
 def var_cvar(port_vol, horizon_years=1.0):
     """Parametric (normal) VaR/CVaR as % of portfolio value over the horizon.
     port_vol is the ANNUAL σp. z95=1.645, z99=2.326; CVaR95 factor=2.063."""
@@ -596,10 +622,12 @@ def suitability(stress_rows, var_block, tolerance_pct):
 
 
 def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
-                    risk_share_cap=0.30):
+                    risk_share_cap=0.30, asset_class=None, pricing_cap=0.05):
     """For each holding, derive a soft/hard target band from the binding cap
-    among: single-name cap, sector cap (shared), and risk-contribution budget.
-    Outputs current vs target with an action verdict."""
+    among: single-name cap, sector cap (shared), risk-contribution budget, and
+    (P1-11, S40-41) a HARDER cap for pricing assets (crypto/collectible — no
+    cash flow, pure pricing game). Outputs current vs target with an action verdict."""
+    asset_class = asset_class or {}
     # sector totals (capital)
     sec_tot = {}
     for r in rc_rows:
@@ -611,6 +639,10 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
         arc = (r.get("abs_risk_share_pct") or r.get("risk_pct") or 0) / 100.0
         hard = single_name_cap
         binding = "single-name cap"
+        ac = (asset_class.get(r["ticker"]) or "equity").lower()
+        if ac in ("crypto", "collectible") and pricing_cap and pricing_cap < hard:
+            hard = pricing_cap
+            binding = "pricing-asset cap (S40-41: no cash flow)"
         if arc and arc > risk_share_cap and arc > 0:
             # scale capital down proportionally if it eats too much risk budget
             implied = w * (risk_share_cap / arc)

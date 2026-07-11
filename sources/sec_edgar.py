@@ -276,6 +276,11 @@ def extract(companyfacts):
                             or ttm("PaymentsToAcquireBusinessesGross"),
         "deferred_revenue": fresh(*DEFREV_TAGS),
         "deferred_revenue_prior": prior_instant(*DEFREV_TAGS),
+        # P1-5 (Philosophy-2026 S5): operating-lease liability — Damodaran treats
+        # leases as debt; capitalized into invested capital + debt by the engine.
+        "operating_leases": fresh("OperatingLeaseLiability")
+                            or _sum(fresh("OperatingLeaseLiabilityNoncurrent"),
+                                    fresh("OperatingLeaseLiabilityCurrent")),
         "eps_annuals_dated": annual_series_dated("EarningsPerShareDiluted", prefer=("USD/shares",)),
     }
 
@@ -320,6 +325,8 @@ def populate(ff, companyfacts):
               "equity_prior", "total_debt_prior", "cash_prior",
               # round 2 additions
               "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
+              # P1-5: lease capitalization
+              "operating_leases",
               # round 3 addition
               "eps_annuals_dated"):
         ff.set(k, d.get(k), "sec")

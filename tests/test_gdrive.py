@@ -16,6 +16,18 @@ import config
 import store
 from sources import gdrive_store
 
+# EVERY credential env var the backend recognises (see gdrive_store._auth_mode):
+# the old list missed the OAuth trio, so on a machine with real OAuth configured
+# enabled() stayed True and test_disabled_when_no_env failed (hermeticity bug).
+_DRIVE_ENV = ("GDRIVE_SA_JSON", "GDRIVE_FOLDER_ID",
+              "GDRIVE_OAUTH_CLIENT_ID", "GDRIVE_OAUTH_CLIENT_SECRET",
+              "GDRIVE_OAUTH_REFRESH_TOKEN")
+
+
+def _clear_drive_env():
+    for k in _DRIVE_ENV:
+        os.environ.pop(k, None)
+
 
 def _reset_drive_cache():
     gdrive_store._enabled = None
@@ -26,8 +38,7 @@ def _reset_drive_cache():
 
 
 def test_disabled_when_no_env():
-    for k in ("GDRIVE_SA_JSON", "GDRIVE_FOLDER_ID"):
-        os.environ.pop(k, None)
+    _clear_drive_env()
     _reset_drive_cache()
     assert gdrive_store.enabled() is False
     assert gdrive_store.drive_pull("/tmp/whatever.json") == "absent"
@@ -36,8 +47,7 @@ def test_disabled_when_no_env():
 
 
 def test_store_roundtrip_local_only(tmp):
-    for k in ("GDRIVE_SA_JSON", "GDRIVE_FOLDER_ID"):
-        os.environ.pop(k, None)
+    _clear_drive_env()
     _reset_drive_cache()
     config.DATA_DIR = tmp
     store.PATH = os.path.join(tmp, "portfolio.json")
@@ -70,8 +80,7 @@ def test_push_failure_never_raises(tmp):
         print("push-failure-never-raises OK")
     finally:
         gdrive_store._client = orig
-        for k in ("GDRIVE_SA_JSON", "GDRIVE_FOLDER_ID"):
-            os.environ.pop(k, None)
+        _clear_drive_env()
         _reset_drive_cache()
 
 
@@ -108,11 +117,21 @@ def test_push_blocked_until_pull_succeeds(tmp):
 
 
 if __name__ == "__main__":
-    test_disabled_when_no_env()
-    with tempfile.TemporaryDirectory() as d:
-        test_store_roundtrip_local_only(d)
-    with tempfile.TemporaryDirectory() as d:
-        test_push_failure_never_raises(d)
-    with tempfile.TemporaryDirectory() as d:
-        test_push_blocked_until_pull_succeeds(d)
+    # snapshot the real machine's Drive env and ALWAYS restore it — the suite
+    # must not depend on (or disturb) local credentials.
+    _saved = {k: os.environ.get(k) for k in _DRIVE_ENV}
+    try:
+        test_disabled_when_no_env()
+        with tempfile.TemporaryDirectory() as d:
+            test_store_roundtrip_local_only(d)
+        with tempfile.TemporaryDirectory() as d:
+            test_push_failure_never_raises(d)
+        with tempfile.TemporaryDirectory() as d:
+            test_push_blocked_until_pull_succeeds(d)
+    finally:
+        for k, v in _saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
     print("\nALL GDRIVE TESTS PASSED ✅")

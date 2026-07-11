@@ -8,7 +8,11 @@ import config
 from .contract import DeepEngine, Valuation
 
 # --- constants (v8) ---------------------------------------------------------
-ERP = config.ERP             # market ERP, centralised in config (see config.ERP / ERP_AS_OF)
+# NOTE (assumptions feature): functions below read config.ERP / config.ERP_AS_OF
+# at CALL time, so a store-backed manual override (dashboard "Assumptions" form,
+# applied in store.load()) takes effect without a restart. The module-level
+# snapshot is kept only for back-compat/reference.
+ERP = config.ERP             # snapshot at import — do NOT use in calculations
 ERP_AS_OF = config.ERP_AS_OF
 ROIC_TERMINAL = 0.15
 REVERSE_HORIZON = 10
@@ -50,10 +54,11 @@ def terminal_margin(ticker, operating_income, revenue):
     return 0.25, "terminal margin 25% (generic assumption - pre-profit, no table)", False
 
 
-def erp_months_old(as_of=ERP_AS_OF, today=None):
-    """Months since the ERP assumption was set (for the staleness flag)."""
+def erp_months_old(as_of=None, today=None):
+    """Months since the ERP assumption was set (for the staleness flag).
+    Reads config.ERP_AS_OF at call time (store override aware)."""
     try:
-        y, m = (int(x) for x in str(as_of).split("-")[:2])
+        y, m = (int(x) for x in str(as_of or config.ERP_AS_OF).split("-")[:2])
         d = today or datetime.date.today()
         return (d.year - y) * 12 + (d.month - m)
     except Exception:
@@ -72,7 +77,7 @@ def _band(x, bands):
 
 
 def cost_of_equity(rf, beta):
-    return rf + beta * ERP
+    return rf + beta * config.ERP        # call-time read (assumptions override aware)
 
 
 def _spread_from_coverage(cov):
@@ -145,6 +150,18 @@ def fundamental_peg_price(g_high, g_stable, ke, roic_high, roic_stable, forward_
     return pe_clamped * forward_eps, detail
 
 
+def stable_exit_pe(g_st, ke, roic_st):
+    """Justified STABLE-period P/E (Damodaran, Gordon form):
+    PE = payout_st * (1+g_st) / (Ke - g_st), payout_st = 1 - g_st/ROIC_st.
+    Used as the exit multiple in the Future Value Projection — replaces the old
+    'exit PE = growth x 100' PEG=1 heuristic (Philosophy-2026 alignment: exit
+    multiples must come from stable-period fundamentals, S5/S19)."""
+    if ke is None or g_st is None or ke <= g_st:
+        return None
+    payout = max(0.0, 1 - g_st / roic_st) if roic_st else 0.0
+    return payout * (1 + g_st) / (ke - g_st)
+
+
 def future_value_projection(eps0, growth, ke, exit_pe):
     if eps0 is None or eps0 <= 0 or exit_pe is None:
         return None
@@ -153,20 +170,51 @@ def future_value_projection(eps0, growth, ke, exit_pe):
 
 
 def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin):
+    """Full-path reverse DCF (Philosophy-2026 fix): solve the revenue CAGR x such
+    that PV(interim FCFF years 1..H) + PV(terminal value) = Enterprise Value.
+    The old closed form assumed ALL of EV compounds into the year-H terminal value
+    (no credit for interim cash flows) which OVERSTATED the implied CAGR — verdicts
+    skewed toward 'Aggressive/Exceptional'. Damodaran reverse DCF discounts the
+    whole FCFF path (S19/S21: what growth is the market pricing in?).
+    Reinvestment follows growth: reinvest_t = x/ROIC_terminal (capped), terminal
+    reinvest = g/ROIC_terminal. Margin held at the terminal margin (conservative:
+    real margins ramp toward it, so implied CAGR stays an upper-ish bound)."""
     if not (price and shares and revenue) or wacc_val <= g:
         return {"triggered": False}
     mcap = price * shares
     ev = mcap + (total_debt or 0) - (cash or 0)
-    tv = ev * (1 + wacc_val) ** REVERSE_HORIZON
-    fcff_t = tv * (wacc_val - g)
-    reinvest = min(0.8, g / ROIC_TERMINAL)
+
+    def pv_at(x, m):
+        """PV of the FCFF path at revenue CAGR x with operating margin m."""
+        if m <= 0:
+            return None
+        reinvest = min(0.9, max(0.0, x / ROIC_TERMINAL)) if x > 0 else 0.0
+        reinvest_t = min(0.8, g / ROIC_TERMINAL)
+        pv = 0.0
+        rev_t = revenue
+        for t in range(1, REVERSE_HORIZON + 1):
+            rev_t *= (1 + x)
+            fcff = rev_t * m * (1 - tax) * (1 - reinvest)
+            pv += fcff / (1 + wacc_val) ** t
+        fcff_next = rev_t * (1 + g) * m * (1 - tax) * (1 - reinvest_t)
+        tv = fcff_next / (wacc_val - g)
+        return pv + tv / (1 + wacc_val) ** REVERSE_HORIZON
 
     def implied(m):
-        denom = m * (1 - tax) * (1 - reinvest)
-        if denom <= 0:
+        """Bisection for x where pv_at(x) == EV. None if EV unreachable in band."""
+        if m <= 0 or ev <= 0:
             return None
-        rev_t = fcff_t / denom
-        return (rev_t / revenue) ** (1 / REVERSE_HORIZON) - 1 if rev_t > 0 else None
+        lo, hi = -0.50, 1.00
+        plo, phi = pv_at(lo, m), pv_at(hi, m)
+        if plo is None or phi is None or plo > ev or phi < ev:
+            return None
+        for _ in range(60):
+            mid = (lo + hi) / 2
+            if (pv_at(mid, m) or 0) < ev:
+                lo = mid
+            else:
+                hi = mid
+        return (lo + hi) / 2
 
     base = implied(margin)
     a1 = (revenue / rev_1y - 1) if rev_1y else None
@@ -321,12 +369,20 @@ class DeepV82Engine(DeepEngine):
         beta = f.beta or 1.0
         tax = f.tax_rate
         if erp_months_old() > config.ERP_STALE_MONTHS:
-            _erp_note = f"ERP {ERP*100:.2f}% as-of {ERP_AS_OF} is {erp_months_old()}mo old - refresh (config.ERP)"
+            _erp_note = (f"ERP {config.ERP*100:.2f}% as-of {config.ERP_AS_OF} is {erp_months_old()}mo old "
+                         f"- refresh (Assumptions form / config.ERP)")
             if _erp_note not in f.flags:
                 f.flags.append(_erp_note)
 
         nopat = f.operating_income * (1 - tax) if f.operating_income is not None else None
-        ic = (f.total_debt or 0) + (f.equity or 0) - (f.cash or 0)
+        # P1-5 (S5): capitalize operating leases — lease liability is debt (Damodaran)
+        lease = getattr(f, "operating_leases", None) or 0
+        debt_eff = (f.total_debt or 0) + lease
+        ic = debt_eff + (f.equity or 0) - (f.cash or 0)
+        if lease:
+            _ln = f"operating leases ${lease/1e9:.1f}B capitalized into debt+IC (S5)"
+            if _ln not in f.flags:
+                f.flags.append(_ln)
         roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
         rd = rd_capitalize(f.rnd_annuals, f.operating_income, ic, tax)
         if rd:
@@ -335,9 +391,9 @@ class DeepV82Engine(DeepEngine):
         roic_used = rd[2] if rd else roic
 
         mcap = (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None
-        w, ke, kd_pre, wacc_note = wacc_true(rf, beta, mcap, f.total_debt, f.cash, tax,
+        w, ke, kd_pre, wacc_note = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
                                              f.interest_expense, f.operating_income)
-        if "default spread" in wacc_note and f.total_debt:
+        if "default spread" in wacc_note and debt_eff:
             _n = "WACC: " + wacc_note
             if _n not in f.flags:
                 f.flags.append(_n)
@@ -371,7 +427,9 @@ class DeepV82Engine(DeepEngine):
             if note not in f.flags:
                 f.flags.append(note)
 
-        exit_pe = _clamp(growth * 100, 12, 25)
+        # exit multiple from STABLE-period fundamentals (payout/(Ke-g)), not the
+        # old PEG=1 heuristic (growth x 100) — Philosophy-2026 alignment (S5/S19)
+        exit_pe = stable_exit_pe(g_stable, ke_eff, ROIC_TERMINAL)
         fv_fvp = future_value_projection(eps0, growth, ke_eff, exit_pe)
 
         tmargin, tm_label, tm_anchored = terminal_margin(f.ticker, f.operating_income, f.revenue)
@@ -476,7 +534,8 @@ class DeepV82Engine(DeepEngine):
                          "incremental_roic_pct": round(inc_roic * 100, 1) if inc_roic is not None else None,
                          "growth_pct": round(growth * 100, 1), "beta": round(beta, 2),
                          "justified_pe": (peg_d or {}).get("fair_pe"),
-                         "erp_pct": round(ERP * 100, 2), "erp_as_of": ERP_AS_OF,
+                         "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
+                         "operating_leases": round(lease, 0) if lease else None,
                          "terminal_margin_pct": round(tmargin * 100, 1),
                          "terminal_margin_anchored": tm_anchored},
             flags=list(f.flags))

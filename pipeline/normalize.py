@@ -18,7 +18,9 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
           "cfo", "total_assets", "receivables", "interest_expense", "rnd_expense",
           "equity_prior", "total_debt_prior", "cash_prior",
           # round 2 additions
-          "acquisitions_net", "deferred_revenue", "deferred_revenue_prior")
+          "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
+          # P1-5
+          "operating_leases")
 
 
 def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rate=None,
@@ -46,7 +48,11 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
                 _v = getattr(ff, _ls)
                 if _v:
                     setattr(ff, _ls, [x * fx_rate for x in _v])
-            ff.flags.append(f"converted {ff.currency}->USD @ {round(fx_rate, 4)}")
+            # P1-4 (S5 consistency): ONE spot rate for every period — ratios
+            # (growth, margins) equal LOCAL-currency figures (FX cancels out);
+            # only absolute USD levels of past years are approximate.
+            ff.flags.append(f"converted {ff.currency}->USD @ {round(fx_rate, 4)} "
+                            f"(constant spot: growth/margins = local-currency)")
             ff.provenance["fx"] = f"{ff.currency}->USD {round(fx_rate,4)}"
             ff.currency = "USD"
         else:

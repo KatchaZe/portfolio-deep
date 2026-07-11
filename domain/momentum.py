@@ -85,6 +85,35 @@ def rsi(closes, period=14):
     return 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
 
 
+def regression_beta(closes, dates, mkt_closes, mkt_dates, step=5, min_points=40):
+    """P1-6 (S4): regression beta vs the market from WEEKLY returns (every `step`
+    trading days) over the common date window — a free cross-check of the vendor
+    (FMP) beta and the fallback when it is missing. Damodaran prefers bottom-up
+    betas; regression betas are noisy, so this is a CROSS-CHECK, not the primary.
+    Pure; returns None when data is short/misaligned (never fabricates)."""
+    if not closes or not dates or not mkt_closes or not mkt_dates:
+        return None
+    mkt = {str(d)[:10]: c for d, c in zip(mkt_dates, mkt_closes) if c and c > 0}
+    pairs = [(c, mkt[str(d)[:10]]) for d, c in zip(dates, closes)
+             if c and c > 0 and str(d)[:10] in mkt]
+    if len(pairs) < min_points * step // 2:
+        return None
+    a = [p[0] for p in pairs][::-1][::step][::-1]      # keep chronological, weekly
+    m = [p[1] for p in pairs][::-1][::step][::-1]
+    ra = [a[i] / a[i - 1] - 1 for i in range(1, len(a))]
+    rm = [m[i] / m[i - 1] - 1 for i in range(1, len(m))]
+    n = min(len(ra), len(rm))
+    if n < min_points:
+        return None
+    ra, rm = ra[-n:], rm[-n:]
+    mean_a, mean_m = sum(ra) / n, sum(rm) / n
+    var_m = sum((x - mean_m) ** 2 for x in rm) / (n - 1)
+    if var_m <= 0:
+        return None
+    cov = sum((ra[i] - mean_a) * (rm[i] - mean_m) for i in range(n)) / (n - 1)
+    return round(cov / var_m, 2)
+
+
 # --------------------------------------------------------------------------- #
 #  S9 extensions — long-horizon reversal + market-regime crash guard          #
 # --------------------------------------------------------------------------- #

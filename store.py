@@ -42,7 +42,45 @@ LOCK = threading.RLock()
 
 _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
             "momentum": {}, "fmp_usage": {}, "updated": {},
-            "rev_snapshots": {}, "rev_surprises": {}}
+            "rev_snapshots": {}, "rev_surprises": {},
+            # Monthly manual assumptions (ERP / MARKET_PE) entered via the
+            # dashboard "Assumptions" form. Lives in portfolio.json -> mirrored
+            # to Google Drive by the normal save() flow, restored on cold start.
+            "assumptions": {}}
+
+
+def _apply_assumptions(s):
+    """Overlay store-backed manual assumptions onto the config module so every
+    call-time reader (engine Ke/WACC, validate band, market overlay) uses the
+    freshest value WITHOUT a restart. No-op when nothing was saved. Never raises."""
+    a = s.get("assumptions") or {}
+    try:
+        if a.get("erp"):
+            config.ERP = float(a["erp"])
+            config.ERP_AS_OF = a.get("erp_as_of") or config.ERP_AS_OF
+        if a.get("market_pe"):
+            config.MARKET_PE = float(a["market_pe"])
+            config.MARKET_PE_AS_OF = a.get("market_pe_as_of") or config.MARKET_PE_AS_OF
+    except Exception:
+        pass
+
+
+def set_assumptions(s, erp_pct=None, market_pe=None):
+    """Persist manual monthly assumptions (dashboard form). Values are validated
+    by the caller (app.py). Stamps as-of = current YYYY-MM + source=manual.
+    Returns the stored assumptions dict."""
+    a = s.setdefault("assumptions", {})
+    month = dt.date.today().isoformat()[:7]
+    if erp_pct is not None:
+        a["erp"] = round(float(erp_pct) / 100.0, 5)
+        a["erp_as_of"] = month
+    if market_pe is not None:
+        a["market_pe"] = round(float(market_pe), 2)
+        a["market_pe_as_of"] = month
+    a["updated"] = dt.date.today().isoformat()
+    a["source"] = "manual"
+    _apply_assumptions(s)
+    return a
 
 
 def _ensure_drive_pull():
@@ -71,6 +109,7 @@ def load():
         s = json.load(fh)
     for k, v in _DEFAULT.items():
         s.setdefault(k, json.loads(json.dumps(v)))
+    _apply_assumptions(s)        # manual ERP/MARKET_PE override -> config (call-time readers)
     return s
 
 

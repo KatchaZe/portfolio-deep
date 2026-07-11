@@ -32,6 +32,7 @@ from typing import List, Optional
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 import config
@@ -49,6 +50,19 @@ app = FastAPI(title=f"Portfolio DEEP v{config.DEEP_VERSION}")
 BASE = os.path.dirname(os.path.abspath(__file__))
 QUOTA_CAP = config.QUOTA_CAP
 APP_TOKEN = os.environ.get("APP_TOKEN", "")
+
+# P2-9: vendored Chart.js (static/chart.umd.js) — no CDN dependency at runtime.
+if os.path.isdir(os.path.join(BASE, "static")):
+    app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
+
+# P1-7 (deploy H5, enforced): store.LOCK, the Drive-push worker and the pull-state
+# guard are all PER-PROCESS — the app must run as exactly ONE worker. Detect the
+# common multi-worker env configs and surface loudly (healthz + error log).
+_workers = os.environ.get("WEB_CONCURRENCY") or os.environ.get("UVICORN_WORKERS")
+SINGLE_WORKER_OK = not (_workers and str(_workers).isdigit() and int(_workers) > 1)
+if not SINGLE_WORKER_OK:
+    log.error("MULTI-WORKER CONFIG DETECTED (%s workers) — store lock/Drive guard "
+              "are per-process. Run exactly ONE worker or data loss is possible.", _workers)
 
 
 # --------------------------------------------------------------------------- #
@@ -120,7 +134,8 @@ def _fetch_and_commit(tickers):
 # --------------------------------------------------------------------------- #
 @app.get("/healthz")
 def healthz():
-    return {"status": "ok", "version": config.DEEP_VERSION, "build": config.BUILD}
+    return {"status": "ok", "version": config.DEEP_VERSION, "build": config.BUILD,
+            "single_worker_ok": SINGLE_WORKER_OK}
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -147,6 +162,51 @@ def api_persist():
     """Google-Drive persistence health — surfaced as a header badge so a silent
     backup failure (expired token, quota, network) is visible BEFORE data is lost."""
     return JSONResponse(st.persist_status())
+
+
+# --------------------------------------------------------------------------- #
+#  Monthly assumptions (ERP / MARKET_PE) — dashboard form -> store -> Drive.    #
+#  store.load() overlays saved values onto config, so the engine (Ke/WACC),     #
+#  validate band and the market overlay all pick them up at call time.          #
+# --------------------------------------------------------------------------- #
+@app.get("/api/assumptions")
+def api_assumptions():
+    s = st.load()                        # also applies any stored override to config
+    a = s.get("assumptions") or {}
+    from domain.engine.deep_v82 import erp_months_old
+    return JSONResponse({
+        "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
+        "market_pe": config.MARKET_PE, "market_pe_as_of": config.MARKET_PE_AS_OF,
+        "source": {"erp": "manual" if a.get("erp") else "config-default",
+                   "market_pe": "manual" if a.get("market_pe") else "config-default"},
+        "erp_months_old": erp_months_old(),
+        "erp_stale": erp_months_old() > config.ERP_STALE_MONTHS,
+        "updated": a.get("updated"),
+    })
+
+
+@app.post("/api/assumptions")
+def api_set_assumptions(erp_pct: float = None, market_pe: float = None):
+    """Save the monthly manual values (Damodaran implied ERP %, S&P trailing P/E).
+    Persisted in portfolio.json -> mirrored to Google Drive by the normal save()
+    flow (same guard/worker as holdings), restored automatically on cold start."""
+    if erp_pct is None and market_pe is None:
+        return JSONResponse({"error": "provide erp_pct and/or market_pe"}, status_code=422)
+    if erp_pct is not None and not (1.0 <= erp_pct <= 10.0):
+        return JSONResponse({"error": "erp_pct out of sane band 1-10 (percent, e.g. 4.45)"},
+                            status_code=422)
+    if market_pe is not None and not (5.0 <= market_pe <= 60.0):
+        return JSONResponse({"error": "market_pe out of sane band 5-60"}, status_code=422)
+    with st.LOCK:
+        s = st.load()
+        a = st.set_assumptions(s, erp_pct, market_pe)
+        st.save(s)                                   # atomic write + Drive mirror
+    return JSONResponse({
+        "ok": True, "assumptions": a,
+        "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
+        "market_pe": config.MARKET_PE, "market_pe_as_of": config.MARKET_PE_AS_OF,
+        "note": "มีผลกับ Ke/WACC/market overlay ทันที — กด Run Fundamental Refresh เพื่อคำนวณ fair value ใหม่ด้วยค่านี้",
+    })
 
 
 @app.post("/api/holding")
@@ -337,6 +397,7 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     mom = s.get("momentum", {})
 
     positions, betas, sectors, currencies, asset_class = {}, {}, {}, {}, {}
+    beta_check = {}
     for t, h in holdings.items():
         sh = h.get("shares") or 0
         ff = facts.get(t, {}) or {}
@@ -344,7 +405,14 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         if sh <= 0 or not price:
             continue
         positions[t] = sh * price
-        betas[t] = ff.get("beta")
+        # P1-6 (S4): vendor beta primary; regression beta (daily run, vs SPY) as
+        # fallback + cross-check. Large disagreement is surfaced in meta.
+        b_calc = ((mom.get(t, {}) or {}).get("v2") or {}).get("beta_calc")
+        b_fmp = ff.get("beta")
+        betas[t] = b_fmp if b_fmp is not None else b_calc
+        if b_calc is not None:
+            beta_check[t] = {"fmp": b_fmp, "calc": b_calc,
+                             "diverge": bool(b_fmp is not None and abs(b_fmp - b_calc) > 0.4)}
         sectors[t] = ff.get("sector") or "Unknown"
         currencies[t] = ff.get("currency") or "USD"
         asset_class[t] = config.ASSET_CLASS_MAP.get(t, "equity")   # S3/S38-41 multi-class
@@ -418,13 +486,33 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
 
     # ---- bond rate risk (Damodaran S3) + pricing-asset flag (S40-41) — defensive ----
     try:
-        durations = {t: config.DURATION_PROXY.get(t) for t in tickers if asset_class.get(t) == "bond"}
+        bond_ticks = [t for t in tickers if asset_class.get(t) == "bond"]
+        durations = {t: config.DURATION_PROXY.get(t) for t in bond_ticks}
         durations = {t: d for t, d in durations.items() if d}
+        dur_src = {t: "proxy" for t in durations}
+        # P2-12 (S3): EMPIRICAL effective duration (bond returns vs Δ10Y-yield)
+        # overrides the static proxy table when computable — as config promised.
+        if bond_ticks:
+            try:
+                from sources import yahoo as _yh
+                tnx = _yh.fetch_chart("^TNX", rng="1y", interval="1d")
+                tc = [c for c in (tnx.get("closes") or []) if c]
+                dy_bps = [(tc[i] - tc[i - 1]) * 10 for i in range(1, len(tc))]  # ^TNX 42.5 = 4.25%
+                for t in bond_ticks:
+                    rets = (rdata.get(t, {}) or {}).get("returns", [])
+                    d_emp = riskeng.effective_duration(rets, dy_bps)
+                    if d_emp and 0 < d_emp < 40:            # sanity band
+                        durations[t] = d_emp
+                        dur_src[t] = "empirical"
+            except Exception as _de:
+                log.warning("empirical duration failed (proxy kept): %s", _de)
         rate_risk = {
             "has_bonds": bool(durations), "bps": 100,
             "loss_pct": riskeng.rate_stress(weights, durations, 100) if durations else None,
-            "durations": durations,
-            "tag": "[JUDG-PROXY] category duration; +100bps parallel shock",
+            "durations": durations, "duration_sources": dur_src,
+            "tag": ("[CALC] empirical duration (vs ^TNX); +100bps parallel shock"
+                    if any(v == "empirical" for v in dur_src.values())
+                    else "[JUDG-PROXY] category duration; +100bps parallel shock"),
         }
         pricing_assets = [t for t in tickers if asset_class.get(t) in ("crypto", "collectible")]
     except Exception:
@@ -435,12 +523,23 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     stress = riskeng.stress_test(weights, betas, sectors)
     historical = riskeng.stress_test(weights, betas, sectors, scenarios=riskeng.HISTORICAL)
     var = riskeng.var_cvar(port_vol, horizon_years)
+    # P1-7 (S2/S4): HISTORICAL VaR from realized portfolio returns (fat tails as
+    # they happened) alongside the parametric-normal estimate. Defensive.
+    try:
+        _prets = riskeng.portfolio_returns(
+            {t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers, weights)
+        var_hist = riskeng.historical_var(_prets, horizon_years)
+    except Exception:
+        var_hist = {"var95_pct": None, "var99_pct": None, "cvar95_pct": None,
+                    "n": 0, "method": "historical (error)"}
     reverse = riskeng.reverse_stress(weights, betas, tolerance_pct)
     severe_dd = min([r["loss_pct"] for r in (stress + historical)], default=None)
 
     # ---- suitability / sizing / rebalance ----
     suit = riskeng.suitability(stress + historical, var, tolerance_pct)
-    sizing = riskeng.position_sizing(rc_rows, sectors)
+    # P1-11 (S40-41): pricing assets (crypto/collectible) get a harder cap
+    sizing = riskeng.position_sizing(rc_rows, sectors, asset_class=asset_class,
+                                     pricing_cap=config.PRICING_ASSET_CAP)
     reb = riskeng.rebalance(weights, sizing)
 
     # post-trade re-validation: recompute on the proposed weights (same cov)
@@ -595,7 +694,8 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         "downside": downside,
         "rate_risk": rate_risk,
         "stress": {"hypothetical": stress, "historical": historical,
-                   "var": var, "reverse": reverse, "tag": "[JUDG-SCENARIO] Illustrative, not a forecast"},
+                   "var": var, "var_hist": var_hist, "reverse": reverse,
+                   "tag": "[JUDG-SCENARIO] Illustrative, not a forecast"},
         "suitability": suit,
         "position_sizing": sizing,
         "rebalance": {**reb, "after": after},
@@ -607,6 +707,8 @@ def _build_risk(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "tags": {"history": cov_tag, "stress": "[JUDG-SCENARIO]",
                      "beta_sector": "[STORED]", "weights": "[CALC]"},
             "pricing_assets": pricing_assets,
+            "beta_check": beta_check,          # P1-6: fmp vs regression beta (cross-check)
+            "pricing_asset_cap_pct": round(config.PRICING_ASSET_CAP * 100, 1),
         },
     }, calls)
 

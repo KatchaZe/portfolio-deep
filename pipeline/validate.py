@@ -4,7 +4,7 @@ resolution, assumption flags, confidence + tier).
 """
 import config
 
-ERP = config.ERP            # same market ERP the engine uses (sanity-band check only)
+ERP = config.ERP            # import-time snapshot (back-compat); checks read config.ERP live
 MAX_NET_MARGIN = 0.65
 
 
@@ -21,7 +21,7 @@ def validate(ff, fmp_income=None, rf=0.045):
     if roic is not None and not (-1.0 <= roic <= 3.0):
         ff.flags.append(f"ROIC {roic:.0%} out of band")
     if ff.beta is not None:
-        wacc = rf + ff.beta * ERP
+        wacc = rf + ff.beta * config.ERP     # call-time read (assumptions override aware)
         if not (0.03 <= wacc <= 0.25):
             ff.flags.append(f"WACC {wacc:.0%} out of band")
 

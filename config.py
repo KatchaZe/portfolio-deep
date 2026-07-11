@@ -31,9 +31,11 @@ DEEP_VERSION = "8.2"
 # live feed, so it is a manually-refreshed constant — central HERE so the engine and
 # the validate sanity-band read the SAME value. Update both ERP and ERP_AS_OF when you
 # refresh it; the app FLAGS the value once it is older than ERP_STALE_MONTHS.
-ERP = 0.0423                 # SOURCE OF TRUTH — ifa-stock-analysis-v8/scripts keep their own
+ERP = 0.0445                 # SOURCE OF TRUTH — ifa-stock-analysis-v8/scripts keep their own
                              # CLI default; when refreshing here, update those too if used.
-ERP_AS_OF = "2026-01"        # year-month this ERP was last set
+                             # 2026-07 update: Damodaran US ERP 4.45% (mature market 4.17%);
+                             # US carries a small country premium over mature this cycle.
+ERP_AS_OF = "2026-07"        # year-month this ERP was last set
 ERP_STALE_MONTHS = 3         # flag the ERP as stale once it is older than this
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -96,6 +98,9 @@ DURATION_PROXY = {
 # Annual vol proxy by asset class (decimals) when price history is thin.
 CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
                    "collectible": 0.30, "cash": 0.01}
+# P1-11 (S40-41): assets with NO cash flow (crypto/collectible) are PRICING plays —
+# harder single-position weight cap than ordinary equities (position_sizing).
+PRICING_ASSET_CAP = 0.05
 
 # Build stamp — bump together with DASH_BUILD in index.html (frontend/deploy guard).
-BUILD = "2026-07-04a"
+BUILD = "2026-07-10b"

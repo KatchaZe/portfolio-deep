@@ -1,0 +1,20 @@
+# P2-9: CI — run the full offline test suite on every push/PR.
+# All suites are offline/synthetic (fixtures committed), so no API keys needed.
+name: tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install runtime deps
+        run: pip install fastapi "uvicorn[standard]" requests pydantic
+      - name: Run test suite
+        run: python run_tests.py

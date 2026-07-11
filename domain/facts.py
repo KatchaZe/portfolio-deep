@@ -33,6 +33,7 @@ class FinancialFacts:
     total_debt: Optional[float] = None
     cash: Optional[float] = None
     equity: Optional[float] = None
+    operating_leases: Optional[float] = None    # P1-5: lease liability (SEC ASC 842) — treated as debt
 
     # cash flow
     capex: Optional[float] = None

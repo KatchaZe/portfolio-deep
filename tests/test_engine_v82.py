@@ -17,9 +17,9 @@ def approx(a, b, tol=1e-6):
 
 
 def test_cost_of_equity_and_erp():
-    assert approx(E.ERP, 0.0423), E.ERP
-    assert approx(E.cost_of_equity(0.045, 1.0), 0.045 + 0.0423)
-    print("cost of equity + ERP 4.23% OK")
+    assert approx(E.ERP, 0.0445), E.ERP          # Damodaran US ERP, 2026-07 refresh
+    assert approx(E.cost_of_equity(0.045, 1.0), 0.045 + 0.0445)
+    print("cost of equity + ERP 4.45% OK")
 
 
 def test_true_wacc_weights_debt():
@@ -95,7 +95,7 @@ def test_engine_end_to_end():
         assert s is None or 0 <= s <= 5, s
     assert v.composite is not None and 0 <= v.composite <= 5
     assert v.recommendation and v.verdict and v.signal in ("BUY", "HOLD", "SELL")
-    assert v.cost_of_equity and approx(v.cost_of_equity, 0.045 + 1.1 * 0.0423, tol=1e-4)
+    assert v.cost_of_equity and approx(v.cost_of_equity, 0.045 + 1.1 * 0.0445, tol=1e-4)
     km = v.key_metrics
     assert km["wacc_pct"] < km["ke_pct"]
     assert v.eq_verdict in ("CLEAN", "REVIEW", "LOW")

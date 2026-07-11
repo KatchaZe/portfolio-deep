@@ -630,6 +630,14 @@ def fetch_daily(tickers, fmp_key=""):
     plus the faithful composite momentum (v2, primary) under m["v2"].
     `fmp_key` is only spent if Yahoo is blocked (get_prices_long tier 2); leave ""
     to keep the daily run quota-free (Yahoo->Stooq). Run OUTSIDE store.LOCK."""
+    # P1-6 (S4): fetch SPY FIRST so every ticker can compute a regression beta
+    # (weekly, ~2y) as a free cross-check / fallback of the FMP vendor beta.
+    sp = None
+    try:
+        sp = get_prices_long("SPY", fmp_key, rng="2y")     # ~1y+ is enough for SMA200
+    except Exception as e:
+        log.warning("SPY fetch failed (beta_calc + market_state skipped): %s", e)
+
     def _daily_one(t):
         """Per-ticker daily payload. Never raises (each part is contained)."""
         m = {}
@@ -646,6 +654,14 @@ def fetch_daily(tickers, fmp_key=""):
             if "error" not in mv:
                 mv["src"] = lc.get("source")
                 mv["quality"] = lc.get("quality")
+                if sp:                                    # P1-6: regression beta vs SPY
+                    try:
+                        b = momentum.regression_beta(lc["closes"], lc["dates"],
+                                                     sp["closes"], sp["dates"])
+                        if b is not None:
+                            mv["beta_calc"] = b
+                    except Exception as e:
+                        log.warning("%s beta_calc failed: %s", t, e)
                 m["v2"] = mv
         except Exception as e:
             log.warning("%s daily momentum_v2 failed: %s", t, e)
@@ -661,7 +677,8 @@ def fetch_daily(tickers, fmp_key=""):
                 out[t] = m
     # S9 market regime (once per run): SPY trend gates per-name momentum reliability.
     try:
-        sp = get_prices_long("SPY", fmp_key, rng="2y")     # ~1y+ is enough for SMA200
+        if sp is None:
+            sp = get_prices_long("SPY", fmp_key, rng="2y")
         mkt = momentum.market_state(sp["closes"])
         mkt["ret_12m"] = momentum.roc(sp["closes"], 252)   # S16/S35 benchmark
         mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
