@@ -14,6 +14,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
 import store
+import store_sync
 from sources import gdrive_store
 
 # EVERY credential env var the backend recognises (see gdrive_store._auth_mode):
@@ -33,8 +34,8 @@ def _reset_drive_cache():
     gdrive_store._enabled = None
     gdrive_store._service = None
     gdrive_store._file_id = None
-    store._drive_pull_state = None
-    store._drive_last_try = 0.0
+    store_sync._pull_state = None
+    store_sync._last_try = 0.0
 
 
 def test_disabled_when_no_env():
@@ -71,7 +72,7 @@ def test_push_failure_never_raises(tmp):
         config.DATA_DIR = tmp
         store.PATH = os.path.join(tmp, "portfolio.json")
         s = store.load()                               # pull fails -> local fallback
-        assert store._drive_pull_state == "error"      # failure is now REMEMBERED
+        assert store_sync._pull_state == "error"       # failure is now REMEMBERED
         store.set_holding(s, "msft", 5, 50.0)
         store.save(s)                                  # push BLOCKED (pull never ok) -> must NOT raise
         assert store.load()["holdings"]["MSFT"]["shares"] == 5
@@ -103,7 +104,7 @@ def test_push_blocked_until_pull_succeeds(tmp):
         store.wait_push()                              # push runs on a worker now (C1)
         assert pushes == [], "push must be BLOCKED while pull is failing"
         # recovery: next load retries the pull (throttle bypassed) and it succeeds
-        store._drive_last_try = 0.0
+        store_sync._last_try = 0.0
         gdrive_store.drive_pull = lambda path: "absent"
         s = store.load()
         store.save(s)

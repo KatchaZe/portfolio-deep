@@ -20,9 +20,9 @@
 | ชั้น | ไฟล์ | หน้าที่ | ภาษามนุษย์ |
 |---|---|---|---|
 | sources | `sources/sec_edgar.py` (หลัก) `yahoo.py` `fmp.py` `stooq.py` `finnhub.py` `alphavantage.py` `gdrive_store.py` | ดึงข้อมูลดิบจากเน็ต (SEC=หลัก, ที่เหลือเสริม/สำรอง) | "ไปเอาตัวเลขมา" |
-| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `market_valuation.py` `screen.py` `risk_prices.py` `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate (ดึงขนานกัน 4 workers) | "ทำความสะอาด + สั่งงาน" |
+| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `market_valuation.py` `screen.py` · **`prices.py`** (บันไดดึงราคาทั้ง 3 ชุดรวมที่เดียว — momentum สั้น/ยาว + risk returns, cache ไม่จำความล้มเหลว) · **`risk_report.py`** (สร้าง payload `/api/risk` — เทสได้ด้วย fake provider) · `risk_prices.py` (shim เก่า→prices) `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate (ดึงขนานกัน 4 workers) | "ทำความสะอาด + สั่งงาน" |
 | domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก + S9 crash guard) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) · `advice.py` (💡 คำแนะนำไทย) · `pead.py` `costs.py` `philosophy.py` · `diversification.py` (Correlation: div. philosophy ราย portfolio) | **คณิตศาสตร์ DEEP + momentum + risk + advice** | "สมองที่ให้คะแนน" |
-| store | `store.py` | เซฟลงไฟล์ `data/portfolio.json` (+ mirror ขึ้น Google Drive — push ถูกบล็อกจนกว่า pull สำเร็จ กัน backup โดนทับ) | "ความจำ" |
+| store | `store.py` + `store_sync.py` | `store.py` เซฟลงไฟล์ `data/portfolio.json` (local ล้วน) · `store_sync.py` = mirror ขึ้น Google Drive (แยกไฟล์ 2026-07-19: pull ตอน cold start + push บน worker — push ถูกบล็อกจนกว่า pull สำเร็จ กัน backup โดนทับ) | "ความจำ" |
 | api | `app.py` (FastAPI) | รับคำสั่งจากหน้าจอ (รวม `/api/risk` `/api/screen` `/api/persist`) | "พนักงานรับเรื่อง" |
 | ui | `index.html` | หน้าเว็บ 6 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk · Correlation · How to · Ref) + command strip 4 ไทล์ทุกแท็บ | "หน้าร้าน" |
 

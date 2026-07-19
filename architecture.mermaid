@@ -13,7 +13,7 @@ flowchart TD
         TRACKS["rev_track · margin_track · consensus<br/>surprise_backfill · pricecache (R4)<br/>EPS/Rev/Margin track record + EPS blend"]
         MKTV["market_valuation.py<br/>S32/33 overlay: implied ERP band →<br/>cheap/fair/expensive + tilt (no on/off timing)"]
         SCRN["screen.py<br/>S13/S19 GARP: cheap × quality rank"]
-        RISKP["risk_prices.py<br/>daily returns FMP→Stooq→proxy (risk only)"]
+        RISKP["prices.py — ALL price ladders (2026-07-19)<br/>momentum short (yahoo→stooq) · long (yahoo→fmp→stooq +pricecache)<br/>risk returns FMP→Stooq→proxy · no-poison daily cache<br/>+ risk_report.py: /api/risk payload builder (injectable seam)"]
         REF["refresh.py (orchestration)<br/>fetch/commit_fundamentals · fetch/commit_daily (PARALLEL, P1: 4 workers)<br/>watchlist · allocation · portfolio_view · _earn_status (why-empty)"]
     end
 
@@ -32,7 +32,7 @@ flowchart TD
         RISK["engine/risk.py (Risk Desk math)<br/>weights·cov·DR·RC/ENB·stress·VaR·downside(S2/S4)<br/>rate_stress(S3)·sizing·rebalance<br/>correlation monitor: pair/sector/downside/rolling corr"]
     end
 
-    subgraph STORE["4 · STORE  (store.py — local JSON + cloud mirror)"]
+    subgraph STORE["4 · STORE  (store.py local JSON · store_sync.py cloud mirror)"]
         PORT["portfolio.json (local working copy)<br/>holdings(shares+avg cost) · watchlist<br/>facts · results · momentum · market(^regime) · fmp_usage<br/>rev_snapshots · rev_surprises (accrue)"]
         RCACHE["risk_cache.json<br/>risk return-series cache (separate file)"]
         GD["gdrive_store.py<br/>OAuth user creds · scope drive.file<br/>drive_pull() on load · background push worker<br/>★PUSH GUARD★: push BLOCKED until a pull succeeds<br/>(protects backup from an empty cold-start store)"]

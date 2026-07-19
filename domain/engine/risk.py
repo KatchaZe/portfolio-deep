@@ -190,6 +190,38 @@ def proxy_cov(tickers, vols, asset_class, equity_corr=0.6, cross_corr=0.2):
     return C
 
 
+def hybrid_cov(returns_by_ticker, tickers, proxy_vols, asset_class,
+               min_n=60, equity_corr=0.6, cross_corr=0.2):
+    """PER-PAIR covariance (2026-07-19): realized cov for pairs where BOTH series
+    have >= min_n daily returns; ASSUMED correlation only for pairs touching a
+    thin-history name. Fixes the all-or-nothing cliff where ONE thin ticker
+    forced the whole matrix to the proxy 0.60. Per-pair windows differ, so the
+    matrix is not guaranteed PSD — acceptable for display/attribution here.
+    Returns (cov, realized_tickers). Caller tags [CALC]/[JUDG-PROXY]."""
+    n = len(tickers)
+    rets = {t: (returns_by_ticker.get(t) or []) for t in tickers}
+    has = {t: len(rets[t]) >= min_n for t in tickers}
+
+    def is_equity(t):
+        ac = (asset_class.get(t) or "equity").lower()
+        return not any(k in ac for k in ("bond", "gold", "cash", "real"))
+
+    vols = [annualized_vol(rets[t]) if has[t] else proxy_vols[i]
+            for i, t in enumerate(tickers)]
+    C = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        C[i][i] = vols[i] * vols[i]
+        for j in range(i + 1, n):
+            ti, tj = tickers[i], tickers[j]
+            if has[ti] and has[tj] and min(len(rets[ti]), len(rets[tj])) >= min_n:
+                c = _covariance(rets[ti], rets[tj])
+            else:
+                rho = equity_corr if (is_equity(ti) and is_equity(tj)) else cross_corr
+                c = rho * vols[i] * vols[j]
+            C[i][j] = C[j][i] = c
+    return C, [t for t in tickers if has[t]]
+
+
 def corr_from_cov(cov):
     """Correlation matrix from a covariance matrix."""
     n = len(cov)

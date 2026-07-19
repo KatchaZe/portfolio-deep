@@ -3,7 +3,7 @@ test_no_regression — proves the risk feature is ADDITIVE: the Portfolio / Watc
 / Allocation endpoints keep their JSON contract, and opening the risk tab in free
 mode does NOT modify data/portfolio.json (isolation guarantee, plan §10).
 
-Offline: risk_prices.fetch_returns is monkeypatched so no network is needed and
+Offline: the risk_report fetch_returns seam (pipeline.prices) is monkeypatched so no network is needed and
 the test is deterministic. Calls the endpoint FUNCTIONS directly (no httpx/TestClient
 dependency).
 """
@@ -36,7 +36,7 @@ def _patch_offline():
         data = {t: {"returns": [], "vol": None, "source": "proxy", "as_of": None, "n": 0}
                 for t in tickers}
         return data, 0, {"cache": "test", "quota_degraded": False}
-    app.risk_prices.fetch_returns = fake
+    app.risk_report.prices.fetch_returns = fake
 
 
 def test_existing_endpoint_contracts():

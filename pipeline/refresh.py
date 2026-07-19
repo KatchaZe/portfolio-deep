@@ -19,6 +19,7 @@ from concurrent.futures import ThreadPoolExecutor
 import config
 from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
 from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache, market_valuation
+from pipeline import prices
 from domain import indicators, momentum, costs, pead, philosophy, advice
 from pipeline import screen as screen_mod
 from domain.engine import get_engine
@@ -30,127 +31,19 @@ _cik_lock = threading.Lock()       # P1: parallel workers share the lazy CIK map
 MAX_WORKERS = 4                    # P1: parallel ticker fetches (SEC throttle is global)
 
 
-def _clean_prices(d):
-    """R1 for the SHORT series too: drop clearly-corrupt bars (non-positive /
-    lone reverting spikes) before RSI/MACD/DBBMV read them. Pure."""
-    cc, vv, dd, _q = momentum.clean_series(d.get("closes"), d.get("volumes"), d.get("dates"))
-    return {**d, "closes": cc, "volumes": vv, "dates": dd}
-
-
 def get_prices(ticker, rng="3mo", interval="1d"):
-    """Daily closes/volumes/dates for momentum — Yahoo first, then Stooq fallback.
-    Yahoo is often blocked/emptied from datacenter IPs (cloud hosts), so we fall
-    back to Stooq (no key, answers from datacenter IPs) to keep momentum alive.
-    Returns the series dict; raises only if BOTH sources fail."""
-    yahoo_short = None
-    try:
-        d = _clean_prices(yahoo.fetch_chart(ticker, rng=rng, interval=interval))
-        if d and len(d.get("closes", [])) >= 30:
-            return d
-        yahoo_short = d                         # got data, just not enough — keep as last resort
-    except Exception as e:
-        log.warning("%s yahoo chart failed, trying stooq: %s", ticker, e)
-    try:
-        d = _clean_prices(stooq.fetch_chart(ticker))
-        if d and len(d.get("closes", [])) >= 30:
-            tail = 180                          # Stooq returns full history; momentum needs only the tail
-            return {"closes": d["closes"][-tail:], "volumes": d["volumes"][-tail:],
-                    "dates": d["dates"][-tail:]}
-    except Exception as e:
-        log.warning("%s stooq chart failed: %s", ticker, e)
-    if yahoo_short:
-        return yahoo_short
-    raise RuntimeError(f"no price data for {ticker} (yahoo+stooq)")
+    """Thin delegator (2026-07-19) — ladder lives in pipeline/prices.fetch_daily_series
+    (yahoo chart -> stooq, >=30 bars). Kept here so callers/tests that
+    monkeypatch refresh.get_prices keep working."""
+    return prices.fetch_daily_series(ticker, rng=rng, interval=interval)
 
 
 def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
-    """Adjusted daily closes (oldest->newest) for the momentum composite.
-
-    3-tier, all dividend+split adjusted EXCEPT Stooq (split-only -> flagged):
-        1) Yahoo adjclose   (free, full history; IP-block risk on cloud)
-        2) FMP adjClose     (API key -> not IP-blocked; spent only if Yahoo is short)
-        3) Stooq            (split-only -> dividend_adjusted=False; no key)
-
-    Returns the FIRST source with >= full_bars (so 12-1 / SMA200 are valid). If none
-    reaches that (e.g. a recent listing), returns the source that provided the MOST
-    bars, as long as it has >= min_bars, so a *partial* momentum still shows.
-    Uses ONLY fetched data — never fabricates or back-fills. Raises only when every
-    source is empty/too short, so the caller leaves the cell blank.
-
-    R4/H3: a same-day cached series short-circuits the network only when it already
-    has >= full_bars (a partial cache no longer hides a longer series, but it does
-    stop same-day FMP re-spend); every successful fetch is cached; if every live
-    source fails a stale cache is served (flagged) before giving up — so momentum
-    survives a transient outage."""
-    fresh = pricecache.read_fresh(ticker)
-    n_fresh = len((fresh or {}).get("closes") or [])
-    if fresh and n_fresh >= full_bars:            # H3: cache must satisfy the FULL request
-        out = dict(fresh); out["from_cache"] = True
-        return out
-    # H3: a same-day PARTIAL cache no longer blocks a longer fetch (the old
-    # >=min_bars short-circuit let a 2y series suppress a 5y request all day),
-    # but FMP quota is NOT re-spent to improve a partial we already paid for
-    # today — only the free tiers (Yahoo/Stooq) may try to beat the cache.
-    spend_fmp = bool(fmp_key) and not (fresh and n_fresh >= min_bars)
-    best = None                                   # (n_bars, payload) seen so far
-
-    def finish(pay):
-        pricecache.write(ticker, pay)             # cache the good series (errors swallowed)
-        return pay
-
-    def consider(payload):
-        nonlocal best
-        # R1 data-quality guard: drop corrupt bars (non-positive / lone spikes)
-        cc, vv, dd, q = momentum.clean_series(payload.get("closes"),
-                                              payload.get("volumes"), payload.get("dates"))
-        payload["closes"], payload["volumes"], payload["dates"], payload["quality"] = cc, vv, dd, q
-        n = len(cc)
-        if n and (best is None or n > best[0]):
-            best = (n, payload)
-        return n
-
-    try:
-        d = yahoo.fetch_chart(ticker, rng=rng, interval="1d")
-        pay = {"closes": d.get("adj_closes") or d.get("closes") or [],
-               "volumes": d.get("volumes", []), "dates": d.get("dates", []),
-               "dividend_adjusted": "adj_closes" in d, "source": "yahoo"}
-        if consider(pay) >= full_bars:
-            return finish(pay)
-    except Exception as e:
-        log.warning("%s yahoo long chart failed: %s", ticker, e)
-
-    if spend_fmp:
-        try:
-            h = fmp.parse_history(fmp.fetch_history(ticker, fmp_key, days=1300))  # ~5y for reversal
-            pay = {"closes": h["closes"], "volumes": h["volumes"], "dates": h["dates"],
-                   "dividend_adjusted": True, "source": "fmp"}
-            if consider(pay) >= full_bars:
-                return finish(pay)
-        except Exception as e:
-            log.warning("%s fmp history failed: %s", ticker, e)
-
-    try:
-        d = stooq.fetch_chart(ticker)
-        pay = {"closes": d.get("closes", []), "volumes": d.get("volumes", []),
-               "dates": d.get("dates", []), "dividend_adjusted": False, "source": "stooq"}
-        if consider(pay) >= full_bars:
-            return finish(pay)
-    except Exception as e:
-        log.warning("%s stooq long chart failed: %s", ticker, e)
-
-    if best and best[0] >= min_bars:              # partial history, but usable
-        if fresh and n_fresh > best[0]:           # H3: today's cache is still the longest
-            out = dict(fresh); out["from_cache"] = True
-            return out
-        return finish(best[1])
-    if fresh and n_fresh >= min_bars:             # live sources failed -> same-day cache
-        out = dict(fresh); out["from_cache"] = True
-        return out
-    stale = pricecache.read_any(ticker)           # R4: last good series keeps momentum alive
-    if stale and len(stale.get("closes") or []) >= min_bars:
-        out = dict(stale); out["from_cache"] = True; out["stale_cache"] = True
-        return out
-    raise RuntimeError(f"no long price data for {ticker} (yahoo+fmp+stooq)")
+    """Thin delegator (2026-07-19) — ladder lives in
+    pipeline/prices.fetch_daily_adjusted (yahoo adj -> fmp adj -> stooq,
+    +pricecache with the H3/R4 policies unchanged)."""
+    return prices.fetch_daily_adjusted(ticker, fmp_key=fmp_key, rng=rng,
+                                       full_bars=full_bars, min_bars=min_bars)
 
 
 def resolve_cik(ticker):

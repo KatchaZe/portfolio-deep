@@ -132,7 +132,7 @@
             <select id="riskHorizon" style="padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="1">1y</option><option value="3">3y</option><option value="5">5y</option></select></label>
           <label class="muted" style="font-size:11px" title="auto = ใช้ FMP adjusted history เพื่อความแม่นเมื่อ quota พอ แล้ว fallback เป็น stooq · free = ไม่ใช้ FMP quota">data
             <select id="riskEnrich" style="padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="auto">auto (FMP&rarr;stooq)</option><option value="free">free (stooq only)</option></select></label>
-          <button onclick="loadRisk()" style="border:0;border-radius:7px;padding:7px 13px;background:#0f172a;color:#fff;font-weight:700;cursor:pointer;font-size:12px"><span class="spin" id="spRisk"></span> &#8635; Run risk analysis</button>
+          <button onclick="loadRisk(true)" style="border:0;border-radius:7px;padding:7px 13px;background:#0f172a;color:#fff;font-weight:700;cursor:pointer;font-size:12px"><span class="spin" id="spRisk"></span> &#8635; Run risk analysis</button>
         </div>
       </div>
       <div id="riskBody"><div class="muted" style="font-size:12px;padding:8px">กด “Run risk analysis” เพื่อคำนวณ %Capital vs %Risk, concentration, correlation, stress test และแผน rebalance.</div></div>
@@ -183,7 +183,7 @@
             <button id="cmCrisis" onclick="setCorrMode('crisis')" style="background:#fff;color:#475569">Crisis</button></span>
           <label class="muted" style="font-size:11px" title="auto = FMP adjusted เมื่อ quota พอ แล้ว fallback stooq · free = ไม่ใช้ FMP quota">data
             <select id="corrEnrich" style="padding:5px 6px;border:1px solid #cbd5e1;border-radius:6px;font-size:12px"><option value="auto">auto (FMP&rarr;stooq)</option><option value="free">free (stooq)</option></select></label>
-          <button onclick="loadCorr()" style="border:0;border-radius:7px;padding:7px 13px;background:#0f172a;color:#fff;font-weight:700;cursor:pointer;font-size:12px"><span class="spin" id="spCorr"></span> &#8635; Run correlation</button>
+          <button onclick="loadCorr(true)" style="border:0;border-radius:7px;padding:7px 13px;background:#0f172a;color:#fff;font-weight:700;cursor:pointer;font-size:12px"><span class="spin" id="spCorr"></span> &#8635; Run correlation</button>
         </div>
       </div>
       <div id="corrBody"><div class="muted" style="font-size:12px;padding:8px">กด &ldquo;Run correlation&rdquo; เพื่อคำนวณ correlation รายตัว, สรุประดับ sector, benchmark (SPY/QQQ/GLD/IBIT) และ Diversification Philosophy ตามหลัก Damodaran.</div></div>
@@ -644,11 +644,11 @@
       <p class="muted" style="font-size:12px">ลำดับใช้งานที่แนะนำ: เปิด Allocation ดูข้อ 6 ก่อน (รับได้ไหม) &rarr; ข้อ 3/4 (อะไรคือตัวกินความเสี่ยง) &rarr; ข้อ 7 (ต้องทำอะไร) &rarr; ค่อยกลับไป My Portfolio ตัดสินใจรายตัวด้วย card</p>
 
       <h3 class="ht2">7) หน้า Correlation — พอร์ต balance หรือกระจุก (Damodaran S2&ndash;4 &middot; S35&ndash;41)</h3>
-      <p class="muted" style="font-size:12px">กด &ldquo;Run correlation&rdquo; ครั้งเดียว (ใช้ผลร่วมกับ Risk Desk &middot; cache รายวัน จึงไม่เปลือง FMP quota) แล้วสลับปุ่ม <b>Normal / Crisis</b> เพื่อดูว่าการกระจาย &ldquo;หายไป&rdquo; แค่ไหนตอนวิกฤต &middot; ใช้ราคา ~1.5 ปี (FMP adjusted &rarr; Stooq)</p>
+      <p class="muted" style="font-size:12px">กด &ldquo;Run correlation&rdquo; ครั้งเดียว (แชร์ payload เดียวกับแท็บ Allocation — โหลดครั้งเดียวใช้สองแท็บ &middot; cache รายวันเก็บเฉพาะข้อมูลดี ตัวที่ดึงพลาดจะ retry ให้ตอนกด Run ซ้ำ) แล้วสลับปุ่ม <b>Normal / Crisis</b> เพื่อดูว่าการกระจาย &ldquo;หายไป&rdquo; แค่ไหนตอนวิกฤต &middot; ใช้ราคา ~1.5 ปี (FMP adjusted &rarr; Stooq)</p>
       <table class="httab">
         <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>ตีความ (Damodaran)</th></tr>
         <tr><td><b>A</b></td><td><b>Diversification Philosophy</b> (การ์ดม่วง)</td><td>gauge <b>ENB&divide;Eff N</b> + <b>Fragility &Delta;ENB</b> + avg corr &middot; 6 เสา (โครงสร้าง/ตัวขับ/ความเปราะ/ตัวถ่วง/beta honesty/action) &middot; story ไทย &middot; ตาราง A1 %Cap vs %Risk</td><td>สรุปเชิงปรัชญาราย &ldquo;พอร์ต&rdquo; &middot; ENB&divide;EffN &lt;0.5 = correlation กินการกระจาย &middot; A1 แดง = หุ้นที่ %risk เกิน %capital = ตัวขับความเสี่ยงจริง (S2/S4 marginal)</td></tr>
-        <tr><td><b>B</b></td><td><b>Correlation Heatmap</b> รายตัว</td><td>ตาราง corr หุ้น&times;หุ้น จัดกลุ่มตาม sector (เส้นคั่น) &middot; เขียว=ต่ำ แดง=สูง เขียวเข้ม=ลบ</td><td>ยิ่งแดง = สองตัววิ่งตามกัน ถือคู่กันแทบเป็นเดิมพันเดียว &middot; คู่ corr ลบ = diversifier จริง</td></tr>
+        <tr><td><b>B</b></td><td><b>Correlation Heatmap</b> รายตัว</td><td>ตาราง corr หุ้น&times;หุ้น จัดกลุ่มตาม sector (เส้นคั่น) &middot; เขียว=ต่ำ แดง=สูง เขียวเข้ม=ลบ &middot; ป้ายส้ม <b>PROXY/MIXED</b> = บางคู่/ทั้งหมดเป็นค่าสมมติ 0.60/0.20 (history ไม่พอ — กด Run ซ้ำเพื่อ retry เฉพาะตัวที่ขาด)</td><td>ยิ่งแดง = สองตัววิ่งตามกัน ถือคู่กันแทบเป็นเดิมพันเดียว &middot; คู่ corr ลบ = diversifier จริง</td></tr>
         <tr><td><b>C</b></td><td><b>Sector Summary</b></td><td>%น้ำหนักพอร์ต + avg corr ในกลุ่ม ต่อ sector</td><td>%สูง <b>และ</b> corr สูง = จุดกระจุกตัวจริง (เงินเยอะ + ตัวในกลุ่มซ้ำกัน)</td></tr>
         <tr><td><b>D</b></td><td><b>คู่สัมพันธ์ สูงสุด/ต่ำสุด</b></td><td>5 คู่ corr สูงสุด (จุดลด overlap) และต่ำสุด (ตัวช่วยกระจาย)</td><td>เป้าหมายแรกเวลาลดความเสี่ยง = คู่ที่แดงสุด</td></tr>
         <tr><td><b>E</b></td><td><b>Benchmark &amp; Asset-Class</b> (SPY/QQQ/GLD/IBIT)</td><td>พอร์ตทั้งก้อน + แต่ละหุ้น + สินทรัพย์กันเอง เทียบกับ S&amp;P500 / Nasdaq / Gold / Bitcoin</td><td>พอร์ต corr Nasdaq สูง = แทบเป็น index (S35&ndash;36 beta honesty) &middot; Gold/BTC = pricing asset ถือเพราะ corr ต่ำ (S38&ndash;41)</td></tr>
@@ -839,7 +839,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-07-11a";
+const DASH_BUILD="2026-07-19a";
 // --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
 async function loadAssumptions(){
   const el=document.getElementById('assumeMsg'); if(!el)return;
@@ -1341,11 +1341,11 @@ function showTab(n){for(const i of [1,2,3,4,5,6]){document.getElementById('tab'+
 
 const PALETTE=['#2563eb','#16a34a','#f59e0b','#dc2626','#7c3aed','#0d9488','#d97706','#0891b2','#be185d','#65a30d','#9333ea','#ea580c','#475569','#0ea5e9'];
 let charts={};
+// ONE chart helper + ONE registry (2026-07-19): guard ctx -> destroy prior -> create
+function mkChart(id,cfg){const ctx=document.getElementById(id);if(!ctx||typeof Chart==='undefined')return;if(charts[id])charts[id].destroy();charts[id]=new Chart(ctx,cfg);}
 function makePie(id,data){
-  const ctx=document.getElementById(id); if(!ctx||typeof Chart==='undefined')return;
-  if(charts[id])charts[id].destroy();
   const labels=data.map(d=>d.label),vals=data.map(d=>d.value),tot=vals.reduce((a,b)=>a+b,0)||1;
-  charts[id]=new Chart(ctx,{type:'doughnut',
+  mkChart(id,{type:'doughnut',
     data:{labels:labels.map((l,i)=>`${l} ${(vals[i]/tot*100).toFixed(0)}%`),datasets:[{data:vals,backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length])}]},
     options:{plugins:{legend:{position:'right',labels:{font:{size:10},boxWidth:12}}}}});
 }
@@ -1379,23 +1379,31 @@ async function calcWhatif(){
 }
 
 // ===================== RISK DESK (tab3, additive — new functions only) =====================
-let riskCharts={};
-function rcChart(id,cfg){const ctx=document.getElementById(id);if(!ctx||typeof Chart==='undefined')return;if(riskCharts[id])riskCharts[id].destroy();riskCharts[id]=new Chart(ctx,cfg);}
+function rcChart(id,cfg){mkChart(id,cfg);}   // merged into the single chart registry (2026-07-19)
 function rcard(label,val,color){return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:96px"><div style="font-size:9px;color:#94a3b8;text-transform:uppercase;letter-spacing:.03em">${label}</div><div style="font-size:17px;font-weight:800;color:${color||'#0f172a'}">${val}</div></div>`;}
 function rp(v,d=1){return (v===null||v===undefined)?'<span class="muted">&mdash;</span>':Number(v).toFixed(d)+'%';}
 function lossColor(v){return v<=-30?'#dc2626':v<=-15?'#ea580c':v<0?'#d97706':'#16a34a';}
 function scoreColor(s){return s>=60?'#16a34a':s>=40?'#d97706':'#dc2626';}
 function rsec(title,inner,note){return `<div style="margin:14px 0"><div style="font-size:13px;font-weight:800;margin:0 0 6px">${title}${note?` <span class="muted" style="font-weight:600;font-size:10px">${note}</span>`:''}</div>${inner}</div>`;}
 
-async function loadRisk(){
+let __riskCache=null;   // shared /api/risk payload — Risk Desk + Correlation use ONE fetch (2026-07-19)
+async function fetchRiskPayload(en,force){
+  const tol=(document.getElementById('riskTol')||{}).value||20, hz=(document.getElementById('riskHorizon')||{}).value||1;
+  const key=`${tol}|${hz}|${en}`;
+  if(!force&&__riskCache&&__riskCache.key===key)return __riskCache.data;
+  const r=await fetch(`/api/risk?risk_tolerance_pct=${encodeURIComponent(tol)}&horizon_years=${encodeURIComponent(hz)}&enrich=${en}`);
+  const txt=await r.text(); let d;
+  try{d=JSON.parse(txt);}catch(_){d={status:'error',message:'Server '+r.status+': '+txt.slice(0,160)};}
+  if(d&&d.status!=='error')__riskCache={key,data:d};
+  return d;
+}
+async function loadRisk(force){
   const body=document.getElementById('riskBody'); if(!body)return;
   const sp=document.getElementById('spRisk'); if(sp)sp.style.display='inline-block';
-  const tol=document.getElementById('riskTol').value||20, hz=document.getElementById('riskHorizon').value||1, en=document.getElementById('riskEnrich').value||'auto';
+  const en=document.getElementById('riskEnrich').value||'auto';
   body.innerHTML='<div class="muted" style="font-size:12px;padding:10px">Computing risk… (price history + covariance + stress)</div>';
   try{
-    const r=await fetch(`/api/risk?risk_tolerance_pct=${encodeURIComponent(tol)}&horizon_years=${encodeURIComponent(hz)}&enrich=${en}`);
-    const txt=await r.text(); let d;
-    try{d=JSON.parse(txt);}catch(_){d={status:'error',message:'Server '+r.status+': '+txt.slice(0,160)};}
+    const d=await fetchRiskPayload(en,!!force);
     if(d.quota)renderQuota(d.quota); renderRisk(d);
   }catch(e){body.innerHTML='<div class="down" style="padding:10px;font-size:12px">Error: '+esc(String(e))+'</div>';}
   finally{if(sp)sp.style.display='none';}
@@ -1610,15 +1618,13 @@ function drawRiskCharts(d){
 
 // ===================== CORRELATION MONITOR (tab6, additive — new fns only) =====================
 let __corr=null, corrMode='normal';
-async function loadCorr(){
+async function loadCorr(force){
   const body=document.getElementById('corrBody'); if(!body)return;
   const sp=document.getElementById('spCorr'); if(sp)sp.style.display='inline-block';
   const en=(document.getElementById('corrEnrich')||{}).value||'auto';
   body.innerHTML='<div class="muted" style="font-size:12px;padding:10px">Computing correlation… (price history + covariance)</div>';
   try{
-    const r=await fetch(`/api/risk?enrich=${en}`);
-    const txt=await r.text(); let d;
-    try{d=JSON.parse(txt);}catch(_){d={status:'error',message:'Server '+r.status+': '+txt.slice(0,160)};}
+    const d=await fetchRiskPayload(en,!!force);   // shared with Risk Desk — no second /api/risk build
     __corr=d; if(d.quota)renderQuota(d.quota); renderCorr(d);
   }catch(e){body.innerHTML='<div class="down" style="padding:10px;font-size:12px">Error: '+esc(String(e))+'</div>';}
   finally{if(sp)sp.style.display='none';}
@@ -1643,7 +1649,20 @@ function renderCorr(d){
   if(!d||d.status==='insufficient'){body.innerHTML='<div class="muted" style="padding:10px;font-size:12px">'+esc((d&&d.message)||'ต้องมี ≥2 holding ที่มีราคา — เพิ่ม holding หรือกด Run Daily ก่อน')+'</div>';return;}
   const co=d.correlation;
   if(!co||co.status==='error'){body.innerHTML='<div class="down" style="padding:10px;font-size:12px">Correlation unavailable: '+esc((co&&co.message)||'—')+'</div>';return;}
-  body.innerHTML = corrPhilHTML(co) + `<div class="cqgrid"><div>${corrHeatHTML(co)}</div><div>${corrSectorHTML(co,d)}${corrPairsHTML(co)}</div></div>` + corrBenchHTML(co) + corrLegendHTML(co);
+  body.innerHTML = corrProxyWarnHTML(co) + corrPhilHTML(co) + `<div class="cqgrid"><div>${corrHeatHTML(co)}</div><div>${corrSectorHTML(co,d)}${corrPairsHTML(co)}</div></div>` + corrBenchHTML(co) + corrLegendHTML(co);
+}
+
+function corrProxyBadge(co){
+  const cm=((co||{}).meta||{}).cov_mode;
+  if(!cm||cm==='realized')return '';
+  return `<span class="tag" style="background:#d97706;margin-right:4px" title="history ไม่พอ — ใช้ค่าสมมติ equity↔equity 0.60 / ข้าม class 0.20">${cm==='proxy'?'PROXY':'MIXED'}</span>`;
+}
+function corrProxyWarnHTML(co){
+  const m=(co||{}).meta||{}; const cm=m.cov_mode;
+  if(!cm||cm==='realized')return '';
+  const miss=(m.proxy_tickers||[]).map(esc).join(', ');
+  const what=cm==='proxy'?'<b>ทั้งตาราง</b>เป็นค่าสมมติ (ดึงราคาย้อนหลังไม่ได้เลย)':'บางคู่เป็นค่าสมมติ (history ไม่ครบ)';
+  return `<div style="background:#fef3c7;border:1px solid #f59e0b;border-radius:10px;padding:8px 12px;margin-bottom:8px;font-size:12px;color:#92400e">&#9888; <b>${cm==='proxy'?'PROXY':'MIXED'} — ประมาณการ ไม่ใช่ correlation ที่คำนวณจริง</b> · ${what} · คู่สมมติ: equity↔equity 0.60 / ข้าม class 0.20${miss?' · ขาด history: '+miss:''} · กด Run correlation ใหม่ได้ — ระบบจะ retry เฉพาะตัวที่ขาด</div>`;
 }
 
 function corrPhilHTML(co){
@@ -1685,7 +1704,7 @@ function corrHeatHTML(co){
     h+='</tr>';
   });
   h+='</table>';
-  return `<div class="cqcard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div><b style="font-size:13px">Correlation Heatmap — รายตัว</b> <span class="muted" style="font-size:10px">(จัดกลุ่มตาม sector)</span></div><span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></div>
+  return `<div class="cqcard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div><b style="font-size:13px">Correlation Heatmap — รายตัว</b> <span class="muted" style="font-size:10px">(จัดกลุ่มตาม sector)</span></div><span>${corrProxyBadge(co)}<span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></span></div>
     <div style="overflow-x:auto;margin-top:8px">${h}</div>
     <div style="display:flex;align-items:center;gap:0;margin-top:8px;font-size:10px;color:#64748b"><span>ต่ำ</span>
       <i style="width:24px;height:11px;display:inline-block;background:#22c55e"></i><i style="width:24px;height:11px;display:inline-block;background:#84cc16"></i><i style="width:24px;height:11px;display:inline-block;background:#eab308"></i><i style="width:24px;height:11px;display:inline-block;background:#f59e0b"></i><i style="width:24px;height:11px;display:inline-block;background:#f97316"></i><i style="width:24px;height:11px;display:inline-block;background:#dc2626"></i>
@@ -1798,13 +1817,13 @@ async function refresh(){
   try{const r=await fetch('/api/refresh',{method:'POST'});const d=await r.json();
     const rs=d.result||{};const rfWarn=rs.rf_live===false?' ⚠ Rf fallback (live 10Y yield unavailable)':'';
     document.getElementById('summary').textContent=`Refreshed ${(rs.refreshed||[]).length}, errors ${(rs.errors||[]).length}, FMP calls ${rs.fmp_calls} (Rf ${rs.rf_pct}%${rfWarn}). ${(rs.errors||[]).join('; ')}`;
-    renderPortfolio(d.view);renderQuota(d.quota);
+    renderPortfolio(d.view);renderQuota(d.quota);__riskCache=null;
   }catch(e){document.getElementById('summary').textContent='Error: '+e}finally{b.disabled=false;sp.style.display='none'}
 }
 async function daily(){
   const b=document.getElementById('btnDaily'),sp=document.getElementById('spD');
   b.disabled=true;sp.style.display='inline-block';document.getElementById('summary').textContent='Updating price + momentum (Yahoo)…';
-  try{const r=await fetch('/api/daily',{method:'POST'});renderPortfolio(await r.json());document.getElementById('summary').textContent='Daily updated.';}
+  try{const r=await fetch('/api/daily',{method:'POST'});renderPortfolio(await r.json());document.getElementById('summary').textContent='Daily updated.';__riskCache=null;}
   catch(e){document.getElementById('summary').textContent='Error: '+e}finally{b.disabled=false;sp.style.display='none'}
 }
 // ===================== persistence badge + keepalive (data-loss guard) =====================
