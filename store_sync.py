@@ -50,25 +50,37 @@ def ensure_pull(path):
 # coalesce via a pending flag — the newest on-disk file always wins because the
 # worker re-reads the path at push time.
 _push_lock = threading.Lock()
-_push_pending = False
 _push_thread = None
-_push_path = None
+_pending = []            # [(path, remote_name)] — remote_name None = guarded portfolio push
 
 
 def _push_worker():
-    global _push_pending
     while True:
         with _push_lock:
-            if not _push_pending:
+            if not _pending:
                 return
-            _push_pending = False
-        gdrive_store.drive_push(_push_path)    # never raises (best-effort mirror)
+            path, name = _pending.pop(0)
+        if name is None:
+            gdrive_store.drive_push(path)          # never raises (best-effort mirror)
+        else:
+            gdrive_store.drive_push_json(name, path)
+
+
+def _enqueue(path, name):
+    global _push_thread
+    with _push_lock:
+        if (path, name) not in _pending:
+            _pending.append((path, name))
+        if _push_thread is not None and _push_thread.is_alive():
+            return                             # running worker will pick it up
+        _push_thread = threading.Thread(target=_push_worker,
+                                        name="drive-push", daemon=True)
+        _push_thread.start()
 
 
 def schedule_push(path):
     """Mirror `path` to Drive on the background worker — applying the data-loss
     guard: refuse while the initial pull has not succeeded. Never raises."""
-    global _push_pending, _push_thread, _push_path
     if not gdrive_store.enabled():
         return
     if _pull_state not in ("pulled", "absent"):
@@ -77,14 +89,16 @@ def schedule_push(path):
                   _pull_state)
         gdrive_store.STATUS["push_result"] = "skipped"
         return
-    with _push_lock:
-        _push_path = path
-        _push_pending = True
-        if _push_thread is not None and _push_thread.is_alive():
-            return                             # running worker will pick it up
-        _push_thread = threading.Thread(target=_push_worker,
-                                        name="drive-push", daemon=True)
-        _push_thread.start()
+    _enqueue(path, None)
+
+
+def schedule_push_named(path, remote_name):
+    """Best-effort mirror of an AUXILIARY file (e.g. data/risk_cache.json) so a
+    cloud instance can reuse it (2026-07-19b). NO data-loss guard — caches are
+    rebuildable; skipped entirely when Drive isn't configured. Never raises."""
+    if not gdrive_store.enabled():
+        return
+    _enqueue(path, remote_name)
 
 
 def wait_push(timeout=10.0):

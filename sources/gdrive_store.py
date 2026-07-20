@@ -250,6 +250,97 @@ def drive_push(local_path):
         return False
 
 
+# --------------------------------------------------------------------------- #
+#  Named auxiliary JSON files (2026-07-19) — e.g. data/risk_cache.json.        #
+#  Generic by-name pull/push so a cloud instance can REUSE a cache another     #
+#  machine already paid for (FMP quota) instead of re-fetching. Best-effort:   #
+#  never raises; no data-loss guard needed (caches are rebuildable).           #
+# --------------------------------------------------------------------------- #
+_aux_ids = {}            # remote name -> cached Drive file id
+
+
+def _find_aux_id(svc, name):
+    if _aux_ids.get(name):
+        return _aux_ids[name]
+    q = f"name = '{name}' and trashed = false"
+    folder = os.environ.get("GDRIVE_FOLDER_ID")
+    if folder:
+        q += f" and '{folder}' in parents"
+    res = svc.files().list(q=q, spaces="drive", fields="files(id, name)",
+                           pageSize=1).execute()
+    files = res.get("files", [])
+    _aux_ids[name] = files[0]["id"] if files else None
+    return _aux_ids[name]
+
+
+def drive_pull_json(name):
+    """Download the named remote JSON file and return the PARSED object, or
+    None (disabled / absent / unreachable / invalid). Never raises and never
+    touches local disk — callers merge in memory."""
+    if not enabled():
+        return None
+    try:
+        from googleapiclient.http import MediaIoBaseDownload
+        svc = _client()
+        fid = _find_aux_id(svc, name)
+        if not fid:
+            return None
+        buf = io.BytesIO()
+        dl = MediaIoBaseDownload(buf, svc.files().get_media(fileId=fid))
+        done = False
+        while not done:
+            _, done = dl.next_chunk()
+        return json.loads(buf.getvalue().decode("utf-8"))
+    except Exception as e:
+        log.warning("Drive aux pull '%s' failed (ignored): %s", name, e)
+        return None
+
+
+def drive_push_json(name, local_path):
+    """Upload local_path as the named remote JSON file (create or update).
+    Returns True on success. Never raises. Mirrors drive_push's stale-id (H4)
+    and folder-fallback behavior."""
+    if not enabled():
+        return False
+    try:
+        from googleapiclient.http import MediaFileUpload
+        svc = _client()
+        fid = _find_aux_id(svc, name)
+        media = MediaFileUpload(local_path, mimetype="application/json", resumable=False)
+        if fid:
+            try:
+                svc.files().update(fileId=fid, media_body=media).execute()
+            except Exception as e:
+                if "404" not in str(e):
+                    raise
+                _aux_ids[name] = None                      # stale id -> re-resolve
+                fid = _find_aux_id(svc, name)
+                media = MediaFileUpload(local_path, mimetype="application/json",
+                                        resumable=False)
+                if fid:
+                    svc.files().update(fileId=fid, media_body=media).execute()
+        if not fid:
+            meta = {"name": name}
+            folder = os.environ.get("GDRIVE_FOLDER_ID")
+            if folder:
+                meta["parents"] = [folder]
+            try:
+                created = svc.files().create(body=meta, media_body=media,
+                                             fields="id").execute()
+            except Exception:
+                meta.pop("parents", None)
+                media = MediaFileUpload(local_path, mimetype="application/json",
+                                        resumable=False)
+                created = svc.files().create(body=meta, media_body=media,
+                                             fields="id").execute()
+            _aux_ids[name] = created["id"]
+        log.info("Drive: pushed %s", name)
+        return True
+    except Exception as e:
+        log.warning("Drive aux push '%s' failed (kept local only): %s", name, e)
+        return False
+
+
 def status():
     """Snapshot for the /api/persist endpoint — never raises."""
     mode = _auth_mode()

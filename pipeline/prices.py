@@ -7,7 +7,7 @@ Source ORDER of every ladder is preserved exactly as before:
 
     fetch_daily_series    (momentum, short)  yahoo chart -> stooq            (>=30 bars)
     fetch_daily_adjusted  (momentum, long)   yahoo adj -> fmp adj -> stooq   (+pricecache)
-    fetch_returns         (risk desk)        fmp adj -> stooq -> proxy       (+daily risk cache)
+    fetch_returns         (risk desk)        pricecache -> yahoo -> fmp -> stooq -> stale-cache -> proxy (+daily risk cache)
 
 Error contract: per-tier failures are caught and logged; the two momentum
 ladders raise RuntimeError only when EVERY tier fails (caller leaves the cell
@@ -21,8 +21,10 @@ import hashlib
 import logging
 import datetime as dt
 
+import time
+
 import config
-from sources import yahoo, stooq, fmp
+from sources import yahoo, stooq, fmp, gdrive_store
 from pipeline import pricecache
 from domain import momentum
 from domain.engine import risk
@@ -31,6 +33,9 @@ log = logging.getLogger("portfolio.prices")
 
 DEFAULT_DAYS = 400          # ~1.5y of daily data -> stable vol/correlation
 RISK_CACHE_PATH = os.path.join(config.DATA_DIR, "risk_cache.json")
+REMOTE_CACHE_NAME = "risk_cache.json"   # Drive-shared copy (2026-07-19b): one machine
+_last_remote_pull = 0.0                 # pays the FMP quota, every instance reuses it
+REMOTE_PULL_MIN_SECS = 60
 
 
 # --------------------------------------------------------------------------- #
@@ -201,9 +206,67 @@ def save_cache(c):
         pass            # cache is best-effort; never break the request
 
 
+def _remote_good(key):
+    """GOOD entries (n>0) from the Drive-shared risk cache IF it is for the same
+    key (same day + same holdings set); else None. Throttled; never raises."""
+    global _last_remote_pull
+    now = time.time()
+    if now - _last_remote_pull < REMOTE_PULL_MIN_SECS:
+        return None
+    _last_remote_pull = now
+    try:
+        c = gdrive_store.drive_pull_json(REMOTE_CACHE_NAME)
+        if c and c.get("key") == key:
+            good = {t: v for t, v in (c.get("data") or {}).items()
+                    if (v or {}).get("n")}
+            return good or None
+    except Exception:
+        pass
+    return None
+
+
 def _fetch_one(ticker, fmp_key, may_use_fmp, days):
-    """Return (series_dict_or_None, source, used_fmp_call). Never raises."""
-    # Tier 1: FMP adjusted (only if allowed by the quota pre-check)
+    """Return (series_dict_or_None, source, used_fmp_call). Never raises.
+
+    C1 (2026-07-20): the ladder now OPENS THE POOL momentum already paid for —
+    pricecache holds yahoo-adjusted daily series for every holding after each
+    Run Daily — and tries Yahoo directly for names not in the pool yet (a NEW
+    holding before its first Run Daily, or the QQQ/GLD/IBIT benchmark refs).
+    This removes the dependency on FMP's free-tier per-symbol entitlement that
+    caused the deterministic 13-ticker proxy gap.
+
+        0) pricecache fresh (<=TTL)     -> "yahoo-cache"
+        1) yahoo direct (1 quick try)   -> "yahoo"  (+ written into pricecache
+           so the next Run Daily reuses it for free; IP-blocked on cloud hosts
+           -> falls through fast)
+        2) FMP adjusted (quota-guarded) -> "fmp"
+        3) Stooq                        -> "stooq"
+        4) pricecache ANY age           -> "yahoo-cache-stale" (beats a proxy)
+        5) nothing                      -> "proxy"
+    """
+    tail = days + 1                     # need `days` returns -> days+1 closes
+    # Tier 0: fresh pricecache — series Run Daily already fetched today
+    try:
+        pc = pricecache.read_fresh(ticker)
+        if pc and len(pc.get("closes") or []) >= 61:
+            return ({"closes": pc["closes"][-tail:],
+                     "dates": (pc.get("dates") or [])[-tail:]}, "yahoo-cache", False)
+    except Exception:
+        pass
+    # Tier 1: yahoo direct — one quick attempt (new holding / benchmark refs)
+    try:
+        d = yahoo.fetch_chart(ticker, rng="2y", interval="1d", retries=1, timeout=8)
+        closes = d.get("adj_closes") or d.get("closes") or []
+        if len(closes) >= 61:
+            pay = {"closes": closes, "volumes": d.get("volumes", []),
+                   "dates": d.get("dates", []),
+                   "dividend_adjusted": "adj_closes" in d, "source": "yahoo"}
+            pricecache.write(ticker, pay)      # momentum reuses it for free
+            return ({"closes": closes[-tail:], "dates": pay["dates"][-tail:]},
+                    "yahoo", False)
+    except Exception:
+        pass
+    # Tier 2: FMP adjusted (only if allowed by the quota pre-check)
     if may_use_fmp and fmp_key:
         try:
             j = fmp.fetch_history(ticker, fmp_key, days=days)
@@ -212,14 +275,23 @@ def _fetch_one(ticker, fmp_key, may_use_fmp, days):
                 return ph, "fmp", True
         except Exception:
             pass                       # fall through to free source
-    # Tier 2: Stooq (free)
+    # Tier 3: Stooq (free)
     try:
         sc = stooq.fetch_chart(ticker)
         if sc.get("closes"):
             return sc, "stooq", False
     except Exception:
         pass
-    # Tier 3: nothing
+    # Tier 4: stale pricecache — old realized series still beats an assumed 0.60
+    try:
+        pc = pricecache.read_any(ticker)
+        if pc and len(pc.get("closes") or []) >= 61:
+            return ({"closes": pc["closes"][-tail:],
+                     "dates": (pc.get("dates") or [])[-tail:]},
+                    "yahoo-cache-stale", False)
+    except Exception:
+        pass
+    # Tier 5: nothing
     return None, "proxy", False
 
 
@@ -242,6 +314,23 @@ def fetch_returns(tickers, fmp_key="", quota_used=0, quota_cap=250,
     if use_cache and not todo:                                   # full GOOD hit
         return {t: good[t] for t in tickers}, 0, {"cache": "hit", "key": key}
 
+    # 2026-07-19b: before spending network/quota, merge the Drive-SHARED cache —
+    # series another machine (e.g. the local box) already paid FMP for today.
+    drive_merged = 0
+    if use_cache and todo:
+        rem = _remote_good(key)
+        if rem:
+            for t in list(todo):
+                if t in rem:
+                    good[t] = rem[t]
+            todo = [t for t in tickers if t not in good]
+            drive_merged = len(rem)
+            if not todo:                       # Drive supplied everything missing
+                save_cache({"key": key, "saved": _today(), "data": dict(good)})
+                return ({t: good[t] for t in tickers}, 0,
+                        {"cache": "drive-hit", "key": key, "quota_degraded": False,
+                         "drive_cache_merged": drive_merged})
+
     data, calls = dict(good), 0
     for t in todo:
         # quota pre-check: only spend an FMP call if it stays UNDER the cap
@@ -260,8 +349,16 @@ def fetch_returns(tickers, fmp_key="", quota_used=0, quota_cap=250,
 
     if use_cache:
         # persist only GOOD series so failures are retried on the very next run
-        save_cache({"key": key, "saved": _today(),
-                    "data": {t: v for t, v in data.items() if v.get("n")}})
+        good_now = {t: v for t, v in data.items() if v.get("n")}
+        save_cache({"key": key, "saved": _today(), "data": good_now})
+        if good_now:
+            # mirror the shared cache back to Drive (background; guard-free —
+            # a rebuildable cache; skipped when Drive isn't configured)
+            try:
+                import store_sync
+                store_sync.schedule_push_named(RISK_CACHE_PATH, REMOTE_CACHE_NAME)
+            except Exception:
+                pass
     degraded = any(v["source"] != "fmp" for v in data.values()) and bool(fmp_key)
     return data, calls, {"cache": ("partial" if good else "miss"), "key": key,
-                         "quota_degraded": degraded}
+                         "quota_degraded": degraded, "drive_cache_merged": drive_merged}

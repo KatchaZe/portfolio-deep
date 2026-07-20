@@ -38,6 +38,7 @@ portfolio-deep/
   index.html                 # 6-tab dashboard (vanilla JS + Chart.js); Tab 3 = Risk Desk, Tab 6 = Correlation (share ONE /api/risk payload), Tab 4/5 = How to / Ref
   store.py                   # local JSON store: holdings, watchlist, facts, results, momentum, fmp_usage, rev_*
   store_sync.py              # Google-Drive mirror subsystem (2026-07-19 split): pull-on-cold-start · background push worker · push guard
+                             #   + aux mirror (19b): risk_cache.json shared via Drive — one machine pays FMP, every instance reuses
   sources/                   # fetch only — no math, each mockable
     sec_edgar.py             #   PRIMARY financials: robust TTM, freshest-tag pick, currency-aware (+v8.2 fields)
     fmp.py                   #   profile (sector/beta/price) · earnings · quote · analyst-estimates · peers · adjClose
@@ -75,7 +76,8 @@ portfolio-deep/
     screen.py                #   S13/S19 GARP screen: cheap × quality rank over stored subscores
     prices.py                #   ★2026-07-19★ THE price-series module — all 3 fetch ladders, one roof:
                              #     fetch_daily_series (yahoo→stooq) · fetch_daily_adjusted (yahoo→fmp→stooq +pricecache)
-                             #     fetch_returns (fmp→stooq→proxy, risk desk) — no-poison daily cache (failures retried, never cached)
+                             #     fetch_returns (risk desk): pricecache→yahoo→fmp→stooq→stale-cache→proxy — reuses the pool
+                             #     momentum paid for + direct Yahoo for NEW holdings; no-poison daily cache (failures retried)
     risk_report.py           #   /api/risk payload builder (extracted from app.py) — injectable fetch_returns seam,
                              #     realized/mixed/proxy covariance (hybrid_cov) + meta.proxy_tickers
     risk_prices.py           #   DEPRECATED shim → pipeline/prices.py (kept for old imports)
