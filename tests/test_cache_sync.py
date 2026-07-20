@@ -84,9 +84,24 @@ def test_drive_full_hit_no_fetch():
 
 
 def test_disabled_env_noops():
-    # No GDRIVE_* creds in the test env: the real functions must no-op safely.
-    assert gdrive_store.drive_pull_json("risk_cache.json") in (None,)
-    assert gdrive_store.drive_push_json("risk_cache.json", "/tmp/x.json") is False
+    """FORCE-disable Drive during this test — the machine running the suite may
+    have real GDRIVE_* creds (the fix for the leak found 2026-07-20: the old
+    version silently hit the real Drive API and would break once
+    risk_cache.json exists remotely)."""
+    env_keys = ("GDRIVE_SA_JSON", "GDRIVE_FOLDER_ID", "GDRIVE_OAUTH_CLIENT_ID",
+                "GDRIVE_OAUTH_CLIENT_SECRET", "GDRIVE_OAUTH_REFRESH_TOKEN")
+    saved = {k: os.environ.pop(k, None) for k in env_keys}
+    orig = (gdrive_store._enabled, gdrive_store._service, gdrive_store._file_id)
+    gdrive_store._enabled = gdrive_store._service = gdrive_store._file_id = None
+    try:
+        assert gdrive_store.enabled() is False
+        assert gdrive_store.drive_pull_json("risk_cache.json") is None
+        assert gdrive_store.drive_push_json("risk_cache.json", "/tmp/x.json") is False
+    finally:
+        for k, v in saved.items():
+            if v is not None:
+                os.environ[k] = v
+        (gdrive_store._enabled, gdrive_store._service, gdrive_store._file_id) = orig
     print("disabled-env no-ops OK")
 
 

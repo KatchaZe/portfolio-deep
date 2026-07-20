@@ -15,7 +15,18 @@ import hashlib
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import store as st
+import store_sync
 import app
+
+# HERMETIC (2026-07-20): the suite must never touch the real Google Drive. On a
+# machine WITH GDRIVE_* creds, store.load() used to pull the remote
+# portfolio.json over the local file mid-test ("Drive: pulled portfolio.json
+# (287656 bytes)" in the log) — a network dependency AND a surprise overwrite of
+# local data. The local-disk store is still exercised for real; only the cloud
+# mirror is stubbed out.
+store_sync.ensure_pull = lambda path: None
+store_sync.schedule_push = lambda path: None
+store_sync.schedule_push_named = lambda path, name: None
 
 
 def _body(resp):
