@@ -7,4 +7,5 @@ data/cache/
 data/risk_cache.json
 .env
 client_secret.json
+mockup_ui_scale.html
 # keep tests/fixtures/ committed — they are the regression safety net
