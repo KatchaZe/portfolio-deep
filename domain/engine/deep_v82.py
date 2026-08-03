@@ -69,6 +69,14 @@ def _clamp(x, lo=0.0, hi=5.0):
     return max(lo, min(hi, x))
 
 
+def _add_flag(f, note):
+    """Append a flag once. Replaces ~14 copies of the if-not-in-list-append idiom;
+    a duplicated flag is harmless but a MISSED one is not, so this keeps every
+    caller on the same shape."""
+    if note and note not in f.flags:
+        f.flags.append(note)
+
+
 def _band(x, bands):
     for t, s in bands:
         if x >= t:
@@ -87,9 +95,34 @@ def _spread_from_coverage(cov):
     return SYNTH_SPREAD[-1][1]
 
 
-def wacc_true(rf, beta, equity_mktcap, total_debt, cash, tax, interest_expense, operating_income):
-    """True WACC. Returns (wacc, ke, kd_pretax, note)."""
-    ke = cost_of_equity(rf, beta)
+TERMINAL_BETA_LO, TERMINAL_BETA_HI = 0.8, 1.2
+
+
+def terminal_beta(beta):
+    """Beta for the STABLE-GROWTH phase (P-K).
+
+    Damodaran's stable-growth rules apply to risk as well as to returns: a company
+    that has settled into perpetual ~risk-free growth cannot still be twice as
+    risky as the whole market, and a defensive name cannot stay at beta 0.2 for
+    ever either. His stated stable-growth band is 0.8-1.2, applied here in BOTH
+    directions (NVDA 2.21 -> 1.2, REGN 0.24 -> 0.8).
+
+    This closes the last gap in the terminal-phase story: ROIC fades to the
+    industry, growth is capped at the risk-free rate, and now the discount rate
+    fades too. Leaving beta un-faded was what made a 62%-ROIC company earn a
+    stable-phase P/E of 8.3 — and the old PE floor of 12 was quietly papering
+    over it."""
+    if beta is None:
+        return 1.0
+    return min(TERMINAL_BETA_HI, max(TERMINAL_BETA_LO, beta))
+
+
+def wacc_true(rf, beta, equity_mktcap, total_debt, cash, tax, interest_expense, operating_income,
+              beta_override=None):
+    """True WACC. Returns (wacc, ke, kd_pretax, note).
+    `beta_override` recomputes Ke at a different beta while holding the capital
+    structure and cost of debt fixed — used for the terminal-phase WACC."""
+    ke = cost_of_equity(rf, beta_override if beta_override is not None else beta)
     if not total_debt or not equity_mktcap:
         return ke, ke, None, "no debt/weights -> WACC=Ke"
     if interest_expense and interest_expense > 0 and operating_income:
@@ -120,8 +153,17 @@ def rd_capitalize(rnd_annuals, reported_oi, reported_ic, tax, life=RD_LIFE):
     return adj_oi, adj_ic, adj_oi * (1 - tax) / adj_ic
 
 
-def two_stage_pe(g_h, n, g_st, ke, roic_h, roic_st):
-    if ke <= g_st:
+def two_stage_pe(g_h, n, g_st, ke, roic_h, roic_st, ke_st=None):
+    """Justified P/E over a high-growth stage then a perpetuity.
+
+    P-B2: `ke` prices the high-growth years, `ke_st` capitalizes the perpetuity.
+    They used to be the same number, which meant a stable-growth perpetuity was
+    discounted at the company's CURRENT (high-growth) cost of equity for ever —
+    the same inconsistency as freezing ROIC. The terminal cash flow is still
+    discounted BACK across the high-growth years at `ke`, because those years
+    really are that risky. Defaults to ke_st = ke for callers that don't care."""
+    ke_st = ke if ke_st is None else ke_st
+    if ke_st <= g_st:
         return None
     payout_h = max(0.0, 1 - g_h / roic_h) if roic_h else 0.0
     payout_st = max(0.0, 1 - g_st / roic_st) if roic_st else 0.0
@@ -130,24 +172,109 @@ def two_stage_pe(g_h, n, g_st, ke, roic_h, roic_st):
         term1 = payout_h * (1 + g_h) * n / (1 + ke)
     else:
         term1 = payout_h * (1 + g_h) * (1 - comp) / (ke - g_h)
-    term2 = payout_st * ((1 + g_h) ** n) * (1 + g_st) / ((ke - g_st) * (1 + ke) ** n)
+    term2 = payout_st * ((1 + g_h) ** n) * (1 + g_st) / ((ke_st - g_st) * (1 + ke) ** n)
     return term1 + term2
 
 
-PE_FLOOR, PE_CEIL = 8.0, 30.0
+# P-M: one band for both valuation paths (they clamp the SAME quantity — a
+# justified P/E — and used to disagree: [8,30] for PEG vs [12,25] for the FVP
+# exit multiple). The band is now a garbage catcher, not a value donor:
+#   * the old FLOOR bound 11 of 21 holdings in the FVP path and gifted up to
+#     +103% (RKLB 5.9 -> 12). A low justified P/E is the CORRECT answer for a
+#     high-Ke, low-ROIC business, not a number to be overridden.
+#   * the old ceilings (30 / 25) cut genuine answers on the highest-quality names.
+# REVIEW-4: an earlier note here claimed ke_st - g_st >= 3% bounds the formula near
+# 35 "by construction". That is FALSE — term2 carries ((1+g_h)/(1+ke))^n, which
+# exceeds 1 whenever g_h > ke, so raw P/Es of 40-56 are reachable (g 25-30% with a
+# high sector ROIC). 35 is therefore a real judgement cap, not a no-op, and it does
+# bind (LLY raw 42.2). It is deliberately kept: an unbounded justified P/E on
+# 5 years of extrapolated growth is a bigger risk than clipping the top decile.
+# Whenever it binds the row is flagged as a boundary rather than an estimate.
+PE_FLOOR, PE_CEIL = 5.0, 35.0
 
 
-def fundamental_peg_price(g_high, g_stable, ke, roic_high, roic_stable, forward_eps, years=5):
-    if forward_eps is None or forward_eps <= 0 or g_high is None or g_high <= 0:
+def fundamental_peg_price(g_high, g_stable, ke, roic_high, roic_stable, forward_eps, years=5,
+                          ke_stable=None):
+    # REVIEW-6: ZERO growth is a valid input, not a missing one. The old guard was
+    # `g_high <= 0`, so once P-E started (correctly) reporting 0% for a shrinking
+    # company, that company lost its PEG valuation entirely and fell through to a
+    # trailing-EPS method — PFE swung from +37% to -60% on this alone. The two-stage
+    # formula handles g=0 fine: payout_h becomes 1 (nothing needs reinvesting).
+    if forward_eps is None or forward_eps <= 0 or g_high is None or g_high < 0:
         return None, None
-    pe = two_stage_pe(g_high, years, g_stable, ke, roic_high, roic_stable)
+    pe = two_stage_pe(g_high, years, g_stable, ke, roic_high, roic_stable, ke_st=ke_stable)
     if pe is None or pe <= 0:
         return None, None
     pe_clamped = _clamp(pe, PE_FLOOR, PE_CEIL)
     detail = {"fair_pe": round(pe_clamped, 2), "fair_pe_raw": round(pe, 2),
-              "fundamental_peg": round(pe_clamped / (g_high * 100), 3),
+              # PEG is undefined at zero growth — report None rather than dividing by 0
+              "fundamental_peg": round(pe_clamped / (g_high * 100), 3) if g_high > 0 else None,
               "pe_clamped": pe_clamped != pe}
     return pe_clamped * forward_eps, detail
+
+
+def fundamental_growth(capex, dep_amort, nopat, roic_now):
+    """Damodaran's fundamental growth (P-F): g = reinvestment rate x ROIC — growth
+    is not free, it has to be bought with reinvestment.
+
+    Used as a CROSS-CHECK, not as the driver: (capex - D&A)/NOPAT sees only
+    physical reinvestment, so it badly understates asset-light R&D spenders
+    (NVDA prints 0.0% while growing 65%), and capex is missing for several
+    filers. Returns None when it cannot be computed honestly."""
+    if capex is None or dep_amort is None or not nopat or nopat <= 0:
+        return None
+    if roic_now is None or roic_now <= 0:
+        return None
+    return _clamp((capex - dep_amort) / nopat, 0.0, 0.8) * roic_now
+
+
+def sustainable_growth_cap(roic_now):
+    """Growth ceiling for the high-growth stage (P-H).
+
+    Sustainable growth = reinvestment rate x ROIC, and reinvestment rate cannot
+    exceed 100% of earnings without raising outside capital. So g <= ROIC.
+
+    Why this matters: the payout term is max(0, 1 - g/ROIC). When g > ROIC the
+    required reinvestment exceeds earnings, and the max(0, .) silently floors the
+    shortfall at zero instead of charging for it — MELI at g=30% with ROIC=13.7%
+    needs to reinvest 219% of earnings, yet the model paid no dilution and still
+    scaled the terminal earnings base by (1+g)^5 = 3.7x. Growth was free.
+
+    Returns GROWTH_CAP unchanged when ROIC is unknown or non-positive (pre-profit
+    names are valued off the reverse DCF, not off this path)."""
+    if roic_now is None or roic_now <= 0:
+        return GROWTH_CAP
+    return min(GROWTH_CAP, roic_now)
+
+
+def terminal_roic(roic_now, wacc_val, sector_cap=None):
+    """Stable-phase ROIC (P-D). Damodaran's three rules for the terminal phase:
+      1. competition erodes excess returns -> ROIC must FADE toward the cost of
+         capital; nobody earns 40-60% forever,
+      2. a firm with a DURABLE moat may keep part of its spread, but a modest part,
+      3. the cost of capital is also the FLOOR — a business earning below it gets
+         restructured, acquired or liquidated; it does not burn capital forever.
+    So: keep half of today's spread, never above the industry ceiling, never
+    above what the firm actually earns today (no free upgrade), never below the
+    cost of capital.
+
+    `sector_cap` is Damodaran's own industry ROIC (sources/damodaran.py); when it
+    is unavailable we fall back to ROIC_TERMINAL = 15%, which is close to his
+    market-wide lease & R&D adjusted figure (15.07%, Jan 2026) — i.e. "converge
+    to the average company" when we have no industry view.
+
+    Replaces the old hardcoded ROIC_TERMINAL=0.15 for every company, which handed
+    a 5%-ROIC business a 15% perpetuity and made the model systematically rate
+    LOW-quality firms as the cheapest (PFE +151%, REGN +110%, ELV +29%)."""
+    cap = sector_cap if (sector_cap and sector_cap > 0) else ROIC_TERMINAL
+    if roic_now is None or wacc_val is None or wacc_val <= 0:
+        # REVIEW-2: with no ROIC of its own there is nothing to fade FROM, so the
+        # industry number would become a gift — Tobacco 77.7%, Retail Building
+        # Supply 39.3%. Fall back to the market-average default and let the
+        # industry figure only pull it DOWN.
+        return min(cap, ROIC_TERMINAL)
+    half = wacc_val + 0.5 * max(0.0, roic_now - wacc_val)
+    return max(wacc_val, min(roic_now, cap, half))
 
 
 def stable_exit_pe(g_st, ke, roic_st):
@@ -165,21 +292,39 @@ def stable_exit_pe(g_st, ke, roic_st):
 def future_value_projection(eps0, growth, ke, exit_pe):
     if eps0 is None or eps0 <= 0 or exit_pe is None:
         return None
-    pe = _clamp(exit_pe, 12, 25)
+    pe = _clamp(exit_pe, PE_FLOOR, PE_CEIL)     # P-M: same band as the PEG path
     return (eps0 * (1 + growth) ** 5 * pe) / (1 + ke) ** 5
 
 
-def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin):
+def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin,
+                wacc_term=None, roic_term=None):
     """Full-path reverse DCF (Philosophy-2026 fix): solve the revenue CAGR x such
     that PV(interim FCFF years 1..H) + PV(terminal value) = Enterprise Value.
     The old closed form assumed ALL of EV compounds into the year-H terminal value
     (no credit for interim cash flows) which OVERSTATED the implied CAGR — verdicts
     skewed toward 'Aggressive/Exceptional'. Damodaran reverse DCF discounts the
     whole FCFF path (S19/S21: what growth is the market pricing in?).
-    Reinvestment follows growth: reinvest_t = x/ROIC_terminal (capped), terminal
-    reinvest = g/ROIC_terminal. Margin held at the terminal margin (conservative:
-    real margins ramp toward it, so implied CAGR stays an upper-ish bound)."""
-    if not (price and shares and revenue) or wacc_val <= g:
+
+    P-L, two terminal-phase fixes — both matter a lot here because the terminal
+    value is 90-97% of total PV in this model, so it is barely a 10-year DCF at all:
+      * `wacc_term` capitalizes the perpetuity (Ke rebuilt at a stable-growth beta,
+        same capital structure and Kd). Using the current high-growth WACC for a
+        PERPETUITY shrank TV for high-beta names, so the solver had to invent extra
+        growth to reach EV and the verdict came out too harsh — and too lenient for
+        low-beta names. HIMS (beta 2.34) reads 22.8% implied CAGR the old way, 10.9%
+        this way; LLY (beta 0.51) moves the other way, 13.7% -> 16.7%.
+      * `roic_term` replaces a hardcoded ROIC_TERMINAL=15% in the reinvestment
+        term — a leftover the terminal-ROIC work missed. Reinvestment is x/ROIC, so
+        assuming 15% for a 23%-ROIC filer overstated what growth costs it.
+    Both fall back to the old behaviour when not supplied.
+
+    Margin is held at the terminal margin for the whole path. Tested: ramping it
+    from today's margin instead moves the answer by <0.6pp (HIMS 22.8% -> 23.3%),
+    because the terminal value dominates — so the simplification is harmless. It is
+    NOT, as previously documented, a conservative bound in either direction."""
+    wacc_term = wacc_val if wacc_term is None else wacc_term
+    roic_t = roic_term if (roic_term and roic_term > 0) else ROIC_TERMINAL
+    if not (price and shares and revenue) or wacc_val <= g or wacc_term <= g:
         return {"triggered": False}
     mcap = price * shares
     ev = mcap + (total_debt or 0) - (cash or 0)
@@ -188,8 +333,8 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
         """PV of the FCFF path at revenue CAGR x with operating margin m."""
         if m <= 0:
             return None
-        reinvest = min(0.9, max(0.0, x / ROIC_TERMINAL)) if x > 0 else 0.0
-        reinvest_t = min(0.8, g / ROIC_TERMINAL)
+        reinvest = min(0.9, max(0.0, x / roic_t)) if x > 0 else 0.0
+        reinvest_t = min(0.8, g / roic_t)
         pv = 0.0
         rev_t = revenue
         for t in range(1, REVERSE_HORIZON + 1):
@@ -197,8 +342,8 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
             fcff = rev_t * m * (1 - tax) * (1 - reinvest)
             pv += fcff / (1 + wacc_val) ** t
         fcff_next = rev_t * (1 + g) * m * (1 - tax) * (1 - reinvest_t)
-        tv = fcff_next / (wacc_val - g)
-        return pv + tv / (1 + wacc_val) ** REVERSE_HORIZON
+        tv = fcff_next / (wacc_term - g)          # perpetuity at the STABLE rate...
+        return pv + tv / (1 + wacc_val) ** REVERSE_HORIZON   # ...discounted back at the risky one
 
     def implied(m):
         """Bisection for x where pv_at(x) == EV. None if EV unreachable in band."""
@@ -371,8 +516,7 @@ class DeepV82Engine(DeepEngine):
         if erp_months_old() > config.ERP_STALE_MONTHS:
             _erp_note = (f"ERP {config.ERP*100:.2f}% as-of {config.ERP_AS_OF} is {erp_months_old()}mo old "
                          f"- refresh (Assumptions form / config.ERP)")
-            if _erp_note not in f.flags:
-                f.flags.append(_erp_note)
+            _add_flag(f, _erp_note)
 
         nopat = f.operating_income * (1 - tax) if f.operating_income is not None else None
         # P1-5 (S5): capitalize operating leases — lease liability is debt (Damodaran)
@@ -381,8 +525,7 @@ class DeepV82Engine(DeepEngine):
         ic = debt_eff + (f.equity or 0) - (f.cash or 0)
         if lease:
             _ln = f"operating leases ${lease/1e9:.1f}B capitalized into debt+IC (S5)"
-            if _ln not in f.flags:
-                f.flags.append(_ln)
+            _add_flag(f, _ln)
         roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
         rd = rd_capitalize(f.rnd_annuals, f.operating_income, ic, tax)
         if rd:
@@ -390,13 +533,29 @@ class DeepV82Engine(DeepEngine):
             notes.append(f"R&D-capitalized ROIC {roic_adj*100:.1f}%")
         roic_used = rd[2] if rd else roic
 
-        mcap = (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None
+        # T4: prefer the REPORTED market cap — one measurement instead of a product
+        # of two, and for a depositary listing it is the only one in the right unit.
+        # normalize._resolve_shares keeps shares consistent with it, so for ordinary
+        # US listings the two agree to ~0.000% and this changes nothing.
+        mcap = getattr(f, "market_cap", None) or (
+            (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None)
         w, ke, kd_pre, wacc_note = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
                                              f.interest_expense, f.operating_income)
-        if "default spread" in wacc_note and debt_eff:
+        # S3: surface EVERY degraded-WACC path, not just the missing-interest one.
+        # "no debt/weights -> WACC=Ke" used to pass silently, so TSM/NVO carried an
+        # unweighted WACC with nothing on the card to say so.
+        if ("default spread" in wacc_note and debt_eff) or "no debt/weights" in wacc_note:
             _n = "WACC: " + wacc_note
-            if _n not in f.flags:
-                f.flags.append(_n)
+            _add_flag(f, _n)
+        # P-K: same capital structure and Kd, Ke rebuilt at a stable-growth beta.
+        beta_t = terminal_beta(beta)
+        w_term, ke_term, _, _ = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
+                                          f.interest_expense, f.operating_income,
+                                          beta_override=beta_t)
+        if abs(beta_t - beta) > 0.4:
+            _bn = (f"terminal beta {beta:.2f} -> {beta_t:.2f} (stable-phase risk fade) - "
+                   f"FV leans on this assumption")
+            _add_flag(f, _bn)
         spread = (roic_used - w) if roic_used is not None else None
 
         reinvest = 0.0
@@ -404,7 +563,19 @@ class DeepV82Engine(DeepEngine):
             reinvest = _clamp((f.capex - f.dep_amort) / nopat, 0.0, 0.8)
         fcff = nopat * (1 - reinvest) if nopat is not None else None
 
-        growth = _clamp(f.growth_lt or 0.08, 0.0, GROWTH_CAP)
+        # P-H: g <= ROIC — you cannot grow faster than your return on capital
+        # without raising outside capital, which this model does not charge for.
+        g_cap = sustainable_growth_cap(roic_used)
+        # REVIEW-1: `growth_lt or 0.08` treated a measured ZERO as missing, so every
+        # shrinking company silently got the 8% default. P-E now floors the CAGR at 0
+        # precisely so decline reads as no-growth — that has to survive to here.
+        _g_lt = f.growth_lt if f.growth_lt is not None else 0.08
+        growth_raw = _clamp(_g_lt, 0.0, GROWTH_CAP)
+        growth = min(growth_raw, g_cap)
+        if growth_raw > growth + 1e-9:
+            _gn = (f"growth capped {growth_raw*100:.0f}% -> {growth*100:.0f}% "
+                   f"(g <= ROIC: faster needs outside capital)")
+            _add_flag(f, _gn)
         ann = f.revenue_annuals or []
         rev_1y = ann[1] if len(ann) > 1 else None
         rev_3y = ann[3] if len(ann) > 3 else None
@@ -419,32 +590,73 @@ class DeepV82Engine(DeepEngine):
             eps0 = f.eps_gaap
 
         ke_eff = max(ke, rf + 0.035)
-        g_stable = min(rf, ke_eff - 0.03)
+        # P-B2/P-K: the perpetuity is discounted at the STABLE-phase Ke, and the
+        # stable growth cap keys off that rate (it is a stable-phase quantity).
+        ke_st_eff = max(ke_term, rf + 0.035)
+        g_stable = min(rf, ke_st_eff - 0.03)
         roic_high = roic_used if (roic_used and roic_used > 0) else ROIC_TERMINAL
-        fv_peg, peg_d = fundamental_peg_price(growth, g_stable, ke_eff, roic_high, ROIC_TERMINAL, f.forward_eps)
+        # P-D: terminal ROIC fades from the firm's OWN spread instead of being
+        # handed a flat 15% — see terminal_roic() for the Damodaran rules.
+        # P-J: industry ceiling from Damodaran's ROC-by-sector table when known.
+        _sec_cap = getattr(f, "terminal_roic_sector", None)
+        # REVIEW-3: floor against the TERMINAL cost of capital, not today's. The
+        # perpetuity is capitalized at w_term, so flooring at w let low-beta names
+        # (whose beta fades UP, so w_term > w) end up with a terminal ROIC below
+        # their terminal cost of capital — breaking the function's own rule 3.
+        roic_term = terminal_roic(roic_used if (roic_used and roic_used > 0) else None,
+                                  max(w, w_term), _sec_cap)
+        if _sec_cap and abs(roic_term - _sec_cap) < 1e-9 and roic_term > w_term:
+            # the INDUSTRY ceiling is what set the perpetuity here, not the firm's
+            # own numbers — worth knowing, since it moves with an external table
+            _sn = f"terminal ROIC {roic_term*100:.1f}% set by industry ceiling (Damodaran ROC)"
+            _add_flag(f, _sn)
+        # P-F: growth has to be bought with reinvestment — warn when the growth we
+        # are paying for is far above what the firm's reinvestment can fund.
+        g_fund = fundamental_growth(f.capex, f.dep_amort, nopat, roic_used)
+        if g_fund is not None and growth > 0.02 and growth > 2 * max(g_fund, 0.0):
+            note = (f"growth {growth*100:.0f}% vs fundamental growth {g_fund*100:.1f}% "
+                    f"(reinvest x ROIC) - unfunded by physical reinvestment"
+                    + ("; asset-light? R&D not counted" if g_fund < 0.01 else ""))
+            _add_flag(f, note)
+        fv_peg, peg_d = fundamental_peg_price(growth, g_stable, ke_eff, roic_high, roic_term,
+                                              f.forward_eps, ke_stable=ke_st_eff)
         if peg_d and peg_d.get("pe_clamped"):
-            note = "fundamental PE clamped to sane band (low-beta terminal sensitivity)"
-            if note not in f.flags:
-                f.flags.append(note)
+            note = (f"fundamental PE clamped to [{PE_FLOOR:.0f}, {PE_CEIL:.0f}] "
+                    f"(raw {peg_d.get('fair_pe_raw')}) - FV is a boundary, not an estimate")
+            _add_flag(f, note)
 
         # exit multiple from STABLE-period fundamentals (payout/(Ke-g)), not the
         # old PEG=1 heuristic (growth x 100) — Philosophy-2026 alignment (S5/S19)
-        exit_pe = stable_exit_pe(g_stable, ke_eff, ROIC_TERMINAL)
+        # P-B2: the exit multiple is a STABLE-phase multiple, so it is built at the
+        # stable-phase Ke; the 5 high-growth years are still discounted at ke_eff.
+        exit_pe = stable_exit_pe(g_stable, ke_st_eff, roic_term)
         fv_fvp = future_value_projection(eps0, growth, ke_eff, exit_pe)
 
         tmargin, tm_label, tm_anchored = terminal_margin(f.ticker, f.operating_income, f.revenue)
+        # P-A: surface when EBIT was approximated because the filer tags no
+        # operating-income subtotal (LLY/PFE) — ROIC/margins carry that caveat.
+        if str((getattr(f, "provenance", None) or {}).get("operating_income", "")).startswith("sec-derived"):
+            note = "EBIT derived (pretax + interest) - filer tags no operating income"
+            _add_flag(f, note)
+
+        # P-L: perpetuity capitalized at the stable-phase WACC, reinvestment costed
+        # at the firm's own terminal ROIC (was a hardcoded 15%).
         rdcf = reverse_dcf(f.price, f.shares_diluted, f.revenue, rev_1y, f.total_debt, f.cash,
-                           w, rf, tax, tmargin)
+                           w, rf, tax, tmargin, wacc_term=w_term, roic_term=roic_term)
         if rdcf.get("triggered") and not tm_anchored:
             note = tm_label + " - RevDCF verdict approximate"
-            if note not in f.flags:
-                f.flags.append(note)
+            _add_flag(f, note)
 
         eps_pos = eps0 is not None and eps0 > 0
         fcf_pos = fcff is not None and fcff > 0
+        # P-G: an FVP below 10% of price is a broken input, not a valuation. It used
+        # to nuke the whole anchor — throwing away a perfectly good Fundamental PEG
+        # with it (ABBV: FVP $23 killed a $210 PEG). Discard the METHOD, not the row.
+        if fv_fvp and f.price and fv_fvp < 0.1 * f.price:
+            note = "FVP discarded (below 10% of price - unreliable inputs)"
+            _add_flag(f, note)
+            fv_fvp = None
         if (not eps_pos) or (not fcf_pos):
-            anchor_method, anchor_value = "Terminal-Anchored Reverse DCF", None
-        elif fv_fvp and f.price and fv_fvp < 0.1 * f.price:
             anchor_method, anchor_value = "Terminal-Anchored Reverse DCF", None
         elif spread is not None and spread > 0.10 and (rev_growth_yoy or 0) > 0.15:
             anchor_method, anchor_value = "Future Value Projection", fv_fvp
@@ -465,15 +677,13 @@ class DeepV82Engine(DeepEngine):
 
         eq_verdict, eq_flags, cc = earnings_quality(f.net_income, f.cfo, f.total_assets, f.sbc, f.revenue)
         for fl in eq_flags:
-            if fl not in f.flags:
-                f.flags.append("EQ: " + fl)
+            _add_flag(f, "EQ: " + fl)
         if f.deferred_revenue and f.deferred_revenue_prior and rev_1y and f.revenue:
             dr_g = f.deferred_revenue / f.deferred_revenue_prior - 1
             rev_g = f.revenue / rev_1y - 1
             sig = "positive" if dr_g > rev_g else "lagging"
             note = f"billings {sig} (deferred rev {dr_g*100:+.0f}% vs rev {rev_g*100:+.0f}%)"
-            if note not in f.flags:
-                f.flags.append(note)
+            _add_flag(f, note)
 
         oia = f.operating_income_annuals or []
         inc_roic = None
@@ -532,6 +742,10 @@ class DeepV82Engine(DeepEngine):
                          "roic_adj_pct": round(roic_used * 100, 2) if (rd and roic_used is not None) else None,
                          "spread_pct": round(spread * 100, 2) if spread is not None else None,
                          "incremental_roic_pct": round(inc_roic * 100, 1) if inc_roic is not None else None,
+                         "terminal_roic_pct": round(roic_term * 100, 1),
+                         "terminal_beta": round(beta_t, 2),
+                         "terminal_ke_pct": round(ke_st_eff * 100, 2),
+                         "terminal_wacc_pct": round(w_term * 100, 2),
                          "growth_pct": round(growth * 100, 1), "beta": round(beta, 2),
                          "justified_pe": (peg_d or {}).get("fair_pe"),
                          "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
@@ -551,7 +765,10 @@ def _verdict(f, v):
     if v.anchor_method == "Terminal-Anchored Reverse DCF":
         rd = v.reverse_dcf or {}
         if rd.get("triggered"):
-            return (f"{v.recommendation} {v.stars} - Pre-profit: market prices ~{rd.get('implied_cagr_pct')}% 10y CAGR "
+            # P-C: this branch also catches PROFITABLE companies whose FV inputs are
+            # missing (e.g. no operating-income tag). Calling those "Pre-profit" is a lie.
+            lbl = "Pre-profit" if not (f.net_income and f.net_income > 0) else "No point FV (insufficient data)"
+            return (f"{v.recommendation} {v.stars} - {lbl}: market prices ~{rd.get('implied_cagr_pct')}% 10y CAGR "
                     f"vs actual {rd.get('actual_1y_pct')}% ({rd.get('verdict')}). conf {f.confidence}")
         return (f"{v.recommendation or 'N/A'} {v.stars} - insufficient data for a point fair value. conf {f.confidence}").strip()
     fv = v.anchor_value

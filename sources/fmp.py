@@ -426,6 +426,10 @@ def parse(bundle, facts):
     facts.set("beta", _num(prof, "beta"), SRC)
     facts.set("dividend_ps", _num(prof, "lastDiv"), SRC)   # R2: dividend-aware split-only warning
     facts.set("price", _num(quote, "price") or _num(prof, "price"), SRC)
+    # T1: market cap of the US-LISTED security — same unit as price, so it carries
+    # the ADR ratio for free. Lets normalize derive a share count that price can be
+    # multiplied by, instead of guessing a depositary ratio.
+    facts.set("market_cap", _num(prof, "marketCap", "mktCap") or _num(quote, "marketCap", "mktCap"), SRC)
     facts.set("currency", _num(inc, "reportedCurrency") or _num(prof, "currency") or "USD", SRC)
     facts.set("fiscal_year", _num(inc, "date", "fiscalYear"), SRC)
 

@@ -1,62 +1,99 @@
-feat(damodaran-2026): add 12 Investment-Philosophies signals (Tier 1-3)
+fix(engine): terminal-phase realism + data-integrity guards (build 2026-08-03a)
 
-Maps Damodaran's 2026-edition "Investment Philosophies" course onto the
-dashboard. All changes are ADDITIVE (no existing return shape changed); the
-full suite passes incl. no-regression. New numbers reuse existing data
-sources; the only manual inputs are config assumptions (MARKET_PE, cost/tax)
-handled like the existing ERP constant.
+Chased one anomaly (PFE reading +151% undervalued) and found the Fundamental
+PEG path was systematically rating LOW-quality companies as the cheapest. Root
+cause: a hardcoded 15% perpetuity ROIC handed to every company. Before the fix
+the biggest "upsides" in the portfolio were REGN +110%, ABBV +34%, ELV +29% —
+the three lowest-ROIC names that had a fair value at all.
 
-Tier 1 - Momentum & discipline
-- S9  market regime + crash guard: momentum.market_state / crash_guard;
-      refresh.fetch_daily fetches SPY -> s["market"]; momCell warning marker
-- S9  long-horizon reversal guard: momentum.reversal_flag (3-5y); 5y fetch
-- S11 indicator taxonomy: indicators.TAXONOMY (trend vs contrarian)
-- S6  net-of-cost/tax upside: config.CAPGAINS_TAX_RATE/TRADING_COST_BPS,
-      domain/costs.net_upside; per-row net_upside_pct + UI
-- S16/S35 benchmark + value discipline: refresh.weighted_trailing_return,
-      SPY 12M return, benchmark banner
+Fixing that exposed a chain of related defects, all the same shape: a constant
+applied universally, a guard that vanishes when its input is missing, or a clamp
+that only ever pushes one way. Each is tagged in the code (P-A, P-D, S1, R1,
+REVIEW-1, T2, ...) with the reasoning and the numbers that motivated it.
 
-Tier 2 - Risk, valuation, information trading
-- S2/S4   downside-risk lens: risk.semideviation/sortino/downside_beta/
-          portfolio_returns; SPY added to _build_risk; risk panel 5b
-- S32/S33 market-valuation overlay: pipeline/market_valuation.overlay,
-          config.MARKET_PE, live Rf; cheap/fair/expensive + cash tilt
-- S25     PEAD drift signal: domain/pead.signal over stored surprises; badge
-- S13/S19 GARP cheap x quality screen: pipeline/screen; GET /api/screen; badge
+Terminal phase now fades RETURNS, GROWTH and RISK together
+- D  terminal_roic() = max(WACC, min(ROIC, industry cap, WACC + half the spread));
+     the cost of capital is the floor, so a below-WACC business is not written
+     off forever and a moatless one is never gifted excess returns
+- J  new sources/damodaran.py fetches his "Return on Capital by Sector (US)"
+     table each refresh (30-day disk cache, bundled Jan-2026 snapshot fallback,
+     columns located by HEADER TEXT, never raises). Uses the normalized 10-year
+     column: the single-year one is an aggregate over every filer in the bucket
+     and "Drugs (Biotechnology)" is 496 firms, mostly pre-revenue burners
+- K  terminal_beta() = clamp(beta, 0.8, 1.2), applied in BOTH directions
+     (NVDA 2.21 -> 1.2, REGN 0.24 -> 0.8). Leaving beta un-faded was what gave a
+     62%-ROIC company a stable-phase P/E of 8.3
+- B2 two_stage_pe(ke_st=) / stable_exit_pe capitalize the perpetuity at the
+     stable-phase Ke while the high-growth years keep the current one
+- L  reverse_dcf(wacc_term=, roic_term=) — it still had the hardcoded 15% in the
+     reinvestment term and capitalized the perpetuity at the high-growth WACC.
+     Terminal value is 90-97% of PV there, so this dominated: HIMS implied CAGR
+     22.8% -> 11.0%. Both args default to the previous behaviour
+- H  g <= ROIC. max(0, 1 - g/ROIC) silently floored the shortfall, so MELI at
+     g=30%/ROIC=13.7% needed 219% of earnings reinvested, paid no dilution, and
+     still scaled terminal earnings by (1+g)^5
+- E  growth input = max(0, min(3y, 5y CAGR)). The old full-span CAGR measured
+     straight through structural breaks: PFE +8.5% from a 2020 pre-COVID base
+     while its 3y CAGR was -14.8%
+- M  PE clamps unified to [5, 35] for both paths (were [8,30] and [12,25]). The
+     old floor bound 11 of 21 holdings in the FVP path and gifted up to +103%
 
-Tier 3 - Multi-asset & meta
-- S3/S38-41 asset classes: config.ASSET_CLASS_MAP/DURATION_PROXY/
-            CLASS_PROXY_VOL; risk.effective_duration/rate_stress;
-            _build_risk reads asset_class + rate_risk + pricing-play flag
-- S1/S42    philosophy-fit: domain/philosophy + data/philosophy_profile.json;
-            portfolio_view "philosophy"; banner
+Data integrity — no guess is silent, no guard fails open
+- A  EBIT = pretax + interest when a filer tags no operating-income subtotal
+     (LLY, PFE), for the TTM scalar, annuals and quarters. Without it both read
+     as pre-profit despite $25.3B and $7.5B of net income
+- T  market_cap is now captured from FMP/Yahoo and shares are DERIVED as
+     market_cap / price. Both are quoted for the US-listed security, so the
+     depositary ratio is already inside them — no ADR-ratio table to maintain.
+     When a SEC count also exists the two are cross-checked; a mismatch reports
+     the implied ratio (TSM: 5.00x) instead of silently corrupting market cap,
+     the WACC weights and enterprise value at once
+- S1/R1 ONE forward-EPS gate shared by validate and normalize, with a
+     shares-free implied-P/E band. The revenue-capacity ceiling needs a share
+     count and simply disappeared without one — TSM's 323.34 (TWD per ordinary
+     share against a $398 USD ADR price, a 1.2x forward P/E) sailed through and
+     was driving fv_peg = $5,856
+- R3 that ceiling now grows with expected growth; comparing a FORWARD EPS to
+     CURRENT revenue per share was systematically tight and rejected NVDA's
+     real consensus
+- C  "Pre-profit" is only said when net income is actually negative
+- F  fundamental growth (reinvestment x ROIC) as a divergence FLAG, honest about
+     the fact that the capex-based formula reads 0% for asset-light R&D spenders
+- G  a broken FVP now discards only that method instead of nulling the anchor
+     and taking a sound PEG down with it (ABBV: a $23 FVP killed a $210 PEG)
+- S3 the degraded "WACC=Ke, no weights" path and a missing share count are
+     flagged instead of passing silently
 
-New files: domain/{costs,pead,philosophy}.py,
-  pipeline/{screen,market_valuation}.py, data/philosophy_profile.json,
-  tests/test_{costs,downside,pead,screen,market_valuation,assetclass,philosophy}.py
-Tests: 20 -> 28 suites; run `py run_tests.py` (expect ALL TEST SUITES PASSED OK)
-Post-deploy: run Fundamental Refresh then Daily to populate
-  market/valuation/benchmark/PEAD/momentum-regime (stale-facts).
+Post-review fixes (mattpocock-skills:code-review over the whole diff)
+- REVIEW-1 `growth_lt or 0.08` read a MEASURED zero as missing, so every
+     decliner silently got the 8% default and defeated E
+- REVIEW-2 terminal_roic() returned the raw industry number when the firm's own
+     ROIC was unknown — Tobacco 77.7% as a gift
+- REVIEW-3 the terminal ROIC floor used today's WACC while the perpetuity is
+     capitalized at the terminal one
+- REVIEW-4 the ke_st - g >= 3% bound does NOT cap the formula near 35; raw P/Es
+     of 40-56 are reachable. Corrected the comment; the cap stays and is flagged
+- REVIEW-5 analyze_row never passed roc_table, so adding one ticker used the
+     bundled snapshot while a batch refresh used the live table
+- REVIEW-6 fundamental_peg_price rejected g <= 0, so once REVIEW-1 let a real 0%
+     through, no-growth firms lost their PEG valuation entirely (PFE swung 94pp)
+- R4 _add_flag() replaces ~14 copies of the dedup idiom — and fixes an EQ-flag
+     loop that tested one string and appended another, so it never deduped
 
-Hardening (frontend/deploy/robustness)
-- frontend-presence test: tests/test_frontend.py asserts index.html carries the
-  new render fns + element ids, consumes every new payload key, and that
-  DASH_BUILD == config.BUILD (catches old/reverted UI + backend-frontend drift)
-- build stamp: config.BUILD + /healthz "build"; index.html DASH_BUILD + checkBuild()
-  warns on UI-vs-server mismatch (hard-refresh hint)
-- permanent guard in deep_v82 around _verdict: a verdict typo/bad field can no
-  longer crash a ticker (fixes the 'str' object has no attribute 'str' class)
-- market/benchmark banners now show a muted "waiting for data" placeholder
-  instead of hiding, so the feature is visible before Run Daily
-Tests: 20 -> 28 suites; BUILD 2026-06-28b.
+Effect: the anti-quality bias is gone. REGN +109 -> +29%, ELV +28 -> -33%,
+UNH +6 -> -25%, ABBV +33 -> -13%, MELI -28 -> -64%; NVDA -46 -> -20% and
+AVGO -74 -> -63% as the beta fade stops punishing quality. Recommendations move
+on MELI/ABBV/REGN/CELH (Accumulate -> HOLD) and PFE/ELV (HOLD -> SELL).
+TSM and NVO get a fair value for the first time once market cap is fetched.
 
-UI polish + risk-tab fix (build 2026-06-28b)
-- fix Allocation/Risk 500: api_risk now returns readable JSON {status:error,message}
-  instead of a bare 500 (frontend was crashing on JSON.parse of "Internal Server
-  Error"); the new downside + rate_risk blocks in _build_risk are wrapped defensively
-  so they degrade to None instead of failing the whole payload; loadRisk() tolerates
-  non-JSON/non-OK responses
-- GARP screen UI: new renderScreen()/loadScreen() renders /api/screen as a ranked
-  cheap x quality table under My Portfolio (was endpoint-only before)
-- per-row GARP score shown on every holding (teal "GARP n" for candidates, muted
-  "G n" otherwise) so the cheap x quality reading is visible for all names
+Tests: new tests/test_damodaran_roc.py (10 cases) covering the HTML parser
+against an Excel-export fixture, the bad-layout guard, cache/offline/corrupt
+paths, the industry mapping, two-rate P/E/reverse-DCF wiring, every REVIEW fix,
+the shared forward-EPS gate and the market-cap share derivation — including
+assertions that the new optional args reproduce the OLD behaviour by default.
+Registered in run_tests.py; full suite passes. Also fixed test_app_fixes and
+test_parallel_fetch, which shared a stale analyze() signature and were firing a
+live HTTP request at stern.nyu.edu during unit runs.
+
+NOTE: requires a fundamentals refresh — market_cap and the derived share counts
+are new fields, and stored facts predate them.

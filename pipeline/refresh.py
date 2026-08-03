@@ -17,7 +17,7 @@ import datetime as dt
 from concurrent.futures import ThreadPoolExecutor
 
 import config
-from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage
+from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage, damodaran
 from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache, market_valuation
 from pipeline import prices
 from domain import indicators, momentum, costs, pead, philosophy, advice
@@ -89,9 +89,11 @@ def _load_cik_map():
         return {}
 
 
-def analyze(ticker, rf, fmp_key="", rf_live=True):
+def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
     """Fetch -> normalize -> validate -> engine. Returns (facts, valuation, fmp_calls).
-    NETWORK ONLY — never touches the store, safe to run outside store.LOCK."""
+    NETWORK ONLY — never touches the store, safe to run outside store.LOCK.
+    `roc_table` is Damodaran's industry ROIC table, fetched once per refresh by
+    fetch_fundamentals so 20 threads don't each hit his server."""
     t = ticker.upper().strip()
     cik, name = resolve_cik(t)
     fmp_calls = 0
@@ -259,6 +261,15 @@ def analyze(ticker, rf, fmp_key="", rf_live=True):
         except Exception as e:
             log.warning("%s own-PE percentile failed: %s", t, e)
 
+    # P-J: perpetuity ROIC ceiling from Damodaran's industry table (S5/S19 —
+    # excess returns fade toward what the INDUSTRY sustains, not a flat 15%).
+    try:
+        sec_roic = damodaran.terminal_roic_for(t, ff.sector, roc_table)
+        if sec_roic:
+            ff.set("terminal_roic_sector", round(sec_roic, 4), "damodaran-roc")
+    except Exception as e:
+        log.warning("%s terminal ROIC lookup failed: %s", t, e)
+
     validate.validate(ff, rf=rf)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
@@ -331,12 +342,16 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     Returns (fetched {ticker: (FinancialFacts, Valuation)}, errors, fmp_calls,
     rf_pct, rf_live)."""
     rf, rf_live = yahoo.fetch_treasury_10y()
+    # P-J: one fetch per refresh, shared by every ticker. Disk-cached for 30 days
+    # (his dataset is annual) and falls back to a bundled snapshot — never fatal.
+    roc_table = damodaran.fetch_roc_table(cache_dir=config.CACHE_DIR,
+                                          user_agent=config.SEC_USER_AGENT)
     fetched, calls = {}, 0
     cost = 5 if fmp_key else 0          # H2: profile + quote-fallback + earnings + estimates + quarterly-est backfill per ticker (0 without a key)
     todo, errors = _partition_by_quota(tickers, cost, quota_used, quota_cap)
     if todo:
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(todo))) as ex:
-            futs = {t: ex.submit(analyze, t, rf, fmp_key, rf_live) for t in todo}
+            futs = {t: ex.submit(analyze, t, rf, fmp_key, rf_live, roc_table) for t in todo}
         for t in todo:                   # collect in submission order (stable errors)
             try:
                 ff, val, c = futs[t].result()
@@ -412,7 +427,11 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     """Full analysis for ONE ticker incl. momentum, returned as a display row.
     Ephemeral — nothing is stored. NETWORK ONLY. Returns (row, fmp_calls)."""
     t = ticker.upper().strip()
-    ff, val, calls = analyze(t, rf, fmp_key, rf_live=rf_live)
+    # REVIEW-5: pass the shared ROC table here too, or a single-ticker add would use
+    # the bundled snapshot while the same ticker in a batch refresh uses the live table.
+    ff, val, calls = analyze(t, rf, fmp_key, rf_live=rf_live,
+                             roc_table=damodaran.fetch_roc_table(cache_dir=config.CACHE_DIR,
+                                                                 user_agent=config.SEC_USER_AGENT))
     mom = {}
     mom_v2 = {}
     try:
@@ -443,6 +462,8 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "ticker": t, "company": ff.company, "sector": ff.sector,
         "rev_implied_cagr": rd.get("implied_cagr_pct"), "rev_actual_1y": rd.get("actual_1y_pct"),
         "rev_verdict": rd.get("verdict"),
+        # P-C: lets the advice line say "pre-profit" only when it really is one
+        "profitable": bool(ff.net_income and ff.net_income > 0),
         "price": price, "change": mom.get("change"),
         "composite": val.composite, "stars": val.stars, "recommendation": val.recommendation,
         "momentum_signal": mom.get("momentum_signal"), "rsi": mom.get("rsi"),
@@ -760,6 +781,8 @@ def portfolio_view(s):
             "action": act, "verdict": val.get("verdict"),
             "rev_implied_cagr": rd.get("implied_cagr_pct"), "rev_actual_1y": rd.get("actual_1y_pct"),
             "rev_verdict": rd.get("verdict"),
+            # P-C: lets the advice line say "pre-profit" only when it really is one
+            "profitable": bool((ff.get("net_income") or 0) > 0),
             "confidence": ff.get("confidence"), "confidence_tier": ff.get("confidence_tier"),
             "currency": ff.get("currency"), "updated": s["updated"].get(t),
             "flags": ff.get("flags", []),

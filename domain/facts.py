@@ -61,6 +61,12 @@ class FinancialFacts:
     fwd_growth_far: Optional[float] = None       # final-FY consensus revenue growth (fade)
     n_analysts: Optional[int] = None             # consensus breadth (reliability gate)
     peer_median_growth: Optional[float] = None   # median revenue growth of the sector cohort
+    terminal_roic_sector: Optional[float] = None  # Damodaran industry ROIC — perpetuity ceiling
+    # Market cap as reported for the US-LISTED security. Quoted in the same unit as
+    # `price`, so for an ADR it already embeds the depositary ratio — which is why it
+    # beats price x SEC-share-count for foreign filers (TSM files 25.9B ORDINARY
+    # shares against a price per ADR worth 5 of them). See pipeline/normalize.py.
+    market_cap: Optional[float] = None
     peers: list = field(default_factory=list)    # FMP stock-peers (when fetched)
     # --- 🟢 round 3: own 5y P/E percentile (re-rating, Price adj) -------------
     own_pe_pctile: Optional[float] = None        # 0=cheapest / 1=richest vs own 5y P/E range

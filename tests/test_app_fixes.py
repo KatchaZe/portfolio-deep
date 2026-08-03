@@ -46,11 +46,13 @@ def test_quota_guard_keyless(monkeypatched=None):
     orig_rf, orig_an = yahoo.fetch_treasury_10y, refresh.analyze
     refresh.yahoo.fetch_treasury_10y = lambda **k: (0.045, True)
 
-    def fake_analyze(t, rf, fmp_key="", rf_live=True):
+    def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None):
         ff = FinancialFacts(t)
         v = Valuation(version="7.3")
         return ff, v, (1 if fmp_key else 0)
     refresh.analyze = fake_analyze
+    # no unit test may reach the network — the Damodaran ROC fetch is per-refresh
+    refresh.damodaran.fetch_roc_table = lambda **k: {}
     try:
         # no key, quota already at cap -> must NOT skip (zero FMP calls happen)
         fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(

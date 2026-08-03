@@ -169,6 +169,11 @@ REV = ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
        "RevenueFromContractWithCustomerIncludingAssessedTax", "Revenue", "SalesRevenueNet"]
 OP = ["OperatingIncomeLoss", "OperatingIncome", "OperatingProfitLoss", "ProfitLossFromOperatingActivities"]
 NI = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"]
+# EBIT fallback inputs — used ONLY when no OP concept above exists (see extract()).
+PRETAX = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+          "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
+          "ProfitLossBeforeTax"]
+INT_EXP = ["InterestExpense", "InterestAndDebtExpense", "InterestExpenseDebt", "InterestExpenseNonoperating"]
 
 
 def extract(companyfacts):
@@ -195,6 +200,33 @@ def extract(companyfacts):
     net_income, _ = pick(NI)
     operating_income, _op_concept = pick(OP)
     ref_end = _latest_end(facts, rev_concept)
+
+    # --- EBIT fallback (P-A) ------------------------------------------------
+    # Some filers never tag an operating-income subtotal (LLY, PFE: the income
+    # statement runs revenue -> costs -> "income before income taxes"). Without it
+    # NOPAT/FCFF are None and the engine mistakes a very profitable company for a
+    # pre-profit one. Damodaran S5: EBIT = pretax income + interest expense (add
+    # back the financing charge). Approximate — pretax also carries non-operating
+    # items — so it is flagged via provenance and only used when OP is absent.
+    op_derived = operating_income is None
+    _op_ann, _op_qtr = [], {}
+    if op_derived:
+        def _has(tag):
+            return tag if latest_end(tag) else None
+
+        _pre_c = next((t for t in PRETAX if _has(t)), None)
+        _int_c = next((t for t in INT_EXP if _has(t)), None)
+        if _pre_c:
+            _p_ttm = ttm(_pre_c)
+            if _p_ttm is not None:
+                operating_income = _p_ttm + (ttm(_int_c) or 0 if _int_c else 0)
+            _pa = dict(annual_series_dated(_pre_c))
+            _ia = dict(annual_series_dated(_int_c)) if _int_c else {}
+            _op_ann = [_pa[d] + _ia.get(d, 0) for d in sorted(_pa, reverse=True)]
+            _pq = quarters(_pre_c)
+            _iq = quarters(_int_c) if _int_c else {}
+            _op_qtr = {d: v + _iq.get(d, 0) for d, v in _pq.items()}
+        op_derived = operating_income is not None
 
     def fresh(*tags, prefer=("USD", "usd")):
         """Latest value among `tags` whose period end is recent (<540d before the
@@ -236,7 +268,7 @@ def extract(companyfacts):
         "revenue": rev,
         "revenue_annuals": annual_series(rev_concept) if rev_concept else [],
         "revenue_quarters": quarters(rev_concept) if rev_concept else {},
-        "operating_income_quarters": quarters(_op_concept) if _op_concept else {},
+        "operating_income_quarters": quarters(_op_concept) if _op_concept else _op_qtr,
         # quarterly diluted EPS actuals (USD/shares) — the free ACTUAL we grade
         # analyst estimates against in surprise_backfill (US GAAP + IFRS filers).
         "eps_quarters": (quarters("EarningsPerShareDiluted", prefer=("USD/shares",))
@@ -266,7 +298,8 @@ def extract(companyfacts):
                        or ttm("ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
         "rnd_annuals": annual_series("ResearchAndDevelopmentExpense")
                        or annual_series("ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
-        "operating_income_annuals": annual_series(_op_concept) if _op_concept else [],
+        "operating_income_annuals": annual_series(_op_concept) if _op_concept else _op_ann,
+        "operating_income_derived": op_derived,
         "equity_prior": prior_instant(*EQUITY_TAGS),
         "total_debt_prior": total_debt_prior,
         "cash_prior": prior_instant(*CASH_TAGS),
@@ -330,6 +363,12 @@ def populate(ff, companyfacts):
               # round 3 addition
               "eps_annuals_dated"):
         ff.set(k, d.get(k), "sec")
+    if d.get("operating_income_derived"):
+        # P-A: filer tags no operating-income subtotal — EBIT approximated as
+        # pretax income + interest expense. Mark it so the engine can flag it.
+        for k in ("operating_income", "operating_income_annuals", "operating_income_quarters"):
+            if d.get(k) is not None:
+                ff.provenance[k] = "sec-derived (EBIT = pretax + interest)"
     if d.get("latest_period_end"):
         ff.set("fiscal_year", d["latest_period_end"], "sec")
     return ff, d

@@ -33,7 +33,7 @@ def test_parallel_fundamentals():
         def set(self, *a, **k):
             pass
 
-    def fake_analyze(t, rf, fmp_key="", rf_live=True):
+    def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None):
         with lock:
             seen.append(t)
         if t == "BAD":
@@ -42,6 +42,7 @@ def test_parallel_fundamentals():
 
     refresh.analyze = fake_analyze
     refresh.yahoo.fetch_treasury_10y = lambda **k: (0.043, True)
+    refresh.damodaran.fetch_roc_table = lambda **k: {}   # no network in unit tests
     try:
         fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(
             ["AAA", "BAD", "CCC"], fmp_key="k", quota_used=0, quota_cap=250)

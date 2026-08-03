@@ -16,7 +16,7 @@ def _raw(node):
 def parse_consensus(qs_json):
     """From a Yahoo quoteSummary response -> dict of consensus/market fields."""
     out = {"forward_eps": None, "beta": None, "price": None, "shares": None,
-           "growth_lt": None, "revenue_growth": None}
+           "growth_lt": None, "revenue_growth": None, "market_cap": None}
     try:
         res = qs_json["quoteSummary"]["result"][0]
     except Exception:
@@ -28,6 +28,8 @@ def parse_consensus(qs_json):
     out["beta"] = _raw(dks.get("beta"))
     out["shares"] = _raw(dks.get("sharesOutstanding")) or _raw(price.get("sharesOutstanding"))
     out["price"] = _raw(price.get("regularMarketPrice")) or _raw(fin.get("currentPrice"))
+    # T1: quoted for the US-listed security, so already ADR-ratio consistent
+    out["market_cap"] = _raw(price.get("marketCap"))
     out["revenue_growth"] = _raw(fin.get("revenueGrowth"))
     for tr in res.get("earningsTrend", {}).get("trend", []):
         if tr.get("period") == "+5y":

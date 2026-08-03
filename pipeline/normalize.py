@@ -85,29 +85,104 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
             ff.set("beta", y.get("beta"), "yahoo")
         if ff.price is None:
             ff.set("price", y.get("price"), "yahoo")
-        if ff.shares_diluted is None:                 # e.g. NVO (SEC shares missing)
-            ff.set("shares_diluted", y.get("shares"), "yahoo")
+        if ff.market_cap is None:
+            ff.set("market_cap", y.get("market_cap"), "yahoo")
         # long-term growth: Yahoo estimate, else SEC annual revenue CAGR
         g = y.get("growth_lt")
         if g is None:
             g = _annual_cagr(ff.revenue_annuals)
-        ff.set("growth_lt", g, "yahoo" if y.get("growth_lt") is not None else "sec-cagr")
+        ff.set("growth_lt", g, "yahoo" if y.get("growth_lt") is not None else "sec-cagr(min 3y/5y)")
 
     if ff.growth_lt is None:
-        ff.set("growth_lt", _annual_cagr(ff.revenue_annuals), "sec-cagr")
+        ff.set("growth_lt", _annual_cagr(ff.revenue_annuals), "sec-cagr(min 3y/5y)")
 
+    _resolve_shares(ff)
     _score(ff)
     return ff
 
 
-def _annual_cagr(annuals):
-    if not annuals or len(annuals) < 2 or not annuals[-1] or annuals[-1] <= 0:
+# T3: how far price x shares may sit from the reported market cap before we call it
+# a unit mismatch. Genuine causes of a small gap (different share-count vintage,
+# buybacks between the filing and the quote) are a few percent; an ADR ratio or an
+# unadjusted split is a whole multiple.
+MCAP_TOLERANCE = 0.20
+
+
+def _resolve_shares(ff):
+    """Share count in the SAME unit as `price` (T2/T3).
+
+    The SEC always reports ORDINARY shares. For a US filer that is also what the
+    price refers to, so price x shares == market cap and nothing else is needed.
+    For a depositary listing it is not: TSM files 25.9B ordinary shares while the
+    quote is per ADR worth five of them, and multiplying the two overstates market
+    cap 5x — which would then corrupt the WACC weights and enterprise value.
+
+    Rather than maintain a hand-written ADR-ratio table (a constant that fails
+    silently when wrong — the exact failure mode this codebase keeps hitting), the
+    count is DERIVED from two numbers that are already in the same unit:
+
+        shares = market_cap / price
+
+    Market cap is quoted for the US-listed security, so the depositary ratio is
+    already inside it. Verified against saved fixtures: this reproduces the
+    reported share count to 0.000% for ordinary US listings."""
+    mcap, price = ff.market_cap, ff.price
+    derived = (mcap / price) if (mcap and price and price > 0) else None
+
+    if ff.shares_diluted is None:
+        if derived:
+            ff.set("shares_diluted", round(derived), "derived (market cap / price)")
+        return
+
+    if not derived:
+        return
+    # both available: they must agree, or one of them is in the wrong unit
+    gap = abs(ff.shares_diluted / derived - 1)
+    if gap > MCAP_TOLERANCE:
+        ratio = ff.shares_diluted / derived
+        ff.flags.append(
+            f"share-unit mismatch: SEC {ff.shares_diluted/1e9:.2f}B shares x price "
+            f"{price} = {ff.shares_diluted*price/1e9:.0f}B vs reported market cap "
+            f"{mcap/1e9:.0f}B (implied ratio {ratio:.2f}x - ADR or unadjusted split); "
+            f"using the market-cap-derived count")
+        ff.set("shares_diluted", round(derived), "derived (market cap / price, SEC count rejected)")
+
+
+def _cagr_over(annuals, yrs):
+    """Revenue CAGR over exactly `yrs` years, or None if the history is too short."""
+    if not annuals or len(annuals) <= yrs or not annuals[yrs] or annuals[yrs] <= 0:
         return None
-    yrs = len(annuals) - 1
     try:
-        return (annuals[0] / annuals[-1]) ** (1 / yrs) - 1
+        return (annuals[0] / annuals[yrs]) ** (1 / yrs) - 1
     except Exception:
         return None
+
+
+def _annual_cagr(annuals):
+    """Long-term growth input (P-E). Was: CAGR over the WHOLE available history,
+    whose length varies per ticker and which happily measures straight through a
+    structural break — PFE came out at +8.5% (2020 pre-COVID base -> 2025) while
+    its 3y CAGR was -14.8% and revenue was shrinking; TSLA 34.6% vs 3y +5.2%.
+    The long window also DILUTES genuine accelerations (LLY 7.2% vs 3y +31.7%).
+
+    Now: the more conservative of the 3y and 5y CAGR, floored at 0. Damodaran's
+    own research shows past growth predicts future growth weakly, and growth is
+    where optimism concentrates — so when two readings disagree, take the lower.
+    (The theoretically right input is fundamental growth = reinvestment x ROIC;
+    it is computed in the engine as a divergence CHECK only, because capex is
+    missing for several filers and the capex-based formula badly understates
+    asset-light R&D spenders. See deep_v82.fundamental_growth.)"""
+    g3, g5 = _cagr_over(annuals, 3), _cagr_over(annuals, 5)
+    cands = [g for g in (g3, g5) if g is not None]
+    if not cands:
+        # too little history for either window — fall back to the full span
+        if not annuals or len(annuals) < 2 or not annuals[-1] or annuals[-1] <= 0:
+            return None
+        try:
+            return max(0.0, (annuals[0] / annuals[-1]) ** (1 / (len(annuals) - 1)) - 1)
+        except Exception:
+            return None
+    return max(0.0, min(cands))
 
 
 def _score(ff):
@@ -122,11 +197,14 @@ def _score(ff):
         ff.flags.append("missing forward_eps")
     if any(f.startswith("converted") for f in ff.flags):
         score -= 15            # FX uncertainty
-    # forward EPS plausibility vs revenue capacity (catches unsplit/bad consensus)
-    if ff.forward_eps and ff.revenue and ff.shares_diluted:
-        ceiling = ff.revenue / ff.shares_diluted * 0.65
-        if ff.forward_eps > ceiling:
-            score -= 15
-            ff.flags.append(f"forward_eps {round(ff.forward_eps,2)} > rev ceiling {round(ceiling,2)} (likely unsplit/bad)")
+    # forward EPS plausibility (R1: the SAME gate validate uses to substitute the
+    # value — a second hand-rolled copy here had its own hardcoded 0.65 and no
+    # currency/P-E check, so a rejected consensus could still score as trustworthy)
+    from pipeline.validate import forward_eps_rejection      # local: avoids an import cycle
+    _why = forward_eps_rejection(ff.forward_eps, ff.revenue, ff.shares_diluted,
+                                 ff.price, ff.growth_lt)
+    if _why:
+        score -= 15
+        ff.flags.append(f"forward_eps {round(ff.forward_eps, 2)} implausible: {_why}")
     ff.confidence = max(0, min(100, score))
     return ff

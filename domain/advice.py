@@ -62,7 +62,10 @@ def _build(row):
         cmp_txt = f" เทียบที่ทำได้จริงล่าสุด {actual:+.0f}%/ปี" if actual is not None else ""
         ease = {"Plausible": "อยู่ในวิสัยที่ทำได้", "Ambitious": "ท้าทาย",
                 "Aggressive": "ตึงมาก", "Exceptional": "แทบเป็นไปไม่ได้"}.get(rev_verdict, "ประเมินยาก")
-        parts.append(f"มูลค่า (pre-profit): ตลาด price-in การเติบโต ~{implied:.0f}%/ปี 10 ปี{cmp_txt} — {ease}")
+        # P-C: "pre-profit" only when the company really has no profit; a profitable
+        # company lands here when FV inputs are missing, not because it loses money.
+        tagv = "ตีมูลค่าเป็นตัวเลขไม่ได้" if row.get("profitable") else "pre-profit"
+        parts.append(f"มูลค่า ({tagv}): ตลาด price-in การเติบโต ~{implied:.0f}%/ปี 10 ปี{cmp_txt} — {ease}")
 
     # ---- 2) QUALITY --------------------------------------------------------
     q = []

@@ -52,8 +52,16 @@ def test_assumption_flags():
     ok.income_before_tax = 1000.0
     ok.tax_expense = 210.0                          # 21% in-band, but it's SOURCED
     ok.growth_lt = 0.12
+    ok.shares_diluted = 1e9                         # S3: absent shares is itself an assumption flag
     _assumption_flags(ok)
     assert ok.flags == [], ok.flags
+    # ...and its absence must be reported, since it disables the forward-EPS
+    # ceiling and collapses WACC to an unweighted Ke
+    noshares = FinancialFacts("V")
+    noshares.beta, noshares.income_before_tax = 1.1, 1000.0
+    noshares.tax_expense, noshares.growth_lt = 210.0, 0.12
+    _assumption_flags(noshares)
+    assert any("shares outstanding missing" in f for f in noshares.flags), noshares.flags
     print("assumption flags OK")
 
 
