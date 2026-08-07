@@ -183,23 +183,55 @@ def extract(companyfacts):
      instant_series, annual_series_dated) = _accessors(facts)
 
     def pick(concepts):
-        """Choose the concept with the FRESHEST data (most recent end date), then
-        larger |TTM|. Fixes filers that switch tags over time, e.g. AVGO moving
-        net income from NetIncomeLoss (ends FY2024) to ProfitLoss (current)."""
-        best = None  # (latest_end, abs_ttm), value, concept
-        for c in concepts:
-            le = latest_end(c)
-            v = ttm(c)
+        """Choose the concept with the FRESHEST data, then by LIST ORDER.
+
+        Freshness fixes filers that switch tags over time (AVGO moved net income from
+        NetIncomeLoss, ending FY2024, to ProfitLoss) — that part is unchanged and is
+        what the original fix was for.
+
+        REV-27: the tie-break used to be the larger |TTM|, which is a magnitude
+        preference dressed up as a rule. When a filer tags BOTH `Revenues` and
+        `RevenueFromContractWithCustomerExcludingAssessedTax` for the same period —
+        common, because the first is the legacy total and the second the ASC 606 core
+        — "bigger wins" silently picks the broader number, which can carry other
+        income. Overstated revenue then deflates every margin and, in the reverse DCF,
+        enlarges the base the market's growth is measured against, so the implied CAGR
+        comes out too low and the verdict too kind.
+
+        The concept lists in this module are already written in preference order
+        (most specific first). Honouring that order is the rule the lists imply, and
+        it does not depend on which number happens to be larger this year. A material
+        disagreement between the chosen concept and a same-date sibling is reported so
+        it can never be silent.
+        """
+        best = None                      # ((end, -list_index), value, concept)
+        for i, c in enumerate(concepts):
+            le, v = latest_end(c), ttm(c)
             if le and v is not None:
-                key = (le, abs(v))
+                key = (le, -i)                     # freshest first, then list order
                 if best is None or key > best[0]:
                     best = (key, v, c)
-        return (best[1], best[2]) if best else (None, None)
+        if best is None:
+            return None, None, []
+        _, val, concept = best
+        end = latest_end(concept)
+        alts = [(c, ttm(c)) for c in concepts
+                if c != concept and latest_end(c) == end and ttm(c) is not None
+                and val and abs(ttm(c) - val) / abs(val) > 0.05]
+        return val, concept, alts
 
-    rev, rev_concept = pick(REV)
-    net_income, _ = pick(NI)
-    operating_income, _op_concept = pick(OP)
+    rev, rev_concept, rev_alts = pick(REV)
+    net_income, ni_concept, ni_alts = pick(NI)
+    operating_income, _op_concept, _ = pick(OP)
     ref_end = _latest_end(facts, rev_concept)
+    # REV-27: two concepts covering the SAME period that disagree by >5% is a real
+    # ambiguity about what the filer means, not a detail. The old magnitude tie-break
+    # resolved it invisibly; list order resolves it predictably and says so.
+    concept_conflicts = [f"{fld}: used {used} ({base/1e9:.2f}B) but {alt} covers the same "
+                         f"period at {av/1e9:.2f}B"
+                         for fld, used, base, alts in (("revenue", rev_concept, rev, rev_alts),
+                                                       ("net income", ni_concept, net_income, ni_alts))
+                         if alts and base for alt, av in alts]
 
     # --- EBIT fallback (P-A) ------------------------------------------------
     # Some filers never tag an operating-income subtotal (LLY, PFE: the income
@@ -247,6 +279,14 @@ def extract(companyfacts):
     # --- v8.2 additions (all from the same companyfacts JSON) -----------------
     EQUITY_TAGS = ("StockholdersEquity", "Equity",
                    "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
+    # REV-18/REV-19: working-capital + receivables tag ladders (shared by the
+    # current-year `fresh` lookup and the prior-year `prior_instant` one, so the two
+    # can never drift onto different concepts and produce a bogus delta).
+    AR_TAGS = ("AccountsReceivableNetCurrent", "ReceivablesNetCurrent",
+               "AccountsAndOtherReceivablesNetCurrent")
+    INV_TAGS = ("InventoryNet", "InventoryGross", "Inventories")
+    AP_TAGS = ("AccountsPayableCurrent", "AccountsPayableTradeCurrent",
+               "AccountsPayableAndAccruedLiabilitiesCurrent")
     CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents")
     DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiability",
                    "DeferredRevenueCurrent", "DeferredRevenue")
@@ -278,6 +318,15 @@ def extract(companyfacts):
         "eps_gaap": ttm("EarningsPerShareDiluted", prefer=("USD/shares",)),
         "shares_diluted": _val(latest("WeightedAverageNumberOfDilutedSharesOutstanding", prefer=("shares",))
                                or latest("CommonStockSharesOutstanding", prefer=("shares",))),
+        # P2-1: the ACTUAL diluted share count, year by year. The SBC-dilution proxy
+        # (SBC$ / market cap) measures GROSS grants; what divides earnings is the
+        # count NET of buybacks. On the committed fixtures the two disagree in SIGN
+        # for MSFT (proxy +0.39%/yr, actual -0.05%/yr) and ABBV (+0.28% vs 0.00%),
+        # because both grant heavily and buy back more. This series is in the same
+        # companyfacts JSON already being downloaded — 10-18 annual points per US
+        # filer — so the proxy was never necessary for them.
+        "shares_diluted_annuals": annual_series(
+            "WeightedAverageNumberOfDilutedSharesOutstanding", prefer=("shares",)),
         "total_debt": total_debt,
         "cash": fresh(*CASH_TAGS),
         "equity": fresh(*EQUITY_TAGS),
@@ -290,9 +339,31 @@ def extract(companyfacts):
         # --- v8.2 additions ---
         "cfo": ttm("NetCashProvidedByUsedInOperatingActivities")
                or ttm("NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+        # REV-1: stock-based compensation. Was declared on FinancialFacts and consumed
+        # by earnings_quality + the SBC-dilution rule, but NOTHING ever populated it on
+        # the live path (only fmp.parse(), which the pipeline does not call) — so
+        # f.sbc was permanently None: the "SBC >10% of revenue" branch could never
+        # fire and forward EPS was never diluted. Both concepts below are the standard
+        # cash-flow-statement add-back.
+        "sbc": ttm("ShareBasedCompensation")
+               or ttm("AllocatedShareBasedCompensationExpense")
+               or ttm("ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost"),
         "total_assets": fresh("Assets"),
-        "receivables": fresh("AccountsReceivableNetCurrent", "ReceivablesNetCurrent",
-                             "AccountsAndOtherReceivablesNetCurrent"),
+        "receivables": fresh(*AR_TAGS),
+        # REV-19: the prior-year AR, so the channel-stuffing check the `receivables`
+        # comment has always promised can finally be computed (AR growing much
+        # faster than revenue = revenue that has not turned into cash).
+        "receivables_prior": prior_instant(*AR_TAGS),
+        # REV-18: working-capital components. Damodaran's reinvestment is
+        # capex + acquisitions + dWC - D&A; the dWC leg was missing entirely.
+        # Derived from the BALANCE SHEET rather than the cash-flow tag
+        # `IncreaseDecreaseInOperatingCapital`, whose sign convention varies by filer
+        # — a silent sign flip here would be exactly the class of bug this codebase
+        # keeps paying for. (AR + inventory - AP) has one unambiguous reading.
+        "inventory": fresh(*INV_TAGS),
+        "inventory_prior": prior_instant(*INV_TAGS),
+        "accounts_payable": fresh(*AP_TAGS),
+        "accounts_payable_prior": prior_instant(*AP_TAGS),
         "interest_expense": ttm("InterestExpense") or ttm("InterestAndDebtExpense") or ttm("InterestExpenseDebt"),
         "rnd_expense": ttm("ResearchAndDevelopmentExpense")
                        or ttm("ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
@@ -314,7 +385,15 @@ def extract(companyfacts):
         "operating_leases": fresh("OperatingLeaseLiability")
                             or _sum(fresh("OperatingLeaseLiabilityNoncurrent"),
                                     fresh("OperatingLeaseLiabilityCurrent")),
+        # REV-4: the PRIOR-year lease liability. Invested capital now capitalizes
+        # leases, but the prior-year IC used for the ROIC-spread TREND did not — so a
+        # lease-heavy filer was compared against its own lease-free past and read as
+        # deteriorating every single year. Same instant series, one year back.
+        "operating_leases_prior": prior_instant("OperatingLeaseLiability")
+                                  or _sum(prior_instant("OperatingLeaseLiabilityNoncurrent"),
+                                          prior_instant("OperatingLeaseLiabilityCurrent")),
         "eps_annuals_dated": annual_series_dated("EarningsPerShareDiluted", prefer=("USD/shares",)),
+        "concept_conflicts": concept_conflicts,      # REV-27
     }
 
 
@@ -358,8 +437,15 @@ def populate(ff, companyfacts):
               "equity_prior", "total_debt_prior", "cash_prior",
               # round 2 additions
               "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
-              # P1-5: lease capitalization
-              "operating_leases",
+              # P1-5: lease capitalization (+ REV-4 prior-year, for a like-for-like IC)
+              "operating_leases", "operating_leases_prior",
+              # REV-1: SBC — earnings-quality flag AND forward-EPS dilution
+              "sbc",
+              # P2-1: real share-count history (NOT a currency field — never FX-converted)
+              "shares_diluted_annuals",
+              # REV-18/19: working-capital reinvestment + the AR-vs-revenue check
+              "receivables_prior", "inventory", "inventory_prior",
+              "accounts_payable", "accounts_payable_prior",
               # round 3 addition
               "eps_annuals_dated"):
         ff.set(k, d.get(k), "sec")
@@ -369,6 +455,8 @@ def populate(ff, companyfacts):
         for k in ("operating_income", "operating_income_annuals", "operating_income_quarters"):
             if d.get(k) is not None:
                 ff.provenance[k] = "sec-derived (EBIT = pretax + interest)"
+    for _c in (d.get("concept_conflicts") or []):    # REV-27: ambiguous XBRL tagging
+        ff.flags.append("SEC tag conflict - " + _c)
     if d.get("latest_period_end"):
         ff.set("fiscal_year", d["latest_period_end"], "sec")
     return ff, d

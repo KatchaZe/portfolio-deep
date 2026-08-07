@@ -38,6 +38,9 @@ class Valuation:
 
     reverse_dcf: dict = field(default_factory=dict)
     key_metrics: dict = field(default_factory=dict)   # wacc_pct, roic_pct, spread_pct, growth_pct, beta
+    # REV-16 (S20): pre-profit forward intrinsic value — going-concern value, the
+    # failure-risk adjustment, and the Monte Carlo band. Empty for profitable names.
+    young_dcf: dict = field(default_factory=dict)
 
     # --- v8.x additions (optional; older engines leave them at defaults) ------
     cost_of_equity: Optional[float] = None             # Ke decimal (FCFE discount rate)

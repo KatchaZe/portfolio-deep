@@ -1534,7 +1534,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-07-31b";
+const DASH_BUILD="2026-08-04a";
 // --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
 async function loadAssumptions(){
   const el=document.getElementById('assumeMsg'); if(!el)return;
@@ -1702,7 +1702,7 @@ function rankCell(x){
 function pct(x){if(x===null||x===undefined)return '<span class="muted">&mdash;</span>';const s=x>=0?'up':'down';return `<span class="${s}">${x>=0?'+':''}${Number(x).toFixed(1)}%</span>`}
 function dot(tier){return `<span class="dot ${tier==='green'?'g':tier==='yellow'?'y':'r'}"></span>`}
 function esc(s){return (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));}
-function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Future Value Projection','FVP').replace('Justified PEG','PEG')}
+function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Young-Company DCF (failure-adjusted)','YoungDCF').replace('Future Value Projection','FVP').replace('Justified PEG','PEG')}
 function flagIcon(x){const fl=x.flags||[];if(!fl.length)return '';return ` <span title="${esc(fl.join('\n'))}" style="cursor:help;color:#d97706;font-size:calc(11px*var(--fs));font-weight:700">⚑${fl.length}</span>`}
 function consensusBadge(x){
   // forward-EPS blend: show source count + min–max range (Phase 2 multi-source consensus)
@@ -1732,6 +1732,14 @@ function upsideCell(x){
   if(x.upside_pct!=null){
     const net=(x.net_upside_pct!=null)?`<div class="muted" style="font-size:calc(9px*var(--fs))" title="after ~trading cost + capital-gains tax (Damodaran S6)">net ${(x.net_upside_pct>=0?'+':'')+x.net_upside_pct}%</div>`:'';
     return pct(x.upside_pct)+net;
+  }
+  // REV-16 (S20): a pre-profit name whose forward DCF did NOT earn the right to
+  // anchor still says WHY — "no upside" and "we cannot value this" are different
+  // answers and the card used to show the same dash for both.
+  const yb=(x.young_dcf&&!x.young_dcf.promote)?x.young_dcf.blocked_reason:null;
+  if(yb&&x.upside_pct==null){
+    return `<span title="${esc('Young-Company DCF (S20) ran but is informational only: '+yb)}" style="font-size:calc(10px*var(--fs));color:#b45309;cursor:help">ตีมูลค่าไม่ได้ &#9432;</span>`
+      +`<div class="muted" style="font-size:calc(9px*var(--fs))">${x.rev_verdict?esc((x.rev_verdict||'').split('—')[0].trim()):''}</div>`;
   }
   if(x.rev_verdict){
     // pre-profit: show ACTUAL revenue CAGR next to the market-implied one so the
@@ -1979,6 +1987,79 @@ function pricingBadge(ac){
   if(ac==='bond')return `<span style="display:inline-block;font-size:calc(9px*var(--fs));font-weight:700;background:#e0f2fe;color:#075985;border-radius:4px;padding:1px 6px" title="Damodaran S3: ตราสารหนี้ — ความเสี่ยงหลักคืออัตราดอกเบี้ย (duration) ไม่ใช้ FV แบบหุ้น">BOND &middot; rate risk (S3)</span>`;
   return `<span style="display:inline-block;font-size:calc(9px*var(--fs));font-weight:700;background:#f3e8ff;color:#6b21a8;border-radius:4px;padding:1px 6px" title="Damodaran S40-41: ไม่มีกระแสเงินสด → ตีมูลค่า (valuation) ไม่ได้ ได้แต่ตีราคา (pricing) — จำกัดน้ำหนัก อย่าปนกับส่วน value">PRICING ASSET (S40-41)</span>`;
 }
+// ---- REV-16 / Damodaran S20: pre-profit forward valuation panel ----
+// หุ้น pre-profit เคยมีแค่ reverse DCF ซึ่งเป็น "ราคาที่ตลาดคิด" (pricing) ไม่ใช่ "มูลค่า"
+// panel นี้แสดง valuation จริง: going-concern → หัก failure risk → band จาก Monte Carlo
+// โดย failure risk เป็น "ความน่าจะเป็น" แยกออกมา ไม่ใช่การบวกเข้า discount rate (S20)
+function youngPanel(x){
+  const y=x.young_dcf; if(!y)return '';
+  const mc=y.monte_carlo||{}, px=x.price;
+  const surv=Math.round((y.p_survival||0)*100);
+  const inp=y.inputs||{};
+  const tipInputs=['Inputs (derive จากงบที่ยื่นจริงทั้งหมด):',
+    `• growth ปีแรก ${inp.g_high_pct}% — ${inp.g_high_src||''}`,
+    `• margin ${inp.current_margin_pct}% → ${inp.target_margin_pct}% — ${inp.target_margin_src||''}`,
+    `• sales-to-capital ${inp.sales_to_capital} — ${inp.sales_to_capital_src||''}`,
+    `• survival ${surv}% — ${inp.p_survival_src||''}`,
+    `• SBC dilution ${inp.annual_dilution_pct}%/ปี · WACC ${inp.wacc_pct}% · ROIC ปลายทาง ${inp.roic_stable_pct}%`,
+    `• terminal = ${y.terminal_share_of_value_pct}% ของมูลค่า`].join('\n');
+
+  // แถบ band: distress (พื้น) → p10 → p50 → p90 → going concern (เพดาน)
+  let band='';
+  if(mc.p10!=null&&mc.p90!=null&&mc.p90>mc.p10){
+    const lo=Math.min(mc.p10,y.distress_per_share||0,px||mc.p10);
+    const hi=Math.max(mc.p90,y.going_concern_per_share||0,px||mc.p90);
+    const at=v=>Math.max(0,Math.min(100,((v-lo)/(hi-lo))*100));
+    const l=at(mc.p10), r=at(mc.p90), m=at(mc.p50);
+    const mark=(v,c,lbl)=>v==null?'':`<div title="${esc(lbl)}" style="position:absolute;left:${at(v).toFixed(1)}%;top:-2px;width:2px;height:14px;background:${c}"></div>`;
+    band=`<div style="position:relative;height:10px;margin:5px 0 3px" title="${esc('ช่วงมูลค่าจาก Monte Carlo 1000 รอบ (สุ่ม target margin, sales-to-capital, growth, survival)\np10 $'+mc.p10+' · p50 $'+mc.p50+' · p90 $'+mc.p90+'\nพื้นล่างสุด = distress $'+y.distress_per_share+' (เงินสดสุทธิ ถ้ากิจการมีค่าศูนย์)')}">
+      <div style="position:absolute;left:0;right:0;top:4px;height:2px;background:#e2e8f0;border-radius:1px"></div>
+      <div style="position:absolute;left:${l.toFixed(1)}%;width:${Math.max(1,r-l).toFixed(1)}%;top:2px;height:6px;background:#c7d2fe;border-radius:3px"></div>
+      <div style="position:absolute;left:${m.toFixed(1)}%;top:0;width:3px;height:10px;background:#4338ca;border-radius:2px"></div>
+      ${mark(px,'#0f172a','ราคาปัจจุบัน $'+px)}
+      ${mark(y.distress_per_share,'#94a3b8','distress floor $'+y.distress_per_share)}</div>
+    <div style="display:flex;justify-content:space-between;font-size:calc(9px*var(--fs));color:var(--grey)">
+      <span>p10 $${mc.p10}</span><span style="color:#4338ca;font-weight:700">p50 $${mc.p50}</span><span>p90 $${mc.p90}</span></div>`;
+  }
+
+  // โซ่ S20: going concern × survival + distress × (1-survival)
+  const chain=`<div style="font-size:calc(10px*var(--fs));margin-top:4px" title="${esc('Damodaran S20: failure risk ต้องเป็นความน่าจะเป็นแยกต่างหาก ห้ามยัดเข้า discount rate (เขาเรียกว่า blunt instrument)\nvalue = p_survival × going-concern + (1−p_survival) × distress')}">
+    <span class="muted">ถ้ารอด</span> <b>$${y.going_concern_per_share}</b>
+    <span class="muted">&times; ${surv}%</span>
+    <span class="muted">+ ถ้าไม่รอด</span> <b>$${y.distress_per_share}</b>
+    <span class="muted">&times; ${100-surv}% =</span> <b style="color:#4338ca">$${y.failure_adjusted_per_share}</b></div>`;
+
+  const head=`<div style="display:flex;align-items:center;gap:6px;margin:9px 0 1px">
+    <span style="font-size:calc(9px*var(--fs));color:var(--grey);letter-spacing:.03em;text-transform:uppercase">Pre-profit forward value (S20)</span>
+    <span title="${esc(tipInputs)}" style="cursor:help;font-size:calc(9px*var(--fs));font-weight:700;background:#eef2ff;color:#3730a3;border-radius:4px;padding:1px 6px">survival ${surv}% &#9432;</span>
+    ${y.promote?'':`<span style="font-size:calc(9px*var(--fs));font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px" title="${esc('ยังไม่ใช้เป็น Fair Value หลัก: '+(y.blocked_reason||''))}">ข้อมูลเสริม &#9432;</span>`}</div>`;
+
+  const why=y.promote?''
+    : `<div class="muted" style="font-size:calc(9px*var(--fs));margin-top:2px;color:#92400e">${esc(y.blocked_reason||'')}</div>`;
+  return head+band+chain+why+pricedInLine(x);
+}
+// ---- REV-21: valuation (S20, ข้างบน) เทียบกับ pricing (reverse DCF) ----
+// เดิมแถบ implied-vs-actual จะหายไปทันทีที่ young DCF ได้เป็น anchor เพราะ valueGauge
+// สลับไปใช้ gauge ปกติ — แต่สองอย่างนี้ตอบคนละคำถามและควรอยู่ด้วยกัน:
+//   young DCF = "มันควรมีค่าเท่าไหร่"  ·  reverse DCF = "ตลาดคิดราคาไว้ที่การโตเท่าไหร่"
+// ตรวจที่มาแล้ว (2026-08-04): actual มาจาก SEC revenue_annuals ตรง ๆ ไม่มีสมมติฐาน
+// ส่วน implied ใช้ค่าจริงทั้งหมดยกเว้น terminal margin ซึ่งหุ้นขาดทุนวัดไม่ได้ →
+// เดา ±5pp ขยับคำตอบ ~7pp จึงต้องแสดงคู่กับ band เสมอ ห้ามโชว์ตัวเลขเดี่ยว
+function pricedInLine(x){
+  const imp=x.rev_implied_cagr; if(imp==null)return '';
+  const act=x.rev_actual_1y, s=x.rev_sensitivity||{};
+  const lo=(s.bull!=null&&s.bear!=null)?Math.min(s.bull,s.bear):null;
+  const hi=(s.bull!=null&&s.bear!=null)?Math.max(s.bull,s.bear):null;
+  const anch=x.terminal_margin_anchored;
+  const bandTxt=(lo!=null&&hi!=null&&hi>lo)
+    ? ` <span class="muted" style="font-size:calc(9px*var(--fs))">(${lo}–${hi}% ถ้า margin ±5pp)</span>`:'';
+  const warn=anch?'' : ` <span title="${esc('terminal margin ของหุ้นขาดทุนวัดจากงบไม่ได้ จึงเป็นสมมติฐาน — implied CAGR ตัวเดียวจึงเชื่อไม่ได้ ต้องอ่านคู่กับช่วง ±5pp\n'+(x.terminal_margin_label||''))}" style="cursor:help;font-size:calc(9px*var(--fs));color:#b45309">margin สมมติ &#9432;</span>`;
+  const gap=(act!=null&&imp!=null)
+    ? `<div class="muted" style="font-size:calc(9px*var(--fs));margin-top:1px">ทำได้จริงล่าสุด <b>${act>=0?'+':''}${act}%</b>/ปี &middot; ${imp<=act?'ตลาดคิดต่ำกว่าที่ทำได้':'ตลาดคิดสูงกว่าที่ทำได้'}</div>`:'';
+  return `<div style="margin-top:6px;padding-top:5px;border-top:0.5px dashed #e2e8f0">
+    <span style="font-size:calc(9px*var(--fs));color:var(--grey);letter-spacing:.03em;text-transform:uppercase" title="Reverse DCF = เกม pricing (ตลาดคาดอะไร) ไม่ใช่ valuation — ใช้เป็นตัวเทียบกับมูลค่าข้างบน">ราคาปัจจุบัน price-in (10y)</span>
+    <div style="font-size:calc(10px*var(--fs));margin-top:1px">โต <b>${imp}%</b>/ปี${bandTxt} ${warn}</div>${gap}</div>`;
+}
 // ---- Tier2: Value-first gauge — มูลค่าต้องมาก่อนราคาเสมอ (S5/S12-13) ----
 function valueGauge(x){
   if(x.upside_pct!=null&&x.anchor_value!=null){
@@ -2032,7 +2113,10 @@ function pcard(x,watch){
     return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}
       <div class="muted" style="font-size:calc(11px*var(--fs));margin:8px 0 2px">${note}</div>${grid0}${guardBadges(x)}${adviceLine(x)}${extra}</div>`;
   }
+  // REV-16: the S20 panel renders WITH the value block but must not decide the grid
+  // layout below — `vg` alone still answers "is there a value visual?".
   const vg=valueGauge(x);
+  const yp=youngPanel(x);
   const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:calc(16px*var(--fs))">${f(x.composite,2)}</b><span style="font-size:calc(11px*var(--fs))">${x.stars||''}</span>${reco}${moatChip(x)}${eqBadge(x)}${garpBadge(x)}</div>`;
   const grid=vg
     ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
@@ -2047,7 +2131,7 @@ function pcard(x,watch){
     ${cardCell('Upside',upsideCell(x))}</div>`;
   const earn=`<div style="margin:6px 0"><div style="font-size:calc(9px*var(--fs));color:var(--grey);letter-spacing:.03em;text-transform:uppercase">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px;padding-left:8px">${earnCircles(x)}</div></div>`;
   const verdict=`<div class="muted" style="font-size:calc(12px*var(--fs));border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`+adviceLine(x);
-  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}${vg}${deep}${grid}${guardBadges(x)}${earn}${verdict}${extra}</div>`;
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}${vg}${yp}${deep}${grid}${guardBadges(x)}${earn}${verdict}${extra}</div>`;
 }
 function renderPortfolio(d){
   // เก็บ payload ล่าสุดไว้ให้ Allocation/Risk ใช้ (Portfolio MoS, Story, Cash stance) — client-side ล้วน

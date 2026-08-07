@@ -26,6 +26,11 @@ class FinancialFacts:
     net_income: Optional[float] = None
     eps_gaap: Optional[float] = None
     shares_diluted: Optional[float] = None
+    # P2-1: diluted share count by fiscal year (newest first). The REAL dilution the
+    # valuation cares about — net of buybacks — rather than the SBC/market-cap proxy,
+    # which measures gross grants and moves with the share PRICE. A share count, so it
+    # is deliberately NOT in normalize._MONEY: never FX-convert it.
+    shares_diluted_annuals: list = field(default_factory=list)
     income_before_tax: Optional[float] = None
     tax_expense: Optional[float] = None
 
@@ -34,6 +39,7 @@ class FinancialFacts:
     cash: Optional[float] = None
     equity: Optional[float] = None
     operating_leases: Optional[float] = None    # P1-5: lease liability (SEC ASC 842) — treated as debt
+    operating_leases_prior: Optional[float] = None  # REV-4: prior-year lease liability (like-for-like IC trend)
 
     # cash flow
     capex: Optional[float] = None
@@ -44,6 +50,12 @@ class FinancialFacts:
     cfo: Optional[float] = None                 # cash flow from operations (TTM) — earnings quality
     total_assets: Optional[float] = None        # accruals-ratio denominator
     receivables: Optional[float] = None         # AR vs revenue (channel-stuffing check)
+    receivables_prior: Optional[float] = None   # REV-19: prior AR — makes that check computable
+    # REV-18: working-capital components -> dWC leg of Damodaran's reinvestment
+    inventory: Optional[float] = None
+    inventory_prior: Optional[float] = None
+    accounts_payable: Optional[float] = None
+    accounts_payable_prior: Optional[float] = None
     interest_expense: Optional[float] = None    # → interest coverage → synthetic Kd for true WACC
     rnd_expense: Optional[float] = None          # current-year R&D (TTM)
     rnd_annuals: list = field(default_factory=list)               # R&D series (newest first) — R&D capitalization

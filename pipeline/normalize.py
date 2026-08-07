@@ -19,8 +19,14 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
           "equity_prior", "total_debt_prior", "cash_prior",
           # round 2 additions
           "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
-          # P1-5
-          "operating_leases")
+          # P1-5 (+ REV-4 prior-year lease)
+          "operating_leases", "operating_leases_prior",
+          # REV-1: SBC is a currency amount too — it was absent here as well, so an
+          # IFRS filer would have compared DKK SBC against USD revenue.
+          "sbc",
+          # REV-18/19: working-capital components + prior AR
+          "receivables_prior", "inventory", "inventory_prior",
+          "accounts_payable", "accounts_payable_prior")
 
 
 def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rate=None,

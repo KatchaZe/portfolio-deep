@@ -48,10 +48,16 @@ def _build(row):
     # ---- 1) VALUE ----------------------------------------------------------
     if up is not None:
         basis = f" (net หลังภาษี/ค่าเทรด {net_up:+.0f}%)" if net_up is not None else ""
+        # REV-7: `upside_pct` is (V-P)/PRICE — the RETURN if price converges. Damodaran's
+        # margin of safety is (V-P)/VALUE, a smaller number, and the two were being used
+        # interchangeably here while the Price pillar scored the other one. State the
+        # MoS explicitly rather than mislabelling upside as MoS.
+        mos = (up / (100.0 + up) * 100.0) if up > -100 else None
+        mos_txt = f", MoS {mos:+.0f}% ของมูลค่า" if mos is not None else ""
         if up >= 40:
-            parts.append(f"มูลค่า: ราคาต่ำกว่า Fair Value มาก ({up:+.0f}%{basis}) — margin of safety กว้าง")
+            parts.append(f"มูลค่า: ราคาต่ำกว่า Fair Value มาก ({up:+.0f}%{basis}{mos_txt}) — ส่วนเผื่อกว้าง")
         elif up >= 15:
-            parts.append(f"มูลค่า: ต่ำกว่า Fair Value ({up:+.0f}%{basis}) — มี margin of safety")
+            parts.append(f"มูลค่า: ต่ำกว่า Fair Value ({up:+.0f}%{basis}{mos_txt}) — มีส่วนเผื่อความปลอดภัย")
         elif up > -15:
             parts.append(f"มูลค่า: ใกล้ Fair Value ({up:+.0f}%{basis}) — ราคาสมเหตุสมผล")
         elif up > -40:

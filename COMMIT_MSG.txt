@@ -1,99 +1,176 @@
-fix(engine): terminal-phase realism + data-integrity guards (build 2026-08-03a)
+fix(engine)+feat(s20): 33 valuation defects, pre-profit forward DCF (build 2026-08-04a)
 
-Chased one anomaly (PFE reading +151% undervalued) and found the Fundamental
-PEG path was systematically rating LOW-quality companies as the cheapest. Root
-cause: a hardcoded 15% perpetuity ROIC handed to every company. Before the fix
-the biggest "upsides" in the portfolio were REGN +110%, ABBV +34%, ELV +29% —
-the three lowest-ROIC names that had a fair value at all.
+Full review of the fair-value path plus the ifa-stock-analysis-v8 scripts, against
+Philosophy2026_Summary.md. 33 defects found and fixed, tagged REV-1..REV-28 and
+P2-1..P2-5 in the code. Every one is the shape the last build was chasing and did
+not finish: a constant applied to every company, a guard that vanishes when its
+input is missing, or a clamp that only ever pushes one way.
 
-Fixing that exposed a chain of related defects, all the same shape: a constant
-applied universally, a guard that vanishes when its input is missing, or a clamp
-that only ever pushes one way. Each is tagged in the code (P-A, P-D, S1, R1,
-REVIEW-1, T2, ...) with the reasoning and the numbers that motivated it.
+Two write-ups: CODE_REVIEW_2026-08-04.md (pass 1 + backlog) and
+CODE_REVIEW_2026-08-04_PASS2.md (audit of this session's own new code).
 
-Terminal phase now fades RETURNS, GROWTH and RISK together
-- D  terminal_roic() = max(WACC, min(ROIC, industry cap, WACC + half the spread));
-     the cost of capital is the floor, so a below-WACC business is not written
-     off forever and a moatless one is never gifted excess returns
-- J  new sources/damodaran.py fetches his "Return on Capital by Sector (US)"
-     table each refresh (30-day disk cache, bundled Jan-2026 snapshot fallback,
-     columns located by HEADER TEXT, never raises). Uses the normalized 10-year
-     column: the single-year one is an aggregate over every filer in the bucket
-     and "Drugs (Biotechnology)" is 496 firms, mostly pre-revenue burners
-- K  terminal_beta() = clamp(beta, 0.8, 1.2), applied in BOTH directions
-     (NVDA 2.21 -> 1.2, REGN 0.24 -> 0.8). Leaving beta un-faded was what gave a
-     62%-ROIC company a stable-phase P/E of 8.3
-- B2 two_stage_pe(ke_st=) / stable_exit_pe capitalize the perpetuity at the
-     stable-phase Ke while the high-growth years keep the current one
-- L  reverse_dcf(wacc_term=, roic_term=) — it still had the hardcoded 15% in the
-     reinvestment term and capitalized the perpetuity at the high-growth WACC.
-     Terminal value is 90-97% of PV there, so this dominated: HIMS implied CAGR
-     22.8% -> 11.0%. Both args default to the previous behaviour
-- H  g <= ROIC. max(0, 1 - g/ROIC) silently floored the shortfall, so MELI at
-     g=30%/ROIC=13.7% needed 219% of earnings reinvested, paid no dilution, and
-     still scaled terminal earnings by (1+g)^5
-- E  growth input = max(0, min(3y, 5y CAGR)). The old full-span CAGR measured
-     straight through structural breaks: PFE +8.5% from a 2020 pre-COVID base
-     while its 3y CAGR was -14.8%
-- M  PE clamps unified to [5, 35] for both paths (were [8,30] and [12,25]). The
-     old floor bound 11 of 21 holdings in the FVP path and gifted up to +103%
+Test suites 43 -> 46, all passing.
 
-Data integrity — no guess is silent, no guard fails open
-- A  EBIT = pretax + interest when a filer tags no operating-income subtotal
-     (LLY, PFE), for the TTM scalar, annuals and quarters. Without it both read
-     as pre-profit despite $25.3B and $7.5B of net income
-- T  market_cap is now captured from FMP/Yahoo and shares are DERIVED as
-     market_cap / price. Both are quoted for the US-listed security, so the
-     depositary ratio is already inside them — no ADR-ratio table to maintain.
-     When a SEC count also exists the two are cross-checked; a mismatch reports
-     the implied ratio (TSM: 5.00x) instead of silently corrupting market cap,
-     the WACC weights and enterprise value at once
-- S1/R1 ONE forward-EPS gate shared by validate and normalize, with a
-     shares-free implied-P/E band. The revenue-capacity ceiling needs a share
-     count and simply disappeared without one — TSM's 323.34 (TWD per ordinary
-     share against a $398 USD ADR price, a 1.2x forward P/E) sailed through and
-     was driving fv_peg = $5,856
-- R3 that ceiling now grows with expected growth; comparing a FORWARD EPS to
-     CURRENT revenue per share was systematically tight and rejected NVDA's
-     real consensus
-- C  "Pre-profit" is only said when net income is actually negative
-- F  fundamental growth (reinvestment x ROIC) as a divergence FLAG, honest about
-     the fact that the capex-based formula reads 0% for asset-light R&D spenders
-- G  a broken FVP now discards only that method instead of nulling the anchor
-     and taking a sound PEG down with it (ABBV: a $23 FVP killed a $210 PEG)
-- S3 the degraded "WACC=Ke, no weights" path and a missing share count are
-     flagged instead of passing silently
 
-Post-review fixes (mattpocock-skills:code-review over the whole diff)
-- REVIEW-1 `growth_lt or 0.08` read a MEASURED zero as missing, so every
-     decliner silently got the 8% default and defeated E
-- REVIEW-2 terminal_roic() returned the raw industry number when the firm's own
-     ROIC was unknown — Tobacco 77.7% as a gift
-- REVIEW-3 the terminal ROIC floor used today's WACC while the perpetuity is
-     capitalized at the terminal one
-- REVIEW-4 the ke_st - g >= 3% bound does NOT cap the formula near 35; raw P/Es
-     of 40-56 are reachable. Corrected the comment; the cap stays and is flagged
-- REVIEW-5 analyze_row never passed roc_table, so adding one ticker used the
-     bundled snapshot while a batch refresh used the live table
-- REVIEW-6 fundamental_peg_price rejected g <= 0, so once REVIEW-1 let a real 0%
-     through, no-growth firms lost their PEG valuation entirely (PFE swung 94pp)
-- R4 _add_flag() replaces ~14 copies of the dedup idiom — and fixes an EQ-flag
-     loop that tested one string and appended another, so it never deduped
+THE THREE THAT CHANGED THE MOST NUMBERS
+- REV-1  f.sbc was never populated on the live path. SEC did not fetch
+         ShareBasedCompensation and fmp.parse() (the only setter) is called zero
+         times in pipeline/ or domain/. So the "SBC >10% of revenue" branch in
+         earnings_quality() was dead code, and the framework's own rule that SBC
+         must be charged as dilution had never been implemented at all.
+- REV-2  When ROIC could not be measured the code handed out ROIC_TERMINAL 15% AND
+         the full GROWTH_CAP 30%. The docstring claimed such names fall through to
+         the reverse DCF; they do not. A company with negative invested capital
+         (cash > equity + debt, routine for cash-rich software and biotech) has
+         positive NOPAT and lands squarely on the PEG path. The firms we cannot
+         measure were getting the most generous defaults available.
+         Net-cash case: FV $39.72 -> $20.79 (-48%), HOLD/Accumulate -> HOLD.
+- REV-8  composite() renormalises over the AVAILABLE pillars, so a missing fair
+         value does not penalise a name - it deletes the price test. D4/E4/E4 with
+         P1 scores 3.10 (HOLD); the same three pillars with P missing score 4.00
+         (BUY). A Yahoo outage on forward EPS was UPGRADING the recommendation, and
+         the more expensive the stock the bigger the upgrade.
+         cap_reco_without_price() now requires a price opinion for a BUY.
 
-Effect: the anti-quality bias is gone. REGN +109 -> +29%, ELV +28 -> -33%,
-UNH +6 -> -25%, ABBV +33 -> -13%, MELI -28 -> -64%; NVDA -46 -> -20% and
-AVGO -74 -> -63% as the beta fade stops punishing quality. Recommendations move
-on MELI/ABBV/REGN/CELH (Accumulate -> HOLD) and PFE/ELV (HOLD -> SELL).
-TSM and NVO get a fair value for the first time once market cap is fetched.
+TERMINAL PHASE AND THE REVERSE DCF
+- REV-3/28  reinvestment in the reverse DCF was capped at 0.9, so every CAGR from
+            0.9xROIC to 100% was charged identical reinvestment and FCFF stopped
+            responding to growth. Raising the cap to 1.0 did not fix it - at x=ROIC
+            interim FCFF hits zero and stays there, leaving the model 100% terminal
+            value above that point. The cap did not remove the flatness, it moved
+            it, and it silently defeated the REV-24 margin ramp. Removed entirely:
+            growth beyond what ROIC funds is bought with outside capital, so FCFF
+            must be allowed to go negative.
+            Removing it exposed an older bug: implied() bisected [-50%, +100%]
+            assuming pv_at was monotonic. It is UNIMODAL - value rises while the
+            return on growth beats its cost, peaks, then falls as the reinvestment
+            bill outruns profit. Every thin-spread firm (ROIC ~ WACC, i.e. exactly
+            S5's "growth is worthless without a spread") came back out-of-band at
+            any price. Now: locate the peak, bisect the rising branch, and
+            distinguish "no growth rate justifies this price" from "needs >100%/yr".
+- REV-12    EV excluded capitalised operating leases that the WACC weights and
+            invested capital already included - the reverse DCF was valuing a
+            different firm from the one the discount rate was priced for.
+- REV-24    the margin was held at the TERMINAL value from year 1. Defensible for a
+            company already near its terminal margin; for a pre-profit filer it
+            credited a loss-making business with an assumed 25% margin next year.
+            Now ramps from today's, matching young_dcf.
+- REV-25    reverse_dcf recomputed price x shares while the engine had already
+            resolved the reported market cap (T4). _resolve_shares only intervenes
+            past a 20% gap, so up to 20% of disagreement passed silently.
+- REV-17    terminal_roic()'s rule 3 ("the cost of capital is the FLOOR") was
+            skipped on the roic_now-is-None branch. Survivable while that branch
+            only fed the perpetuity; REV-2 had just made it load-bearing.
+- REV-26    a hit on the coarse GICS sector map is not an industry view. Mapping
+            all of "healthcare" onto Drugs (Pharmaceutical) 23.52% handed every
+            unmapped healthcare name the ceiling of one of its richest corners.
+            Coarse hits are now capped at the market-wide normalized ROIC.
 
-Tests: new tests/test_damodaran_roc.py (10 cases) covering the HTML parser
-against an Excel-export fixture, the bad-layout guard, cache/offline/corrupt
-paths, the industry mapping, two-rate P/E/reverse-DCF wiring, every REVIEW fix,
-the shared forward-EPS gate and the market-cap share derivation — including
-assertions that the new optional args reproduce the OLD behaviour by default.
-Registered in run_tests.py; full suite passes. Also fixed test_app_fixes and
-test_parallel_fetch, which shared a stale analyze() signature and were firing a
-live HTTP request at stern.nyu.edu during unit runs.
+SCORING AND MEASUREMENT
+- REV-4   spread_prior used lease-FREE invested capital while spread used
+          lease-capitalised IC, so a lease-heavy filer was measured against a
+          smaller past capital base and showed a deterioration that never happened.
+          Worth up to -1.0 on E_econ, the 30%-weighted pillar.
+- REV-7   the Price pillar divided by PRICE and called it margin of safety. MoS is
+          (Value - Price)/VALUE (appendix A, S4/S12). Dividing by price distorts
+          the bands asymmetrically: the +40% cut was really a 28.6% margin (too easy
+          to reach) and the -40% cut a -66.7% one (nearly unreachable).
+- REV-11  ke_eff = max(ke, rf + 3.5%) was a floor with no matching ceiling. It
+          raised the discount rate for every beta below ~0.79 and never restrained
+          a beta of 2.2 - and it contradicted its own docstring, since P-K already
+          fades risk properly in both directions via terminal_beta.
+- REV-9/18 reinvestment was capex - D&A only. Damodaran's is capex + acquisitions +
+          dWC - D&A. acquisitions_net was already fetched and unused; dWC is now
+          derived from the BALANCE SHEET (AR + inventory - AP), not from
+          IncreaseDecreaseInOperatingCapital, whose sign convention varies by filer.
+- REV-19  receivables carried the comment "AR vs revenue (channel-stuffing check)"
+          since v8.2 and was read by nothing. The check needed the prior-year AR,
+          which is why it was never written.
+- REV-23  the 0.8 reinvestment ceiling guaranteed fcff >= 20% of NOPAT, so the
+          cash-burn gate could never fire for a profitable company - the one thing
+          it existed to detect.
+- REV-27  pick() tie-broke on largest |TTM|, a magnitude preference dressed up as a
+          rule. A filer tagging both Revenues and the ASC 606 concept got the
+          broader number. Now list order, with a conflict flag - which immediately
+          caught a real ORCL net-income conflict in the committed fixtures.
+- REV-5/6/10/13/14/20  out-of-band silently reported as "Unknown"; sensitivity
+          solved twice per scenario; falsy-zero guard on net_income; unbounded
+          incremental ROIC; a note labelled 5y that measured 1y; the terminal-margin
+          band [5%, 40%] binding without saying so.
 
-NOTE: requires a fundamentals refresh — market_cap and the derived share counts
-are new fields, and stored facts predate them.
+NEW: PRE-PROFIT FORWARD VALUATION (S20)  -  REV-16
+Pre-profit names had anchor_value = None and no Price pillar. The only thing on the
+card was the reverse DCF, which its own docstring calls "a PRICING cross-check, NOT
+a valuation". domain/engine/young_dcf.py implements Damodaran's young-company
+method: failure risk as a separate probability (never in the discount rate), growth
+paid for through the sales-to-capital ratio, and the answer as a distribution.
+
+Every input is derived from filed data - survival from cash runway, distress from
+net cash, dilution from the share count, sales-to-capital from revenue/IC. The
+Monte Carlo is seeded, so an unchanged refresh cannot move the fair value.
+
+Per the agreed rule, the p50 becomes the anchor ONLY when the band is tight enough
+to mean something (p50 > 0, p10 > 0, p90/p10 < 4x); otherwise it stays
+informational and the row falls back to the previous behaviour, with the reason
+stated. index.html draws the band, the survival decomposition and the priced-in
+comparison (youngPanel / pricedInLine, build 2026-08-04a).
+
+SECOND-PASS AUDIT OF THIS SESSION'S OWN CODE  -  P2-1..P2-4
+A fresh read found three MED/HIGH defects in the code written above:
+- P2-1  the SBC/market-cap dilution proxy measures GROSS grants and moves with the
+        share PRICE - the same grant is charged double the dilution after the stock
+        halves. The real WeightedAverageNumberOfDilutedSharesOutstanding series was
+        in the same companyfacts JSON all along (10-18 annual points per US filer)
+        and disagrees in SIGN for MSFT (proxy +0.39%/yr vs actual -0.05%) and ABBV
+        (+0.28% vs 0.00%) - both grant heavily and retire more than they issue.
+        Real history is now primary (3y CAGR, floored at 0: net buybacks are a
+        discretionary policy and must not be capitalised into perpetuity); the
+        proxy survives only for filers with no share count at all (IFRS).
+- P2-2  dilution was charged to BOTH fair-value paths. fv_peg runs on forward_eps
+        (NTM adjusted, non-GAAP, SBC added back) where it belongs; fv_fvp runs on
+        eps0 from GAAP net income, where SBC is already an expense - double-counting
+        ~12% of value and breaking the framework's own "no double counting" rule.
+        Also skipped when validate() substitutes a SEC-derived (GAAP) forward EPS.
+- P2-3  working_capital_change returned partial-leg deltas. The legs have opposite
+        signs, so a filer tagging only AccountsPayable produced a NEGATIVE dWC -
+        "working capital released cash" - purely because the offsetting legs were
+        not filed, understating reinvestment in the company's favour. Receivables
+        is now required.
+- P2-4  the Monte Carlo margin span was a flat +/-6pp, which meant the promotion
+        gate was judging our sampling width rather than the company. Now +/-4pp when
+        the terminal margin is measured from the firm and +/-10pp when it is the
+        generic assumption, and the span is reported alongside the band.
+- P2-5  caught by running the suite on the real fixtures: REV-23 removed the
+        reinvestment clamp that had made the `fcf_pos` leg of the ROUTING gate
+        vacuous, and thereby changed where a profitable heavy-investor gets valued.
+        ORCL - $48.2B capex against $16.4B NOPAT, a 268% reinvestment rate and
+        -$27.4B FCFF - was being sent to the S20 young-company model and came back
+        at $25 against a $213 price. "No earnings to capitalise" and "invested
+        heavily this year" are different situations; only the first is what S20
+        models. Routing now keys on earnings, and negative FCFF is a loud flag
+        instead of a different valuation method. ORCL: $22.68 -> $95.68 via
+        Fundamental PEG.
+
+GUARDS AGAINST THE SAME CLASS RETURNING
+- test_skill_parity was a fake guard: it called BOTH sides with back-compat
+  defaults, so it compared the app's legacy path against the skill and passed while
+  production diverged 21.8%. It now exercises the production signatures and asserts
+  the new arguments actually change the answer.
+- The skill scripts were four fixes behind (no ke_st, no wacc_term, roic_stable
+  defaulting to the 0.15 that caused the last build's whole problem, no terminal
+  beta or growth cap). Ported, and the parity test now checks agreement across a
+  range of prices INCLUDING where the price stops being justifiable.
+- tests/test_young_panel_render.py runs the dashboard's own JS in node against
+  payloads the real engine produced, and asserts on the returned HTML. test_frontend
+  only greps for tokens and has never caught a panel that throws or renders junk.
+- tests/audit2.py, written as a one-off audit, is now a standing check in
+  run_tests.py: it exits non-zero on any MED/HIGH finding. Three LOW findings are
+  documented and accepted in CODE_REVIEW_2026-08-04_PASS2.md section 4.
+- CI pins node, so the render tests cannot skip silently.
+
+NOTE ON PROCESS
+Four of the 32 (REV-17, REV-28, P2-1, P2-2) were regressions introduced by earlier
+fixes in this same session. Two patterns to watch: making a value load-bearing
+somewhere it was not before, and removing a clamp that was masking a structural
+assumption. And before adding a proxy, check whether the real data is already being
+downloaded - for the share count, it was.

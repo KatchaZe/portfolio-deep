@@ -23,9 +23,12 @@ def test_cheap_quality_momentum():
     a = advice.build(row(upside_pct=25, net_upside_pct=20,
                          key_metrics={"spread_pct": 15}, eq_verdict="CLEAN",
                          momentum_v2={"mom_label": "Positive"}))
-    assert "margin of safety" in a and "Action:" in a
+    # REV-7: the line used to call +25% upside "margin of safety". It is not — MoS is
+    # (V-P)/VALUE, which for +25% upside is +20%. Both are now stated, correctly named.
+    assert "ส่วนเผื่อความปลอดภัย" in a and "Action:" in a
+    assert "MoS +20% ของมูลค่า" in a, a
     assert "ครบทั้งสามเงื่อนไข" in a
-    print("cheap+quality+momentum OK")
+    print("cheap+quality+momentum OK (upside vs margin-of-safety stated separately)")
 
 
 def test_expensive_good_business():

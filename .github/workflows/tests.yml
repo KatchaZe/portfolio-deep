@@ -14,7 +14,15 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      # REV-22: tests/test_young_panel_render.py runs the dashboard's own JS in node
+      # to prove the card panels render. It SKIPS silently when node is missing, so
+      # pin it explicitly rather than relying on whatever the runner image ships.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
       - name: Install runtime deps
         run: pip install fastapi "uvicorn[standard]" requests pydantic
+      - name: Check node is available (render tests must not silently skip)
+        run: node --version
       - name: Run test suite
         run: python run_tests.py

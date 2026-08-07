@@ -82,7 +82,16 @@ def test_mapping():
     assert abs(f("ASML", "Technology") - 0.3444) < 1e-9
     assert abs(f("TSLA", "Consumer Cyclical") - 0.0553) < 1e-9
     # unmapped ticker falls back to its FMP sector
-    assert abs(f("ZZZZ", "Technology") - 0.2295) < 1e-9
+    # REV-26: a hit on the COARSE sector map is not an industry view. FMP's eleven
+    # GICS sectors are far broader than Damodaran's ninety-odd industries, so mapping
+    # all "Technology" onto Software (System & Application) 22.95% would hand every
+    # unmapped tech name the ceiling of one of its richest corners. A coarse hit is
+    # capped at the market-wide normalized ROIC, so it can restrain but never gift.
+    assert abs(f("ZZZZ", "Technology") - 0.1492) < 1e-9, f("ZZZZ", "Technology")
+    # an EXPLICIT per-ticker mapping is unaffected
+    assert abs(f("MSFT", "Technology") - 0.2295) < 1e-9
+    # and a coarse sector BELOW the market average still passes through unchanged
+    assert abs(f("ZZZZ", "Utilities") - 0.0637) < 1e-9, f("ZZZZ", "Utilities")
     # unmapped ticker AND unknown sector -> None (engine keeps its own default)
     assert f("ZZZZ", "Wombat Farming") is None
     assert f("ZZZZ", None) is None
@@ -180,17 +189,26 @@ def test_terminal_beta_and_two_rate_pe():
 
     # reverse_dcf: a cheaper terminal rate needs LESS implied growth to justify
     # the same price; a better terminal ROIC makes growth cheaper to buy
-    base = dict(price=100.0, shares=1e9, revenue=10e9, rev_1y=8e9, total_debt=1e9,
+    # REV-28: the old fixture used wacc_val 15% against the default terminal ROIC of
+    # 15% — a ZERO spread, where growth is value-neutral by construction. It only
+    # produced an answer because reinvestment was capped and growth was therefore
+    # partly free. Now a spread is required for growth to justify anything, so the
+    # fixture carries one.
+    base = dict(price=40.0, shares=1e9, revenue=10e9, rev_1y=8e9, total_debt=1e9,
                 cash=0.5e9, g=0.045, tax=0.21, margin=0.20)
-    a = E.reverse_dcf(wacc_val=0.15, **base)
-    b = E.reverse_dcf(wacc_val=0.15, wacc_term=0.095, **base)
-    c = E.reverse_dcf(wacc_val=0.15, roic_term=0.30, **base)
+    a = E.reverse_dcf(wacc_val=0.10, roic_term=0.20, **base)
+    b = E.reverse_dcf(wacc_val=0.10, roic_term=0.20, wacc_term=0.085, **base)
+    c = E.reverse_dcf(wacc_val=0.10, roic_term=0.30, **base)
     assert a["triggered"] and b["triggered"] and c["triggered"]
     assert b["implied_cagr_pct"] < a["implied_cagr_pct"], (a, b)
     assert c["implied_cagr_pct"] < a["implied_cagr_pct"], (a, c)
-    # defaults must reproduce the old single-rate behaviour exactly
-    assert E.reverse_dcf(wacc_val=0.15, wacc_term=0.15,
-                         roic_term=E.ROIC_TERMINAL, **base) == a
+
+    # ...and the case the old cap was hiding: with ROIC == WACC, growth adds nothing,
+    # so NO growth rate can justify paying above the no-growth value (S5).
+    flat = E.reverse_dcf(wacc_val=0.15, roic_term=0.15, **base)
+    assert flat["implied_cagr_pct"] is None and "no growth rate justifies" in flat["verdict"], flat
+    # omitting wacc_term must be identical to passing wacc_val (the documented default)
+    assert E.reverse_dcf(wacc_val=0.10, wacc_term=0.10, roic_term=0.20, **base) == a
     # guard: a terminal rate at or below g must not divide by ~zero
     assert E.reverse_dcf(wacc_val=0.15, wacc_term=0.04, **base) == {"triggered": False}
     print("terminal beta / two-rate PE / reverse DCF OK")
@@ -211,8 +229,20 @@ def test_review_regressions():
 
     # REVIEW-2: with no ROIC of its own, the industry number must not become a gift
     assert E.terminal_roic(None, 0.08, 0.7769) == E.ROIC_TERMINAL     # Tobacco 77.7%
-    assert E.terminal_roic(None, 0.08, 0.0553) == 0.0553              # ...but may pull DOWN
     assert E.terminal_roic(None, 0.08, None) == E.ROIC_TERMINAL
+
+    # REV-17 (2026-08-04): this branch used to skip rule 3 — "the cost of capital is
+    # the FLOOR" — which the KNOWN-ROIC branch has always enforced. The old
+    # assertion pinned that inconsistency: Auto & Truck 5.53% pulled an unmeasurable
+    # firm to a PERPETUAL return below its own cost of capital, i.e. permanent value
+    # destruction assumed for ever. Damodaran restructures, sells or liquidates such
+    # a business; he does not model it burning capital in perpetuity.
+    # The industry number may still pull DOWN — just not through the floor.
+    assert E.terminal_roic(None, 0.08, 0.0553) == 0.08                # floored at WACC
+    assert E.terminal_roic(None, 0.04, 0.0553) == 0.0553              # ...pulls down above it
+    assert E.terminal_roic(None, None, 0.0553) == 0.0553              # no WACC -> no floor
+    # and it must agree with the known-ROIC branch, which has always floored
+    assert E.terminal_roic(0.03, 0.08, 0.0553) == E.terminal_roic(None, 0.08, 0.0553)
 
     # REVIEW-3: floor against the TERMINAL cost of capital. A low-beta name whose
     # beta fades UP (w_term > w) must not end below its own terminal WACC.

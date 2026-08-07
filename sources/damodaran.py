@@ -329,17 +329,36 @@ def fetch_roc_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeou
     return table
 
 
+# Market-wide normalized ROIC from the same table — the "converge to the average
+# company" number used when we have no real industry view (REV-26).
+MARKET_DEFAULT = 0.1492
+
+
 def terminal_roic_for(ticker, sector, table=None):
     """Industry terminal-ROIC ceiling for a ticker, or None when unmapped.
 
     None means 'no industry view' — the engine then keeps its global default
-    rather than inventing a number."""
+    rather than inventing a number.
+
+    REV-26: a hit on SECTOR_TO_INDUSTRY is NOT an industry view. FMP's eleven
+    GICS-style sectors are far coarser than Damodaran's ninety-odd industries, so
+    mapping the whole "healthcare" bucket onto Drugs (Pharmaceutical) at 23.52%
+    hands every unmapped healthcare name the ceiling of one of its most profitable
+    corners — the exact "constant applied to everyone" shape this codebase keeps
+    paying for. A coarse hit is now capped at the market-average normalized ROIC, so
+    it can still pull a company DOWN but can never gift it a premium it has not been
+    shown to earn. An explicit per-ticker mapping is unaffected."""
     table = table if table is not None else FALLBACK
-    ind = INDUSTRY_BY_TICKER.get((ticker or "").upper()) \
-        or SECTOR_TO_INDUSTRY.get(_norm(sector))
+    key = (ticker or "").upper()
+    ind, precise = INDUSTRY_BY_TICKER.get(key), True
+    if not ind:
+        ind, precise = SECTOR_TO_INDUSTRY.get(_norm(sector)), False
     if not ind:
         return None
     v = table.get(_norm(ind))
     if v is None or v <= 0:
         return None
+    if not precise:
+        market = table.get(_norm("Total Market (without financials)")) or MARKET_DEFAULT
+        return min(v, market)
     return v

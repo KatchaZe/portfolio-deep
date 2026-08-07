@@ -26,7 +26,13 @@ TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
          "tests.test_philosophy2026", "tests.test_skill_parity",
          "tests.test_quickpatch_corr", "tests.test_risk_report",
          "tests.test_cache_sync", "tests.test_prices_ladder",
-         "tests.test_damodaran_roc"]
+         "tests.test_damodaran_roc", "tests.test_young_dcf",
+         "tests.test_young_panel_render",
+         # audit2 is the second-pass review turned into a standing guard: it fails on
+         # any MED/HIGH finding, so the defect class it was written to catch (proxies
+         # used where real data exists, partial values consumed as whole, constants
+         # that decide the answer) cannot quietly come back.
+         "tests.audit2"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 
 

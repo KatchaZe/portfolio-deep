@@ -462,6 +462,12 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "ticker": t, "company": ff.company, "sector": ff.sector,
         "rev_implied_cagr": rd.get("implied_cagr_pct"), "rev_actual_1y": rd.get("actual_1y_pct"),
         "rev_verdict": rd.get("verdict"),
+        # REV-21: the implied CAGR is only honest next to its margin sensitivity —
+        # for a pre-profit filer the terminal margin is assumed, and a +/-5pp guess
+        # moves the answer by ~7pp. Never ship the point estimate on its own.
+        "rev_sensitivity": rd.get("sensitivity"),
+        "terminal_margin_anchored": (val.key_metrics or {}).get("terminal_margin_anchored"),
+        "terminal_margin_label": next((fl for fl in (ff.flags or []) if "terminal margin" in fl), None),
         # P-C: lets the advice line say "pre-profit" only when it really is one
         "profitable": bool(ff.net_income and ff.net_income > 0),
         "price": price, "change": mom.get("change"),
@@ -486,6 +492,9 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "margin_trend": mgn_trend,
         # v8.3: all fair-value methods + why-empty status for the earnings circles
         "fv_peg": val.fv_peg, "fv_fvp": val.fv_fvp,
+        # REV-16 (S20): pre-profit forward valuation — going concern, failure-adjusted
+        # value, survival probability and the Monte Carlo band. {} for profitable names.
+        "young_dcf": val.young_dcf or None,
         "earn_status": _earn_status(
             ff.earnings_surprises or ff.eps_surprises_backfill, ff.rev_surprises_fmp,
             mgn_trend, ff.provenance, True, bool(fmp_key)),
@@ -781,6 +790,9 @@ def portfolio_view(s):
             "action": act, "verdict": val.get("verdict"),
             "rev_implied_cagr": rd.get("implied_cagr_pct"), "rev_actual_1y": rd.get("actual_1y_pct"),
             "rev_verdict": rd.get("verdict"),
+            "rev_sensitivity": rd.get("sensitivity"),               # REV-21
+            "terminal_margin_anchored": (val.get("key_metrics") or {}).get("terminal_margin_anchored"),
+            "terminal_margin_label": next((fl for fl in (ff.get("flags") or []) if "terminal margin" in fl), None),
             # P-C: lets the advice line say "pre-profit" only when it really is one
             "profitable": bool((ff.get("net_income") or 0) > 0),
             "confidence": ff.get("confidence"), "confidence_tier": ff.get("confidence_tier"),
@@ -793,6 +805,7 @@ def portfolio_view(s):
             "margin_trend": mgn_trend,
             # v8.3: all fair-value methods + why-empty status for the earnings circles
             "fv_peg": val.get("fv_peg"), "fv_fvp": val.get("fv_fvp"),
+            "young_dcf": val.get("young_dcf") or None,          # REV-16 (S20)
             "earn_status": _earn_status(
                 ff.get("earnings_surprises") or ff.get("eps_surprises_backfill"),
                 s.get("rev_surprises", {}).get(t) or ff.get("rev_surprises_fmp"),

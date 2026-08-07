@@ -29,6 +29,10 @@ def test_new_ui_present():
         "function portMoS", "function garpQuadrant", "function renderCashStance",
         'id="cmdStrip"', 'id="assumeBanner"', 'id="stripSynth"', 'id="cashStance"',
         "crash guard", "Portfolio Story",
+        # REV-16 (S20): pre-profit forward valuation panel
+        "function youngPanel", "Pre-profit forward value (S20)", "youngPanel(x)",
+        # REV-21: valuation vs pricing must sit side by side, band included
+        "function pricedInLine", "pricedInLine(x)", "margin ±5pp",
     ]
     missing = [t for t in required if t not in HTML]
     assert not missing, ("index.html missing new UI tokens: %s" % missing)
@@ -38,7 +42,10 @@ def test_new_ui_present():
 def test_backend_keys_referenced():
     keys = ["d.market", "d.benchmark", "d.philosophy", "d.rate_risk", "d.downside",
             "garp_score", "garp_candidate", "net_upside_pct", "x.pead",
-            "erp_as_of", "market_pe_as_of", "crash_guard", "reversal"]
+            "erp_as_of", "market_pe_as_of", "crash_guard", "reversal",
+            # REV-16/21: young-DCF payload + the sensitivity band that makes the
+            # implied CAGR honest for a pre-profit filer
+            "young_dcf", "rev_sensitivity", "terminal_margin_anchored"]
     missing = [k for k in keys if k not in HTML]
     assert not missing, ("backend payload keys not consumed by index.html: %s" % missing)
     print("backend keys referenced OK")
