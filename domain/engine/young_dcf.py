@@ -169,9 +169,20 @@ def going_concern(d):
     shares = d["shares"] * (1 + d.get("annual_dilution", 0.0) or 0.0) ** n
     if not shares or shares <= 0:
         return None
+    # Equity is a RESIDUAL claim carrying LIMITED LIABILITY. When the forward DCF
+    # values the firm below its net debt the shareholder's claim is worth zero, not a
+    # negative number — a share price cannot go below zero. The distress leg in
+    # evaluate() has been floored since it was written (max(0.0, cash - debt)); this
+    # leg never was, and the asymmetry showed: RKLB rendered "worth -$0.92 if it
+    # survives, $1.83 if it fails" — worth more dead than alive, blending to -$0.51.
+    #
+    # `equity_value` deliberately stays RAW. How far underwater the firm is remains
+    # the diagnostic, and evaluate() reads it to block promotion: flooring collapses
+    # the downside variance, so a floored band is artificially tight and its width
+    # says nothing about the company.
     return {"pv_fcff": pv_fcff, "pv_terminal": pv_tv, "firm_value": firm,
             "equity_value": equity, "diluted_shares": shares,
-            "going_concern_per_share": equity / shares, "rows": rows}
+            "going_concern_per_share": max(0.0, equity / shares), "rows": rows}
 
 
 def failure_adjusted(per_share_gc, p_survival, distress_per_share):
@@ -270,6 +281,19 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
     band_ratio, blocked = None, None
     if not mc:
         blocked = "simulation did not converge"
+    elif gc["equity_value"] <= 0:
+        # Must be tested BEFORE the band gates, and on the RAW equity. Flooring the
+        # going-concern leg at zero collapses the downside variance — every scenario
+        # that lands underwater now reports the same 0 — so the band tightens and p10
+        # can no longer fall <= 0. On a real case this turned a p10/p50/p90 of
+        # -3.80/-2.48/-1.43 (correctly blocked) into 0.13/0.29/0.47, a 3.62x band that
+        # sails through BAND_MAX_RATIO and would anchor the row at $0.29. That
+        # tightness is the width of our own clamp, not knowledge about the company —
+        # the same mistake P2-4 fixed one gate further on.
+        blocked = (f"the forward DCF values the whole firm below its net debt "
+                   f"(equity ${gc['equity_value'] / gc['diluted_shares']:.2f}/share before the "
+                   f"zero floor) - the equity is worth the distress floor "
+                   f"${round(distress, 2)} and no more")
     elif mc["p50"] <= 0:
         blocked = (f"the model values the equity at or below zero across the band "
                    f"(p50 ${mc['p50']}) - the story does not support a positive value")

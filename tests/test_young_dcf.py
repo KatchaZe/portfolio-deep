@@ -128,16 +128,71 @@ def test_band_gate_promotes_only_when_tight():
 def test_blocked_reason_distinguishes_causes():
     """REV-16: 'band too wide' and 'the equity is worth nothing' are opposite
     problems and used to share one message — including when the band was perfectly
-    tight and simply negative."""
+    tight and simply negative.
+
+    Since the limited-liability floor landed, the worthless case is caught EARLIER
+    and more precisely: the raw equity is underwater, which is a statement about the
+    firm, rather than a negative p50, which was only the symptom that leaked through.
+    The requirement this test exists to protect is unchanged — a name we cannot value
+    must never be described as one whose band is merely wide."""
     eng = DeepV82Engine()
     worthless = dict(PREPROFIT, revenue=0.35e9, cash=0.30e9, cfo=-0.40e9,
                      operating_income=-0.45e9, total_assets=0.5e9, equity=0.30e9)
     y = eng.evaluate(FinancialFacts("WORTHLESS", **worthless), rf=RF).young_dcf
-    assert y["monte_carlo"]["p50"] <= 0, y["monte_carlo"]
-    assert "at or below zero" in y["blocked_reason"], y["blocked_reason"]
+    assert "below its net debt" in y["blocked_reason"], y["blocked_reason"]
     assert "spans" not in y["blocked_reason"], "must not claim the band is wide"
     assert y["band_ratio"] is None
+    # the floor must not leak a negative number onto the card in the process
+    assert y["monte_carlo"]["p50"] >= 0, y["monte_carlo"]
     print("blocked_reason distinguishes worthless from unknowable OK")
+
+
+def test_equity_cannot_be_worth_less_than_zero():
+    """Limited liability. A shareholder's claim floors at zero; a share price cannot
+    be negative. The distress leg was floored from the day it was written, this one
+    was not, and the asymmetry reached the screen: RKLB showed "worth -$0.92 if it
+    survives, $1.83 if it fails" — worth more dead than alive, blending to -$0.51."""
+    d = {"current_revenue": 1.0e9, "g_high": 0.25, "g_stable": RF, "horizon": 10,
+         "current_margin": -0.15, "target_margin": 0.10, "sales_to_capital": 1.5,
+         "tax": 0.21, "wacc": 0.11, "roic_stable": 0.13, "net_debt": 3.0e9,
+         "shares": 0.5e9, "annual_dilution": 0.02}
+    gc = Y.going_concern(d)
+    assert gc["equity_value"] < 0, "fixture must be underwater or it tests nothing"
+    assert gc["going_concern_per_share"] == 0.0, gc["going_concern_per_share"]
+    # the raw depth stays available — the floor must not destroy the diagnostic
+    assert gc["equity_value"] / gc["diluted_shares"] < -1.0
+    # and the S20 blend can no longer land below the distress floor it starts from
+    assert Y.failure_adjusted(gc["going_concern_per_share"], 0.85, 1.83) > 0
+    # a solvent firm is untouched by the floor
+    solvent = Y.going_concern(dict(d, net_debt=-1.0e9))
+    assert solvent["going_concern_per_share"] == solvent["equity_value"] / solvent["diluted_shares"]
+    print("going-concern equity floored at zero OK (raw $%.2f/share kept)"
+          % (gc["equity_value"] / gc["diluted_shares"]))
+
+
+def test_underwater_equity_never_anchors():
+    """The floor COLLAPSES downside variance: every underwater scenario reports the
+    same 0, so the band tightens and p10 can no longer fall <= 0. Measured on a real
+    case, flooring alone turned p10/p50/p90 of -3.80/-2.48/-1.43 — correctly blocked —
+    into 0.13/0.29/0.47, a 3.62x band that clears BAND_MAX_RATIO and would have
+    anchored the row at $0.29 against an $81 price. That tightness is the width of our
+    own clamp, not knowledge about the company: the P2-4 mistake, one gate earlier."""
+    eng = DeepV82Engine()
+    sunk = dict(PREPROFIT, revenue=0.30e9, cash=0.05e9, total_debt=2.4e9,
+                cfo=-0.35e9, operating_income=-0.40e9, total_assets=0.6e9,
+                equity=-0.5e9)
+    v = eng.evaluate(FinancialFacts("SUNKCO", **sunk), rf=RF)
+    y = v.young_dcf
+    assert y, "the model must still RUN and still be shown — it just may not anchor"
+    assert y["promote"] is False, y
+    assert "below its net debt" in y["blocked_reason"], y["blocked_reason"]
+    assert v.anchor_method == "Terminal-Anchored Reverse DCF", v.anchor_method
+    assert v.anchor_value is None
+    # nothing the card renders may be negative any more
+    for k in ("going_concern_per_share", "distress_per_share", "failure_adjusted_per_share"):
+        assert y[k] >= 0, (k, y[k])
+    assert y["monte_carlo"]["p10"] >= 0, y["monte_carlo"]
+    print("underwater equity blocked from anchoring OK")
 
 
 def test_deterministic_across_runs():
@@ -184,6 +239,8 @@ if __name__ == "__main__":
     test_terminal_reinvestment_capped()
     test_band_gate_promotes_only_when_tight()
     test_blocked_reason_distinguishes_causes()
+    test_equity_cannot_be_worth_less_than_zero()
+    test_underwater_equity_never_anchors()
     test_deterministic_across_runs()
     test_profitable_names_untouched()
     test_inputs_are_all_sourced()
