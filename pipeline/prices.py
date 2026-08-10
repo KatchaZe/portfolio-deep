@@ -195,15 +195,54 @@ def load_cache():
         return {}
 
 
+SAVE_RETRIES = 5            # Windows: a reader's open handle blocks os.replace
+SAVE_BACKOFF_SECS = 0.05    # 0.05 + 0.10 + 0.15 + 0.20 = 0.5s worst case
+
+
 def save_cache(c):
+    """Atomically replace the risk cache. Never raises — the cache is best-effort.
+    Returns True when the new content is actually on disk.
+
+    2026-08-10. On Windows `os.replace` onto a path that ANOTHER open handle holds
+    fails with PermissionError (WinError 32), and PermissionError is an OSError —
+    so the old bare `except OSError: pass` swallowed it and left the OLDER cache in
+    place while reporting nothing. That silently defeats the very fix this module
+    exists for: the stale entry is served back, `todo` never empties, and the run
+    degrades to the proxy exactly as in the "0.60 all day" bug.
+
+    The racing reader is ours: `fetch_returns` mirrors this file to Drive on a
+    background thread, and `MediaFileUpload` keeps it open for the whole upload.
+    So retry across that window, and if it still will not land, SAY SO rather than
+    return as though the write succeeded.
+    """
+    tmp = f"{RISK_CACHE_PATH}.{os.getpid()}.tmp"
     try:
         os.makedirs(os.path.dirname(RISK_CACHE_PATH) or ".", exist_ok=True)
-        tmp = f"{RISK_CACHE_PATH}.{os.getpid()}.tmp"
         with open(tmp, "w", encoding="utf-8") as fh:
             json.dump(c, fh)
-        os.replace(tmp, RISK_CACHE_PATH)
+    except OSError as e:
+        log.warning("risk cache not written: %s", e)
+        return False
+    for attempt in range(SAVE_RETRIES):
+        try:
+            os.replace(tmp, RISK_CACHE_PATH)
+            return True
+        except PermissionError:
+            if attempt == SAVE_RETRIES - 1:
+                break
+            time.sleep(SAVE_BACKOFF_SECS * (attempt + 1))
+        except OSError as e:
+            log.warning("risk cache not replaced: %s", e)
+            break
+    try:
+        os.unlink(tmp)          # do not leave a .tmp behind on the failure path
     except OSError:
-        pass            # cache is best-effort; never break the request
+        pass
+    log.warning("risk cache save gave up after %d attempts - %s is held open by "
+                "another handle; the PREVIOUS cache is still in place and this "
+                "run's series will be refetched next time", SAVE_RETRIES,
+                RISK_CACHE_PATH)
+    return False
 
 
 def _remote_good(key):
