@@ -210,10 +210,13 @@ def save_cache(c):
     exists for: the stale entry is served back, `todo` never empties, and the run
     degrades to the proxy exactly as in the "0.60 all day" bug.
 
-    The racing reader is ours: `fetch_returns` mirrors this file to Drive on a
-    background thread, and `MediaFileUpload` keeps it open for the whole upload.
-    So retry across that window, and if it still will not land, SAY SO rather than
-    return as though the write succeeded.
+    The racing reader WAS ours: `fetch_returns` mirrors this file to Drive on a
+    background thread, and `MediaFileUpload` held it open for the whole upload.
+    That window is now closed at source — `gdrive_store._upload_media` reads the
+    bytes and releases the handle before the network call — so the retry below is
+    a backstop for handles we do not own (antivirus, backup agents, a second
+    instance), not the fix. Either way: if the write will not land, SAY SO rather
+    than return as though it succeeded.
     """
     tmp = f"{RISK_CACHE_PATH}.{os.getpid()}.tmp"
     try:

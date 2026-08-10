@@ -117,6 +117,74 @@ def test_push_blocked_until_pull_succeeds(tmp):
         _reset_drive_cache()
 
 
+def test_push_does_not_hold_the_local_file_open(tmp):
+    """2026-08-10. `MediaFileUpload(path)` keeps the file OPEN for the whole upload.
+    On Windows an open handle makes `os.replace` onto that path raise
+    PermissionError, so any save racing a push lost its write — SILENTLY in
+    `prices.save_cache` (bare `except OSError: pass`) and as a raised error out of
+    `store.save`. The test that reported it had been red for weeks and was filed
+    under 'Windows environment quirk'.
+
+    Property: while an upload is IN FLIGHT the local file must still be
+    replaceable. Reproduced by performing that replace from inside execute() —
+    exactly what the background push races against."""
+    try:
+        import googleapiclient.http                                # noqa: F401
+    except ImportError:
+        print("SKIP: googleapiclient not available")
+        return
+    os.environ["GDRIVE_SA_JSON"] = "{}"
+    _reset_drive_cache()
+    gdrive_store._enabled = True                       # force-enable, no network
+    path = os.path.join(tmp, "portfolio.json")
+    with open(path, "w", encoding="utf-8") as fh:
+        json.dump({"holdings": {"OLD": 1}}, fh)
+    seen = {}
+
+    class _Req:
+        def __init__(self, media):
+            seen["media"] = media
+
+        def execute(self):
+            # the racing writer: store.save()/save_cache() doing its atomic replace
+            hot = path + ".racing.tmp"
+            with open(hot, "w", encoding="utf-8") as fh:
+                json.dump({"holdings": {"NEW": 2}}, fh)
+            os.replace(hot, path)          # WinError 32 here if the push holds it
+            seen["replaced"] = True
+            return {"id": "fid1"}
+
+    class _Files:
+        def update(self, fileId=None, media_body=None, **kw):
+            return _Req(media_body)
+
+        def create(self, body=None, media_body=None, **kw):
+            return _Req(media_body)
+
+    class _Svc:
+        def files(self):
+            return _Files()
+
+    orig_client, orig_find = gdrive_store._client, gdrive_store._find_file_id
+    gdrive_store._client = lambda: _Svc()
+    gdrive_store._find_file_id = lambda svc: "fid1"
+    try:
+        ok = gdrive_store.drive_push(path)
+    finally:
+        gdrive_store._client, gdrive_store._find_file_id = orig_client, orig_find
+        os.environ.pop("GDRIVE_SA_JSON", None)
+        _reset_drive_cache()
+
+    assert ok is True, "push failed — the mid-upload replace raised (this IS the bug)"
+    assert seen.get("replaced") is True, "the file was not replaceable mid-upload"
+    assert json.load(open(path))["holdings"] == {"NEW": 2}, "the racing write was lost"
+    # portable half: file-backed upload = the handle race is open again on Windows,
+    # even on a POSIX box where the replace above always succeeds
+    assert type(seen["media"]).__name__ != "MediaFileUpload", \
+        "upload is file-backed again — read the bytes and close the handle first"
+    print("push does not hold the local file open OK")
+
+
 if __name__ == "__main__":
     # snapshot the real machine's Drive env and ALWAYS restore it — the suite
     # must not depend on (or disturb) local credentials.
@@ -129,6 +197,8 @@ if __name__ == "__main__":
             test_push_failure_never_raises(d)
         with tempfile.TemporaryDirectory() as d:
             test_push_blocked_until_pull_succeeds(d)
+        with tempfile.TemporaryDirectory() as d:
+            test_push_does_not_hold_the_local_file_open(d)
     finally:
         for k, v in _saved.items():
             if v is None:

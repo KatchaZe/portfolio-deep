@@ -187,6 +187,26 @@ def drive_pull(local_path):
         return "error"
 
 
+def _upload_media(data):
+    """A fresh upload body over an IN-MEMORY copy of the file.
+
+    2026-08-10. Both push paths used `MediaFileUpload(local_path)`, which keeps the
+    file OPEN for the whole upload. On Windows an open handle makes `os.replace`
+    onto that path fail with PermissionError, so any save racing a push lost its
+    write — silently in `prices.save_cache` (bare `except OSError: pass`, the cache
+    kept serving the older content), and as a raised error out of `store.save`.
+    Reading the bytes up front closes the handle BEFORE the network call, so the
+    race window disappears rather than being retried around. The files are small
+    (portfolio.json and risk_cache.json are both well under 1 MB).
+
+    A FRESH BytesIO per attempt, never a reused one: an already-consumed stream
+    would upload zero bytes on the 404 re-resolve and folder-fallback paths.
+    """
+    from googleapiclient.http import MediaIoBaseUpload
+    return MediaIoBaseUpload(io.BytesIO(data), mimetype="application/json",
+                             resumable=False)
+
+
 def drive_push(local_path):
     """Upload local_path to the remote portfolio.json (create or update).
     Returns True on success. Never raises — a Drive outage must not break save()."""
@@ -195,10 +215,11 @@ def drive_push(local_path):
         return False
     STATUS["last_push"] = _now()
     try:
-        from googleapiclient.http import MediaFileUpload
+        with open(local_path, "rb") as fh:      # read + close before the network
+            data = fh.read()
         svc = _client()
         fid = _find_file_id(svc)
-        media = MediaFileUpload(local_path, mimetype="application/json", resumable=False)
+        media = _upload_media(data)
         if fid:
             try:
                 svc.files().update(fileId=fid, media_body=media).execute()
@@ -211,8 +232,7 @@ def drive_push(local_path):
                 log.warning("Drive: cached file id stale (%s); re-resolving", e)
                 _file_id = None
                 fid = _find_file_id(svc)
-                media = MediaFileUpload(local_path, mimetype="application/json",
-                                        resumable=False)
+                media = _upload_media(data)
                 if fid:
                     svc.files().update(fileId=fid, media_body=media).execute()
         if not fid:
@@ -232,8 +252,7 @@ def drive_push(local_path):
                                 "saving portfolio.json to My Drive root instead",
                                 folder, e)
                     meta.pop("parents", None)
-                    media = MediaFileUpload(local_path, mimetype="application/json",
-                                            resumable=False)
+                    media = _upload_media(data)
                     created = svc.files().create(body=meta, media_body=media,
                                                  fields="id").execute()
                 else:
@@ -303,10 +322,11 @@ def drive_push_json(name, local_path):
     if not enabled():
         return False
     try:
-        from googleapiclient.http import MediaFileUpload
+        with open(local_path, "rb") as fh:      # read + close before the network
+            data = fh.read()
         svc = _client()
         fid = _find_aux_id(svc, name)
-        media = MediaFileUpload(local_path, mimetype="application/json", resumable=False)
+        media = _upload_media(data)
         if fid:
             try:
                 svc.files().update(fileId=fid, media_body=media).execute()
@@ -315,8 +335,7 @@ def drive_push_json(name, local_path):
                     raise
                 _aux_ids[name] = None                      # stale id -> re-resolve
                 fid = _find_aux_id(svc, name)
-                media = MediaFileUpload(local_path, mimetype="application/json",
-                                        resumable=False)
+                media = _upload_media(data)
                 if fid:
                     svc.files().update(fileId=fid, media_body=media).execute()
         if not fid:
@@ -329,8 +348,7 @@ def drive_push_json(name, local_path):
                                              fields="id").execute()
             except Exception:
                 meta.pop("parents", None)
-                media = MediaFileUpload(local_path, mimetype="application/json",
-                                        resumable=False)
+                media = _upload_media(data)
                 created = svc.files().create(body=meta, media_body=media,
                                              fields="id").execute()
             _aux_ids[name] = created["id"]
