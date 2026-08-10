@@ -18,9 +18,10 @@ from concurrent.futures import ThreadPoolExecutor
 
 import config
 from sources import sec_edgar, yahoo, fmp, stooq, finnhub, alphavantage, damodaran
-from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache, market_valuation
+from domain.facts import FinancialFacts
+from pipeline import normalize, validate, rev_track, margin_track, consensus, surprise_backfill, pricecache, market_valuation, dataquality
 from pipeline import prices
-from domain import indicators, momentum, costs, pead, philosophy, advice
+from domain import indicators, momentum, costs, pead, philosophy, advice, trend
 from pipeline import screen as screen_mod
 from domain.engine import get_engine
 import store as store_mod
@@ -126,6 +127,36 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
         ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
     if isinstance(sec_cf, dict) and sec_cf.get("_stale_cache"):
         ff.flags.append("SEC via stale cache (network failed) — figures may lag the latest filing")
+
+    # DQ2: SEC's own companyfacts can simply be behind. TSM stops at FY2024 while NVO
+    # and ASML — foreign filers too — both carry FY2025, so this is per-ticker, not a
+    # structural limit, and no amount of code review finds it. When the financials are
+    # older than the staleness threshold, TRY A SECOND SOURCE before degrading the row:
+    # a fresher number is better than a warning about a stale one.
+    #
+    # Costs FMP quota, so it only fires when the check says the data is actually old.
+    if fmp_key and any(d["code"] == "stale_financials"
+                       for d in dataquality.assess(ff)):
+        try:
+            alt = FinancialFacts(t, company=name)
+            fmp.parse(fmp.fetch(t, fmp_key), alt)
+            fmp_calls += 4                    # income annual+ttm, balance, cashflow
+            applied, note = dataquality.refresh_from_fallback(ff, alt)
+            if applied:
+                ff.flags.append(note)
+                # the fallback reports in its own currency too
+                if alt.currency and alt.currency != "USD" and fx:
+                    for k in ("revenue", "operating_income", "net_income", "total_debt",
+                              "cash", "equity", "capex", "dep_amort", "sbc",
+                              "income_before_tax", "tax_expense"):
+                        v = getattr(ff, k, None)
+                        if isinstance(v, (int, float)):
+                            setattr(ff, k, v * fx)
+            else:
+                ff.flags.append("แหล่งสำรองไม่ได้ใหม่กว่า SEC — คงตัวเลขเดิมไว้และหัก confidence")
+        except Exception as e:
+            log.warning("%s stale-financials fallback failed: %s", t, e)
+            ff.flags.append("งบเก่าและดึงแหล่งสำรองไม่สำเร็จ — หัก confidence")
 
     # price/shares fallback — foreign filers (e.g. NVO) have no SEC share count, so
     # if Yahoo was degraded the engine has nothing to anchor on. Pull price+shares
@@ -490,6 +521,9 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "earnings_surprises": ff.earnings_surprises or ff.eps_surprises_backfill,
         "rev_surprises": ff.rev_surprises_fmp,   # watchlist: immediate FMP revenue surprise
         "margin_trend": mgn_trend,
+        # T5: 5-year performance strip (revenue / gross margin / op margin / FCF / ROIC)
+        # straight from SEC 10-K series. Built by the SAME function in both row paths.
+        "trend5y": trend.build(ff) or None,
         # v8.3: all fair-value methods + why-empty status for the earnings circles
         "fv_peg": val.fv_peg, "fv_fvp": val.fv_fvp,
         # REV-16 (S20): pre-profit forward valuation — going concern, failure-adjusted
@@ -803,6 +837,7 @@ def portfolio_view(s):
             "pead": pead.signal(ff.get("earnings_surprises") or ff.get("eps_surprises_backfill"),
                                 s.get("rev_surprises", {}).get(t) or ff.get("rev_surprises_fmp")),
             "margin_trend": mgn_trend,
+            "trend5y": trend.build(ff) or None,          # T5 (ff is the stored dict here)
             # v8.3: all fair-value methods + why-empty status for the earnings circles
             "fv_peg": val.get("fv_peg"), "fv_fvp": val.get("fv_fvp"),
             "young_dcf": val.get("young_dcf") or None,          # REV-16 (S20)

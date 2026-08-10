@@ -99,6 +99,24 @@ class FinancialFacts:
     # history for CAGR (newest first): [latest_FY, FY-1, FY-2, FY-3]
     revenue_annuals: list = field(default_factory=list)
 
+    # --- T5: dated annual series for the 5-year trend strip ------------------
+    # Each is [[FY_end, value], …] newest first. DATED because two SEC tags do not
+    # necessarily cover the same fiscal years — a filer can report GrossProfit for 18
+    # years and revenue for 10 — so a margin built by zipping bare lists on INDEX would
+    # divide one year's profit by another year's revenue. domain/trend.py aligns on the
+    # date and drops years where either side is missing. All are money and DO get
+    # FX-converted (pipeline/normalize._MONEY_SERIES_DATED).
+    revenue_annuals_dated: list = field(default_factory=list)
+    operating_income_annuals_dated: list = field(default_factory=list)
+    cfo_annuals_dated: list = field(default_factory=list)
+    capex_annuals_dated: list = field(default_factory=list)
+    gross_profit_annuals_dated: list = field(default_factory=list)
+    cost_of_revenue_annuals_dated: list = field(default_factory=list)
+    # {FY_end: {equity, cash, debt, lt_source}} at the income-statement year-ends —
+    # invested capital per year, so ROIC can be a SERIES rather than one snapshot.
+    # A dict, not a list: FX conversion handles it separately (see normalize).
+    ic_components_dated: dict = field(default_factory=dict)
+
     # EPS surprise track record (oldest->newest), each: quarter/eps_actual/
     # eps_estimate/surprise_pct/grade(beat|meet|miss). Display + confidence input.
     earnings_surprises: list = field(default_factory=list)

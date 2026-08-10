@@ -43,6 +43,8 @@ def blend_forward_eps(candidates):
             "n": n}
 
 
+from domain import pead
+
 def _primary_order(present):
     """present: iterable of source names that actually returned data. Yield in
     priority order, then any extras (stable)."""
@@ -63,14 +65,18 @@ def reconcile_earnings(by_source):
                 "agree": 0, "total": 0, "disagree": False}
     order = _primary_order(present)
     primary = order[0]
-    plist = present[primary]
-    p_last = (plist[-1] or {}).get("grade") if plist else None
+    # B6: order the chosen track record by DATE before storing it, and pick the latest
+    # quarter by date too. The Yahoo parser delivers newest-first while every other
+    # source delivers oldest-first, so `[-1]` was comparing a 9-month-old quarter
+    # against other sources' current one when Yahoo won the primary slot.
+    plist = pead.chronological(present[primary])
+    p_last = (pead.latest(plist) or {}).get("grade") if plist else None
 
     others = order[1:]
     agree, total, disagree = 0, 0, False
     confirms, conflicts = [], []
     for s in others:
-        last = (present[s][-1] or {}).get("grade") if present[s] else None
+        last = (pead.latest(present[s]) or {}).get("grade") if present[s] else None
         if last is None or p_last is None:
             continue
         total += 1

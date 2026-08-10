@@ -28,6 +28,14 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
           "receivables_prior", "inventory", "inventory_prior",
           "accounts_payable", "accounts_payable_prior")
 
+# T5: [[FY_end, value], …] money series — converted element-wise, keeping the date.
+# `eps_annuals_dated` is deliberately NOT here: it is a per-share figure paired with a
+# per-share PRICE in the own-5y-P/E percentile, and converting one side of that ratio
+# without the other would break it.
+_MONEY_SERIES_DATED = ("revenue_annuals_dated", "operating_income_annuals_dated",
+                       "cfo_annuals_dated", "capex_annuals_dated",
+                       "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated")
+
 
 def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rate=None,
           company=None):
@@ -54,6 +62,22 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
                 _v = getattr(ff, _ls)
                 if _v:
                     setattr(ff, _ls, [x * fx_rate for x in _v])
+            # T5: the dated series are money too. Missing them here would leave an
+            # IFRS filer's trend strip in DKK/EUR while the card reads USD — the same
+            # unit mismatch REV-1 found on SBC. Ratios (margins, CAGR) are unaffected
+            # by a constant spot rate, but the absolute FCF bar would be wrong.
+            for _ds in _MONEY_SERIES_DATED:
+                _v = getattr(ff, _ds, None)
+                if _v:
+                    setattr(ff, _ds, [[d, x * fx_rate] for d, x in _v])
+            # invested-capital legs are money too. ROIC is a ratio so the rate cancels,
+            # but leaving them unconverted would make the legs inconsistent with the
+            # operating income they are divided into once THAT has been converted.
+            if getattr(ff, "ic_components_dated", None):
+                ff.ic_components_dated = {
+                    d: {k: (v * fx_rate if isinstance(v, (int, float)) else v)
+                        for k, v in comp.items()}
+                    for d, comp in ff.ic_components_dated.items()}
             # P1-4 (S5 consistency): ONE spot rate for every period — ratios
             # (growth, margins) equal LOCAL-currency figures (FX cancels out);
             # only absolute USD levels of past years are approximate.

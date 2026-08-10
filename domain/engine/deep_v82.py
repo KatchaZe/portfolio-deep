@@ -5,6 +5,8 @@ Free-data limits handled per skill invariant 17 (skip + flag, never fabricate).
 import datetime
 
 import config
+from domain import pead as pead_mod
+from domain import trend as trend_mod
 from . import young_dcf
 from .contract import DeepEngine, Valuation
 
@@ -247,6 +249,12 @@ def two_stage_pe(g_h, n, g_st, ke, roic_h, roic_st, ke_st=None):
 # Whenever it binds the row is flagged as a boundary rather than an estimate.
 PE_FLOOR, PE_CEIL = 5.0, 35.0
 
+# D4: how far apart the two point methods may sit before the [low, high] pair stops
+# being readable as a range. 2x is a judgement, chosen because it is roughly where a
+# band stops narrowing a decision and starts merely containing it: a fair value
+# somewhere between $41 and $299 rules nothing in or out.
+FV_DISAGREE_RATIO = 2.0
+
 
 def fundamental_peg_price(g_high, g_stable, ke, roic_high, roic_stable, forward_eps, years=5,
                           ke_stable=None):
@@ -440,7 +448,8 @@ def future_value_projection(eps0, growth, ke, exit_pe):
 
 
 def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin,
-                wacc_term=None, roic_term=None, market_cap=None, margin_now=None):
+                wacc_term=None, roic_term=None, market_cap=None, margin_now=None,
+                actual_growth=None):
     """Full-path reverse DCF (Philosophy-2026 fix): solve the revenue CAGR x such
     that PV(interim FCFF years 1..H) + PV(terminal value) = Enterprise Value.
     The old closed form assumed ALL of EV compounds into the year-H terminal value
@@ -517,6 +526,28 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
         # Damodaran's young-company models carry exactly that. Letting the ratio run
         # free restores the property the solver needs — FCFF strictly decreasing in x —
         # and makes the price pay for the growth it is implying.
+        # D5 — INVESTIGATED AND DELIBERATELY LEFT AS IS. `x` is the REVENUE CAGR, and
+        # Damodaran writes the reinvestment rate as g/ROIC with g the growth in
+        # EARNINGS, so this looked like the wrong quantity. Deriving it says otherwise.
+        #
+        # Reinvestment is dCapital/NOPAT. Under a constant sales-to-capital ratio —
+        # Damodaran's own assumption for a growth firm, and the one young_dcf uses:
+        #
+        #     Capital  = Revenue / (S/C)          dCapital = Capital * x
+        #     ROIC     = NOPAT / Capital
+        #     reinvest = Capital*x / (ROIC*Capital) = x / ROIC
+        #
+        # so the revenue CAGR is EXACTLY right, not an approximation of the earnings one.
+        #
+        # It matters most where the two diverge — a margin ramp. Charging NOPAT growth
+        # there bills the firm for growth it never had to fund: revenue +20% with the
+        # margin going 10% -> 25% is 200% NOPAT growth, but the capital needed is still
+        # only dRevenue/(S/C). Implemented and measured, that reading pushed HIMS from
+        # 16.7% to 36.2% implied CAGR and sent ELV, RKLB and AXON out of band entirely —
+        # the solver could not reach EV at any growth rate because FCFF had been charged
+        # for margin recovery. Reverted.
+        #
+        # Margin expansion costs no capital. Revenue growth is what costs capital.
         reinvest = max(0.0, x / roic_t) if x > 0 else 0.0
         reinvest_t = min(0.8, g / roic_t)
         pv = 0.0
@@ -584,7 +615,31 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
         return (a + b) / 2, None
 
     base, why = implied(margin)
-    a1 = (revenue / rev_1y - 1) if rev_1y else None
+    # P3-1: `actual_1y_pct` must be a LIKE-FOR-LIKE fiscal-year growth rate.
+    #
+    # It used to be computed here as `revenue / rev_1y - 1`, and those two numbers do
+    # not share a time base: `revenue` is the TTM (sec_edgar builds it by summing
+    # quarters) while `rev_1y` is `revenue_annuals[1]`, the fiscal year BEFORE the last
+    # completed one. For any filer whose TTM has moved past its last fiscal year that
+    # spans ~21 months of growth and reports it as one year:
+    #
+    #     MSFT  TTM $318.3B / FY2024 $245.1B = +29.8%   reported FY2025 growth: +15%
+    #     AVGO  TTM $75.5B  / FY2023 $51.6B  = +46.3%   reported: +23.9%
+    #     NVDA  +94.3%  vs reported +65.5%   CELH +119.0% vs reported +85.5%
+    #
+    # The error is one-directional (TTM >= last FY, so the "actual" is always too high)
+    # and this number is the DENOMINATOR of the acceleration ratio that picks the
+    # verdict — Plausible / Ambitious / Aggressive / Exceptional. An inflated actual
+    # makes the market's implied growth look easier to reach than it is, so the verdict
+    # came out systematically too FORGIVING, and the card printed a growth rate the
+    # company never announced right next to "ทำได้จริงล่าสุด".
+    #
+    # The engine already computes the honest figure — `rev_growth_yoy`, FY over FY,
+    # the same one the Demand pillar scores — so it is passed in rather than
+    # recomputed from two different clocks. The old expression survives only as a
+    # fallback for direct callers (skill-parity tests) that supply no growth.
+    a1 = actual_growth if actual_growth is not None else (
+        (revenue / rev_1y - 1) if rev_1y else None)
     accel = (base / a1) if (base and a1 and a1 > 0) else None
     if a1 is not None and a1 <= 0:
         verdict = "Cannot benchmark - shrinking"
@@ -627,7 +682,8 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
 
 
 def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
-                     receivables=None, receivables_prior=None, revenue_prior=None):
+                     receivables=None, receivables_prior=None, revenue_prior=None,
+                     revenue_growth=None):
     """REV-19: adds the AR-vs-revenue check that `receivables` was being fetched for.
 
     `FinancialFacts.receivables` has carried the comment "AR vs revenue
@@ -650,9 +706,14 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
     if sbc is not None and revenue:
         if sbc / revenue > 0.10:
             flags.append("SBC >10% of revenue")
-    if receivables and receivables_prior and revenue and revenue_prior:
+    _rev_g = revenue_growth if revenue_growth is not None else (
+        (revenue / revenue_prior - 1) if (revenue and revenue_prior) else None)
+    if receivables and receivables_prior and _rev_g is not None:
         ar_g = receivables / receivables_prior - 1
-        rev_g = revenue / revenue_prior - 1
+        # P3-1: prefer the caller's like-for-like fiscal-year growth. The fallback
+        # (revenue / revenue_prior) mixes a TTM numerator with a fiscal-year
+        # denominator and overstates growth, which SUPPRESSES this flag.
+        rev_g = _rev_g
         # only meaningful when AR is actually growing AND outpacing sales by a wide
         # margin; a shrinking book or a small gap is ordinary business noise.
         if ar_g > 0.10 and ar_g > rev_g + 0.15:
@@ -662,7 +723,98 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
     return verdict, flags, cc
 
 
-def _r_demand(g, peer_median, acq_intensity, fade_ratio, notes):
+def fade_ratio(near, far):
+    """Consensus growth fade: how much of the near-term growth rate survives to the
+    far year. Returns (ratio, why-not).
+
+    A2: the ratio only carries meaning when the NEAR rate is positive. With a negative
+    denominator it inverts, and both readings come out wrong in the same direction:
+
+        near -10% -> far  +5%   ratio -0.50  ->  scored as a severe fade  (-0.5)
+        near -10% -> far  -5%   ratio +0.50  ->  scored as no fade at all ( 0.0)
+
+    The first company is turning from decline to growth — the best trajectory on the
+    list — and it was the one being penalised; the second is still shrinking and got
+    away clean. PFE is the live case: consensus -4.1% then +0.75%, penalised -0.5.
+
+    A company that is already shrinking is not "fading", it is declining, and the base
+    band has already scored that. So: no near-term growth, no fade reading. A positive
+    near rate collapsing to a negative far one still produces a negative ratio, which
+    the band correctly treats as the worst kind of fade — that case was right already."""
+    # "no consensus path filed" and "consensus says the company is shrinking" are
+    # different answers and must not share a message — that is the REV-5 lesson.
+    if near is None or far is None:
+        return None, "no consensus path"
+    if near <= 0:
+        return None, ("consensus near-term growth ไม่เป็นบวก — fade ไม่มีความหมาย "
+                      "(การหดตัวถูกให้คะแนนที่ฐานแล้ว)")
+    return far / near, None
+
+
+def acquisition_intensity(acquisitions_net, revenue):
+    """Cash SPENT on acquisitions as a share of revenue — the organic-growth penalty.
+
+    A2: this used `abs(acquisitions_net)`, so a DIVESTITURE looked exactly like a
+    purchase. `PaymentsToAcquireBusinessesNetOfCashAcquired` is a payment, so a
+    negative value means net cash came IN — the company sold a business. Selling one is
+    not buying growth, and Damodaran's organic-growth question is only about growth
+    that was purchased. ELV is the live case: -$39M net, penalised as if it had spent
+    $39M acquiring.
+
+    Returns (intensity, label). Zero for a net divestiture — not None, because we DO
+    know the answer: nothing was bought."""
+    if acquisitions_net is None or not revenue:
+        return None, None
+    if acquisitions_net <= 0:
+        return 0.0, "net divestiture — ไม่ได้ซื้อการเติบโต"
+    return acquisitions_net / revenue, None
+
+
+SUSTAINED_RATIO, SPIKE_RATIO, DECEL_RATIO = 0.80, 0.50, 1.30
+
+
+def growth_consistency(g_1y, g_3y):
+    """B5: is this year's growth the pace the company actually runs at?
+
+    The Demand band was read off ONE year, so a single 40% year scored 5.0/5 whether
+    the company had compounded at 38% for a decade or at 8%. Damodaran's objection to
+    a one-year growth rate is the same as his objection to a one-year margin: it is a
+    draw from a distribution, not the distribution.
+
+    Compares the latest fiscal year against the 3-year CAGR ending the same year:
+      3y between 80% and 130% of 1y -> the pace is genuinely sustained     +0.25
+      3y <  50% of 1y               -> latest year is ~2x the run-rate     -0.5
+      3y > 130% of 1y               -> DECELERATING                         0.0
+    Asymmetric on purpose. Sustained growth is the expected case and barely deserves a
+    bonus; a year at twice the multi-year pace is the one that misleads a band built to
+    reward 35%+, so that is where the weight goes.
+
+    The upper bound exists because the first version did not have one, and a single
+    threshold of "3y >= 80% of 1y" quietly swept in the opposite situation: NVO's 3-year
+    CAGR is 20% against 6% last year — growth collapsing, not compounding — and it
+    scored +0.25 labelled "โตต่อเนื่องจริง". Deceleration earns nothing here; the base
+    band has already scored the slower year, and paying a consistency bonus on top of it
+    would reward the slowdown twice.
+
+    Only speaks when 1-year growth is positive — a decline is already scored at the
+    base, and dividing by a negative denominator inverts the comparison (A2's lesson).
+    Returns (adjustment, note)."""
+    if g_1y is None or g_3y is None or g_1y <= 0:
+        return 0.0, None
+    ratio = g_3y / g_1y
+    if ratio < SPIKE_RATIO:
+        return -0.5, (f"3y CAGR {g_3y*100:.0f}% vs 1y {g_1y*100:.0f}% — "
+                      f"ปีล่าสุดเร็วกว่าค่าเฉลี่ย {1/ratio:.1f} เท่า")
+    if ratio > DECEL_RATIO:
+        return 0.0, (f"3y CAGR {g_3y*100:.0f}% vs 1y {g_1y*100:.0f}% — "
+                     f"ชะลอตัว (ฐานให้คะแนนปีล่าสุดไปแล้ว)")
+    if ratio >= SUSTAINED_RATIO:
+        return 0.25, f"3y CAGR {g_3y*100:.0f}% ~ 1y {g_1y*100:.0f}% — โตต่อเนื่องจริง"
+    return 0.0, f"3y CAGR {g_3y*100:.0f}% vs 1y {g_1y*100:.0f}%"
+
+
+def _r_demand(g, peer_median, acq_intensity, fade_ratio, notes, acq_label=None,
+              fade_why=None, consistency_adj=0.0, consistency_note=None):
     if g is None:
         return None
     base = _band(g, [(0.35, 5.0), (0.25, 4.0), (0.15, 3.0), (0.08, 2.0), (0.0, 1.0), (-1e9, 0.0)])
@@ -670,7 +822,8 @@ def _r_demand(g, peer_median, acq_intensity, fade_ratio, notes):
     score = base
     if acq_intensity is not None:
         pen = -1.0 if acq_intensity > 0.10 else (-0.5 if acq_intensity > 0.05 else 0.0)
-        score += pen; notes.append(f"D organic(acq {acq_intensity*100:.1f}% of rev)={pen}")
+        score += pen
+        notes.append(f"D organic({acq_label or f'acq {acq_intensity*100:.1f}% of rev'})={pen}")
     else:
         notes.append("D organic adj=skipped(no acquisitions data)")
     if peer_median is not None:
@@ -682,11 +835,100 @@ def _r_demand(g, peer_median, acq_intensity, fade_ratio, notes):
         adj = -0.5 if fade_ratio < 0.4 else (0.25 if fade_ratio > 0.7 else 0.0)
         score += adj; notes.append(f"D durability(fade {fade_ratio:.2f})={adj}")
     else:
-        notes.append("D durability adj=skipped(no consensus path)")
-    return _clamp(score)
+        notes.append(f"D durability adj=skipped({fade_why or 'no consensus path'})")
+    if consistency_note:
+        score += consistency_adj
+        notes.append(f"D 3y-consistency({consistency_note})={consistency_adj}")
+    else:
+        notes.append("D 3y-consistency adj=skipped(<4 ปีงบ หรือ growth ไม่เป็นบวก)")
+    return _clamp(_apply_budget(base, score, notes, "D"))
 
 
-def _r_execution(eq_verdict, margin_trend, inc_roic, wacc_val, notes):
+FCF_DURABILITY_CAGR = 2.0      # %/yr — below this in either direction reads as flat
+
+
+def fcf_durability(trend_rows):
+    """T5-E: does the free cash flow actually compound, or was last year a good year?
+
+    Every other E_exec input is a one- or two-period snapshot: the earnings-quality
+    verdict reads THIS year's cash conversion, the margin trend compares two fiscal
+    years, incremental ROIC one. So a company whose FCF has fallen four years running
+    scores identically to one whose FCF is compounding, provided the latest ratios
+    match. Damodaran's execution question is whether management turns the business into
+    owner cash REPEATEDLY, which needs more than one observation.
+
+    Deliberately narrow — +/-0.5, the same weight as the margin trend, and it needs
+    at least three consecutive filed years before it says anything. It reads the
+    already-built trend strip rather than recomputing FCF, so the card and the score
+    can never disagree about what the cash flow did.
+
+    Returns (adjustment, note) or (0.0, None) when there is not enough history."""
+    row = next((r for r in (trend_rows or []) if r.get("key") == "fcf"), None)
+    if not row or row.get("n", 0) < 3:
+        return 0.0, None
+    pts = [p.get("v") for p in row.get("points") or []]
+    cagr = row.get("summary")
+    latest = pts[-1] if pts else None
+    if latest is not None and latest <= 0:
+        # burning cash in the latest filed year is a fact, not a trend reading
+        return -0.5, f"FCF ล่าสุดติดลบ ({row['n']}y)"
+    if cagr is None:
+        return 0.0, None
+    if cagr > FCF_DURABILITY_CAGR:
+        return 0.5, f"FCF โต {cagr:+.1f}%/ปี ({row['n']}y)"
+    if cagr < -FCF_DURABILITY_CAGR:
+        return -0.5, f"FCF หด {cagr:+.1f}%/ปี ({row['n']}y)"
+    return 0.0, f"FCF ทรงตัว {cagr:+.1f}%/ปี ({row['n']}y)"
+
+
+BEAT_MIN_QUARTERS = 3
+
+
+def beat_consistency(eps_surprises):
+    """B6: does management deliver what it told the market it would?
+
+    The v7.1 framework names "earnings beats consistency" as the BASE of the Execution
+    pillar. The data has been fetched, stored and drawn as circles on the card since
+    v8.2 — and scored nowhere. This adds it as an adjustment rather than a base,
+    because the earnings-quality verdict is the better base: it asks whether the
+    earnings are real, which has to be settled before whether they beat a forecast.
+
+    ASYMMETRIC, and the asymmetry is the point. Beating consensus is partly a guidance
+    game — a management team that guides conservatively will beat every quarter without
+    the business doing anything remarkable — so a beat streak is weak evidence and gets
+    +0.25. Missing your own guided number repeatedly is not a game anyone plays on
+    purpose: it is direct evidence that management cannot forecast its own business,
+    which is exactly what the Execution pillar exists to measure. That gets -0.5.
+
+    'meet' is excluded from the denominator: it is the intended outcome, not evidence
+    either way. Needs 3+ graded quarters. Order-independent (see pead.chronological)."""
+    graded = [r.get("grade") for r in pead_mod.chronological(eps_surprises)
+              if r.get("grade") in ("beat", "miss")]
+    if len(graded) < BEAT_MIN_QUARTERS:
+        return 0.0, None
+    beats = graded.count("beat")
+    rate = beats / len(graded)
+    label = f"{beats}/{len(graded)} beat"
+    if rate >= 0.75:
+        return 0.25, f"{label} — ทำได้ตามที่บอกตลาดสม่ำเสมอ (guidance game ได้ จึงให้น้ำหนักน้อย)"
+    if rate <= 0.25:
+        return -0.5, f"{label} — พลาดเป้าตัวเองซ้ำ ๆ คือหลักฐานตรงว่าคาดการณ์ธุรกิจตัวเองไม่ได้"
+    return 0.0, label
+
+
+def _trend_roic_map(f, tax):
+    """Per-year raw ROIC map from the T5 series, or {} when the inputs are absent.
+    Isolated so both the incremental-ROIC leg (A4) and the level check (A3) read the
+    same map and can never end up on different bases."""
+    try:
+        return trend_mod.roic_series(getattr(f, "operating_income_annuals_dated", None),
+                                     getattr(f, "ic_components_dated", None) or {}, tax)
+    except Exception:
+        return {}
+
+
+def _r_execution(eq_verdict, margin_trend, inc_roic, wacc_val, notes, fcf_adj=0.0, fcf_note=None,
+                 inc_src=None, skip_inc_note=False, beat_adj=0.0, beat_note=None):
     base = {"CLEAN": 4.0, "REVIEW": 3.0, "LOW": 1.5}.get(eq_verdict)
     if base is None:
         base = 3.0; notes.append("E_exec base(no earnings-quality data)=3.0")
@@ -699,34 +941,266 @@ def _r_execution(eq_verdict, margin_trend, inc_roic, wacc_val, notes):
     if inc_roic is not None and wacc_val is not None:
         inc = inc_roic - wacc_val
         adj = 1.0 if inc >= 0.10 else 0.5 if inc >= 0 else -0.5 if inc >= -0.05 else -1.0
-        score += adj; notes.append(f"E_exec incremental-ROIC(inc-spread {inc*100:.0f}%)={adj}")
-    else:
+        score += adj
+        notes.append(f"E_exec incremental-ROIC(inc-spread {inc*100:.0f}%"
+                     f"{', ' + inc_src if inc_src else ''})={adj}")
+    elif not skip_inc_note:
         notes.append("E_exec incremental-ROIC adj=skipped(no prior op income)")
-    return _clamp(score)
+    if fcf_note:
+        score += fcf_adj
+        notes.append(f"E_exec FCF-durability({fcf_note})={fcf_adj}")
+    else:
+        notes.append("E_exec FCF-durability adj=skipped(<3 consecutive filed years)")
+    if beat_note:
+        score += beat_adj
+        notes.append(f"E_exec beat-consistency({beat_note})={beat_adj}")
+    else:
+        notes.append(f"E_exec beat-consistency adj=skipped(<{BEAT_MIN_QUARTERS} graded quarters)")
+    return _clamp(_apply_budget(base, score, notes, "E_exec"))
 
 
-def _r_economics(spread, spread_prior, notes):
+# upper bound is 1.0 on purpose: the correction may only ever lower a score
+NORMALIZE_FACTOR_MIN, NORMALIZE_FACTOR_MAX = 0.6, 1.0
+NORMALIZE_MIN_YEARS = 4
+
+
+def normalized_roic(roic_used, roic_map):
+    """A3: damp a one-year ROIC toward its own multi-year median before scoring it.
+
+    The Economics pillar carries 30% and its base band was read off a SINGLE year's
+    ROIC. One year is not a moat. ABBV's raw return went 13.4 -> 15.5 -> 13.7 -> 8.6
+    -> 15.7% — a 7.1pp range on the same business — and the band it lands in depends
+    entirely on which year you ask about (latest 15.7% scores 3.0, median 13.7% scores
+    2.0). Damodaran normalizes earnings for exactly this reason.
+
+    The trap here is basis. The T5 series is RAW ROIC: no R&D capitalization, no
+    capitalized leases. `roic_used` has both. Swapping one for the other would be D3
+    all over again, on the same pillar, three weeks later. So the series is used only
+    for its SHAPE — the ratio median/latest — which is applied to the adjusted level.
+    Whatever the R&D and lease adjustments do to the level, they do to both terms and
+    largely cancel in the ratio.
+
+    ONE-SIDED, and this was learned the hard way. Median normalization is the right
+    treatment for CYCLICAL noise and the wrong one for a monotone TREND, and the ratio
+    cannot tell them apart. NVO's raw series runs 53.5 -> 61.2 -> 68.0 -> 44.0 -> 33.8:
+    the median sits far above the latest year not because 2025 was an unlucky trough
+    but because returns have been falling for three straight years. Normalizing "up"
+    toward that median would hand a company a better score for a decline that is real —
+    and the ROIC-trend adjustment is already penalising it, so the two would fight.
+
+    So the factor is applied only when it makes the score HARSHER (< 1). A latest year
+    sitting above its own history is a peak that should not be extrapolated; a latest
+    year below its history is ambiguous, and the trend leg already covers the case
+    where it is genuine. Same principle as D1: a correction that can only ever lower.
+
+    The factor is clamped to [0.6, 1.0] and needs 4+ consecutive years before it says
+    anything. Returns (normalized_roic, note) or (roic_used, None)."""
+    if roic_used is None or roic_used <= 0 or len(roic_map or {}) < NORMALIZE_MIN_YEARS:
+        return roic_used, None
+    # CONTIGUOUS years only. `sorted(...)[-5:]` reaches back across a filing gap:
+    # AVGO has no long-term debt tag for FY2022-24, so the map holds 2018-2021 and 2025,
+    # and the median of that set is a pre-VMware business being used to normalise a
+    # post-VMware year. Same rule the trend strip already enforces for the same reason.
+    _win = trend_mod._window(roic_map, years=5)
+    vals = [roic_map[d]["roic"] for d in _win]
+    if len(vals) < NORMALIZE_MIN_YEARS:
+        return roic_used, None
+    latest = vals[-1]
+    if latest <= 0:
+        return roic_used, None
+    med = sorted(vals)[len(vals) // 2] if len(vals) % 2 else sum(sorted(vals)[len(vals) // 2 - 1:
+                                                                            len(vals) // 2 + 1]) / 2
+    raw = med / latest
+    if raw >= 1.0 - 0.02:
+        # latest year is at or below its own median -> nothing to damp. Either it sits
+        # on the median, or it is a decline the trend leg is already scoring.
+        return roic_used, None
+    factor = max(NORMALIZE_FACTOR_MIN, min(NORMALIZE_FACTOR_MAX, raw))
+    out = roic_used * factor
+    return out, (f"ROIC normalized {roic_used*100:.1f}% -> {out*100:.1f}% "
+                 f"(ปีล่าสุด {latest:.1f}% vs median {len(vals)}y {med:.1f}% = {factor:.2f}x)")
+
+
+CAP_MIN_YEARS = 4
+SECTOR_BEAT, SECTOR_LAG = 1.5, 0.7
+# B: every pillar now carries several adjustments, each sized on its own. Left unchecked
+# they sum to more than the base band that is supposed to be the answer, and — worse —
+# ADDING a factor silently re-weights the ones already there. The budget caps the NET
+# adjustment per pillar.
+#
+# 2.0, not a rounder-looking 1.5, and the number was chosen from the existing rubric
+# rather than picked: D could already stack organic (-1.0) + peer (-0.5) + fade (-0.5)
+# = -2.0 before this round added anything. A tighter budget would have quietly changed
+# answers the rubric already gave, which is precisely the kind of silent re-rating this
+# guard exists to prevent. So it binds only on stacks that are NEW.
+ADJ_BUDGET = 2.0
+
+
+def _apply_budget(base, score, notes, pillar):
+    """Clamp the NET adjustment to +/-ADJ_BUDGET and say so when it binds."""
+    if base is None:
+        return score
+    net = score - base
+    if abs(net) <= ADJ_BUDGET + 1e-9:
+        return score
+    capped = base + (ADJ_BUDGET if net > 0 else -ADJ_BUDGET)
+    notes.append(f"{pillar} adjustment budget: net {net:+.2f} capped to "
+                 f"{ADJ_BUDGET if net > 0 else -ADJ_BUDGET:+.2f} (base ต้องเป็นคำตอบหลัก)")
+    return capped
+
+
+def competitive_advantage_period(roic_map, wacc_val, years=5):
+    """B8: how many of the last N fiscal years did the business out-earn its capital?
+
+    Damodaran's moat has two dimensions — the SIZE of the excess return and how long it
+    lasts — and only the size was scored. A firm clearing its cost of capital in five
+    years out of five is a different proposition from one that cleared it once, even
+    when this year's spread is identical, and it is precisely in the marginal cases
+    (spread of a few points) that the two are indistinguishable on a single year.
+
+    Today's WACC is applied to past ROICs rather than each year's own cost of capital,
+    which is not what those years actually faced. Read it as "would this business have
+    cleared TODAY's hurdle in each of the last five years" — a consistent question,
+    which is what a count needs. Contiguous years only.
+
+    Returns (adjustment, note). Deliberately small: +/-0.5 on a 30% pillar."""
+    if not roic_map or not wacc_val or wacc_val <= 0:
+        return 0.0, None
+    win = trend_mod._window(roic_map, years=years)
+    if len(win) < CAP_MIN_YEARS:
+        return 0.0, None
+    hurdle = wacc_val * 100
+    above = sum(1 for d in win if roic_map[d]["roic"] > hurdle)
+    n = len(win)
+    if above == n:
+        return 0.5, f"{above}/{n} ปี ROIC > WACC — excess return ต่อเนื่องทุกปี"
+    if above <= 1:
+        return -0.5, f"{above}/{n} ปี ROIC > WACC — แทบไม่เคยชนะต้นทุนทุน"
+    if above <= n // 2:
+        return -0.25, f"{above}/{n} ปี ROIC > WACC — ชนะไม่ถึงครึ่ง"
+    return 0.0, f"{above}/{n} ปี ROIC > WACC"
+
+
+def sector_relative(roic_used, sector_roc):
+    """B7: is this return good FOR ITS INDUSTRY?
+
+    The Economics band is absolute — a 12% spread scores 4.0 whether the company is a
+    software firm where peers earn 25% or a utility where they earn 6%. Damodaran's
+    excess return is a relative idea: the question is whether this business earns more
+    than the capital deployed in this industry typically does.
+
+    `terminal_roic_sector` is his published normalized industry ROC, already fetched for
+    the terminal-value ceiling and read by nothing else. Note the basis caveat carried
+    in sources/damodaran.py: the industry figure is not lease- or R&D-adjusted, so it
+    reads slightly generous against our own adjusted ROIC. That biases this adjustment
+    toward being HARSH on us, which is the safe direction, and is why the thresholds are
+    wide (1.5x and 0.7x) rather than tight. Returns (adjustment, note)."""
+    if roic_used is None or roic_used <= 0 or not sector_roc or sector_roc <= 0:
+        return 0.0, None
+    ratio = roic_used / sector_roc
+    if ratio >= SECTOR_BEAT:
+        return 0.5, f"ROIC {roic_used*100:.0f}% = {ratio:.1f}x ของอุตสาหกรรม ({sector_roc*100:.0f}%)"
+    if ratio <= SECTOR_LAG:
+        return -0.5, f"ROIC {roic_used*100:.0f}% = {ratio:.1f}x ของอุตสาหกรรม ({sector_roc*100:.0f}%) — ต่ำกว่าเพื่อน"
+    return 0.0, f"ROIC {roic_used*100:.0f}% ~ อุตสาหกรรม ({sector_roc*100:.0f}%)"
+
+
+def _r_economics(spread, roic_delta, notes, cap_adj=0.0, cap_note=None,
+                 sector_adj=0.0, sector_note=None):
+    """Economics pillar: the LEVEL of the ROIC-WACC spread, adjusted for its TREND.
+
+    D3: the second argument used to be `spread_prior`, and the delta was taken here
+    as `spread - spread_prior`. That only works if both spreads were measured the same
+    way, and they were not — the current side was a TTM and (when R&D capitalization
+    applied) an ADJUSTED return, while the prior side was a fiscal year two periods
+    back and always a RAW one. The caller now computes the like-for-like FY0-vs-FY1
+    change in ROIC and passes it directly, so this function can no longer construct a
+    delta out of two incompatible numbers. WACC cancels in the difference anyway, so a
+    ROIC delta and a spread delta are the same quantity."""
     if spread is None:
         return None
     base = _band(spread, [(0.20, 5.0), (0.10, 4.0), (0.05, 3.0), (0.0, 2.0), (-0.05, 1.0), (-1e9, 0.0)])
     notes.append(f"E_econ base(spread {spread*100:.1f}%)={base}")
     score = base
-    if spread_prior is not None:
-        delta = spread - spread_prior
-        adj = 0.5 if delta > 0.02 else (-1.0 if (delta < -0.02 and spread < 0.05)
-                                        else -0.5 if delta < -0.02 else 0.0)
-        # REV-14: labelled "5y" but the input is operating_income_annuals[1] and the
-        # prior-year balance sheet — a ONE-year change. Renamed rather than re-sourced;
-        # the 5y series exists but the prior-IC components are only fetched one year back.
-        score += adj; notes.append(f"E_econ 1y-spread-trend(d {delta*100:+.1f}pp)={adj}")
+    if roic_delta is not None:
+        adj = 0.5 if roic_delta > 0.02 else (-1.0 if (roic_delta < -0.02 and spread < 0.05)
+                                             else -0.5 if roic_delta < -0.02 else 0.0)
+        score += adj
+        notes.append(f"E_econ 1y-ROIC-trend(FY0 vs FY1, d {roic_delta*100:+.1f}pp)={adj}")
     else:
-        notes.append("E_econ spread-trend adj=skipped(no prior ROIC)")
-    return _clamp(score)
+        notes.append("E_econ spread-trend adj=skipped(no like-for-like prior ROIC)")
+    if cap_note:
+        score += cap_adj
+        notes.append(f"E_econ CAP({cap_note})={cap_adj}")
+    else:
+        notes.append(f"E_econ CAP adj=skipped(<{CAP_MIN_YEARS} ปีงบต่อเนื่อง)")
+    if sector_note:
+        score += sector_adj
+        notes.append(f"E_econ sector-relative({sector_note})={sector_adj}")
+    else:
+        notes.append("E_econ sector-relative adj=skipped(no Damodaran industry ROC)")
+    return _clamp(_apply_budget(base, score, notes, "E_econ"))
 
 
-def _r_price(fv_anchor, price, own_pe_pctile, notes):
+def fcf_yield_adj(trend_rows, enterprise_value, wacc_val):
+    """A1: a SECOND, independent read on cheapness for the Price pillar.
+
+    Price carries 30% of the composite and rested entirely on one number — the margin
+    of safety against a single point fair value — plus a P/E percentile. If the fair
+    value is wrong, 30% of the score is wrong with nothing to contradict it. The v7.1
+    framework always specified an FCF-yield leg (20% of the Price score); it was never
+    built, and the reverse DCF, which was, can only reach P when it is the anchor —
+    and when it is the anchor, `anchor_value` is None and P is skipped entirely.
+
+    The test is Damodaran's, not a multiple: does the business throw off cash at a rate
+    that beats what the capital costs? FCF/EV against WACC compares like with like —
+    a firm-level cash flow against a firm-level required return, on the same enterprise
+    value the WACC weights were built from.
+
+    Reads the free cash flow off the SAME trend strip the card draws, so the picture
+    and the score cannot disagree. Bounded at +/-0.5, matching the other Price
+    adjustment. Returns (adjustment, note) or (0.0, None) when it cannot be measured.
+
+    Note this is deliberately harsh on a heavy investor: ORCL's FY2025 FCF is negative
+    on the datacentre build-out, and on a cash basis the share price genuinely is not
+    supported today. The Demand and Economics pillars are where that spending earns
+    its credit back."""
+    row = next((r for r in (trend_rows or []) if r.get("key") == "fcf"), None)
+    if not row or not row.get("points") or not enterprise_value or enterprise_value <= 0:
+        return 0.0, None
+    if not wacc_val or wacc_val <= 0:
+        return 0.0, None
+    fcf = row["points"][-1]["v"]
+    if fcf is None:
+        return 0.0, None
+    y = fcf / enterprise_value
+    if y <= 0:
+        return -0.5, f"FCF yield ติดลบ (FCF {fcf/1e9:.1f}B) — ราคาไม่มีกระแสเงินสดรองรับ"
+    ratio = y / wacc_val
+    if ratio >= 1.0:
+        adj = 0.5
+    elif ratio >= 0.6:
+        adj = 0.25
+    elif ratio >= 0.3:
+        adj = 0.0
+    else:
+        adj = -0.25
+    return adj, f"FCF yield {y*100:.1f}% vs WACC {wacc_val*100:.1f}% ({ratio:.2f}x)"
+
+
+def _r_price(fv_anchor, price, own_pe_pctile, notes, fcf_adj=0.0, fcf_note=None):
     if fv_anchor is None or not price or fv_anchor <= 0:
-        notes.append("P base=skipped(no point fair value)")
+        # A1: with no point fair value the pillar used to vanish entirely, which is
+        # what `cap_reco_without_price` had to paper over. An FCF yield is a complete
+        # cheapness opinion on its own — cash generated against what capital costs —
+        # so a row that has one is no longer priceless. Scored from the neutral 3.0
+        # because the margin-of-safety half of the test really is missing.
+        if fcf_note:
+            score = _clamp(NEUTRAL_SCORE + fcf_adj * 2)      # +/-1.0 around neutral
+            notes.append(f"P base=no point fair value; scored on cash alone "
+                         f"({fcf_note})={score}")
+            return score
+        notes.append("P base=skipped(no point fair value, no FCF either)")
         return None
     # REV-7: the note called this "margin-of-safety" but divided by PRICE, which is
     # upside (the return if price converges), not margin of safety. Damodaran defines
@@ -743,18 +1217,52 @@ def _r_price(fv_anchor, price, own_pe_pctile, notes):
         score += adj; notes.append(f"P own-5y-multiple(pctile {own_pe_pctile*100:.0f}%)={adj}")
     else:
         notes.append("P own-5y-multiple adj=skipped(no P/E history)")
-    return _clamp(score)
+    if fcf_note:
+        score += fcf_adj
+        notes.append(f"P FCF-yield({fcf_note})={fcf_adj}")
+    else:
+        notes.append("P FCF-yield adj=skipped(no FCF series or no enterprise value)")
+    return _clamp(_apply_budget(base, score, notes, "P"))
 
 
 WEIGHTS = {"D": 0.20, "E_exec": 0.20, "E_econ": 0.30, "P": 0.30}
 
 
+NEUTRAL_SCORE = 2.5     # midpoint of the 0-5 band: "we did not find out", not "it is bad"
+
+
 def composite(scores):
+    """Weighted DEEP composite.
+
+    D1: renormalizing over the pillars that HAPPEN to be measurable makes a missing
+    pillar inherit the weighted average of the others. On a strong row that average
+    is near-maximal, so failing to measure something scores better than measuring it
+    and finding it poor:
+
+        D4.0 E_exec4.0 E_econ1.0 P4.0  -> 3.10   HOLD / Accumulate
+        D4.0 E_exec4.0 E_econ None P4.0 -> 4.00  BUY
+
+    `cap_reco_without_price` / `cap_reco_without_quality` stop the BUY, but not the
+    notch below it (2.90 HOLD -> 4.14 capped -> HOLD / Accumulate).
+
+    The fix is to bound the renormalized score by what it would be if the missing
+    pillar scored NEUTRAL — the honest reading of "not measured" is the middle of the
+    band, neither a reward nor a punishment. Taking the MIN of the two makes this
+    strictly one-sided: it can only ever lower a row, never raise one, so a data gap
+    can never help. A row with everything measured is untouched, because with no
+    missing pillar the two expressions are identical.
+
+    Measured on the committed portfolio: LLY 3.21->3.00, PFE 3.29->3.05,
+    TSM 4.50->3.90, NVO 2.79->2.70; AXON and RKLB unchanged; no recommendation moved."""
     avail = {k: scores[k] for k in WEIGHTS if scores.get(k) is not None}
     if not avail:
         return None
     wsum = sum(WEIGHTS[k] for k in avail)
-    return sum(avail[k] * WEIGHTS[k] for k in avail) / wsum
+    renorm = sum(avail[k] * WEIGHTS[k] for k in avail) / wsum
+    if wsum >= 1.0 - 1e-9:                       # nothing missing -> nothing to bound
+        return renorm
+    neutral = sum(avail.get(k, NEUTRAL_SCORE) * WEIGHTS[k] for k in WEIGHTS)
+    return min(renorm, neutral)
 
 
 def cap_reco_without_price(reco, price_score):
@@ -767,6 +1275,35 @@ def cap_reco_without_price(reco, price_score):
     if price_score is None and reco == "BUY":
         return "HOLD / Accumulate", ("recommendation capped at HOLD: no fair value, so the "
                                      "Price pillar (30%) was not tested")
+    return reco, None
+
+
+def cap_reco_without_quality(reco, econ_score):
+    """P3-2: the same hole REV-8 closed on the Price pillar was still open on the
+    QUALITY one — and E_econ carries the same 30% weight.
+
+    `composite()` renormalizes over whichever pillars exist, so a company whose
+    ROIC cannot be measured does not get a poor quality score, it gets NO quality
+    score, and the remaining pillars are simply scaled up to fill the gap. The
+    arithmetic is unforgiving about which way that cuts:
+
+        D 4.0 / E_exec 4.0 / E_econ 1.0 / P 4.0  -> 3.10  HOLD / Accumulate
+        D 4.0 / E_exec 4.0 / E_econ None / P 4.0 -> 4.00  BUY
+
+    Identical company, identical evidence, and the ONLY difference is that we
+    failed to measure the pillar — so the failure to measure is worth +0.90 and a
+    ratings upgrade. ROIC goes missing for ordinary reasons (a filer that tags no
+    operating-income subtotal, or invested capital <= 0 because the cash pile
+    exceeds debt + equity — routine for cash-rich software and biotech), so this
+    is not an exotic path.
+
+    Damodaran's position is the reason this matters more here than anywhere else:
+    growth only creates value when ROIC exceeds the cost of capital. An unmeasured
+    spread means the one test that decides whether growth is worth anything was
+    never run, and that cannot come out as the strongest possible verdict."""
+    if econ_score is None and reco == "BUY":
+        return "HOLD / Accumulate", ("recommendation capped at HOLD: ROIC unmeasurable, so the "
+                                     "Economics pillar (30%) was not tested")
     return reco, None
 
 
@@ -839,6 +1376,14 @@ class DeepV82Engine(DeepEngine):
                    f"FV leans on this assumption")
             _add_flag(f, _bn)
         spread = (roic_used - w) if roic_used is not None else None
+        # A3: the Economics band is read off ONE year's ROIC. Damp it toward the
+        # company's own multi-year median first. `roic_used` stays untouched for the
+        # card and for every other consumer — only the SCORED spread is normalized, and
+        # the note says by how much.
+        _roic_norm, _norm_note = normalized_roic(roic_used, _trend_roic_map(f, tax))
+        if _norm_note:
+            spread = _roic_norm - w
+            _add_flag(f, _norm_note + " — คะแนน Economics ใช้ค่าที่ normalize แล้ว")
 
         # REV-9: Damodaran's reinvestment is capex + ACQUISITIONS + dWC - D&A. The
         # acquisition leg was already fetched (f.acquisitions_net, used only for the
@@ -1006,7 +1551,10 @@ class DeepV82Engine(DeepEngine):
         _m_now = (f.operating_income / f.revenue) if (f.operating_income is not None and f.revenue) else None
         rdcf = reverse_dcf(f.price, f.shares_diluted, f.revenue, rev_1y, debt_eff or None, f.cash,
                            w, rf, tax, tmargin, wacc_term=w_term, roic_term=roic_term,
-                           market_cap=mcap, margin_now=_m_now)
+                           market_cap=mcap, margin_now=_m_now,
+                           # P3-1: the FY-over-FY rate the Demand pillar already scores,
+                           # not TTM-over-FY-2 recomputed inside the solver
+                           actual_growth=rev_growth_yoy)
         if rdcf.get("triggered") and _m_now is not None and abs(_m_now - tmargin) > 0.10:
             _add_flag(f, (f"RevDCF margin ramps {_m_now*100:.0f}% -> {tmargin*100:.0f}% over "
                           f"{REVERSE_HORIZON}y (was held flat at the terminal margin from year 1)"))
@@ -1099,6 +1647,29 @@ class DeepV82Engine(DeepEngine):
         avail = {k: v for k, v in methods.items() if v and v > 0}
         range_low = min(avail.values()) if avail else None
         range_high = max(avail.values()) if avail else None
+        # D4: the card presents [low, high] as a valuation RANGE, which invites the
+        # reader to treat it like a confidence interval. It is not — it is two point
+        # estimates from two different methods, and when they are far apart the gap is
+        # not uncertainty about the price, it is the two models disagreeing about the
+        # company. ABBV: Fundamental PEG $299 against FVP $41, a 7.3x spread quoted as
+        # a range around a $254 price. There is already a guard that discards an FVP
+        # below 10% of price (P-G), but ABBV's $41 is 16% of price, so it survived and
+        # became `range_low`.
+        #
+        # Not silently narrowed or dropped — a real disagreement is information, and
+        # picking a winner here would be inventing precision. It is labelled instead, so
+        # the range reads as "the methods do not agree" rather than "we are confident
+        # within this band".
+        fv_disagreement = None
+        if range_low and range_high and range_low > 0:
+            _ratio = range_high / range_low
+            if _ratio >= FV_DISAGREE_RATIO:
+                fv_disagreement = round(_ratio, 2)
+                _lo_m = min(avail, key=avail.get)
+                _hi_m = max(avail, key=avail.get)
+                _add_flag(f, (f"fair-value methods disagree {_ratio:.1f}x ({_hi_m} ${range_high:.0f} "
+                              f"vs {_lo_m} ${range_low:.0f}) - the band is a method conflict, "
+                              f"not a confidence interval; the anchor is {anchor_method}"))
         # REV-16: for a young company the honest range is the simulated band, not a
         # spread between two point methods that do not apply to it.
         if anchor_method.startswith("Young-Company") and (ydcf or {}).get("monte_carlo"):
@@ -1108,34 +1679,88 @@ class DeepV82Engine(DeepEngine):
         eq_verdict, eq_flags, cc = earnings_quality(
             f.net_income, f.cfo, f.total_assets, f.sbc, f.revenue,
             receivables=f.receivables, receivables_prior=getattr(f, "receivables_prior", None),
-            revenue_prior=rev_1y)          # REV-19: AR-vs-revenue
+            revenue_prior=rev_1y,          # REV-19: AR-vs-revenue
+            # P3-1: the AR test compares receivables growth against REVENUE growth, so
+            # it inherited the same TTM-over-FY-2 inflation — and in the direction that
+            # HIDES the signal: `ar_g > rev_g + 0.15` gets harder to satisfy the more
+            # revenue growth is overstated, so channel-stuffing was under-detected.
+            revenue_growth=rev_growth_yoy)
         for fl in eq_flags:
             _add_flag(f, "EQ: " + fl)
-        if f.deferred_revenue and f.deferred_revenue_prior and rev_1y and f.revenue:
+        if f.deferred_revenue and f.deferred_revenue_prior and rev_growth_yoy is not None:
             dr_g = f.deferred_revenue / f.deferred_revenue_prior - 1
-            rev_g = f.revenue / rev_1y - 1
+            # P3-1: deferred revenue is a fiscal-year-end balance, so the revenue it is
+            # compared against has to be fiscal-year growth too. MSFT read
+            # "billings lagging (deferred rev -1% vs rev +30%)" against a reported +15%.
+            rev_g = rev_growth_yoy
             sig = "positive" if dr_g > rev_g else "lagging"
             note = f"billings {sig} (deferred rev {dr_g*100:+.0f}% vs rev {rev_g*100:+.0f}%)"
             _add_flag(f, note)
 
         oia = f.operating_income_annuals or []
-        inc_roic = None
-        if len(oia) > 1 and oia[1] and f.capex is not None and f.dep_amort is not None:
+        # A4: incremental ROIC preferred from the 5-year change in NOPAT over the
+        # 5-year change in INVESTED CAPITAL — the direct measure, and a denominator
+        # that is large and stable.
+        #
+        # The fallback below (one year of capex + M&A - D&A) is the same quantity
+        # approximated from the cash-flow statement, and REV-13 already had to clamp it
+        # to [-2, +2] because a firm whose capex happened to land near its depreciation
+        # produced a denominator near zero and a four-digit "return". Clamping stops the
+        # nonsense from reaching the band but does not make the number informative: for
+        # any mature company capex ~ D&A most years, so the ratio is dominated by
+        # whichever way the small residual fell. Delta invested capital over five years
+        # has no such cliff. Both sides are raw (no R&D capitalization, no leases) in
+        # BOTH formulations, so the change does not switch measurement basis — the D3
+        # mistake.
+        inc_roic, inc_src, _inc_declined = None, None, False
+        _rmap = _trend_roic_map(f, tax)
+        if _rmap:
+            # contiguous run only — measuring "the return on capital added over five
+            # years" across a three-year hole measures something else entirely
+            _win = trend_mod._window(_rmap, years=5)
+            _pct, _why = (trend_mod.incremental_roic_pct(_rmap, _win) if len(_win) >= 2
+                          else (None, "ปีงบไม่ต่อเนื่องพอ"))
+            if _pct is not None:
+                inc_roic = _clamp(_pct / 100.0, -2.0, 2.0)
+                inc_src = f"ΔNOPAT/ΔIC {len(_win)}y"
+            else:
+                # The 5-year measure REFUSED for a stated reason — normally "the capital
+                # base barely moved", i.e. there is no new capital whose return could be
+                # measured. Falling through to the one-year proxy would answer a question
+                # we just established is unanswerable, with the noisiest estimator we
+                # have: ABBV's capital base is flat, and the proxy returns +195%.
+                _inc_declined = True
+                notes.append(f"E_exec incremental-ROIC adj=skipped({_why})")
+        if (inc_roic is None and not _inc_declined
+                and len(oia) > 1 and oia[1] and f.capex is not None and f.dep_amort is not None):
             d_nopat = (oia[0] - oia[1]) * (1 - tax)
-            # REV-9/REV-13: acquisitions count as reinvestment here too, and the ratio
-            # is UNBOUNDED — a firm whose capex happened to land near D&A produced a
-            # denominator of ~0 and an "incremental ROIC" in the thousands of percent,
-            # which fed straight into the E_exec band. Clamp to a reportable range.
             reinvest_1y = (f.capex + acq - f.dep_amort)
             if reinvest_1y and reinvest_1y > 0:
                 inc_roic = _clamp(d_nopat / reinvest_1y, -2.0, 2.0)
+                inc_src = "1y capex+M&A−D&A (ประมาณ)"
+        # D2: margin trend on a LIKE-FOR-LIKE fiscal-year basis.
+        #
+        # This used to read `f.operating_income / f.revenue` (both TTM) against
+        # `oia[1] / ann[1]` (the fiscal year BEFORE the last completed one) — the same
+        # skipped period as P3-1, so a "1-year margin trend" spanned about two.
+        #
+        # The obvious alternative, TTM against the LAST fiscal year, is worse: for any
+        # filer whose TTM has not yet moved past its fiscal year end (ORCL, TSM, NVO,
+        # ASML here) the two are the SAME NUMBER and the trend degenerates to "flat"
+        # for ever. FY0 vs FY1 is defined for every filer, never degenerates, and is
+        # the comparison the company itself reports.
+        #
+        # It does change two answers, and both changes are the honest ones:
+        #   NVDA  "up" -> "down"  (op margin FY 60.4% vs 62.4% — it did compress; the
+        #                          TTM 64.0% that used to win is a later, shorter window)
+        #   HIMS  "down" -> "up"  (FY 4.5% vs 4.2%; the TTM is -1.3% on a loss quarter)
         margin_trend = None
-        if len(oia) > 1 and oia[1] and rev_1y and f.operating_income and f.revenue:
-            m_now, m_prior = f.operating_income / f.revenue, oia[1] / rev_1y
+        if len(oia) > 1 and oia[1] and rev_1y and ann and ann[0] and oia[0] is not None:
+            m_now, m_prior = oia[0] / ann[0], oia[1] / rev_1y
             if m_prior:
                 margin_trend = "up" if m_now > m_prior * 1.02 else "down" if m_now < m_prior * 0.98 else "flat"
 
-        spread_prior = None
+        roic_delta = None
         if f.equity_prior is not None and f.cash_prior is not None and len(oia) > 1 and oia[1]:
             # REV-4: capitalize leases on BOTH sides. Current IC includes the lease
             # liability (P1-5) while prior IC did not, so a lease-heavy filer was
@@ -1151,23 +1776,104 @@ class DeepV82Engine(DeepEngine):
                              "for the like-for-like ROIC trend")
             ic_prior = (f.total_debt_prior or 0) + (lease_prior or 0) + f.equity_prior - f.cash_prior
             if ic_prior and ic_prior > 0:
-                roic_prior = oia[1] * (1 - tax) / ic_prior
-                spread_prior = roic_prior - w
+                # D3: the trend has to compare two ROICs measured the SAME WAY. Two
+                # things were different between the sides, and both pushed the same way.
+                #
+                # (a) TIME BASE. `spread` is built from f.operating_income, a TTM; this
+                #     side is oia[1], the fiscal year before the last completed one. The
+                #     delta therefore spanned ~2 years and was labelled 1y (REV-14 fixed
+                #     the LABEL from 5y to 1y but not the periods). Now uses oia[0].
+                #
+                # (b) R&D CAPITALIZATION. When rd_capitalize() succeeds, `roic_used` —
+                #     and so `spread` — is the R&D-adjusted return, while this side was
+                #     always the RAW one. The gap is not small: ASML -37.6pp, TSM -8.3pp,
+                #     NVDA -7.5pp, ABBV -6.0pp between raw and adjusted. That difference
+                #     landed in the delta as a fake collapse in returns:
+                #         ASML "1y-spread-trend(d -25.4pp) = -0.5"
+                #         NVO  "1y-spread-trend(d -15.5pp) = -0.5"
+                #     on the 30%-weighted pillar, for R&D-heavy firms specifically —
+                #     i.e. it penalised exactly the companies the adjustment exists for.
+                #     The prior year is now capitalized too, off the R&D series shifted
+                #     by one year, and only when the current side was.
+                def _roic_fy(op_income, invested, rnd_series):
+                    """ROIC for ONE fiscal year, on whichever basis the headline uses.
+                    Returns None when the basis cannot be matched, because a raw-vs-
+                    adjusted delta is worse than no delta at all."""
+                    if op_income is None or not invested or invested <= 0:
+                        return None
+                    if not rd:                                  # headline is raw -> stay raw
+                        return op_income * (1 - tax) / invested
+                    out = rd_capitalize(rnd_series, op_income, invested, tax)
+                    return out[2] if out else None
 
-        acq_int = (abs(f.acquisitions_net) / f.revenue) if (f.acquisitions_net is not None and f.revenue) else None
-        fade = None
-        if f.fwd_growth_near and f.fwd_growth_far is not None and f.fwd_growth_near != 0:
-            fade = f.fwd_growth_far / f.fwd_growth_near
-        D = _r_demand(rev_growth_yoy, getattr(f, "peer_median_growth", None), acq_int, fade, notes)
-        E_exec = _r_execution(eq_verdict, margin_trend, inc_roic, w, notes)
-        E_econ = _r_economics(spread, spread_prior, notes)
-        P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes)
-        comp = composite({"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P})
+                roic_fy0 = _roic_fy(oia[0], ic, f.rnd_annuals)
+                roic_fy1 = _roic_fy(oia[1], ic_prior, (f.rnd_annuals or [])[1:])
+                if roic_fy0 is not None and roic_fy1 is not None:
+                    roic_delta = roic_fy0 - roic_fy1
+                elif rd:
+                    _add_flag(f, "ROIC trend skipped: the headline ROIC is R&D-capitalized but "
+                                 "the prior year cannot be measured the same way (short R&D "
+                                 "history) - a raw-vs-adjusted delta reads as a collapse that "
+                                 "never happened")
+
+        # A2: both of these used to lose the SIGN of their input, and both lost it in
+        # the direction that punished the wrong company. See the two helpers.
+        acq_int, acq_label = acquisition_intensity(f.acquisitions_net, f.revenue)
+        fade, fade_why = fade_ratio(f.fwd_growth_near, f.fwd_growth_far)
+        # B5: `actual_3y` is already computed above from the same revenue_annuals the
+        # base band uses, so both sides of the comparison sit on one clock.
+        _cons_adj, _cons_note = growth_consistency(rev_growth_yoy, actual_3y)
+        D = _r_demand(rev_growth_yoy, getattr(f, "peer_median_growth", None), acq_int, fade,
+                      notes, acq_label=acq_label, fade_why=fade_why,
+                      consistency_adj=_cons_adj, consistency_note=_cons_note)
+        # T5-E: the multi-year cash-generation leg. Reads the SAME strip the card
+        # draws, so the score and the picture can never tell different stories.
+        try:
+            _t5 = trend_mod.build(f)
+        except Exception:                       # a display feature must never kill a row
+            _t5 = {}
+        _fcf_adj, _fcf_note = fcf_durability((_t5 or {}).get("rows"))
+        # B6: the beat/miss track record the card has drawn since v8.2, finally scored.
+        _beat_adj, _beat_note = beat_consistency(
+            f.earnings_surprises or getattr(f, "eps_surprises_backfill", None))
+        E_exec = _r_execution(eq_verdict, margin_trend, inc_roic, w, notes,
+                              fcf_adj=_fcf_adj, fcf_note=_fcf_note, inc_src=inc_src,
+                              skip_inc_note=_inc_declined,
+                              beat_adj=_beat_adj, beat_note=_beat_note)
+        # B8 + B7: moat has a duration and a peer group, not just a size.
+        _rmap_econ = _trend_roic_map(f, tax)
+        _cap_adj, _cap_note = competitive_advantage_period(_rmap_econ, w)
+        _sec_adj, _sec_note = sector_relative(roic_used, getattr(f, "terminal_roic_sector", None))
+        E_econ = _r_economics(spread, roic_delta, notes, cap_adj=_cap_adj, cap_note=_cap_note,
+                              sector_adj=_sec_adj, sector_note=_sec_note)
+        # A1: the same enterprise value the WACC weights and the reverse DCF were built
+        # from (REV-12/REV-25), so all three price the same firm.
+        _ev = (mcap + (debt_eff or 0) - (f.cash or 0)) if mcap else None
+        _fy_adj, _fy_note = fcf_yield_adj((_t5 or {}).get("rows"), _ev, w)
+        P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes,
+                     fcf_adj=_fy_adj, fcf_note=_fy_note)
+        _sc = {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
+        comp = composite(_sc)
+        # D1: say so when the neutral bound actually moved the score, so a reader can
+        # tell a genuinely middling row from one that was held back by a data gap.
+        _miss = [k for k in WEIGHTS if _sc.get(k) is None]
+        if _miss and comp is not None:
+            _avail = {k: v for k, v in _sc.items() if v is not None}
+            _wsum = sum(WEIGHTS[k] for k in _avail)
+            _renorm = sum(_avail[k] * WEIGHTS[k] for k in _avail) / _wsum if _wsum else None
+            if _renorm is not None and _renorm > comp + 1e-9:
+                _add_flag(f, (f"composite {_renorm:.2f} -> {comp:.2f}: {', '.join(_miss)} not "
+                              f"measurable, scored NEUTRAL ({NEUTRAL_SCORE}) instead of inheriting "
+                              f"the average of the pillars that were"))
         reco = recommendation(comp) if comp is not None else None
         # REV-8: a missing Price pillar must not read as a BUY (see cap_reco_without_price).
         reco, _cap_note = cap_reco_without_price(reco, P)
         if _cap_note:
             _add_flag(f, _cap_note)
+        # P3-2: nor may a missing Economics pillar — same 30% weight, same hole.
+        reco, _cap_note2 = cap_reco_without_quality(reco, E_econ)
+        if _cap_note2:
+            _add_flag(f, _cap_note2)
         st = stars(comp) if comp is not None else ""
         sig = _signal(reco)
 
@@ -1195,6 +1901,12 @@ class DeepV82Engine(DeepEngine):
                          "roic_pct": round(roic * 100, 2) if roic is not None else None,
                          "roic_adj_pct": round(roic_used * 100, 2) if (rd and roic_used is not None) else None,
                          "spread_pct": round(spread * 100, 2) if spread is not None else None,
+                         # G4: the BASIS the headline ROIC was measured on. D3 was two
+                         # ROICs subtracted across different bases (R&D-capitalized minus
+                         # raw) and reported as a 25.4pp collapse in returns. A basis that
+                         # is not written down cannot be checked, so it is written down:
+                         # anything comparing two ROICs must first agree on this string.
+                         "roic_basis": ("rd_capitalized+leases" if rd else "raw+leases"),
                          "incremental_roic_pct": round(inc_roic * 100, 1) if inc_roic is not None else None,
                          "terminal_roic_pct": round(roic_term * 100, 1),
                          "terminal_beta": round(beta_t, 2),
@@ -1210,7 +1922,10 @@ class DeepV82Engine(DeepEngine):
                          "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
                          "operating_leases": round(lease, 0) if lease else None,
                          "terminal_margin_pct": round(tmargin * 100, 1),
-                         "terminal_margin_anchored": tm_anchored},
+                         "terminal_margin_anchored": tm_anchored,
+                         # D4: ratio between the two point methods when they disagree
+                         # enough that [low, high] must not be read as a range
+                         "fv_disagreement_x": fv_disagreement},
             flags=list(f.flags))
         try:
             v.verdict = _verdict(f, v)

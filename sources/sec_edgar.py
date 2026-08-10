@@ -148,6 +148,51 @@ def _accessors(facts):
                 seen.add(yr); out.append(e["val"])
         return out
 
+    def instant_at_dates(concepts, dates, prefer=("USD", "usd"), tol_days=6):
+        """T5: balance-sheet value AT each given fiscal-year-end date -> {date: value}.
+
+        `instant_series` above picks one observation per CALENDAR year, which is fine
+        for "the prior year" but not for building a per-year ROIC series: a company
+        with a June year-end files four instants a year, and taking whichever happens
+        to be newest in each calendar year would pair a March balance sheet with a
+        June income statement. Here the income-statement FY-ends drive the lookup and
+        the balance sheet is read AT those dates (±`tol_days` for filers whose
+        year-end shifts by a day or two), so every ROIC in the series is
+        NOPAT and invested capital measured over the same period.
+
+        `concepts` is a tag ladder, and ONE concept is chosen for the whole series —
+        the one covering the most of `dates`, ties broken by ladder order. Merging
+        across tags per-date was tried first and is wrong: AVGO tags
+        `LongTermDebtNoncurrent` in FY2021 and FY2025 but nothing long-term in FY2022
+        or FY2023, so a per-date fallback filled those years from
+        `LongTermDebtCurrent` — the CURRENT portion only, $0.4B against a real debt
+        load near $39B. Invested capital collapsed for exactly those two years and
+        ROIC read 130% and 140%. A partial value consumed as a whole one, which is the
+        P2-3 defect. A year the chosen concept does not cover is simply absent, and
+        the caller drops it.
+
+        Returns (values_by_date, chosen_tag_or_None)."""
+        want = [d for d in dates if d]
+        if not want:
+            return {}, None
+        best = None
+        for i, tag in enumerate(concepts):
+            by_date = {e["end"]: e["val"] for e in entries(tag, prefer)
+                       if not e.get("start") and e.get("end") and e.get("val") is not None}
+            if not by_date:
+                continue
+            hit = {}
+            for d in want:
+                if d in by_date:
+                    hit[d] = by_date[d]
+                else:
+                    near = [(abs(_days(d, e)), e) for e in by_date if abs(_days(d, e)) <= tol_days]
+                    if near:
+                        hit[d] = by_date[min(near)[1]]
+            if hit and (best is None or len(hit) > len(best[0])):
+                best = (hit, tag)
+        return best if best else ({}, None)
+
     def annual_series_dated(concept, prefer=("USD", "usd")):
         """Like annual_series but keeps the FY-end date: [[end, val], …] newest first.
         Used to align annual EPS with year-end prices for the own-5y-P/E percentile."""
@@ -162,7 +207,7 @@ def _accessors(facts):
         return out
 
     return (latest, ttm, annual_series, currency, latest_end, quarters,
-            instant_series, annual_series_dated)
+            instant_series, annual_series_dated, instant_at_dates)
 
 
 REV = ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
@@ -175,12 +220,75 @@ PRETAX = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItems
           "ProfitLossBeforeTax"]
 INT_EXP = ["InterestExpense", "InterestAndDebtExpense", "InterestExpenseDebt", "InterestExpenseNonoperating"]
 
+# --- T5: tag ladders for the 5-year trend strip -----------------------------
+# Written most-specific-first, the same convention `pick()` relies on (REV-27).
+# IFRS variants are listed after the US-GAAP ones so a US filer is never resolved to
+# them by accident; NVO (IFRS) tags none of the US-GAAP cash-flow concepts at all.
+CFO_TAGS = ["NetCashProvidedByUsedInOperatingActivities",
+            "NetCashProvidedByUsedInOperatingActivitiesContinuingOperations",
+            "CashFlowsFromUsedInOperatingActivities"]
+CAPEX_TAGS = ["PaymentsToAcquirePropertyPlantAndEquipment",
+              "PurchaseOfPropertyPlantAndEquipment",
+              "PaymentsToAcquireProductiveAssets",
+              "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"]
+GROSS_PROFIT_TAGS = ["GrossProfit"]
+# ABBV and many pharma filers report no GrossProfit subtotal but do report the cost
+# line, so gross profit is derived as revenue - cost (see domain/trend.py).
+COST_OF_REV_TAGS = ["CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfSales",
+                    "CostOfGoodsSold", "CostOfSalesExcludingAmortisation"]
+
+
+def _ic_components(instant_at_dates, fy_ends, lt_tags=(), st_tags=(), eq_tags=(), cash_tags=()):
+    """T5: {FY_end: {"equity":…, "debt":…, "cash":…}} at the given income-statement
+    year-ends, for the per-year ROIC series.
+
+    A year is returned ONLY when every leg it needs is filed. Invested capital assembled
+    from a partial balance sheet is the P2-3 defect: the missing leg does not read as
+    missing, it reads as a real change in the capital base, and the ROIC built on it
+    swings for accounting reasons that have nothing to do with the business.
+
+    The long-term debt leg gets the extra rule. If the filer reports a long-term debt
+    concept in ANY year of the window, it is required in EVERY year — a company does not
+    retire its entire long-term debt and reissue it, so a year where the tag is absent is
+    a filing gap, not a debt-free year. Only when no long-term concept appears anywhere
+    is the company treated as genuinely having none."""
+    eq, _ = instant_at_dates(list(eq_tags), fy_ends)
+    cash, _ = instant_at_dates(list(cash_tags), fy_ends)
+    lt, lt_tag = instant_at_dates(list(lt_tags), fy_ends)
+    st, _ = instant_at_dates(list(st_tags), fy_ends)
+    lt_expected = bool(lt_tag)
+    out = {}
+    for d in fy_ends:
+        if d not in eq or d not in cash:
+            continue
+        if lt_expected and d not in lt:
+            continue                     # filing gap in the debt leg — drop the year
+        out[d] = {"equity": eq[d], "cash": cash[d],
+                  "debt": (lt.get(d) or 0) + (st.get(d) or 0),
+                  "lt_source": lt_tag}
+    return out
+
+
+def _first_dated(annual_series_dated, tags, min_points=2):
+    """First tag in `tags` that yields at least `min_points` annual observations,
+    as [[FY_end, value], …] newest first. [] when none qualifies.
+
+    Deliberately NOT a merge across tags: a filer that switched concepts mid-history
+    (MSFT reports CostOfRevenue up to 2017 and CostOfGoodsAndServicesSold after) would
+    otherwise produce a series with a definitional break in the middle, and a trend
+    drawn across that break measures the accounting change, not the business."""
+    for t in tags:
+        s = annual_series_dated(t)
+        if len(s) >= min_points:
+            return s
+    return []
+
 
 def extract(companyfacts):
     """Return a dict of SEC-derived financial values (in reported currency)."""
     facts = companyfacts.get("facts", companyfacts)
     (latest, ttm, annual_series, currency, latest_end, quarters,
-     instant_series, annual_series_dated) = _accessors(facts)
+     instant_series, annual_series_dated, instant_at_dates) = _accessors(facts)
 
     def pick(concepts):
         """Choose the concept with the FRESHEST data, then by LIST ORDER.
@@ -241,7 +349,7 @@ def extract(companyfacts):
     # back the financing charge). Approximate — pretax also carries non-operating
     # items — so it is flagged via provenance and only used when OP is absent.
     op_derived = operating_income is None
-    _op_ann, _op_qtr = [], {}
+    _op_ann, _op_qtr, _op_ann_dated = [], {}, []
     if op_derived:
         def _has(tag):
             return tag if latest_end(tag) else None
@@ -255,6 +363,7 @@ def extract(companyfacts):
             _pa = dict(annual_series_dated(_pre_c))
             _ia = dict(annual_series_dated(_int_c)) if _int_c else {}
             _op_ann = [_pa[d] + _ia.get(d, 0) for d in sorted(_pa, reverse=True)]
+            _op_ann_dated = [[d, _pa[d] + _ia.get(d, 0)] for d in sorted(_pa, reverse=True)]
             _pq = quarters(_pre_c)
             _iq = quarters(_int_c) if _int_c else {}
             _op_qtr = {d: v + _iq.get(d, 0) for d, v in _pq.items()}
@@ -303,10 +412,22 @@ def extract(companyfacts):
     total_debt_prior = (prior_instant("DebtLongtermAndShorttermCombinedAmount")
                         or _sum(prior_lt, prior_st))
 
+    # T5: the fiscal-year ends the trend strip is built on. Driven by the INCOME
+    # statement (operating income, else revenue) because that is what every ratio in
+    # the strip has in its numerator; the balance sheet is then read at these dates.
+    _rev_dated = annual_series_dated(rev_concept) if rev_concept else []
+    _oi_dated = (annual_series_dated(_op_concept) if _op_concept else _op_ann_dated)
+    _fy_ends = [d for d, _ in (_oi_dated or _rev_dated)][:12]
+
     return {
         "currency": (currency(rev_concept) if rev_concept else None) or "USD",
         "revenue": rev,
         "revenue_annuals": annual_series(rev_concept) if rev_concept else [],
+        # T5: same series WITH the fiscal-year end, so the trend strip can align
+        # revenue against gross profit / operating income by DATE rather than by
+        # position. The bare list above is untouched — every existing consumer of
+        # revenue_annuals keeps the exact input it had.
+        "revenue_annuals_dated": annual_series_dated(rev_concept) if rev_concept else [],
         "revenue_quarters": quarters(rev_concept) if rev_concept else {},
         "operating_income_quarters": quarters(_op_concept) if _op_concept else _op_qtr,
         # quarterly diluted EPS actuals (USD/shares) — the free ACTUAL we grade
@@ -331,6 +452,27 @@ def extract(companyfacts):
         "cash": fresh(*CASH_TAGS),
         "equity": fresh(*EQUITY_TAGS),
         "capex": ttm("PaymentsToAcquirePropertyPlantAndEquipment") or ttm("PurchaseOfPropertyPlantAndEquipment"),
+        # --- T5: multi-year series for the 5-year trend strip -------------------
+        # DATED, not bare lists. `annual_series` returns values newest-first, and two
+        # tags do not necessarily cover the same set of fiscal years — a filer can
+        # report GrossProfit for 18 years and revenue for 10. Zipping them by INDEX
+        # would then divide FY2025 gross profit by FY2017 revenue and call it a margin,
+        # which is exactly the period-mismatch class P3-1 was about. Keeping the FY-end
+        # date with every value forces the consumer (domain/trend.py) to align on the
+        # date and simply drop years where one side is missing.
+        "cfo_annuals_dated": _first_dated(annual_series_dated, CFO_TAGS),
+        "capex_annuals_dated": _first_dated(annual_series_dated, CAPEX_TAGS),
+        "gross_profit_annuals_dated": _first_dated(annual_series_dated, GROSS_PROFIT_TAGS),
+        # cost of revenue lets gross profit be DERIVED when the filer tags no subtotal
+        "cost_of_revenue_annuals_dated": _first_dated(annual_series_dated, COST_OF_REV_TAGS),
+        # T5: invested capital AT each income-statement year-end -> a real per-year
+        # ROIC series (NOPAT_t / IC_t), which is Damodaran's own moat measure over
+        # time. Read at the FY-end dates, never "whichever instant is newest in that
+        # calendar year" — see instant_at_dates.
+        "ic_components_dated": _ic_components(
+            instant_at_dates, _fy_ends,
+            lt_tags=("DebtLongtermAndShorttermCombinedAmount",) + LT_DEBT,
+            st_tags=ST_DEBT, eq_tags=EQUITY_TAGS, cash_tags=CASH_TAGS),
         "dep_amort": ttm("DepreciationAndAmortization") or ttm("Depreciation") or ttm("DepreciationDepletionAndAmortization"),
         "income_before_tax": ttm("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest")
                              or ttm("ProfitLossBeforeTax"),
@@ -370,6 +512,10 @@ def extract(companyfacts):
         "rnd_annuals": annual_series("ResearchAndDevelopmentExpense")
                        or annual_series("ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost"),
         "operating_income_annuals": annual_series(_op_concept) if _op_concept else _op_ann,
+        # T5: dated twin. For an EBIT-fallback filer (LLY/PFE — P-A) `_op_ann` is
+        # already built from dated pretax+interest maps, so the dates come from there.
+        "operating_income_annuals_dated": (annual_series_dated(_op_concept) if _op_concept
+                                           else _op_ann_dated),
         "operating_income_derived": op_derived,
         "equity_prior": prior_instant(*EQUITY_TAGS),
         "total_debt_prior": total_debt_prior,
@@ -447,7 +593,12 @@ def populate(ff, companyfacts):
               "receivables_prior", "inventory", "inventory_prior",
               "accounts_payable", "accounts_payable_prior",
               # round 3 addition
-              "eps_annuals_dated"):
+              "eps_annuals_dated",
+              # T5: dated annual series behind the 5-year trend strip
+              "revenue_annuals_dated", "operating_income_annuals_dated",
+              "cfo_annuals_dated", "capex_annuals_dated",
+              "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
+              "ic_components_dated"):
         ff.set(k, d.get(k), "sec")
     if d.get("operating_income_derived"):
         # P-A: filer tags no operating-income subtotal — EBIT approximated as
