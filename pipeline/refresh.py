@@ -102,13 +102,15 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
         cik, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
         ttl_hours=config.SEC_CACHE_TTL_HOURS, min_interval=config.SEC_MIN_INTERVAL) if cik else None
 
-    # currency -> FX
-    fx = None
+    # currency -> FX.  `sec_ccy` is kept because it is the currency of THIS source
+    # only: any other source used below reports in its own, and reusing this rate for
+    # someone else's numbers is L5 (see the fallback block).
+    fx, sec_ccy = None, "USD"
     if sec_cf:
         try:
-            ccy = sec_edgar.extract(sec_cf).get("currency", "USD")
-            if ccy and ccy != "USD":
-                fx = yahoo.fetch_fx_to_usd(ccy)
+            sec_ccy = (sec_edgar.extract(sec_cf).get("currency") or "USD").upper()
+            if sec_ccy != "USD":
+                fx = yahoo.fetch_fx_to_usd(sec_ccy)
         except Exception as e:
             log.warning("%s FX lookup failed: %s", t, e)
 
@@ -141,19 +143,41 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
             alt = FinancialFacts(t, company=name)
             fmp.parse(fmp.fetch(t, fmp_key), alt)
             fmp_calls += 4                    # income annual+ttm, balance, cashflow
-            applied, note = dataquality.refresh_from_fallback(ff, alt)
-            if applied:
-                ff.flags.append(note)
-                # the fallback reports in its own currency too
-                if alt.currency and alt.currency != "USD" and fx:
-                    for k in ("revenue", "operating_income", "net_income", "total_debt",
-                              "cash", "equity", "capex", "dep_amort", "sbc",
-                              "income_before_tax", "tax_expense"):
-                        v = getattr(ff, k, None)
-                        if isinstance(v, (int, float)):
-                            setattr(ff, k, v * fx)
+            # L5 (2026-08-10): THE FALLBACK'S OWN CURRENCY, NOT SEC'S.
+            #
+            # `fx` above was derived from what SEC reported, and this is a different
+            # source. TSM is the case that proves the two can differ: its 20-F carries a
+            # USD convenience translation, so SEC reads USD and `fx` stays None — while
+            # FMP reports the same company as filed, in TWD. The old guard was
+            # `if alt.currency != "USD" and fx:`, so with no rate it simply converted
+            # nothing and said nothing. Everything downstream then read TWD figures as
+            # dollars: EPS ~32x too large, and a $8,612 fair value on a $422 ADR.
+            #
+            # Getting the rate is now a PRECONDITION of using the fallback at all.
+            # Stale-but-coherent beats fresh-but-mixed: a warning about old financials
+            # is recoverable, a row silently denominated in two currencies is not.
+            alt_ccy = (alt.currency or "USD").upper()
+            alt_fx = dataquality.fallback_rate(alt_ccy, sec_ccy, fx, yahoo.fetch_fx_to_usd)
+            if not alt_fx:
+                ff.flags.append(f"งบสำรองรายงานเป็น {alt_ccy} แต่หาอัตราแลกเปลี่ยนไม่ได้ "
+                                "— ไม่ใช้แหล่งสำรอง คงงบเดิมไว้และหัก confidence "
+                                "(ตัวเลขคนละสกุลปนกันอันตรายกว่างบเก่า)")
             else:
-                ff.flags.append("แหล่งสำรองไม่ได้ใหม่กว่า SEC — คงตัวเลขเดิมไว้และหัก confidence")
+                applied, note = dataquality.refresh_from_fallback(ff, alt)
+                if applied:
+                    ff.flags.append(note)
+                    # L2: the field list is DERIVED from the unit contract. It used to be
+                    # typed out here and covered 11 of the 13 scalars the fallback moves —
+                    # `eps_gaap` was the one missing.
+                    if alt_fx != 1.0:
+                        for k in dataquality.FALLBACK_MONEY:
+                            v = getattr(ff, k, None)
+                            if isinstance(v, (int, float)):
+                                setattr(ff, k, v * alt_fx)
+                        ff.flags.append(f"converted {alt_ccy}->USD @ {round(alt_fx, 4)} "
+                                        "(แหล่งสำรอง — คนละสกุลกับที่ SEC รายงาน)")
+                else:
+                    ff.flags.append("แหล่งสำรองไม่ได้ใหม่กว่า SEC — คงตัวเลขเดิมไว้และหัก confidence")
         except Exception as e:
             log.warning("%s stale-financials fallback failed: %s", t, e)
             ff.flags.append("งบเก่าและดึงแหล่งสำรองไม่สำเร็จ — หัก confidence")

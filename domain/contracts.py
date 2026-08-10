@@ -62,6 +62,7 @@ CLOCK = {
     "ticker": STATIC, "company": STATIC, "sector": STATIC, "currency": STATIC,
     "fiscal_year": STATIC, "as_of": STATIC, "provenance": STATIC, "confidence": STATIC,
     "confidence_tier": STATIC, "flags": STATIC, "peers": STATIC, "n_analysts": STATIC,
+    "per_share_unit_ok": STATIC,
 
     # --- market, observed now ------------------------------------------------
     "price": SPOT, "market_cap": SPOT, "beta": SPOT, "own_pe_pctile": SPOT,
@@ -152,6 +153,7 @@ UNIT = {
     # text / structures
     "ticker": TEXT, "company": TEXT, "sector": TEXT, "currency": TEXT,
     "fiscal_year": TEXT, "as_of": TEXT, "provenance": TEXT, "confidence_tier": TEXT,
+    "per_share_unit_ok": TEXT,          # a verdict, not a quantity — never arithmetic
     "flags": TEXT, "peers": TEXT, "earnings_surprises": TEXT, "rev_surprises_fmp": TEXT,
     "eps_surprises_backfill": TEXT, "rev_estimate_curq": TEXT,
 }
@@ -228,6 +230,106 @@ def undeclared_units(facts_cls):
 
 
 FX_BLOCK_START = 'if ff.currency and ff.currency != "USD":'
+
+
+# --------------------------------------------------------------------------- #
+#  Every place currency is converted — registered, not assumed                  #
+# --------------------------------------------------------------------------- #
+# L2 (2026-08-10). `unconverted_money` below was written for REV-1 and only ever
+# opened pipeline/normalize.py. DQ2 later added a SECOND conversion block, in
+# refresh.py, for the stale-financials fallback — and `eps_gaap` was moved by that
+# fallback but left out of its conversion list. TSM's EPS stayed in TWD next to a USD
+# ADR price, the forward-EPS gate then handed it on (L1), and the row printed a
+# $8,612 fair value with a BUY. The checker could not see any of it, because a new
+# conversion site is invisible to a checker that knows one filename.
+#
+# So the site list is now the thing being policed: an UNREGISTERED conversion site is
+# a failure. Adding one makes the build red until its required field set is declared.
+#
+#   path -> (block start marker, block end marker, required-set name)
+#     "ALL_MONEY"  every MONEY field on the schema, minus FX_EXEMPT
+#     "FALLBACK"   the money/per-share subset of dataquality.FALLBACK_SCALARS
+FX_SITES = {
+    "pipeline/normalize.py": (FX_BLOCK_START, "\n    # 3)", "ALL_MONEY"),
+    "pipeline/refresh.py": ("if alt_fx != 1.0:", "\n                else:", "FALLBACK"),
+}
+# A block that only LOOKS UP a rate (`fx = yahoo.fetch_fx_to_usd(ccy)`) or merely
+# checks for one (dataquality's unconverted-currency finding) is not a conversion.
+# Multiplying by it is.
+_FX_APPLY = re.compile(r"\*\s*\w*fx\w*")     # * fx, * fx_rate, * alt_fx
+_FX_TEST = re.compile(r'!=\s*"USD"')
+
+
+def _read(root, rel, sources=None):
+    """Source of `rel`, or the caller's substitute for it.
+
+    `sources` exists so a mutation test can ask "what would this checker say about THIS
+    text" without writing mutated code into the working tree — a crash mid-test would
+    otherwise leave a production file in the broken state on purpose."""
+    if sources and rel in sources:
+        return sources[rel]
+    try:
+        with open(os.path.join(root, *rel.split("/")), encoding="utf-8") as fh:
+            return fh.read()
+    except OSError:
+        return ""
+
+
+def fx_conversion_sites(root, scan=("pipeline", "sources", "domain")):
+    """Files that actually multiply a value by an FX rate, as (rel_path, registered)."""
+    out = []
+    for pkg in scan:
+        d = os.path.join(root, pkg)
+        for fn in sorted(os.listdir(d)) if os.path.isdir(d) else []:
+            if not fn.endswith(".py") or fn == "contracts.py":
+                continue
+            rel = f"{pkg}/{fn}"
+            src = _read(root, rel)
+            for m in _FX_TEST.finditer(src):
+                if _FX_APPLY.search(src[m.start():m.start() + 2000]):
+                    out.append((rel, rel in FX_SITES))
+                    break
+    return out
+
+
+def unregistered_fx_sites(root):
+    """Conversion sites the contract has never been told about — the L2 hole."""
+    return [rel for rel, known in fx_conversion_sites(root) if not known]
+
+
+def _fallback_money(root, sources=None):
+    """The money/per-share subset of dataquality.FALLBACK_SCALARS, read from source so
+    `domain` never has to import `pipeline`. Also refuses a HAND-TYPED FALLBACK_MONEY:
+    the whole point is that the conversion list is derived from the unit contract, so it
+    cannot drift away from the list of fields the fallback actually moves."""
+    src = _read(root, "pipeline/dataquality.py", sources)
+    m = re.search(r"FALLBACK_SCALARS\s*=\s*\((.*?)\)\n", src, re.S)
+    scalars = set(re.findall(r'"([a-z_0-9]+)"', m.group(1))) if m else set()
+    required = {f for f in scalars if UNIT.get(f) in (MONEY, PER_SHARE)}
+    d = re.search(r"FALLBACK_MONEY\s*=\s*(.*?)\n\n", src, re.S)
+    derived = bool(d and "UNIT" in d.group(1) and "FALLBACK_SCALARS" in d.group(1))
+    return required, derived
+
+
+def unconverted_money_at(root, rel, sources=None):
+    """MONEY/PER_SHARE fields a registered conversion site fails to convert."""
+    start, end_marker, required_set = FX_SITES[rel]
+    src = _read(root, rel, sources)
+    i = src.find(start)
+    if i < 0:
+        return [f"<conversion block not found in {rel} — it was restructured>"]
+    block = src[i:]
+    end = block.find(end_marker)
+    block = block[:end] if end > 0 else block[:4000]
+    if required_set == "ALL_MONEY":
+        return unconverted_money(src)
+    required, derived = _fallback_money(root, sources)
+    if not derived:
+        return ["<FALLBACK_MONEY is not derived from UNIT — it can drift again>"]
+    seen = set(re.findall(r'"([a-z_0-9]+)"', block)) | set(re.findall(r"\.([a-z_0-9]+)", block))
+    if "FALLBACK_MONEY" in block:
+        seen |= required             # derived above, so referencing it covers the set
+    return sorted(required - seen)
 
 
 def unconverted_money(normalize_src):

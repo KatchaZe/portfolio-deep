@@ -144,6 +144,15 @@ class FinancialFacts:
     provenance: dict = field(default_factory=dict)   # {field_name: source}
     confidence: int = 0
     confidence_tier: str = ""                          # green / yellow / red
+    # L4 (2026-08-10): False when the filed per-share earnings and the quoted price are
+    # not in the same currency x share unit. TSM files in TWD while the ADR is quoted in
+    # USD, and `currency` reported USD, so nothing converted: EPS came out ~35x too
+    # large and every PER-SHARE fair value inherited it. Gating one consumer at a time
+    # does not work — the forward-EPS gate closed the PEG path and the Future Value
+    # Projection, which builds its own EPS from net_income/shares, produced $5,881
+    # against a $421 price instead. This flag is read once, where per-share value is
+    # created, so a new valuation method cannot reopen the hole by accident.
+    per_share_unit_ok: bool = True
     flags: list = field(default_factory=list)
     forward_eps_raw: Optional[float] = None            # consensus before plausibility fix
 

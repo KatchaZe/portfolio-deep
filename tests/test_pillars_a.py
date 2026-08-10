@@ -227,8 +227,45 @@ def test_old_facts_are_untouched():
     check(v.composite is not None, "and the row still scores")
 
 
+def test_growth_reconciliation():
+    """L3. The card quoted TWO growth rates and reconciled neither: the Demand pillar
+    scored NVO on the 6.4% it delivered while the fair value used the 19.5% consensus.
+
+    What the investigation actually found is worth more than the guard. NVO is cheap on
+    EVERY growth assumption — FV $116 at 19.5%, $86 at 6.4%, still $67 at ZERO against a
+    $47.73 price — so its BUY never rested on consensus at all, and the hypothesis that
+    sent me looking was wrong. The disclosure stays because it is what proved that; the
+    cap stays because the principle is right where it does bind, and it is shown below
+    both to fire on a constructed case and to stay silent on all 21 real holdings."""
+    print("L3 the two growth stories are reconciled, and the cap is one-sided")
+    from domain.engine import deep_v82 as E
+    kw = dict(g_stable=0.047, ke=0.0625, roic_high=0.285, roic_stable=0.182,
+              forward_eps=3.3177, ke_stable=0.0826)
+    fv_c, _ = E.fundamental_peg_price(g_high=0.195, **kw)
+    fv_r, _ = E.fundamental_peg_price(g_high=0.064, **kw)
+    fv_0, _ = E.fundamental_peg_price(g_high=0.0, **kw)
+    check(round(fv_c, 2) == 116.12, "NVO's consensus FV reproduces", str(fv_c))
+    check(fv_0 > 47.73 * 1.3,
+          f"and it is still ${fv_0:.2f} at ZERO growth — the BUY is not a growth story",
+          str(fv_0))
+    check(fv_c / fv_r < E.GROWTH_FV_DISAGREE,
+          f"so NVO does NOT trip the cap ({fv_c / fv_r:.2f}x < {E.GROWTH_FV_DISAGREE})")
+
+    # where it DOES bind: consensus far above a company that has stopped growing
+    fv_hi, _ = E.fundamental_peg_price(g_high=0.30, **kw)
+    check(fv_hi / fv_0 >= E.GROWTH_FV_DISAGREE,
+          f"consensus 30% against 0% delivered trips it ({fv_hi / fv_0:.2f}x)")
+
+    # one-sided: consensus BELOW delivered must never be punished (AXON 5% vs 33%,
+    # MELI 14% vs 39% — a symmetric ratio hit exactly those on the first attempt)
+    fv_lo, _ = E.fundamental_peg_price(g_high=0.05, **kw)
+    check(fv_lo / fv_hi < 1.0 and (fv_lo / fv_hi) < E.GROWTH_FV_DISAGREE,
+          "a conservative consensus is cheaper on its own number, never capped for it")
+
+
 def main():
     for t in (test_fade_needs_positive_near_term_growth, test_divestiture_is_not_an_acquisition,
+              test_growth_reconciliation,
               test_fcf_yield_leg, test_price_pillar_exists_without_a_fair_value,
               test_price_leg_is_bounded, test_normalisation_only_ever_lowers,
               test_normalisation_uses_contiguous_years_only,

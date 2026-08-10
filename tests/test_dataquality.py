@@ -209,6 +209,44 @@ def test_fallback_leaves_a_fresh_row_alone():
           "untouched", f"{ff.revenue} / {ff.revenue_annuals}")
 
 
+def test_the_fallback_is_converted_with_its_OWN_currency():
+    """L5, found live on TSM. The FX rate was derived from what SEC reported and then
+    used on a DIFFERENT source's numbers. TSM's 20-F carries a USD convenience
+    translation, so SEC reads USD and the rate is None, while FMP reports the same
+    company as filed — in TWD. The guard was `if alt.currency != "USD" and fx:`, so
+    with no rate it converted nothing and said nothing: EPS came out ~32x too large,
+    fair value $8,612 against a $422 ADR, and the row read BUY."""
+    print("Q2d the fallback's rate comes from the FALLBACK's currency, not SEC's")
+    calls = []
+
+    def fetch(ccy):
+        calls.append(ccy)
+        return {"TWD": 0.0323, "DKK": 0.1544}.get(ccy)
+
+    check(dq.fallback_rate("USD", "USD", None, fetch) == 1.0 and not calls,
+          "a USD fallback needs no rate and no call")
+
+    calls.clear()
+    r = dq.fallback_rate("TWD", "USD", None, fetch)
+    check(r == 0.0323, "TSM: SEC reads USD, the fallback is TWD -> TWD's rate", str(r))
+    check(calls == ["TWD"], "and the currency asked for is the FALLBACK's", str(calls))
+
+    calls.clear()
+    check(dq.fallback_rate("DKK", "DKK", 0.1544, fetch) == 0.1544 and not calls,
+          "same currency as SEC -> reuse the rate already fetched", str(calls))
+
+    check(dq.fallback_rate("TWD", "USD", None, lambda c: None) is None,
+          "no rate available -> REFUSE the fallback rather than mix currencies")
+    check(dq.fallback_rate("TWD", "USD", None,
+                           lambda c: (_ for _ in ()).throw(RuntimeError("fx down"))) is None,
+          "and an FX outage refuses it too, without raising")
+
+    # mutation: the OLD rule, which reused SEC's decision
+    old = (lambda alt, sec, sec_fx: sec_fx if alt != "USD" else 1.0)
+    check(old("TWD", "USD", None) is None,
+          "the OLD rule yields no rate for TSM — which is exactly why nothing converted")
+
+
 def test_apply_writes_flags_once():
     print("Q3 findings reach the card, and do not duplicate on a second pass")
     ff = FinancialFacts("X", fiscal_year="2024-12-31")
@@ -225,7 +263,9 @@ def main():
               test_gap_detection, test_unconverted_currency_blocks,
               test_penalty_is_graded_and_not_multiplied, test_fallback_only_when_fresher,
               test_fallback_clears_the_series_it_invalidates,
-              test_fallback_leaves_a_fresh_row_alone, test_apply_writes_flags_once):
+              test_fallback_leaves_a_fresh_row_alone,
+              test_the_fallback_is_converted_with_its_OWN_currency,
+              test_apply_writes_flags_once):
         t()
     print()
     if FAIL:

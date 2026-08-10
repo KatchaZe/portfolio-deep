@@ -29,6 +29,8 @@ SEVERITIES
 """
 import datetime as dt
 
+from domain import contracts        # the unit contract — see FALLBACK_MONEY below
+
 # An annual filer that has not produced a fiscal year end within this window is behind.
 # 15 months allows a normal late filing (FY ends December, 20-F lands the following
 # April, plus slack); beyond that the figures are describing a different company.
@@ -156,11 +158,46 @@ FALLBACK_SCALARS = ("revenue", "operating_income", "net_income", "eps_gaap",
 # newer source. They are cleared rather than kept, and the reason is the whole point of
 # this repo's last three review rounds: a fresh FY2025 revenue divided by a stale
 # FY2023 series entry is P3-1 again, rebuilt by the very code meant to fix staleness.
+# L2 (2026-08-10): the fields above that carry a CURRENCY, derived from the unit
+# contract instead of typed out again. The first version of the FX loop in
+# refresh.py was hand-written and listed 11 of these 13 — it silently omitted
+# `eps_gaap`, so TSM's fallback EPS stayed in TWD beside a USD ADR price. Derived,
+# the two lists cannot drift: add a scalar to FALLBACK_SCALARS and it is converted
+# if — and only if — its declared unit says it is money.
+# `shares_diluted` is excluded on purpose and by construction: it is a COUNT.
+FALLBACK_MONEY = tuple(f for f in FALLBACK_SCALARS
+                       if contracts.UNIT.get(f) in (contracts.MONEY, contracts.PER_SHARE))
+
 FALLBACK_INVALIDATES = ("revenue_annuals", "revenue_annuals_dated",
                         "operating_income_annuals", "operating_income_annuals_dated",
                         "cfo_annuals_dated", "capex_annuals_dated",
                         "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
                         "rnd_annuals", "shares_diluted_annuals")
+
+
+def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):
+    """The FX rate to convert a FALLBACK source's figures with, or None when it cannot
+    be established — in which case the fallback MUST NOT be used.
+
+    L5 (2026-08-10). `sec_fx` describes the currency SEC reported, and reusing it for a
+    different source's numbers is the bug. TSM proves the two can differ: its 20-F
+    carries a USD convenience translation, so SEC reads USD and `sec_fx` is None, while
+    FMP reports the same company as filed — in TWD. The old code asked
+    `if alt.currency != "USD" and sec_fx:`, so with no rate it converted nothing and
+    said nothing, and every downstream reader took TWD for dollars.
+
+    None means REFUSE THE FALLBACK. Stale-but-coherent beats fresh-but-mixed: a warning
+    about old financials is recoverable, a row silently denominated in two currencies is
+    not — it produced a $8,612 fair value on a $422 ADR and read as BUY."""
+    alt = (alt_currency or "USD").upper()
+    if alt == "USD":
+        return 1.0
+    if alt == (sec_currency or "USD").upper() and sec_fx:
+        return sec_fx                       # same currency, rate already fetched
+    try:
+        return fetch_rate(alt) or None
+    except Exception:
+        return None
 
 
 def fallback_is_fresher(sec_fiscal_year, alt_fiscal_year):

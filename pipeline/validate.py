@@ -46,6 +46,54 @@ def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt):
     return None
 
 
+def trailing_eps(net_income, shares_diluted, eps_gaap):
+    """The per-share earnings a valuation builds on, constructed the way the engine
+    constructs it (net income over diluted shares, else the filed EPS).
+
+    Kept deliberately close to `deep_v82`'s `eps0`, and invariant I12 asserts the two
+    stay in step on real fixtures — a checker that tests a LOOKALIKE of the number in
+    production is the same failure as no checker at all."""
+    if net_income is not None and shares_diluted:
+        return net_income / shares_diluted
+    return eps_gaap
+
+
+def per_share_unit_mismatch(price, eps):
+    """Why this EPS cannot be in the same currency and share unit as this price.
+
+    L4 (2026-08-10). An unconverted local currency always makes EPS TOO LARGE — TWD,
+    JPY, KRW and DKK all take many units to the dollar — so the tell is an implied
+    trailing P/E far BELOW anything a real business trades at. TSM: EPS 309 (TWD, per
+    ADS) against a USD ADR price of 421 is a P/E of 1.4x.
+
+    Only the low side is rejected, and only on POSITIVE earnings. A very high P/E is
+    ordinary in a trough year, and a loss-making company has no meaningful P/E at all —
+    rejecting either would throw away good rows to catch a fault that cannot produce
+    them. Same band as the forward-EPS gate, deliberately: one definition of "these two
+    numbers are not comparable", not two that can drift apart."""
+    if not price or price <= 0 or eps is None or eps <= 0:
+        return None
+    pe = price / eps
+    if pe < FWD_PE_MIN:
+        return (f"trailing P/E {pe:.2f}x implies EPS {eps:,.2f} and price {price:,.2f} "
+                f"are not in the same currency x share unit (below {FWD_PE_MIN:.0f}x)")
+    return None
+
+
+def _per_share_unit_gate(ff):
+    """Set the flag ONCE, at the source, so every per-share method sees the same verdict.
+
+    The alternative — checking inside each valuation — is what was tried first, and the
+    number simply surfaced through the next method that had not been told yet."""
+    eps = trailing_eps(ff.net_income, ff.shares_diluted, ff.eps_gaap)
+    why = per_share_unit_mismatch(ff.price, eps)
+    if why:
+        ff.per_share_unit_ok = False
+        ff.flags.append(f"หน่วยต่อหุ้นไม่ตรงกับราคา: {why} — "
+                        "ข้ามการประเมินมูลค่าแบบต่อหุ้นทั้งหมด (PEG และ Future Value) "
+                        "จนกว่าจะแปลงสกุลเงิน/หน่วยหุ้นได้ถูก")
+
+
 def validate(ff, fmp_income=None, rf=0.045):
     tax = ff.tax_rate
     nopat = ff.operating_income * (1 - tax) if ff.operating_income is not None else None
@@ -66,6 +114,10 @@ def validate(ff, fmp_income=None, rf=0.045):
     if fmp_income:
         _cross_check(ff, fmp_income)
 
+    # BEFORE the forward-EPS resolution: if the filed per-share figures are not in the
+    # price's unit, the SEC-derived substitute is built from those same figures, so
+    # there is no point offering it one.
+    _per_share_unit_gate(ff)
     _resolve_forward_eps(ff)
     _assumption_flags(ff)
     _rescore(ff)
@@ -105,17 +157,36 @@ def _resolve_forward_eps(ff):
     reason = forward_eps_rejection(y, ff.revenue, ff.shares_diluted, ff.price, ff.growth_lt)
     if y and y > 0 and reason is None:
         return
-    if reason and sec_fwd:
-        ff.forward_eps = round(sec_fwd, 2)
+    # L1 (2026-08-10): THE REPLACEMENT MUST CLEAR THE SAME BAR AS THE VALUE IT REPLACES.
+    # The gate used to be run on the consensus figure only, so a rejected number was
+    # swapped for an unchecked one — and on TSM the substitute was WORSE: consensus
+    # 277.21 was rejected at an implied P/E of 1.5x and replaced by an SEC-derived
+    # 386.69, an implied P/E of 1.09x. Nothing looked at it, fv_peg came out at $8,612
+    # against a $422 price, the Price pillar scored a maximum 5.0, and the row read BUY.
+    # The docstring above already said a flagged blank beats an unflagged wrong number;
+    # that principle was applied to the no-fallback branch and skipped on this one.
+    sec_reason = (forward_eps_rejection(sec_fwd, ff.revenue, ff.shares_diluted,
+                                        ff.price, ff.growth_lt) if sec_fwd else None)
+    usable = sec_fwd if (sec_fwd and sec_reason is None) else None
+    if reason and usable:
+        ff.forward_eps = round(usable, 2)
         ff.provenance["forward_eps"] = "sec-derived (consensus rejected)"
         ff.flags.append(f"forward_eps {round(y, 2)} rejected ({reason}); used SEC {ff.forward_eps}")
     elif reason:
         ff.forward_eps = None
         ff.provenance["forward_eps"] = "rejected (no usable fallback)"
-        ff.flags.append(f"forward_eps {round(y, 2)} rejected ({reason}); no SEC fallback - PEG valuation skipped")
-    elif sec_fwd:                      # nothing from consensus at all
-        ff.forward_eps = round(sec_fwd, 2)
+        why = (f"SEC fallback {round(sec_fwd, 2)} rejected too ({sec_reason})"
+               if sec_reason else "no SEC fallback")
+        ff.flags.append(f"forward_eps {round(y, 2)} rejected ({reason}); {why}"
+                        " - PEG valuation skipped")
+    elif usable:                       # nothing from consensus at all
+        ff.forward_eps = round(usable, 2)
         ff.provenance["forward_eps"] = "sec-derived (no consensus)"
+    elif sec_reason:                   # no consensus AND the SEC figure fails the gate
+        ff.forward_eps = None
+        ff.provenance["forward_eps"] = "rejected (sec-derived failed the gate)"
+        ff.flags.append(f"no consensus, and SEC-derived {round(sec_fwd, 2)} rejected "
+                        f"({sec_reason}) - PEG valuation skipped")
 
 
 def _assumption_flags(ff):
@@ -154,6 +225,11 @@ def _rescore(ff):
     score -= 8 * len(serious)
     if any(f.startswith("converted") for f in ff.flags):
         score -= 12
+    # L4: the filings and the price are not in the same unit. That is not one weak
+    # input among several — every per-share number on the card is unusable, so the row
+    # must not read as trustworthy while it is true.
+    if not getattr(ff, "per_share_unit_ok", True):
+        score -= 30
     score += _earnings_confidence(ff)
     score += _consensus_confidence(ff)
     # DQ: the data's own condition costs confidence — stale financials, a gap in the

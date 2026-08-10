@@ -255,6 +255,13 @@ PE_FLOOR, PE_CEIL = 5.0, 35.0
 # somewhere between $41 and $299 rules nothing in or out.
 FV_DISAGREE_RATIO = 2.0
 
+# L3: how far the fair value may move between the CONSENSUS growth rate and the one the
+# company actually delivered before the Price pillar stops claiming to know whether the
+# stock is cheap. 1.5x is tighter than FV_DISAGREE_RATIO above because that one compares
+# two METHODS on the same story, while this compares two STORIES — and the cheapness
+# verdict then rests entirely on whose growth you believe, which is not a measurement.
+GROWTH_FV_DISAGREE = 1.5
+
 
 def fundamental_peg_price(g_high, g_stable, ke, roic_high, roic_stable, forward_eps, years=5,
                           ke_stable=None):
@@ -1516,6 +1523,42 @@ class DeepV82Engine(DeepEngine):
                     f"(raw {peg_d.get('fair_pe_raw')}) - FV is a boundary, not an estimate")
             _add_flag(f, note)
 
+        # L3 (2026-08-10): the card was quoting TWO growth rates and reconciling neither.
+        # The Demand pillar scored NVO on the 6.4% it actually delivered — D = 1.0, with
+        # an explicit "decelerating" note — while the fair value was built on the 19.5%
+        # consensus: justified P/E 41.5, FV $116 against a $47 price, Price pillar 5.0,
+        # BUY. One quantity, two sources, nothing reconciling them. Same defect family as
+        # P3-1, except here nothing is miscoded: it is a policy nobody decided.
+        #
+        # Both are now computed and both are shown. The realised rate is the MORE
+        # CONSERVATIVE of the last year and the 3-year CAGR, floored at zero — a
+        # shrinking business cannot be valued on negative compounding, and note that a
+        # ratio test cannot even see that case (TSLA: consensus +34.6% against revenue
+        # -2.9%; the first threshold written for this missed it for exactly that reason).
+        _real = [g for g in (rev_growth_yoy, actual_3y) if g is not None]
+        g_realised = max(0.0, min(_real)) if _real else None
+        fv_peg_realised, growth_fv_x = None, None
+        if g_realised is not None:
+            fv_peg_realised, _ = fundamental_peg_price(g_realised, g_stable, ke_eff,
+                                                       roic_high, roic_term, fwd_eps_dil,
+                                                       ke_stable=ke_st_eff)
+        # ONE-SIDED, and the reason is the whole point: the cap exists to remove
+        # confidence that consensus lent to the price, so it fires only when consensus
+        # FLATTERS the fair value. When consensus sits BELOW what the company delivered
+        # (AXON 5% vs 33%, MELI 14% vs 39%) the row already looks cheap on the
+        # conservative story, which is stronger evidence, not weaker — a symmetric
+        # ratio punished exactly those names on the first attempt. Same mistake A3 made
+        # when median-normalising ROIC, caught the same way: by measuring, not reading.
+        if fv_peg and fv_peg_realised and fv_peg_realised > 0:
+            growth_fv_x = round(fv_peg / fv_peg_realised, 2)
+        growth_unreconciled = bool(growth_fv_x and growth_fv_x >= GROWTH_FV_DISAGREE)
+        if growth_unreconciled:
+            _add_flag(f, (
+                f"valuation ใช้ growth {growth*100:.1f}% (consensus) แต่บริษัททำได้จริง "
+                f"{g_realised*100:.1f}% → FV ${round(fv_peg, 2)} vs ${round(fv_peg_realised, 2)} "
+                f"({growth_fv_x}x) — Price pillar ถูกจำกัดไว้ที่กลาง ๆ เพราะ 'ถูกหรือแพง' "
+                f"ขึ้นกับว่าเชื่อ growth ของใคร ไม่ใช่สิ่งที่วัดได้"))
+
         # exit multiple from STABLE-period fundamentals (payout/(Ke-g)), not the
         # old PEG=1 heuristic (growth x 100) — Philosophy-2026 alignment (S5/S19)
         # P-B2: the exit multiple is a STABLE-phase multiple, so it is built at the
@@ -1642,6 +1685,23 @@ class DeepV82Engine(DeepEngine):
                 anchor_method, anchor_value = "Fundamental PEG", fv_peg
             if anchor_value is None:
                 anchor_method = "Terminal-Anchored Reverse DCF"
+
+        # L4 — THE single place per-share value leaves this engine, and the only place
+        # the unit verdict is read. Three methods reached for that value in turn while
+        # the fix chased them one at a time: the PEG path (closed by the forward-EPS
+        # gate), the Future Value Projection (which builds its own EPS from
+        # net_income/shares), and then the young-company DCF — which divides FIRM value
+        # by the share count and never touches EPS at all, and still printed $8,504
+        # against a $421 price. A guard placed next to any one input is a guard the
+        # next method does not know about; this one sits after every branch has run.
+        #
+        # Everything is suppressed, including a forward EPS that would pass on its own:
+        # when the filings and the quote disagree about units we do not know WHICH is
+        # wrong, and a flagged blank is worth more than a plausible-looking wrong price.
+        if not getattr(f, "per_share_unit_ok", True):
+            fv_peg = fv_fvp = None
+            ydcf = None
+            anchor_method, anchor_value = "No per-share valuation (unit mismatch)", None
 
         methods = {"Fundamental PEG": fv_peg, "Future Value Projection": fv_fvp}
         avail = {k: v for k, v in methods.items() if v and v > 0}
@@ -1852,6 +1912,15 @@ class DeepV82Engine(DeepEngine):
         _fy_adj, _fy_note = fcf_yield_adj((_t5 or {}).get("rows"), _ev, w)
         P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes,
                      fcf_adj=_fy_adj, fcf_note=_fy_note)
+        # L3: when the two growth stories give fair values far apart, "cheap" is a
+        # belief about consensus, not a measurement. Cap — never lift — at NEUTRAL, the
+        # same bound D1 puts on a pillar that could not be measured at all. A cap can
+        # only remove unearned confidence; it can never manufacture it, which is why it
+        # is safe to apply to a judgement this soft.
+        if growth_unreconciled and P is not None and P > NEUTRAL_SCORE:
+            notes.append(f"P growth-unreconciled(consensus vs realised FV {growth_fv_x}x)"
+                         f"={NEUTRAL_SCORE - P:+.2f}")
+            P = NEUTRAL_SCORE
         _sc = {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
         comp = composite(_sc)
         # D1: say so when the neutral bound actually moved the score, so a reader can
@@ -1913,6 +1982,15 @@ class DeepV82Engine(DeepEngine):
                          "terminal_ke_pct": round(ke_st_eff * 100, 2),
                          "terminal_wacc_pct": round(w_term * 100, 2),
                          "growth_pct": round(growth * 100, 1), "beta": round(beta, 2),
+                         # L3: the same card used to quote consensus growth in the fair
+                         # value and realised growth in the Demand pillar, and reconcile
+                         # neither. Both are published so a reader can see which story
+                         # the price depends on.
+                         "growth_realised_pct": (round(g_realised * 100, 1)
+                                                 if g_realised is not None else None),
+                         "fv_peg_realised": (round(fv_peg_realised, 2)
+                                             if fv_peg_realised else None),
+                         "growth_fv_x": growth_fv_x,
                          # REV-1: make the dilution charge visible on the card
                          "sbc_pct_of_rev": round(f.sbc / f.revenue * 100, 1) if (getattr(f, "sbc", None) and f.revenue) else None,
                          "sbc_dilution_pct": round(dil_rate * 100, 2) if dil_rate else None,
