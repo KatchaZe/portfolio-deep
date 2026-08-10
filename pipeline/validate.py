@@ -3,6 +3,7 @@ Validate — quality gate on a normalized FinancialFacts (sanity, forward-EPS
 resolution, assumption flags, confidence + tier).
 """
 import config
+from pipeline import dataquality
 
 ERP = config.ERP            # import-time snapshot (back-compat); checks read config.ERP live
 MAX_NET_MARGIN = 0.65
@@ -155,6 +156,11 @@ def _rescore(ff):
         score -= 12
     score += _earnings_confidence(ff)
     score += _consensus_confidence(ff)
+    # DQ: the data's own condition costs confidence — stale financials, a gap in the
+    # invested-capital series, an unconverted currency. Applied here rather than as
+    # another `serious` flag so the penalty is graded by severity instead of a flat -8,
+    # and so a row can be scored while still being visibly less trustworthy.
+    score -= dataquality.total_penalty(dataquality.apply(ff))
     ff.confidence = max(0, min(100, score))
     ff.confidence_tier = "green" if ff.confidence >= 80 else "yellow" if ff.confidence >= 50 else "red"
     return ff

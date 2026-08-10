@@ -84,12 +84,12 @@ portfolio-deep/
     refresh.py               #   orchestration: fetch/commit_fundamentals · fetch/commit_daily (PARALLEL, 4 workers) ·
                              #                  watchlist · allocation · portfolio_view · _earn_status · resolve_cik
                              #                  (get_prices / get_prices_long = thin delegators → prices.py)
-  tests/                     # 40 suites (run_tests.py) — see §10
+  tests/                     # 55 suites (run_tests.py) — see §10
     fixtures/                #   frozen real JSON: AVGO, ABBV, ORCL, NVO, MSFT (sec/yahoo/fmp profile)
     test_engine_v82.py · test_momentum.py · test_risk.py · test_no_regression.py · …
   capture.py                 # fetch real fixtures (SEC + FMP profile + Yahoo)
   verify.py                  # run SEC extraction on fixtures, compare to known-good
-  run_tests.py               # run all 40 suites
+  run_tests.py               # run all 55 suites
   requirements.txt · render.yaml · Procfile · .gitignore
   data/portfolio.json        # created at runtime (+ data/risk_cache.json, data/cache/)
 ```
@@ -323,7 +323,7 @@ signal wired into confidence).
 ## 10. Testing strategy (the trust layer)
 
 - **Fixtures** — committed real SEC + Yahoo (+FMP profile) JSON for AVGO/ABBV/ORCL/NVO/MSFT.
-- `run_tests.py` runs **40 suites**; `capture.py`/`verify.py` refresh + spot-check fixtures. Highlights:
+- `run_tests.py` runs **55 suites**; `capture.py`/`verify.py` refresh + spot-check fixtures. Highlights:
   - `test_extract.py` — SEC robust extraction + normalize + validate vs known-good ranges
     (AVGO net ≈ $25B, ORCL rev in-range, NVO DKK→USD, AVGO forward-EPS corrected, no out-of-band).
   - `test_engine.py` / **`test_engine_v82.py`** — DEEP v7.3 / **v8.2** engine contract on fixtures.

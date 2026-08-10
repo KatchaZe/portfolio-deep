@@ -28,10 +28,41 @@ TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
          "tests.test_cache_sync", "tests.test_prices_ladder",
          "tests.test_damodaran_roc", "tests.test_young_dcf",
          "tests.test_young_panel_render",
-         # audit2 is the second-pass review turned into a standing guard: it fails on
-         # any MED/HIGH finding, so the defect class it was written to catch (proxies
-         # used where real data exists, partial values consumed as whole, constants
-         # that decide the answer) cannot quietly come back.
+         # round-3 review guard: period alignment (a "1-year" growth rate must span
+         # one year), missing-pillar inflation, and a screen that shows everything
+         # it screened.
+         "tests.test_review3", "tests.test_review3d",
+         # T5: the 5-year performance strip — date alignment, gaps, staleness,
+         # watchlist/holdings parity, and the E_exec cash-durability leg.
+         "tests.test_trend",
+         # A1-A4: Price gains an FCF-yield leg, D loses two sign bugs, Economics is
+         # normalised one-sidedly, incremental ROIC moves to the capital delta.
+         "tests.test_pillars_a",
+         # B5-B8: growth consistency, beat/miss record, sector-relative ROIC, CAP,
+         # the surprise-ordering fix, and the per-pillar adjustment budget.
+         "tests.test_pillars_b",
+         # --- the safety net (2026-08-09). These are not unit tests: each one checks a
+         # property of the SYSTEM, and each was built after a defect that 46 green unit
+         # suites had failed to see. See REVIEW_PROCESS.md.
+         #
+         # dataquality  the DATA, not the code — staleness, series gaps, unconverted
+         #              currency, and that the stale-data fallback does not rebuild a
+         #              clock mismatch while fixing one. TSM (SEC stops at FY2024) is live.
+         "tests.test_dataquality",
+         # contracts    every fact field declares a CLOCK and a UNIT; an AST scan rejects
+         #              dividing, subtracting or comparing across them, and rejects a
+         #              money field that normalize never FX-converts. 1,128 possible
+         #              mispairings — past what review by eye can cover.
+         "tests.test_contracts",
+         # invariants   identities that must hold across TWO code paths (the two "actual
+         #              growth" figures agree; spread = ROIC - WACC; watchlist and
+         #              holdings rows carry the same fields). Mutation-tests itself.
+         "tests.test_invariants",
+         # replay       re-scores every stored ticker against a committed baseline and
+         #              fails when a REAL company's score moves. Intentional moves are
+         #              accepted with --update, and the baseline diff is reviewed with
+         #              the change. This is the harness that found most of the defects.
+         "tests.replay_snapshot",
          "tests.audit2"]
 HERE = os.path.dirname(os.path.abspath(__file__))
 

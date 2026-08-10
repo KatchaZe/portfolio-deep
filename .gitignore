@@ -9,3 +9,5 @@ data/risk_cache.json
 client_secret.json
 mockup_ui_scale.html
 # keep tests/fixtures/ committed — they are the regression safety net
+.coverage
+htmlcov/
