@@ -1384,13 +1384,26 @@ class DeepV82Engine(DeepEngine):
             _add_flag(f, _bn)
         spread = (roic_used - w) if roic_used is not None else None
         # A3: the Economics band is read off ONE year's ROIC. Damp it toward the
-        # company's own multi-year median first. `roic_used` stays untouched for the
-        # card and for every other consumer — only the SCORED spread is normalized, and
-        # the note says by how much.
+        # company's own multi-year median before scoring it.
+        #
+        # 2026-08-11: this used to leave `roic_used` untouched "for the card", which
+        # meant the card printed one ROIC and scored a different one. Invariant I2 says
+        # spread == the DISPLAYED ROIC - WACC, and it went red the moment a live refresh
+        # finally gave A3 the 4+ years it needs: ABBV showed 16.09% against a WACC of
+        # 5.71% and a moat of +8.32pp, three numbers that cannot all be true. A flag
+        # explaining the discrepancy is not a substitute for the card adding up.
+        #
+        # So `roic_scored` is what the Economics pillar uses AND what the card reports.
+        # The VALUATION deliberately keeps the measured figure below (terminal ROIC,
+        # the g<=ROIC cap, the PEG's high-growth ROIC): normalisation is a prudence
+        # device for scoring a moat, not a claim about the returns the business earns.
         _roic_norm, _norm_note = normalized_roic(roic_used, _trend_roic_map(f, tax))
+        roic_scored = roic_used
         if _norm_note:
-            spread = _roic_norm - w
-            _add_flag(f, _norm_note + " — คะแนน Economics ใช้ค่าที่ normalize แล้ว")
+            roic_scored = _roic_norm
+            spread = roic_scored - w
+            _add_flag(f, _norm_note + " — คะแนน Economics และ ROIC บนการ์ดใช้ค่าที่ normalize แล้ว "
+                                      "(การประเมินมูลค่ายังใช้ค่าที่วัดได้จริง)")
 
         # REV-9: Damodaran's reinvestment is capex + ACQUISITIONS + dWC - D&A. The
         # acquisition leg was already fetched (f.acquisitions_net, used only for the
@@ -1903,7 +1916,9 @@ class DeepV82Engine(DeepEngine):
         # B8 + B7: moat has a duration and a peer group, not just a size.
         _rmap_econ = _trend_roic_map(f, tax)
         _cap_adj, _cap_note = competitive_advantage_period(_rmap_econ, w)
-        _sec_adj, _sec_note = sector_relative(roic_used, getattr(f, "terminal_roic_sector", None))
+        # the SAME ROIC the spread was built from — B7 and the base band are two legs of
+        # one pillar, and feeding them different returns is the I2 fault one level down
+        _sec_adj, _sec_note = sector_relative(roic_scored, getattr(f, "terminal_roic_sector", None))
         E_econ = _r_economics(spread, roic_delta, notes, cap_adj=_cap_adj, cap_note=_cap_note,
                               sector_adj=_sec_adj, sector_note=_sec_note)
         # A1: the same enterprise value the WACC weights and the reverse DCF were built
@@ -1968,7 +1983,13 @@ class DeepV82Engine(DeepEngine):
                          "ke_pct": round(ke * 100, 2),
                          "kd_pct": round(kd_pre * 100, 2) if kd_pre is not None else None,
                          "roic_pct": round(roic * 100, 2) if roic is not None else None,
-                         "roic_adj_pct": round(roic_used * 100, 2) if (rd and roic_used is not None) else None,
+                         # what the card prints beside WACC, and what the spread was
+                         # built from — I2 requires those to be the same number
+                         "roic_adj_pct": round(roic_scored * 100, 2) if (rd and roic_scored is not None) else None,
+                         # the measured figure before A3's median damping, kept so the
+                         # normalisation is inspectable rather than merely asserted
+                         "roic_measured_pct": (round(roic_used * 100, 2)
+                                               if (rd and roic_used is not None) else None),
                          "spread_pct": round(spread * 100, 2) if spread is not None else None,
                          # G4: the BASIS the headline ROIC was measured on. D3 was two
                          # ROICs subtracted across different bases (R&D-capitalized minus

@@ -103,16 +103,27 @@ def _direction(summary, flat_band):
     return "flat"
 
 
-def _row(key, label, unit, points, summary, summary_label, flat_band, note=None):
+def _row(key, label, unit, points, summary, summary_label, flat_band, note=None,
+         summary_unit="pp"):
+    """`summary_unit` is the unit of the SUMMARY, which is not the unit of the row.
+
+    B (2026-08-11): the dashboard picked the suffix from the row's own unit — money got
+    "%", everything else got "pp" — so the ROIC row printed its INCREMENTAL RETURN as a
+    delta. PFE read "ทุนใหม่ −33.0pp", which says "ROIC fell 33 points" when it means
+    "the capital added over five years earned −33%". Two different statements about a
+    company, and the wrong one was on screen. The backend knows which it computed, so
+    the backend says so rather than leaving the front end to infer it."""
     return {"key": key, "label": label, "unit": unit,
             "points": points, "n": len(points),
             "summary": summary, "summary_label": summary_label,
+            "summary_unit": summary_unit,
             "direction": _direction(summary, flat_band), "note": note}
 
 
 def _money_row(key, label, series, years, note=None):
     pts = [{"fy": d[:4], "end": d, "v": series[d]} for d in _window(series, years) if d in series]
-    return _row(key, label, "money", pts, _cagr_pct(pts), "CAGR", CAGR_FLAT_PCT, note)
+    return _row(key, label, "money", pts, _cagr_pct(pts), "CAGR", CAGR_FLAT_PCT, note,
+                summary_unit="%")          # a growth RATE
 
 
 def _margin_row(key, label, num, den, years, note=None):
@@ -121,7 +132,8 @@ def _margin_row(key, label, num, den, years, note=None):
     common = [d for d in _window(sorted(set(num) & set(den)), years) if den[d] > 0]
     pts = [{"fy": d[:4], "end": d, "v": round(num[d] / den[d] * 100, 1)} for d in common]
     delta = round(pts[-1]["v"] - pts[0]["v"], 1) if len(pts) >= 2 else None
-    return _row(key, label, "pct", pts, delta, "Δ 5y", MARGIN_FLAT_PP, note)
+    return _row(key, label, "pct", pts, delta, "Δ 5y", MARGIN_FLAT_PP, note,
+                summary_unit="pp")         # a CHANGE in margin
 
 
 def free_cash_flow(cfo_dated, capex_dated):
@@ -197,6 +209,18 @@ def incremental_roic_pct(roic_map, dates):
     d_ic, d_nopat = b["ic"] - a["ic"], b["nopat"] - a["nopat"]
     if d_ic <= a["ic"] * MIN_IC_DELTA_FRAC:
         return None, "ฐานทุนแทบไม่เปลี่ยน — วัดผลตอบแทนของทุนใหม่ไม่ได้"
+    # C (2026-08-11): incremental ROIC assumes the EXTRA profit came from the EXTRA
+    # capital. That assumption collapses when the company started the window losing
+    # money: the numerator is then dominated by fixing the existing business, not by
+    # anything the new capital did. HIMS made this visible — NOPAT −99.9M to +91.7M
+    # against only +49.5M of capital, printed as "new capital earned 387%". The capital
+    # test above passed (capital did grow 19%); the flaw was never in the denominator.
+    #
+    # `_cagr_pct` in this same file already refuses to compound from a non-positive
+    # start, for exactly this reason. The rule simply had not been carried across.
+    if a["nopat"] <= 0:
+        return None, ("NOPAT ตั้งต้นติดลบ — กำไรที่เพิ่มมาจากการพลิกขาดทุน "
+                      "ไม่ใช่ผลตอบแทนของทุนที่ใส่เพิ่ม")
     return round(d_nopat / d_ic * 100, 1), None
 
 
@@ -282,13 +306,15 @@ def build(f, years=MAX_YEARS):
         # cannot, fall back to the change in level so the row is never blank.
         if inc is not None:
             row = _row("roic", "ROIC", "pct", pts, inc, "ทุนใหม่", MARGIN_FLAT_PP,
-                       note=f"เส้น = ROIC รายปี · ตัวเลข = ผลตอบแทนของทุนที่ใส่เพิ่ม {len(win)} ปีนี้")
+                       note=f"เส้น = ROIC รายปี · ตัวเลข = ผลตอบแทนของทุนที่ใส่เพิ่ม {len(win)} ปีนี้",
+                       summary_unit="%")   # a RETURN on the capital added, not a delta
             # the comparison Damodaran cares about: new capital vs the legacy average
             row["vs_average_pp"] = round(inc - pts[-1]["v"], 1)
         else:
             row = _row("roic", "ROIC", "pct", pts,
                        round(pts[-1]["v"] - pts[0]["v"], 1) if len(pts) >= 2 else None,
-                       "Δ 5y", MARGIN_FLAT_PP, note=f"incremental ROIC: {why}")
+                       "Δ 5y", MARGIN_FLAT_PP, note=f"incremental ROIC: {why}",
+                       summary_unit="pp")  # fell back to the CHANGE in level
         add(row)
 
     if not rows:

@@ -1909,8 +1909,13 @@ function trendStrip(x){
   const t=x.trend5y; if(!t||!t.rows||!t.rows.length)return '';
   const rows=t.rows.map(r=>{
     const col=TREND_COL[r.direction]||'#64748b';
+    // B: the suffix belongs to the SUMMARY, not to the row. Guessing it from r.unit
+    // printed the ROIC row's incremental RETURN as a delta — PFE read "ทุนใหม่ -33.0pp"
+    // ("ROIC fell 33 points") when it meant "capital added over 5y earned -33%".
+    // The backend now states it; the old rule stays only for rows stored before that.
+    const su=r.summary_unit||(r.unit==='money'?'%':'pp');
     const sum=r.summary==null?'<span class="muted">&mdash;</span>'
-      :`<b style="color:${col}">${r.summary>=0?'+':''}${r.summary}${r.unit==='money'?'%':'pp'}</b>`;
+      :`<b style="color:${col}">${r.summary>=0?'+':''}${r.summary}${su}</b>`;
     // n<5 ต้องบอกให้เห็น ไม่ใช่ปล่อยให้อ่านเป็น 5 ปี (ผู้ใช้เลือก "แสดงเท่าที่มี + บอกจำนวนปี")
     const nb=r.n<5?` <span class="muted" style="font-size:calc(8px*var(--fs))" title="${esc('SEC แท็กข้อมูลให้แค่ '+r.n+' ปีที่ต่อเนื่องกัน — ที่เหลือไม่ได้ยื่นหรือขาดขาใดขาหนึ่ง')}">${r.n}y</span>`:'';
     const first=r.points[0], last=r.points[r.points.length-1];

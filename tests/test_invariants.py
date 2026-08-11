@@ -309,17 +309,32 @@ def test_the_invariants_can_actually_fail():
           f"caught only {len(bad)} tickers — the check may no longer be able to fire")
 
     # B6: read the surprise list by position instead of by date.
+    #
+    # 2026-08-11: this used to hunt the STORE for a list where rows[-1] is not the newest
+    # quarter. After the ordering fix landed, `reconcile_earnings` normalises every list
+    # on write, so all 21 came back oldest-first and the mutation had nothing left to
+    # bite — the self-test reported "caught []" and went red. A guard that can only fire
+    # while the bug is still in the data is not a guard on the CODE. It builds its own
+    # newest-first input now, which is the shape Yahoo actually returns.
+    newest_first = [{"quarter": "2026-06-30", "grade": "beat"},
+                    {"quarter": "2026-03-31", "grade": "miss"},
+                    {"quarter": "2025-12-31", "grade": "beat"}]
     original_latest = pead.latest
     pead.latest = lambda rows: (rows[-1] if rows else None)
     try:
         bad2 = []
-        for t, ff, v in ROWS:
+        broke = (pead.latest(newest_first) or {}).get("quarter")
+        if broke != "2026-06-30":
+            bad2.append(f"positional read picked {broke}")
+        for t, ff, v in ROWS:                    # and the real rows, if any still differ
             rows = ff.earnings_surprises or getattr(ff, "eps_surprises_backfill", None) or []
             qs = [r.get("quarter") for r in rows if isinstance(r, dict) and r.get("quarter")]
             if len(qs) >= 2 and (pead.latest(rows) or {}).get("quarter") != max(qs):
                 bad2.append(t)
     finally:
         pead.latest = original_latest
+    check((pead.latest(newest_first) or {}).get("quarter") == "2026-06-30",
+          "and the real pead.latest reads a newest-first list correctly")
     check(len(bad2) >= 1, "I8 goes red when the ordering fault is reintroduced",
           f"caught {bad2} — expected at least the Yahoo-sourced names")
 

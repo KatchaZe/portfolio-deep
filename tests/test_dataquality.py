@@ -91,7 +91,20 @@ def test_low_false_positive_rate_on_the_real_portfolio():
             flagged[t] = dq.worst(f)
     check(len(flagged) <= 3, f"at most 3 of {len(store.get('facts') or {})} names flagged",
           str(flagged))
-    check("TSM" in flagged, "and TSM — the genuinely stale one — is among them", str(flagged))
+    # 2026-08-11: this used to assert `"TSM" in flagged`. TSM stopped being flagged the
+    # moment the fallback it prompted actually worked and gave it FY2025 — the check was
+    # right and the assertion was wrong, because it pinned a fact about the DATA in a
+    # test whose job is to pin the behaviour of the CODE. AVGO took its place. So what
+    # is asserted now is the PROPERTY: whatever is flagged has to be genuinely stale or
+    # gapped, verifiable from the row itself.
+    for t, sev in flagged.items():
+        ff = FinancialFacts(**{k: v for k, v in (store["facts"][t]).items() if k in fields})
+        codes = {d["code"] for d in dq.assess(ff, TODAY)}
+        months = dq.staleness_months(ff.fiscal_year, TODAY)
+        justified = ("stale_financials" in codes and months is not None
+                     and months >= dq.STALE_WARN_MONTHS) or bool(codes - {"stale_financials"})
+        check(justified, f"{t} ({sev}) is flagged for a reason visible in the row",
+              f"codes={codes} fiscal_year={ff.fiscal_year} months={months}")
 
 
 def test_gap_detection():

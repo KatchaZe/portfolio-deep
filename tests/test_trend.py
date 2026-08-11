@@ -205,6 +205,64 @@ def test_fixture_values_match_the_filings():
           f"{fcf/1e9:.1f}B")
 
 
+def test_incremental_roic_needs_a_profitable_start():
+    """C, found by reading the live dashboard. Incremental ROIC assumes the extra profit
+    came from the extra capital. A company that BEGAN the window losing money breaks
+    that: the numerator is the turnaround, not the return on anything new.
+
+    HIMS: NOPAT -99.9M -> +91.7M on +49.5M of capital, shown as 'new capital earned
+    387%'. The existing guard only tested the denominator and capital HAD grown 19%, so
+    it passed. `_cagr_pct` in this same module already refuses a non-positive start;
+    the rule had simply never been carried across."""
+    print("T5-F3 a turnaround is not a return on new capital")
+    hims = {"2021-12-31": {"nopat": -99.9e6, "ic": 262.8e6, "roic": -38.0},
+            "2025-12-31": {"nopat": 91.7e6, "ic": 312.3e6, "roic": 29.4}}
+    inc, why = trend.incremental_roic_pct(hims, ["2021-12-31", "2025-12-31"])
+    check(inc is None, "withheld, not reported as +387.2%", str(inc))
+    check(why and "ติดลบ" in why, "and the reason names the negative start", str(why))
+
+    ok = {"2021-12-31": {"nopat": 100e6, "ic": 500e6, "roic": 20.0},
+          "2025-12-31": {"nopat": 200e6, "ic": 900e6, "roic": 22.2}}
+    check(trend.incremental_roic_pct(ok, ["2021-12-31", "2025-12-31"])[0] == 25.0,
+          "a profitable start is unaffected: ΔNOPAT 100M / ΔIC 400M = 25%")
+
+    # a profitable start that DECLINES must still measure — new capital destroying
+    # value is the signal Damodaran cares most about (PFE), not a data problem
+    dn = {"2021-12-31": {"nopat": 200e6, "ic": 500e6, "roic": 40.0},
+          "2025-12-31": {"nopat": 50e6, "ic": 900e6, "roic": 5.6}}
+    check(trend.incremental_roic_pct(dn, ["2021-12-31", "2025-12-31"])[0] == -37.5,
+          "and a NEGATIVE incremental return is still reported")
+
+    store = os.path.join(os.path.dirname(HERE), "data", "portfolio.json")
+    if os.path.exists(store):
+        with open(store, encoding="utf-8") as fh:
+            f = (json.load(fh).get("facts") or {}).get("HIMS")
+        if f and f.get("ic_components_dated"):
+            rows = {r["key"]: r for r in (trend.build(f) or {}).get("rows", [])}
+            r = rows.get("roic")
+            check(not r or r.get("summary_label") != "ทุนใหม่",
+                  "and HIMS no longer shows one on the real stored facts",
+                  str(r and (r.get("summary_label"), r.get("summary"))))
+
+
+def test_summary_declares_its_own_unit():
+    """B. The dashboard chose the suffix from the ROW's unit, so every pct row got
+    'pp' — printing the ROIC row's incremental RETURN as a point CHANGE."""
+    print("T5-K each summary says what unit it is in")
+    by = {r["key"]: r for r in trend.build(_facts("MSFT"))["rows"]}
+    check(by["revenue"]["summary_unit"] == "%", "revenue CAGR is a rate")
+    check(by["gross_margin"]["summary_unit"] == "pp", "margin change is in points")
+    check(by["fcf"]["summary_unit"] == "%", "FCF CAGR is a rate")
+    roic = by.get("roic")
+    if roic:
+        want = "%" if roic["summary_label"] == "ทุนใหม่" else "pp"
+        check(roic["summary_unit"] == want,
+              f"ROIC row labelled '{roic['summary_label']}' carries '{want}'",
+              str(roic["summary_unit"]))
+    html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
+    check("r.summary_unit" in html, "and index.html reads it instead of guessing")
+
+
 def test_frontend_renders_the_strip():
     print("T5-J dashboard renders the strip")
     html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
@@ -216,7 +274,9 @@ def main():
     for t in (test_alignment_is_by_date_not_index, test_partial_year_is_dropped,
               test_gap_breaks_the_window, test_stale_rows_are_not_shown_as_current,
               test_watchlist_and_holdings_paths_agree, test_cagr_needs_a_positive_base,
-              test_incremental_roic_needs_a_real_capital_change, test_fcf_durability_leg,
+              test_incremental_roic_needs_a_real_capital_change,
+              test_incremental_roic_needs_a_profitable_start,
+              test_summary_declares_its_own_unit, test_fcf_durability_leg,
               test_engine_degrades_silently_without_the_new_series,
               test_fixture_values_match_the_filings, test_frontend_renders_the_strip):
         t()
