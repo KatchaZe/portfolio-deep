@@ -15,6 +15,7 @@ the ways a trend chart lies:
 
 Run: python -m tests.test_trend
 """
+import datetime as dt
 import json
 import os
 import sys
@@ -263,6 +264,36 @@ def test_summary_declares_its_own_unit():
     check("r.summary_unit" in html, "and index.html reads it instead of guessing")
 
 
+def test_the_strip_states_its_own_period():
+    """D. Every figure in the strip is a FISCAL YEAR; the valuation on the same card is
+    TTM. They differ by roughly (months since the year ended) x (growth) — 0% for MSFT,
+    +18% for AVGO whose year ended nine months ago — and the card said which was which
+    nowhere.
+
+    Converting the strip to TTM was rejected on evidence: ASML, NVO and TSM file NO
+    quarterly data to SEC, so a TTM series would delete the strip for exactly the
+    foreign filers this module was extended to serve. So the period is declared instead,
+    and it travels in the PAYLOAD: a label the dashboard derives stops being true the
+    moment the dashboard changes, while a fact the backend states can be tested."""
+    print("T5-L the strip declares the period it is measuring")
+    out = trend.build(_facts("MSFT"), today=dt.date(2026, 8, 11))
+    check(out.get("as_of") == "2025-06-30" or (out.get("as_of") or "").endswith("-06-30"),
+          "as_of is the newest fiscal-year END, not a year number", str(out.get("as_of")))
+    check(out.get("fy_to") and out.get("fy_from") and out["fy_from"] < out["fy_to"],
+          "and the span is stated", f"{out.get('fy_from')}-{out.get('fy_to')}")
+    check(isinstance(out.get("lag_months"), float),
+          "lag to today is measured in the backend", str(out.get("lag_months")))
+
+    # the lag is a function of the reference date, not a constant baked in
+    a = trend.build(_facts("MSFT"), today=dt.date(2026, 8, 11))["lag_months"]
+    b = trend.build(_facts("MSFT"), today=dt.date(2026, 11, 11))["lag_months"]
+    check(round(b - a) == 3, "and it moves with the calendar", f"{a} -> {b}")
+
+    html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
+    for needle in ("function trendPeriod", "t.fy_to", "t.lag_months", "trendPeriod(t)"):
+        check(needle in html, f"index.html renders it: {needle}")
+
+
 def test_frontend_renders_the_strip():
     print("T5-J dashboard renders the strip")
     html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
@@ -276,7 +307,8 @@ def main():
               test_watchlist_and_holdings_paths_agree, test_cagr_needs_a_positive_base,
               test_incremental_roic_needs_a_real_capital_change,
               test_incremental_roic_needs_a_profitable_start,
-              test_summary_declares_its_own_unit, test_fcf_durability_leg,
+              test_summary_declares_its_own_unit, test_the_strip_states_its_own_period,
+              test_fcf_durability_leg,
               test_engine_degrades_silently_without_the_new_series,
               test_fixture_values_match_the_filings, test_frontend_renders_the_strip):
         t()

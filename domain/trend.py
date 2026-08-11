@@ -30,6 +30,7 @@ TWO RULES THIS MODULE EXISTS TO ENFORCE
 Everything is derived from SEC 10-K figures, so the values are the audited GAAP ones,
 not the adjusted numbers a company presents on its earnings call.
 """
+import datetime as dt
 
 # how far apart the first and last point must be before a row is called a trend
 CAGR_FLAT_PCT = 2.0        # revenue / FCF: |CAGR| <= 2%/yr reads as flat
@@ -263,7 +264,7 @@ def _tax_rate(f):
     return f.get("tax_rate") if isinstance(f.get("tax_rate"), (int, float)) else 0.21
 
 
-def build(f, years=MAX_YEARS):
+def build(f, years=MAX_YEARS, today=None):
     """Facts (object or stored dict) -> the trend strip. Returns {} when nothing at
     all could be built, so a caller can simply not render the section."""
     rev = _pairs(_get(f, "revenue_annuals_dated"))
@@ -320,6 +321,35 @@ def build(f, years=MAX_YEARS):
     if not rows:
         return {}
     n_max = max(r["n"] for r in rows)
+    # D (2026-08-11): SAY WHICH PERIOD THIS IS. Every figure here is a FISCAL YEAR from
+    # the 10-K, while the valuation on the same card runs on TTM — and the two differ by
+    # roughly (months since the fiscal year ended) x (growth rate). AVGO's year ended
+    # 2025-11-02, so the strip says $63.9B revenue beside a card valuing $75.5B; MSFT's
+    # ended six weeks ago and the two agree exactly. Nothing is wrong, but a reader has
+    # no way to know which of those two situations they are looking at.
+    #
+    # Converting the strip to TTM was considered and rejected: ASML, NVO and TSM file no
+    # quarterly data to SEC at all (0 quarters each), so a TTM series would DELETE the
+    # strip for exactly the foreign filers this module was extended to serve — and TTM
+    # margins would have to be stitched from quarters, which is the clock-mixing fault
+    # this repo spent three review rounds removing.
+    #
+    # The period travels in the PAYLOAD rather than being recomputed by the dashboard:
+    # a label the front end derives goes quiet the moment the front end changes, and a
+    # fact the back end states can be checked by a test.
+    ends = sorted({p["end"] for r in rows for p in r["points"]})
+    as_of = ends[-1] if ends else None
+    lag = None
+    if as_of:
+        try:
+            ref = today or dt.date.today()
+            lag = round((ref - dt.date.fromisoformat(as_of)).days / 30.44, 1)
+        except (TypeError, ValueError):
+            lag = None
     return {"rows": rows, "years": n_max,
             "source": "SEC 10-K (GAAP)",
+            "as_of": as_of,                       # fiscal-year END of the newest point
+            "fy_from": ends[0][:4] if ends else None,
+            "fy_to": as_of[:4] if as_of else None,
+            "lag_months": lag,                    # how far TTM has moved past it
             "partial": any(r["n"] < min(years, n_max) for r in rows)}

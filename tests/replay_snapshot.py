@@ -156,6 +156,12 @@ def main(argv):
         print(f"baseline {'updated' if update else 'created'}: {len(current)} tickers -> {BASELINE}")
         print(f"  input: {fp}")
         print("commit it alongside the change so the diff is reviewable.")
+        # 2026-08-11: pinning MID-change cost an hour. The baseline was updated while
+        # three more edits were still to come, and the next run showed two composites
+        # moving by 0.01 with no pillar behind them — a rounding edge with no cause that
+        # any test could find, because the cause was already committed into the baseline.
+        print("RUN THIS LAST. A baseline pinned while edits are still coming records")
+        print("half the change, and the other half then looks like an unexplained drift.")
         return 0
 
     with open(BASELINE, encoding="utf-8") as fh:
