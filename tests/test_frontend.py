@@ -60,8 +60,41 @@ def test_build_stamp_matches_config():
     print("build stamp matches config OK (%s)" % config.BUILD)
 
 
+def test_build_stamp_is_not_older_than_the_engine():
+    """The stamp must identify the code that produced the numbers.
+
+    Found by opening the dashboard on 2026-08-11: it read `build 2026-08-04a` after
+    five commits that changed the engine (T5, A1-A4, B5-B8, L1-L5). The existing check
+    only compares index.html to config, and both were equally stale — so a reader could
+    not tell whether a score moved because the DATA changed or because the ENGINE did.
+
+    Enforced against a convention this repo already follows without fail: every fix
+    carries a dated comment. If any module under domain/ pipeline/ sources/ mentions a
+    date later than the build stamp, the stamp is behind the code.
+    """
+    newest, where = None, None
+    for pkg in ("domain", "pipeline", "sources"):
+        for root, _, files in os.walk(os.path.join(ROOT, pkg)):
+            for fn in files:
+                if not fn.endswith(".py"):
+                    continue
+                p = os.path.join(root, fn)
+                with open(p, encoding="utf-8") as fh:
+                    for i, line in enumerate(fh, 1):
+                        for d in re.findall(r"20\d\d-\d\d-\d\d", line):
+                            if newest is None or d > newest:
+                                newest, where = d, f"{os.path.relpath(p, ROOT)}:{i}"
+    stamp = config.BUILD[:10]
+    assert newest is None or stamp >= newest, (
+        "BUILD %s is older than the newest dated change %s (%s) — bump config.BUILD "
+        "and index.html DASH_BUILD so the dashboard says which engine produced its "
+        "numbers" % (config.BUILD, newest, where))
+    print("build stamp is current OK (%s >= newest change %s)" % (stamp, newest))
+
+
 if __name__ == "__main__":
     test_new_ui_present()
     test_backend_keys_referenced()
     test_build_stamp_matches_config()
+    test_build_stamp_is_not_older_than_the_engine()
     print("\nALL test_frontend PASSED")

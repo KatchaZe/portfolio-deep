@@ -1538,7 +1538,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-08-04a";
+const DASH_BUILD="2026-08-11a";
 // --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
 async function loadAssumptions(){
   const el=document.getElementById('assumeMsg'); if(!el)return;
@@ -2223,9 +2223,17 @@ let charts={};
 function mkChart(id,cfg){const ctx=document.getElementById(id);if(!ctx||typeof Chart==='undefined')return;if(charts[id])charts[id].destroy();charts[id]=new Chart(ctx,cfg);}
 function makePie(id,data){
   const labels=data.map(d=>d.label),vals=data.map(d=>d.value),tot=vals.reduce((a,b)=>a+b,0)||1;
+  // Legend at the BOTTOM, not the right. With position:'right' inside a 280px box the
+  // doughnut took most of the width and Chart.js CLIPPED the longer entries — on the
+  // live dashboard 'Defensive / Healthcare' and 'Communication / Media' lost their
+  // percentage entirely and 'Growth / Technology 43%' lost its % sign, so two of five
+  // sleeves could not be read at all. Chart.js does not wrap or ellipsize legend text,
+  // it just cuts it, which is silent. At the bottom each entry gets the full width and
+  // wraps onto extra rows instead.
   mkChart(id,{type:'doughnut',
     data:{labels:labels.map((l,i)=>`${l} ${(vals[i]/tot*100).toFixed(0)}%`),datasets:[{data:vals,backgroundColor:labels.map((_,i)=>PALETTE[i%PALETTE.length])}]},
-    options:{plugins:{legend:{position:'right',labels:{font:{size:Math.round(10*__FS)},boxWidth:12}}}}});
+    options:{maintainAspectRatio:false,
+      plugins:{legend:{position:'bottom',labels:{font:{size:Math.round(10*__FS)},boxWidth:10,padding:6}}}}});
 }
 function buildWhatifInputs(){
   let h='';for(let i=0;i<5;i++)h+=`<div style="display:flex;gap:6px;margin:3px 0"><input class="wf-t" placeholder="TICKER" style="width:90px;text-transform:uppercase;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:calc(12px*var(--fs))"><input class="wf-a" type="number" step="any" placeholder="buy amount $" style="width:130px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:calc(12px*var(--fs))"></div>`;
@@ -2387,8 +2395,8 @@ function renderRisk(d){
     <div class="muted" style="font-size:calc(11px*var(--fs));margin-top:5px">${esc(s.scope||'')} · DR normal <b>${dv.dr_normal??'—'}</b> / crisis <b>${dv.dr_crisis??'—'}</b> — ${esc((dv.score&&dv.score.band)||'')}</div>`;
   // 2) allocation
   const alloc=`<div style="display:flex;gap:24px;flex-wrap:wrap">
-    <div style="width:280px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center">By risk sleeve</div><canvas id="rcSleeve" height="220"></canvas></div>
-    <div style="width:280px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center">By currency</div><canvas id="rcCcy" height="220"></canvas></div></div>`;
+    <div style="width:280px;height:290px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center">By risk sleeve</div><div style="height:270px;position:relative"><canvas id="rcSleeve"></canvas></div></div>
+    <div style="width:280px;height:290px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center">By currency</div><div style="height:270px;position:relative"><canvas id="rcCcy"></canvas></div></div></div>`;
   // 3) capital vs risk (compact bars)
   const caprisk=`<div style="max-width:760px;height:${Math.max(90,capRiskRows(cv).length*22)}px;position:relative"><canvas id="rcCapRisk"></canvas></div>
     <div class="muted" style="font-size:calc(11px*var(--fs));margin-top:4px">แท่งเทา = %เงินที่ลง · แท่งแดง = %ความเสี่ยงที่สร้าง (เขียว = ตัวช่วยลดความเสี่ยง). ${capRiskHint(cv)}</div>`;

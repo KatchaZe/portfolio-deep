@@ -27,6 +27,7 @@ on which company, and is that what you meant?".
 A drift is NOT automatically a failure of the code — most of the time it is the intended
 effect of a fix. It IS always a failure of an unexamined change.
 """
+import hashlib
 import json
 import os
 import sys
@@ -57,6 +58,31 @@ TOL = 1e-6
 
 def _round(v):
     return round(v, 6) if isinstance(v, float) else v
+
+
+def input_fingerprint(store_path=STORE):
+    """What the replay was RUN ON, so a drift can name its own cause.
+
+    2026-08-11. This check reported 225 moved values across all 21 tickers and it looked
+    exactly like a catastrophic engine regression. Nothing in the engine had changed:
+    starting the app had pulled a newer `portfolio.json` from Google Drive over the local
+    one (`Drive: pulled portfolio.json` in the server log), so the replay was comparing
+    NEW FACTS against a baseline captured on OLD ONES.
+
+    The harness is meant to answer "did the CODE move a score". Silently answering "the
+    inputs are different" in the same words destroys that: 225 unexplainable lines is
+    precisely the kind of report people learn to scroll past. So the inputs are
+    fingerprinted and the two causes are told apart before a single value is compared."""
+    try:
+        with open(store_path, encoding="utf-8") as fh:
+            store = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    facts = store.get("facts") or {}
+    blob = json.dumps(facts, sort_keys=True, ensure_ascii=False).encode("utf-8")
+    return {"tickers": len(facts),
+            "sha1": hashlib.sha1(blob).hexdigest()[:16],
+            "refreshed": sorted(set((store.get("updated") or {}).values()))[-3:]}
 
 
 def evaluate_all(store_path=STORE):
@@ -122,15 +148,37 @@ def main(argv):
                                         ("composite", "recommendation", "D", "E_exec", "E_econ", "P")))
         print()
 
+    fp = input_fingerprint()
     if update or not os.path.exists(BASELINE):
         with open(BASELINE, "w", encoding="utf-8") as fh:
-            json.dump(current, fh, indent=1, sort_keys=True, ensure_ascii=False)
+            json.dump({"_input": fp, "scores": current}, fh, indent=1,
+                      sort_keys=True, ensure_ascii=False)
         print(f"baseline {'updated' if update else 'created'}: {len(current)} tickers -> {BASELINE}")
+        print(f"  input: {fp}")
         print("commit it alongside the change so the diff is reviewable.")
         return 0
 
     with open(BASELINE, encoding="utf-8") as fh:
-        base = json.load(fh)
+        raw = json.load(fh)
+    # baselines written before the fingerprint existed are plain {ticker: {...}}
+    base = raw.get("scores") if isinstance(raw.get("scores"), dict) else raw
+    base_fp = raw.get("_input") if isinstance(raw, dict) else None
+
+    if base_fp and fp and base_fp.get("sha1") != fp.get("sha1"):
+        print("REPLAY INPUT CHANGED — this run is NOT a code check.\n")
+        print(f"  baseline ran on   {base_fp.get('tickers')} tickers  sha1 {base_fp.get('sha1')}"
+              f"  refreshed {base_fp.get('refreshed')}")
+        print(f"  this run ran on   {fp.get('tickers')} tickers  sha1 {fp.get('sha1')}"
+              f"  refreshed {fp.get('refreshed')}\n")
+        print("data/portfolio.json is not immutable: a refresh rewrites it, and simply")
+        print("STARTING THE APP can replace it with the Google Drive copy. Any score that")
+        print("moves now may be new facts, not new code — the two are indistinguishable")
+        print("from the diff alone.\n")
+        print("  1. confirm the CODE is what you think it is (git status / git diff)")
+        print("  2. python -m tests.replay_snapshot --update   to re-pin to these inputs")
+        print("  3. from then on a drift means the code moved a score, which is the point")
+        return 1
+
     rows = diff(base, current)
     errs = [t for t, r in current.items() if "ERROR" in r]
 
