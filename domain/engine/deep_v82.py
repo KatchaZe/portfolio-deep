@@ -2,6 +2,7 @@
 DEEP Framework v8.2 engine — implements the DeepEngine contract.
 Free-data limits handled per skill invariant 17 (skip + flag, never fabricate).
 """
+import decimal as _decimal
 import datetime
 
 import config
@@ -1238,6 +1239,16 @@ WEIGHTS = {"D": 0.20, "E_exec": 0.20, "E_econ": 0.30, "P": 0.30}
 NEUTRAL_SCORE = 2.5     # midpoint of the 0-5 band: "we did not find out", not "it is bad"
 
 
+_D = _decimal.Decimal
+
+
+def _q2(d):
+    """Half-up to two places, as a float. `round()` cannot be used: it resolves a tie by
+    the binary representation, which is why 1.325 and 2.575 rounded differently on two
+    machines running identical code."""
+    return float(d.quantize(_D("0.01"), rounding=_decimal.ROUND_HALF_UP))
+
+
 def composite(scores):
     """Weighted DEEP composite.
 
@@ -1261,15 +1272,38 @@ def composite(scores):
 
     Measured on the committed portfolio: LLY 3.21->3.00, PFE 3.29->3.05,
     TSM 4.50->3.90, NVO 2.79->2.70; AXON and RKLB unchanged; no recommendation moved."""
-    avail = {k: scores[k] for k in WEIGHTS if scores.get(k) is not None}
-    if not avail:
+    # 2026-08-11: weight the pillars AS REPORTED, not as they happen to sit in binary.
+    # AXON's four pillars weight to 1.3250000000000002 and REGN's to 2.575 — both exactly
+    # on the .005 rounding edge, where the last bits decide whether the card reads 1.32
+    # or 1.33. Those bits move with any upstream change that alters no reported value at
+    # all, so the replay showed a composite drifting with all four pillars identical:
+    # a contradiction on its face, and an hour spent looking for a cause that was in the
+    # float, not in the logic.
+    #
+    # Rounding first makes the composite a function of the numbers actually on the card
+    # — the same property I2 demands of spread and ROIC — and removes a whole class of
+    # replay noise. It cannot change a verdict: the shift is at most half a hundredth,
+    # while the recommendation bands are a quarter point apart.
+    if not any(scores.get(k) is not None for k in WEIGHTS):
         return None
-    wsum = sum(WEIGHTS[k] for k in avail)
-    renorm = sum(avail[k] * WEIGHTS[k] for k in avail) / wsum
-    if wsum >= 1.0 - 1e-9:                       # nothing missing -> nothing to bound
-        return renorm
-    neutral = sum(avail.get(k, NEUTRAL_SCORE) * WEIGHTS[k] for k in WEIGHTS)
-    return min(renorm, neutral)
+    # DECIMAL, not binary. Pillars move in quarter points and the weights are 0.2/0.3,
+    # so the weighted sum is always a multiple of 0.025 — it lands on a three-decimal
+    # value ending in 5 systematically, which is exactly where float rounding is decided
+    # by the last bits. AXON weighted to 1.3250000000000002 and REGN to 2.575, and the
+    # SAME literals rounded to 1.33 under one interpreter and 1.32 under another. A score
+    # on the card must not depend on which machine printed it.
+    #
+    # Exact decimal arithmetic on the pillars AS REPORTED, rounded half-up, makes the
+    # composite something a reader can reproduce by hand from the four numbers beside it
+    # — the property I2 already demands of ROIC and spread, and I13 pins here.
+    dw = {k: _D(str(WEIGHTS[k])) for k in WEIGHTS}
+    avail = {k: _D(str(round(scores[k], 2))) for k in WEIGHTS if scores.get(k) is not None}
+    wsum = sum(dw[k] for k in avail)
+    renorm = sum(avail[k] * dw[k] for k in avail) / wsum
+    if wsum >= 1:                                # nothing missing -> nothing to bound
+        return _q2(renorm)
+    neutral = sum(avail.get(k, _D(str(NEUTRAL_SCORE))) * dw[k] for k in WEIGHTS)
+    return _q2(min(renorm, neutral))
 
 
 def cap_reco_without_price(reco, price_score):

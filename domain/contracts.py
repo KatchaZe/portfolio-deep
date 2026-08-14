@@ -251,13 +251,18 @@ FX_BLOCK_START = 'if ff.currency and ff.currency != "USD":'
 #     "FALLBACK"   the money/per-share subset of dataquality.FALLBACK_SCALARS
 FX_SITES = {
     "pipeline/normalize.py": (FX_BLOCK_START, "\n    # 3)", "ALL_MONEY"),
-    "pipeline/refresh.py": ("if alt_fx != 1.0:", "\n                else:", "FALLBACK"),
+    "pipeline/dataquality.py": ("if fx_rate != 1.0:", "\n    return True, notes", "FALLBACK"),
 }
-# A block that only LOOKS UP a rate (`fx = yahoo.fetch_fx_to_usd(ccy)`) or merely
-# checks for one (dataquality's unconverted-currency finding) is not a conversion.
-# Multiplying by it is.
+# A block that only LOOKS UP a rate (`fx = yahoo.fetch_fx_to_usd(ccy)`) or merely checks
+# for one is not a conversion. MULTIPLYING by it is — so that is the signal, on its own.
+#
+# 2026-08-11: this used to require a `!= "USD"` test near the multiplication, which was
+# a second condition that could drift away from the first. Moving the fallback's
+# conversion from refresh.py into dataquality.py separated them and the scanner went
+# blind to BOTH sites at once — the exact hole the registry exists to close, reopened
+# by a refactor. One signal now: if a module multiplies by an fx rate, it is registered
+# here or the build fails.
 _FX_APPLY = re.compile(r"\*\s*\w*fx\w*")     # * fx, * fx_rate, * alt_fx
-_FX_TEST = re.compile(r'!=\s*"USD"')
 
 
 def _read(root, rel, sources=None):
@@ -284,11 +289,8 @@ def fx_conversion_sites(root, scan=("pipeline", "sources", "domain")):
             if not fn.endswith(".py") or fn == "contracts.py":
                 continue
             rel = f"{pkg}/{fn}"
-            src = _read(root, rel)
-            for m in _FX_TEST.finditer(src):
-                if _FX_APPLY.search(src[m.start():m.start() + 2000]):
-                    out.append((rel, rel in FX_SITES))
-                    break
+            if _FX_APPLY.search(_read(root, rel)):
+                out.append((rel, rel in FX_SITES))
     return out
 
 

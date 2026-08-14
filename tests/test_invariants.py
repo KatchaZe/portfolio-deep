@@ -207,6 +207,45 @@ def test_surprise_lists_are_read_by_date():
           "the same rows in either order give the same answer")
 
 
+def test_composite_is_a_function_of_the_pillars_shown():
+    """I13. The composite must be reproducible from the four pillars printed beside it.
+
+    AXON's pillars weight to 1.3250000000000002 and REGN's to 2.575 — both exactly on
+    the .005 rounding edge, where the last bits of a float decide whether the card reads
+    1.32 or 1.33. Those bits shift with any upstream change that alters no reported
+    value, so replay showed a composite moving while all four pillars were
+    byte-identical: a contradiction on its face, and an hour spent hunting a cause that
+    lived in the float rather than in the logic. Same property I2 demands of ROIC."""
+    print("I13 composite reproduces from the pillars on the card")
+    from domain.engine import deep_v82 as _E
+    bad = []
+    for t, ff, v in ROWS:
+        if v.composite is None:
+            continue
+        again = _E.composite({"D": v.D, "E_exec": v.E_exec, "E_econ": v.E_econ, "P": v.P})
+        if again is None or abs(round(again, 2) - round(v.composite, 2)) > 1e-9:
+            bad.append(f"{t}: shown {v.composite} vs {again}")
+    check(not bad, f"every composite recomputes from its own pillars ({len(ROWS)} rows)",
+          "; ".join(bad))
+
+    # The two rows that produced the phantom drift, weighting to exactly 1.325 and
+    # 2.575. What is asserted is the PROPERTY, not the digit: pinning "1.33" here was
+    # my own version of the same mistake, since which side of the boundary a
+    # representation lands on is an artifact of binary, not a fact about the company.
+    # What must be true is that noise BELOW the printed precision cannot move what is
+    # printed.
+    for pil in (dict(D=3.25, E_exec=1.5, E_econ=0.5, P=0.75),
+                dict(D=0.5, E_exec=2.25, E_econ=3.0, P=3.75)):
+        base = round(_E.composite(pil), 2)
+        check(round(_E.composite(dict(pil)), 2) == base,
+              f"{base} is reproducible from the same pillars")
+        for eps in (1e-13, -1e-13, 5e-14):
+            jitter = {k: v + eps for k, v in pil.items()}
+            check(round(_E.composite(jitter), 2) == base,
+                  f"jitter {eps:+g} below the reported precision cannot move {base}",
+                  str(round(_E.composite(jitter), 2)))
+
+
 def test_scores_stay_in_band():
     """I9 — the pillars are 0-5 by definition and the composite is a weighted mean of
     them, so it cannot escape their min/max. An adjustment that overflows shows up here
@@ -374,6 +413,7 @@ def main():
         return
     print(f"running system invariants over {len(ROWS)} stored tickers\n")
     for t in (test_growth_agrees_across_paths, test_spread_identity,
+              test_composite_is_a_function_of_the_pillars_shown,
               test_anchor_is_a_real_method_output, test_anchor_inside_its_range,
               test_garp_equals_its_pillars, test_upside_identity, test_row_schema_parity,
               test_surprise_lists_are_read_by_date, test_scores_stay_in_band,

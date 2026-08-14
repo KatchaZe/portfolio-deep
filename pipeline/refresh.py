@@ -156,28 +156,15 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
             # Getting the rate is now a PRECONDITION of using the fallback at all.
             # Stale-but-coherent beats fresh-but-mixed: a warning about old financials
             # is recoverable, a row silently denominated in two currencies is not.
-            alt_ccy = (alt.currency or "USD").upper()
-            alt_fx = dataquality.fallback_rate(alt_ccy, sec_ccy, fx, yahoo.fetch_fx_to_usd)
-            if not alt_fx:
-                ff.flags.append(f"งบสำรองรายงานเป็น {alt_ccy} แต่หาอัตราแลกเปลี่ยนไม่ได้ "
-                                "— ไม่ใช้แหล่งสำรอง คงงบเดิมไว้และหัก confidence "
-                                "(ตัวเลขคนละสกุลปนกันอันตรายกว่างบเก่า)")
-            else:
-                applied, note = dataquality.refresh_from_fallback(ff, alt)
-                if applied:
-                    ff.flags.append(note)
-                    # L2: the field list is DERIVED from the unit contract. It used to be
-                    # typed out here and covered 11 of the 13 scalars the fallback moves —
-                    # `eps_gaap` was the one missing.
-                    if alt_fx != 1.0:
-                        for k in dataquality.FALLBACK_MONEY:
-                            v = getattr(ff, k, None)
-                            if isinstance(v, (int, float)):
-                                setattr(ff, k, v * alt_fx)
-                        ff.flags.append(f"converted {alt_ccy}->USD @ {round(alt_fx, 4)} "
-                                        "(แหล่งสำรอง — คนละสกุลกับที่ SEC รายงาน)")
-                else:
-                    ff.flags.append("แหล่งสำรองไม่ได้ใหม่กว่า SEC — คงตัวเลขเดิมไว้และหัก confidence")
+            #
+            # 2026-08-11: the decision moved into dataquality.apply_stale_fallback so it
+            # can be tested. Everything here is network; everything there is policy, and
+            # the policy's three refusal paths had no test on them at all while this
+            # module measured 0% coverage.
+            _, _notes = dataquality.apply_stale_fallback(
+                ff, alt, sec_ccy, fx, yahoo.fetch_fx_to_usd)
+            for _n in _notes:
+                ff.flags.append(_n)
         except Exception as e:
             log.warning("%s stale-financials fallback failed: %s", t, e)
             ff.flags.append("งบเก่าและดึงแหล่งสำรองไม่สำเร็จ — หัก confidence")

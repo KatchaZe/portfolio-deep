@@ -260,6 +260,70 @@ def test_the_fallback_is_converted_with_its_OWN_currency():
           "the OLD rule yields no rate for TSM — which is exactly why nothing converted")
 
 
+def test_every_refusal_path_degrades_safely():
+    """The stale-financials fallback has three ways to say no, and until now not one of
+    them had a test on it — the logic sat inline in refresh.analyze, wrapped in network
+    calls, in a module measuring 0% coverage.
+
+    They matter more than usual now: a THIRD fallback source was measured and declined
+    (after L5, ZERO of 21 holdings are stale enough to reach here — median financials 2
+    months old against a 15-month threshold — and another source means another set of
+    tagging and currency conventions, the surface that produced four defects in a day).
+    Refusing safely IS the remaining defence."""
+    print("Q2e each way of saying no leaves the row coherent")
+
+    def sec_row():
+        return FinancialFacts("X", fiscal_year="2024-12-31", revenue=100e9, net_income=10e9,
+                              eps_gaap=5.0, revenue_annuals=[100e9, 95e9],
+                              revenue_annuals_dated=[["2024-12-31", 100e9]])
+
+    # 1. no exchange rate for the fallback's currency -> refuse, keep SEC untouched
+    ff = sec_row()
+    alt = FinancialFacts("X", fiscal_year="2025-12-31", currency="TWD",
+                         revenue=3.5e12, net_income=1.6e12, eps_gaap=309.35)
+    applied, notes = dq.apply_stale_fallback(ff, alt, "USD", None, lambda c: None)
+    check(applied is False, "no rate -> not applied")
+    check(ff.revenue == 100e9 and ff.eps_gaap == 5.0,
+          "and the SEC figures survive untouched", f"{ff.revenue} / {ff.eps_gaap}")
+    check(ff.revenue_annuals == [100e9, 95e9], "including the series")
+    check(any("หาอัตราแลกเปลี่ยนไม่ได้" in n for n in notes), "and it says why", str(notes))
+
+    # 2. the fallback is not newer -> refuse
+    ff = sec_row()
+    old = FinancialFacts("X", fiscal_year="2023-12-31", currency="USD", revenue=90e9)
+    applied, notes = dq.apply_stale_fallback(ff, old, "USD", None, lambda c: 1.0)
+    check(applied is False and ff.revenue == 100e9, "older source -> not applied")
+    check(any("ไม่ได้ใหม่กว่า" in n for n in notes), "and it says why", str(notes))
+
+    # 3. a usable non-USD fallback IS applied, converted, and announced
+    ff = sec_row()
+    applied, notes = dq.apply_stale_fallback(ff, alt, "USD", None, lambda c: 0.0323)
+    check(applied is True, "a fresher source with a rate is applied")
+    check(abs(ff.revenue - 3.5e12 * 0.0323) < 1, "revenue converted", f"{ff.revenue:,.0f}")
+    check(abs(ff.eps_gaap - 309.35 * 0.0323) < 0.01,
+          "and eps_gaap with it — the field L2 was missing", str(ff.eps_gaap))
+    check(not ff.revenue_annuals, "the SEC series is cleared, not left beside new scalars")
+    check(any("converted TWD->USD" in n for n in notes), "and the conversion is stated",
+          str(notes))
+
+    # 4. a USD fallback needs no conversion and must not be scaled by anything
+    ff = sec_row()
+    usd = FinancialFacts("X", fiscal_year="2025-12-31", currency="USD",
+                         revenue=120e9, eps_gaap=6.0)
+    applied, _ = dq.apply_stale_fallback(ff, usd, "USD", None, lambda c: 0.0323)
+    check(applied is True and ff.revenue == 120e9 and ff.eps_gaap == 6.0,
+          "USD in, USD out, untouched by the rate", f"{ff.revenue} / {ff.eps_gaap}")
+
+    # and refresh.py must actually route through this, not keep its own copy
+    with open(os.path.join(os.path.dirname(HERE), "pipeline", "refresh.py"),
+              encoding="utf-8") as fh:
+        src = fh.read()
+    check("dataquality.apply_stale_fallback(" in src,
+          "refresh.py calls the tested policy")
+    check("FALLBACK_MONEY" not in src,
+          "and no longer carries its own conversion loop")
+
+
 def test_apply_writes_flags_once():
     print("Q3 findings reach the card, and do not duplicate on a second pass")
     ff = FinancialFacts("X", fiscal_year="2024-12-31")
@@ -278,6 +342,7 @@ def main():
               test_fallback_clears_the_series_it_invalidates,
               test_fallback_leaves_a_fresh_row_alone,
               test_the_fallback_is_converted_with_its_OWN_currency,
+              test_every_refusal_path_degrades_safely,
               test_apply_writes_flags_once):
         t()
     print()

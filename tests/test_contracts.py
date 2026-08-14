@@ -143,12 +143,12 @@ def test_the_fx_site_check_fires():
     tree — the mutated source is handed to the checker, and the new-site probe lives
     in a throwaway directory."""
     print("C1d and that check is shown to go red")
-    src = _read("pipeline", "refresh.py")
-    hand_typed = src.replace("for k in dataquality.FALLBACK_MONEY:",
+    src = _read("pipeline", "dataquality.py")
+    hand_typed = src.replace("for k in FALLBACK_MONEY:",
                              'for k in ("revenue", "net_income"):')
     check(hand_typed != src, "mutation applied (the loop line reads as expected)")
-    missing = contracts.unconverted_money_at(ROOT, "pipeline/refresh.py",
-                                             {"pipeline/refresh.py": hand_typed})
+    missing = contracts.unconverted_money_at(ROOT, "pipeline/dataquality.py",
+                                             {"pipeline/dataquality.py": hand_typed})
     check("eps_gaap" in missing,
           "typing the list out again re-exposes eps_gaap (the TSM defect)", str(missing))
     # and FALLBACK_MONEY must stay derived, not become a literal

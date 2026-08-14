@@ -200,6 +200,45 @@ def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):
         return None
 
 
+def apply_stale_fallback(ff, alt, sec_currency, sec_fx, fetch_rate):
+    """The whole stale-financials decision in one testable place: get the right rate,
+    apply the fallback only if it is genuinely newer, convert what it moved, and say
+    what happened. Returns (applied, [notes]) — the caller attaches the notes.
+
+    2026-08-11: this logic lived inline in `refresh.analyze`, wrapped in network calls,
+    which is why its THREE refusal paths — no exchange rate, source not newer, fetch
+    failed — had no test touching them at all while `pipeline/refresh.py` measured 0%
+    coverage. Those paths are now the only line of defence, because a third fallback
+    source was measured and declined: after L5 fixed TSM, ZERO of 21 holdings are stale
+    enough to reach here (median financials 2 months old against a 15-month threshold),
+    and a third source would add another set of tagging and currency conventions —
+    the exact surface that produced four defects in one day — to a path nothing uses."""
+    notes = []
+    # named fx_rate, not rate: contracts.fx_conversion_sites finds every place money is
+    # multiplied by an exchange rate by looking for exactly that. Moving this block out
+    # of refresh.py made BOTH the old site and the new one invisible to it for a few
+    # minutes — the hole the site registry exists to close, reopened by a refactor.
+    fx_rate = fallback_rate(getattr(alt, "currency", None), sec_currency, sec_fx, fetch_rate)
+    ccy = (getattr(alt, "currency", None) or "USD").upper()
+    if not fx_rate:
+        notes.append(f"งบสำรองรายงานเป็น {ccy} แต่หาอัตราแลกเปลี่ยนไม่ได้ — ไม่ใช้แหล่งสำรอง "
+                     "คงงบเดิมไว้และหัก confidence (ตัวเลขคนละสกุลปนกันอันตรายกว่างบเก่า)")
+        return False, notes
+    applied, note = refresh_from_fallback(ff, alt)
+    if not applied:
+        notes.append("แหล่งสำรองไม่ได้ใหม่กว่า SEC — คงตัวเลขเดิมไว้และหัก confidence")
+        return False, notes
+    notes.append(note)
+    if fx_rate != 1.0:
+        for k in FALLBACK_MONEY:
+            v = getattr(ff, k, None)
+            if isinstance(v, (int, float)):
+                setattr(ff, k, v * fx_rate)
+        notes.append(f"converted {ccy}->USD @ {round(fx_rate, 4)} "
+                     "(แหล่งสำรอง — คนละสกุลกับที่ SEC รายงาน)")
+    return True, notes
+
+
 def fallback_is_fresher(sec_fiscal_year, alt_fiscal_year):
     """True when the alternative source is reporting a strictly later fiscal year end."""
     try:
