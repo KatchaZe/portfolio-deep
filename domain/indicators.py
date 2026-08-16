@@ -108,9 +108,35 @@ ACTION_MAP = {
 }
 
 
-def action(signal, momentum_signal):
+# domain/momentum.py's PRIMARY label (4/4 Strong · 3/4 Positive · 2/4 Neutral ·
+# 1/4 Weak · 0/4 Negative) mapped onto the three columns of ACTION_MAP.
+_MOM_LABEL_TO_COLUMN = {
+    "Strong": "Bullish", "Positive": "Bullish",
+    "Neutral": "Neutral",
+    "Weak": "Bearish", "Negative": "Bearish",
+}
+
+
+def action(signal, momentum_signal, mom_label=None):
+    """Combined Action = DEEP signal x momentum.
+
+    FIX 2026-08-16 — the momentum axis was fed `momentum_signal`, the SECONDARY
+    contrarian/trend vote from compute() above. That vote needs |RSI+MACD+DBBMV| >= 2
+    to leave Neutral, and those three rarely agree: across the whole committed
+    portfolio it returned "Neutral" for 21 rows out of 21. The matrix therefore never
+    left its middle column and STRONG BUY / ACCUMULATE / WAIT / WATCH / TRIM /
+    STRONG SELL — every cell documented on the Ref tab — could not occur. Worse, the
+    card was simultaneously showing "MOMENTUM Strong" from the PRIMARY readout, so
+    the two disagreed in plain sight (ABBV: card "Strong 4/4", action axis "Neutral").
+
+    Prefer the primary label; keep the old signal as a fallback so callers that have
+    not been updated still work.
+    """
     if signal is None:
         return None
-    if momentum_signal is None:
+    col = _MOM_LABEL_TO_COLUMN.get(mom_label) if mom_label else None
+    if col is None:
+        col = momentum_signal
+    if col is None:
         return signal
-    return ACTION_MAP.get((signal, momentum_signal), signal)
+    return ACTION_MAP.get((signal, col), signal)

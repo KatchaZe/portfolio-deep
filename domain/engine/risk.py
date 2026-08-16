@@ -249,6 +249,24 @@ def diversification_ratio(weights_vec, vols, port_vol):
     return (wavg / port_vol) if port_vol > 0 else None
 
 
+def effective_bets(dr):
+    """ENB (Effective Number of Bets) = DR².
+
+    Correlation-adjusted count of *independent* bets. Derived from the
+    diversification ratio so the two can never disagree:
+
+        DR  = (Σ wᵢσᵢ) / σp
+        ENB = DR²  ≈ 1 / (wᵀ Ρ w)   (exact when all vols are equal)
+
+    Invariants this guarantees (and that the old inverse-HHI-of-risk-contributions
+    proxy violated — see FIX 2026-08-16):
+      * ENB ≤ Effective N (1/HHI) whenever pairwise correlations are ≥ 0.
+      * ENB FALLS when correlations rise, so crisis ENB < normal ENB.
+      * ENB → 1 as every pair approaches perfect correlation.
+    """
+    return round(dr * dr, 2) if (dr and dr > 0) else None
+
+
 def risk_contributions(tickers, weights_vec, cov):
     """Full covariance-based risk attribution.
     MCRᵢ = (Σⱼ wⱼ·Σᵢⱼ)/σp ; RCᵢ = wᵢ·MCRᵢ ; Σ RCᵢ = σp.
@@ -278,10 +296,19 @@ def risk_contributions(tickers, weights_vec, cov):
             "diff_pp": round((signed - weights_vec[i]) * 100, 1),
             "vol_pct": round(math.sqrt(cov[i][i]) * 100, 1) if cov[i][i] > 0 else None,
         })
+    # Inverse-HHI of |risk contributions| = how EVENLY risk is spread across names.
+    # NOTE (FIX 2026-08-16): this is NOT the Effective Number of Bets. It ignores
+    # how correlated those contributions are, so it RISES in a crisis (contributions
+    # even out as correlations converge) and can exceed Effective N. It is kept only
+    # as the "risk balance" input to diversification_score(); the ENB shown in the UI
+    # now comes from effective_bets(dr).
     q = [abs(rc) / abs_total for rc in rc_list] if abs_total else []
-    enb_abs = (1.0 / sum(x * x for x in q)) if q and sum(x * x for x in q) > 0 else None
+    rb = (1.0 / sum(x * x for x in q)) if q and sum(x * x for x in q) > 0 else None
+    rb = round(rb, 2) if rb else None
     rows.sort(key=lambda r: -(r["abs_risk_share_pct"] or 0))
-    return rows, {"port_vol_pct": round(sp * 100, 1), "enb_abs": round(enb_abs, 2) if enb_abs else None}
+    return rows, {"port_vol_pct": round(sp * 100, 1),
+                  "risk_balance_n": rb,
+                  "enb_abs": rb}   # deprecated alias — kept for back-compat
 
 
 def crisis_cov(cov, tickers, asset_class, floor=None):

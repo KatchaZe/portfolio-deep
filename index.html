@@ -322,19 +322,19 @@
       <table class="httab">
         <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
         <tr><td><b>1</b></td><td><b>จุดสี หน้า ticker + &#9873;</b></td><td>Confidence tier ของข้อมูล (เขียว &ge;80 / เหลือง &ge;50 / แดง &lt;50) + จำนวน data flags</td><td>แดง = ข้อมูลขาดหลายช่อง อย่าเพิ่งเชื่อ Fair Value มาก · ⚑ = จำนวน data flags (ชี้ดูรายละเอียด) · ปุ่ม &times; = ลบออกจากพอร์ต</td></tr>
-        <tr><td><b>2</b></td><td><b>ราคา + P/L</b></td><td>ราคาล่าสุด + %เปลี่ยน และกำไร/ขาดทุนของ position (มุมขวา ตัวจาง)</td><td>ตั้งใจให้เป็น "บริบท" ไม่ใช่พระเอก — มูลค่า (เกจ #3) ต้องมาก่อนราคาเสมอ (S5) · Watchlist ไม่มี P/L แต่มีปุ่ม + Portfolio</td></tr>
+        <tr><td><b>2</b></td><td><b>ราคา + P/L</b></td><td>ราคาล่าสุด + %เปลี่ยน และกำไร/ขาดทุนของ position (มุมขวา ตัวจาง)</td><td>ตั้งใจให้เป็น "บริบท" ไม่ใช่พระเอก — มูลค่า (เกจ #3) ต้องมาก่อนราคาเสมอ (S5) · <b>Watchlist ต่างจาก My Portfolio:</b> ไม่มี P/L · <b>ไม่มี Drawer (#13)</b> จึงตรวจย้อนคะแนนไม่ได้ · ข้อมูลดึงสดตอนกด Run ไม่ถูกเก็บ · forward EPS มักดึงไม่ได้ &rarr; ดูธง &#9873; ก่อนเชื่อ Fair Value · มีปุ่ม + Portfolio</td></tr>
         <tr><td><b>3</b></td><td><b>เกจ Price vs Value</b></td><td>ขีดดำ = ราคาปัจจุบันบนสเกล FV (เขียว = โซน margin of safety / เทา = fair &plusmn;15% / แดง = แพง) + FV และวิธีที่ใช้</td><td>คำถามแรกของ Damodaran ตอบใน 1 วินาที · หุ้น pre-profit แสดงเป็น 2 แท่ง implied vs actual แทน (Reverse DCF) · bond/gold/crypto ไม่มีเกจ เพราะเป็นเกม pricing (S40-41)</td></tr>
         <tr><td><b>4</b></td><td><b>Upside gross &rarr; net</b></td><td>(FV−ราคา)/ราคา แล้วหักค่าเทรด ~0.2% + ภาษี capital gains ~15%</td><td>ตัดสินใจด้วย <b>net</b> เสมอ (S6) — ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
         <tr><td><b>5</b></td><td><b>คะแนน DEEP + ดาว</b></td><td>คะแนนรวม 0–5 จาก D-E-E-P (ถ่วงน้ำหนัก D 20% / E_exec 20% / E_econ 30% / P 30%)</td><td>&ge;4 = BUY, 3–4 = HOLD/Accumulate, 2–3 = HOLD, &lt;2 = SELL/AVOID — เทียบ "ระหว่างหุ้น" ได้เพราะ rubric เดียวกัน</td></tr>
         <tr><td>&#8211;</td><td><b>แถบเทรนด์ 5 ปี</b> (ใต้ Earnings)</td><td>5 เส้น: รายได้ &middot; gross margin &middot; op margin &middot; FCF &middot; ROIC จากงบ 10-K &middot; ตัวเลขท้ายแถว = ค่าปีล่าสุด + CAGR (เงิน) หรือ &Delta;pp (อัตราส่วน)</td><td>วงกลม Earnings ด้านบนเทียบกับ <b>ที่นักวิเคราะห์คาด</b> (beat/miss) &middot; แถบนี้เทียบกับ <b>ตัวเองปีก่อน ๆ</b> &mdash; หุ้นดีคือเส้นชันขึ้นทั้งแถบ ไม่ใช่ปีเดียวเด้ง &middot; เส้นประ = ศูนย์ (เห็น FCF ติดลบได้ทันที)</td></tr>
         <tr><td><b>6</b></td><td><b>Moat / EQ / GARP badges</b></td><td>Moat = ROIC−WACC spread (pp) · EQ = earnings quality CLEAN/REVIEW/LOW · GARP = ถูก&times;ดี (Economics + Price, /10)</td><td>Moat &ge;+10pp = แข็งแรง, ติดลบ = ทำลายมูลค่า · EQ วัดว่ากำไรกลายเป็นเงินสดจริงไหม (cash conversion &ge;0.8, accruals &le;5% ของ assets, SBC &le;10% ของรายได้) · GARP candidate = ทั้งสองด้าน &ge;3 (S13/S19)</td></tr>
         <tr><td><b>7</b></td><td><b>Momentum / Rank / Action</b></td><td>Momentum = composite 4 เงื่อนไข (12-1 &gt;0 · 6M &gt;0 · เหนือ SMA200 · RSI&gt;50) · Rank = percentile 12-1 เทียบตัวอื่นในพอร์ต/ลิสต์ · Action = value &times; momentum</td><td>Strong/Positive = จังหวะหนุน · ⏳ = ข้อมูลเก่า กด Run Daily · Rank Top = ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน · Action: BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย · ตลาด RISK-OFF จะแสดง <b>WAIT · crash guard</b> ทับสัญญาณฝั่งซื้อชั่วคราว (S9)</td></tr>
-        <tr><td><b>8</b></td><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside · EPS&times;n = forward EPS blend จาก n แหล่ง</td><td>FVP = Future Value Projection (หุ้นโตแรง moat กว้าง: spread&gt;10pp และ growth&gt;15%) · PEG = Fundamental PEG (กรณีทั่วไป) · RevDCF = หุ้นยังไม่มีกำไร แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า · สองวิธีต่างกันมาก = FV sensitive ต่อสมมติฐาน ลดความมั่นใจ</td></tr>
+        <tr><td><b>8</b></td><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside · EPS&times;n = forward EPS blend จาก n แหล่ง</td><td><b>ลำดับการเลือกวิธี:</b> &#9312; <b>FVP</b> (Future Value Projection) เมื่อ spread&gt;10pp <b>และ</b> growth&gt;15% <b>และ</b>มี forward EPS ที่ผ่านเกณฑ์ &middot; &#9313; <b>PEG</b> (Fundamental PEG) กรณีทั่วไปที่มี forward EPS &middot; &#9314; <b>RevDCF</b> (Terminal-Anchored Reverse DCF) = <b>fallback เมื่อออกราคาเป้าจุดเดียวไม่ได้</b> ไม่ว่าจะเพราะยังไม่มีกำไร หรือ forward EPS หาย/ไม่ผ่าน revenue-capacity ceiling — แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า &middot; สองวิธีต่างกันมาก = FV sensitive ต่อสมมติฐาน ลดความมั่นใจ</td></tr>
         <tr><td><b>9</b></td><td><b>ช่อง Upside</b></td><td>ตัวเลข upside + net ซ้ำในตาราง grid · หุ้น pre-profit: actual %/y เทียบ implied CAGR</td><td>&gt;+15% = มี margin of safety · &lt;−15% = จ่ายแพงกว่ามูลค่า · pre-profit: actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
         <tr><td><b>10</b></td><td><b>S9 guard badges</b></td><td>แถบเตือนแดง = crash guard (ตลาดใต้ 200-DMA) · แถบเหลือง = reversal (วิ่งสะสม ~3 ปี &ge;+150% และใกล้ยอด)</td><td>แสดงเฉพาะเมื่อเกิดจริง — เป็น "veto จังหวะเข้า" ชั่วคราว ไม่ใช่สัญญาณขายพื้นฐาน (S9: momentum พังแรงสุดตอนตลาดกลับทิศ / 3–5 ปี = โซน mean reversion)</td></tr>
         <tr><td><b>11</b></td><td><b>Earnings &middot; EPS/Rev/Mgn &middot; 5q</b></td><td>ผล 5 ไตรมาสล่าสุด (เก่า&rarr;ใหม่): EPS และ Revenue = beat/meet/miss เทียบ estimate นักวิเคราะห์ · Mgn = แนวโน้ม operating margin YoY (expand/flat/contract) · PEAD = ทิศ drift หลังงบ (S25)</td><td>เขียวต่อเนื่อง = execution ดี · แดงซ้ำ = ประมาณการโลกสวย/ธุรกิจแผ่ว · ชี้จุดสีดู Act vs Est · "&times; n/a" = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง · "&#10227; refresh" = ข้อมูลชุดเก่า กด Run Fundamental Refresh</td></tr>
         <tr><td><b>12</b></td><td><b>Verdict + &#128161; advice</b></td><td>สรุป 1 บรรทัด + คำแนะนำ action สังเคราะห์จากทุกค่าบน card</td><td>เรียงตาม มูลค่า &rarr; คุณภาพ &rarr; จังหวะ &rarr; Action ตามลำดับ Damodaran — momentum ไม่มีวัน override value</td></tr>
-        <tr><td><b>13</b></td><td><b>Drawer</b></td><td>กดกางดู WACC / Ke / Kd / ROIC* / Spread / EVA + sub-score breakdown (audit trail)</td><td>ทุกคะแนนตรวจย้อนได้ว่ามาจากตัวเลขไหน — ฐาน + adjustment ทีละรายการ (เขียว = บวก, แดง = ลบ, เทา = ข้ามเพราะไม่มีข้อมูล)</td></tr>
+        <tr><td><b>13</b></td><td><b>Drawer</b></td><td>กดกางดู WACC / Ke / Kd / ROIC* / Spread / EVA + sub-score breakdown (audit trail) — <b>มีเฉพาะ card ใน My Portfolio</b></td><td>ทุกคะแนนตรวจย้อนได้ว่ามาจากตัวเลขไหน — ฐาน + adjustment ทีละรายการ (เขียว = บวก, แดง = ลบ, เทา = ข้ามเพราะไม่มีข้อมูล) · รวมบรรทัด <code>skipped(เหตุผล)</code> และ <code>&lt;เสา&gt; ไม่มีข้อมูลพอจะวัด — ใช้ค่ากลาง 2.5</code> เมื่อทั้งเสาวัดไม่ได้ · <b>ROIC*</b> คือ ROIC ที่ปรับแล้ว (normalized) ซึ่งอาจต่างจาก &quot;R&amp;D-capitalized ROIC&quot; บรรทัดแรกของ audit trail ได้ถึง ~10pp</td></tr>
         <tr><td>&#8211;</td><td><b>Card แบบ bond/gold/crypto</b></td><td>ถ้า ticker อยู่ใน asset-class map (TLT, GLD, BTC-USD, …) card จะไม่แสดง FV/GARP/EQ แต่ติดป้าย <b>BOND · rate risk (S3)</b> หรือ <b>PRICING ASSET (S40-41)</b></td><td>สินทรัพย์ไม่มีกระแสเงินสด ตีมูลค่าไม่ได้ ได้แต่ตีราคา — จำกัดน้ำหนัก อย่าปนกับส่วน valuation · bond ดูผลอัตราดอกเบี้ยที่ Allocation &rarr; Bond rate risk</td></tr>
       </table>
 
@@ -657,7 +657,7 @@
       </table>
       <p class="muted" style="font-size:calc(12px*var(--fs))">ลำดับใช้งานที่แนะนำ: เปิด Allocation ดูข้อ 6 ก่อน (รับได้ไหม) &rarr; ข้อ 3/4 (อะไรคือตัวกินความเสี่ยง) &rarr; ข้อ 7 (ต้องทำอะไร) &rarr; ค่อยกลับไป My Portfolio ตัดสินใจรายตัวด้วย card</p>
 
-      <h3 class="ht2">7) หน้า Correlation — พอร์ต balance หรือกระจุก (Damodaran S2&ndash;4 &middot; S35&ndash;41)</h3>
+      <h3 class="ht2">5) หน้า Correlation — พอร์ต balance หรือกระจุก (Damodaran S2&ndash;4 &middot; S35&ndash;41)</h3>
       <p class="muted" style="font-size:calc(12px*var(--fs))">กด &ldquo;Run correlation&rdquo; ครั้งเดียว (แชร์ payload เดียวกับแท็บ Allocation — โหลดครั้งเดียวใช้สองแท็บ &middot; cache รายวันเก็บเฉพาะข้อมูลดี ตัวที่ดึงพลาดจะ retry ให้ตอนกด Run ซ้ำ) แล้วสลับปุ่ม <b>Normal / Crisis</b> เพื่อดูว่าการกระจาย &ldquo;หายไป&rdquo; แค่ไหนตอนวิกฤต &middot; ใช้ราคาย้อนหลัง (pricecache/Yahoo &rarr; FMP &rarr; Stooq — หุ้นใหม่ที่ยังไม่มี cache จะดึง Yahoo ตรงให้เอง)</p>
       <svg viewBox="0 0 980 1036" style="width:100%;max-width:calc(980px*var(--fs));display:block;margin:6px 0 4px;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px" xmlns="http://www.w3.org/2000/svg">
         <text x="22" y="30" font-size="11" font-weight="800" fill="#0f172a">&#128279; Correlation Monitor <tspan font-size="8.5" font-weight="600" fill="#94a3b8">&#8212; พอร์ต balance หรือกระจุก? (Damodaran S2&#8211;4 &#183; S35&#8211;41)</tspan></text>
@@ -1394,10 +1394,10 @@
       <table class="httab">
         <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์</th></tr>
         <tr><td><b>D — Demand</b></td><td>การเติบโตรายได้ + ปรับ organic (หัก M&amp;A), เทียบ median กลุ่ม, durability จาก consensus fade</td><td>0–5 · &ge;25% โต = ฐาน 4–5</td></tr>
-        <tr><td><b>E — Execution</b></td><td>ฐานจาก EQ + แนวโน้ม margin + incremental ROIC</td><td>0–5 · ทีมบริหารแปลงโอกาสเป็นกำไรได้จริงไหม</td></tr>
-        <tr><td><b>E — Economics</b></td><td>ฐานจาก Spread + แนวโน้ม spread 5 ปี</td><td>0–5 · หัวใจของ moat — น้ำหนักมากสุดร่วมกับ P (30%)</td></tr>
+        <tr><td><b>E — Execution</b></td><td>ฐานจาก earnings quality + แนวโน้ม operating margin + incremental ROIC + ความสม่ำเสมอของการ beat guidance + FCF durability</td><td>0–5 · ทีมบริหารแปลงโอกาสเป็นกำไรได้จริงไหม</td></tr>
+        <tr><td><b>E — Economics</b></td><td>ฐานจาก ROIC&minus;WACC spread + แนวโน้ม ROIC 1 ปี (FY0 vs FY1) + CAP (จำนวนปีที่ ROIC&gt;WACC ใน 5 ปี) + ROIC เทียบค่าเฉลี่ยอุตสาหกรรม</td><td>0–5 · หัวใจของ moat — น้ำหนักมากสุดร่วมกับ P (30%)</td></tr>
         <tr><td><b>P — Price</b></td><td>margin of safety เทียบ Anchor FV + ตำแหน่ง P/E ตัวเองใน 5 ปี</td><td>0–5 · MOS &ge;+40% = 5 · ต่ำกว่า −40% = 1</td></tr>
-        <tr><td><b>GARP /10</b></td><td>Economics + Price รวมกัน</td><td>candidate เมื่อ &ge;3 ทั้งคู่ (ถูก&times;ดี, S13/S19)</td></tr>
+        <tr><td><b>GARP /10</b></td><td>Economics + Price รวมกัน</td><td>candidate เมื่อ &ge;3 ทั้งคู่ (ถูก&times;ดี, S13/S19)</td></tr><tr><td><b>สูตรรวมคะแนน</b></td><td><code>composite = D&times;20% + E_exec&times;20% + E_econ&times;30% + P&times;30%</code> (แต่ละเสา cap 0–5)</td><td>&ge;4 = BUY · 3–4 = HOLD/Accumulate · 2–3 = HOLD · &lt;2 = SELL/AVOID</td></tr><tr><td><b>เสาที่วัดไม่ได้</b></td><td>ถ้าข้อมูลไม่พอจนคำนวณเสาใดไม่ได้ ระบบใช้ <b>ค่ากลาง 2.5</b> แทนเสานั้น แล้วเอา<b>ค่าที่ต่ำกว่า</b>ระหว่าง (ก) เฉลี่ยเฉพาะเสาที่วัดได้ กับ (ข) แบบเติม 2.5 — การขาดข้อมูลจึงกดคะแนนได้อย่างเดียว ดันขึ้นไม่ได้</td><td>ดูบรรทัด <code>&lt;เสา&gt; ไม่มีข้อมูลพอจะวัด — ใช้ค่ากลาง 2.5</code> ใน drawer · BUY ต้องมี P และ E_econ จริงเสมอ (cap_reco_without_price / _without_quality)</td></tr>
         <tr><td><b>แถบเทรนด์ 5 ปี</b></td><td>รายได้ &middot; gross margin &middot; op margin &middot; FCF &middot; ROIC — ค่ารายปีจากงบ <b>10-K (GAAP)</b> ที่ยื่น SEC ไม่ใช่ตัวเลข adjusted ที่บริษัทนำเสนอใน earnings call</td><td>ตอบคำถาม "โต<b>ต่อเนื่อง</b>ไหม" ซึ่งคะแนน DEEP ตอบไม่ได้เพราะเป็น snapshot ปีเดียว &middot; ดูความชันของเส้น ไม่ใช่ค่าปีล่าสุด &middot; ป้าย <b>3y/4y</b> = SEC แท็กข้อมูลให้แค่นั้น (แสดงเท่าที่มีจริง ไม่เดาเติม)</td></tr>
         <tr><td><b>FCF (Free cash flow)</b></td><td>เงินสดจากการดำเนินงาน &minus; เงินลงทุนในสินทรัพย์ถาวร (CFO &minus; capex) ต่อปีงบ</td><td>ตัวที่ตกแต่งยากที่สุด &mdash; กำไรทางบัญชีปั้นได้ เงินสดปั้นยาก &middot; ต้องมีครบทั้งสองขาถึงจะแสดง ปีที่ขาดขาใดขาหนึ่งถูกตัดทิ้ง ไม่ใช่คิดว่า capex = 0</td></tr>
         <tr><td><b>ทุนใหม่ (incremental ROIC)</b></td><td>&Delta;NOPAT &divide; &Delta;invested capital ตลอดช่วง 5 ปี = ทุนที่ใส่เพิ่มได้ผลตอบแทนกี่ %</td><td><b>สัญญาณ moat ที่มาก่อนตัวอื่น</b> (Damodaran): ROIC เฉลี่ยเป็นตัวเลขย้อนหลัง สะท้อนทุนเก่าเมื่อ 10 ปีก่อน บริษัทที่ moat กำลังหายจะยังโชว์ ROIC สวยอีกหลายปี &mdash; <b>ทุนใหม่ต่ำกว่า ROIC ล่าสุด = เงินก้อนใหม่ทำงานแย่กว่าของเก่า</b></td></tr>
@@ -1415,7 +1415,7 @@
         <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์</th></tr>
         <tr><td><b>HHI</b></td><td>ผลรวมกำลังสองของน้ำหนัก (0–1)</td><td>&lt;0.10 กระจายดี · &gt;0.18 เข้มข้น · 1.0 = ตัวเดียว</td></tr>
         <tr><td><b>Effective N</b></td><td>1/HHI = จำนวนหุ้น "ที่ถือจริงเชิงเศรษฐกิจ"</td><td>เทียบจำนวนตัวจริง — ห่างมาก = กระจุก</td></tr>
-        <tr><td><b>ENB (risk)</b></td><td>Effective Number of Bets — จำนวนเดิมพันอิสระเมื่อคิด correlation แล้ว</td><td>ต่ำกว่า Effective N เสมอ · ยิ่งใกล้ 1 = ทั้งพอร์ตคือเดิมพันเดียว</td></tr>
+        <tr><td><b>ENB (bets)</b></td><td>Effective Number of Bets = <b>DR&sup2;</b> — จำนวนเดิมพันอิสระเมื่อคิด correlation แล้ว (ผูกกับ DR โดยตรง จึงขัดกันเองไม่ได้)</td><td>ต่ำกว่า Effective N เสมอ (เมื่อ corr &ge; 0) · <b>Crisis ต้องต่ำกว่า Normal เสมอ</b> เพราะ correlation วิ่งเข้า 0.9 · ยิ่งใกล้ 1 = ทั้งพอร์ตคือเดิมพันเดียว</td></tr><tr><td><b>Risk balance N&#8337;</b></td><td>inverse-HHI ของ |risk contribution| — ความเสี่ยง<b>กระจายเท่ากัน</b>แค่ไหนระหว่างชื่อ (ไม่ได้คิด correlation)</td><td>คนละตัวกับ ENB · ใช้เป็น sub-score &quot;risk balance&quot; ของ Diversification score เท่านั้น · ตัวนี้จะ<b>สูงขึ้น</b>ตอนวิกฤต (contribution เกลี่ยกัน) ซึ่งถูกต้องตามนิยามของมัน</td></tr>
         <tr><td><b>DR (normal/crisis)</b></td><td>Diversification Ratio = ค่าเฉลี่ยถ่วง vol รายตัว / vol พอร์ต</td><td>ใกล้ 1 = การกระจายแทบไม่ช่วย · crisis DR สำคัญกว่า เพราะ correlation วิ่งเข้า 1 ตอนวิกฤต</td></tr>
         <tr><td><b>%Risk weight</b></td><td>สัดส่วน risk contribution จาก covariance (ไม่ใช่สัดส่วนเงิน)</td><td>ต่างจาก %Capital มาก = ความเสี่ยงซ่อน — ดูหัวข้อ 3</td></tr>
         <tr><td><b>VaR 95/99</b></td><td>ขาดทุนสูงสุดที่ "ไม่น่าจะเกิน" ใน horizon ที่เลือก ด้วยความเชื่อมั่น 95/99%</td><td>CVaR = ค่าเฉลี่ย "เมื่อทะลุ VaR แล้ว" — สะท้อน tail จริงกว่า</td></tr>
@@ -1428,11 +1428,11 @@
         <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์ / ตีความ</th></tr>
         <tr><td><b>Correlation (&rho;)</b></td><td>ความสัมพันธ์การเคลื่อนไหวรายวันของหุ้น 2 ตัว (&minus;1 ถึง +1) จากผลตอบแทน ~1.5 ปี</td><td>+1 วิ่งตามกันเป๊ะ &middot; 0 ไม่เกี่ยว &middot; ลบ = สวนทาง (diversifier จริง)</td></tr>
         <tr><td><b>Intra-sector corr</b></td><td>ค่าเฉลี่ย correlation ของหุ้นภายใน sector เดียวกัน</td><td>&gt;0.7 = กลุ่มนั้นซ้ำกันเชิงความเสี่ยง ถือหลายตัวเท่าถือตัวเดียว</td></tr>
-        <tr><td><b>avg pairwise corr</b></td><td>ค่าเฉลี่ย correlation ของทุกคู่ในพอร์ต</td><td>Normal &lt;0.35 ดี &middot; &gt;0.55 กระจุก &middot; Crisis &lt;0.65 ดี</td></tr>
+        <tr><td><b>avg pairwise corr</b></td><td>ค่าเฉลี่ย correlation ของทุกคู่ในพอร์ต</td><td>Normal &lt;0.35 ดี &middot; &gt;0.55 กระจุก &middot; Crisis: พอร์ตที่มีแต่หุ้นจะถูก floor ที่ 0.9 เสมอ จึงอ่าน<b>ค่าเทียบระหว่างพอร์ต</b> ไม่ใช่เทียบเกณฑ์ &mdash; ต่ำกว่า 0.9 ได้ก็ต่อเมื่อมี non-equity (Gold/Bond) ผสม</td></tr>
         <tr><td><b>Crisis correlation</b></td><td>corr ระบอบวิกฤต: floor คู่ equity&harr;equity เข้า ~0.9 (<code>crisis_cov</code>)</td><td>S2 &mdash; diversification &ldquo;หายไป&rdquo; ตอนตลาดพัง &middot; non-equity (Gold) ไม่ถูก floor</td></tr>
         <tr><td><b>Downside corr</b></td><td>correlation คิดเฉพาะวันที่ตลาด (S&amp;P) ติดลบ</td><td>มักสูงกว่า Pearson &mdash; S2/S4 &ldquo;ความเสี่ยงคือขาลง ไม่ใช่ความผันผวน&rdquo;</td></tr>
         <tr><td><b>Rolling corr</b></td><td>correlation แบบ trailing 60 วัน (พอร์ต vs S&amp;P)</td><td>ดูแนวโน้ม &mdash; ไต่ขึ้น = ความเสี่ยงกระจุกกำลังก่อตัว</td></tr>
-        <tr><td><b>ENB &divide; Eff N</b></td><td>อัตราส่วนประสิทธิภาพการกระจาย = เดิมพันอิสระ &divide; ตัวที่ถือเชิงเศรษฐกิจ</td><td>1.0 สมบูรณ์ &middot; &lt;0.7 เฝ้าระวัง &middot; &lt;0.5 = correlation กินการกระจาย</td></tr>
+        <tr><td><b>ENB &divide; Eff N</b></td><td>อัตราส่วนประสิทธิภาพการกระจาย = เดิมพันอิสระ &divide; ตัวที่ถือเชิงเศรษฐกิจ</td><td><b>1.0 คือเพดาน</b> (ค่าเกิน 1 เป็นไปไม่ได้ทางคณิตศาสตร์ ถ้าเห็น = บั๊ก) &middot; &lt;0.7 เฝ้าระวัง &middot; &lt;0.5 = correlation กินการกระจาย</td></tr>
         <tr><td><b>Fragility &Delta;ENB</b></td><td>ENB ตกจาก Normal &rarr; Crisis คิดเป็น %</td><td>ยิ่งตกมาก = พอร์ตเปราะตอนวิกฤต (การกระจายพึ่ง corr ต่ำที่หายไป)</td></tr>
         <tr><td><b>R&sup2; vs index</b></td><td>corr พอร์ต-กับ-index ยกกำลังสอง = variance พอร์ตที่ index อธิบายได้</td><td>S35&ndash;36 beta honesty &mdash; สูง = ถือ beta เฉย ๆ (&ldquo;แทบเป็น index&rdquo;)</td></tr>
         <tr><td><b>Pricing vs Valuation asset</b></td><td>Gold/BTC ไม่มีกระแสเงินสด = เกม pricing (ไม่ใช่ valuation)</td><td>S38&ndash;41 &mdash; ถือเพราะ corr ต่ำ ไม่ใช่มูลค่าพื้นฐาน &rarr; จำกัดน้ำหนัก + ป้ายเตือน</td></tr>
@@ -1472,7 +1472,7 @@
         <tr><td><b>WAIT · crash guard</b></td><td>Override การแสดงผลชั่วคราว: ตลาด RISK-OFF + Action ฝั่งซื้อ (STRONG BUY/BUY/ACCUMULATE) &rarr; แสดง WAIT · crash guard แทน (S9) — ค่าจริงบน server ไม่เปลี่ยน</td></tr>
         <tr><td><b>beat / meet / miss</b></td><td>EPS &amp; Revenue surprise เทียบ estimate: &gt;+2% = <b>beat</b> (เขียว) · &plusmn;2% = <b>meet</b> (เหลือง) · &lt;−2% = <b>miss</b> (แดง)</td></tr>
         <tr><td><b>expand / flat / contract</b></td><td>Operating margin YoY: &gt;+0.5pp = <b>expand</b> (เขียว) · &plusmn;0.5pp = <b>flat</b> (เหลือง) · &lt;−0.5pp = <b>contract</b> (แดง)</td></tr>
-        <tr><td><b>RevDCF verdict</b></td><td>อัตราเร่ง = implied CAGR &divide; actual growth: &lt;1.5&times; = <b>Plausible</b> · 1.5–3&times; = <b>Ambitious</b> · 3–5&times; = <b>Aggressive</b> · &ge;5&times; = <b>Exceptional</b> (priced for perfection) · รายได้หด = Cannot benchmark</td></tr>
+        <tr><td><b>RevDCF verdict</b></td><td>อัตราเร่ง = implied CAGR &divide; actual growth: &lt;1.5&times; = <b>Plausible</b> · 1.5–3&times; = <b>Ambitious</b> · 3–5&times; = <b>Aggressive</b> · &ge;5&times; = <b>Exceptional</b> (priced for perfection) · รายได้หด = <b>Cannot benchmark</b> · ไม่มี actual growth = <b>Unknown</b> · ไม่มีอัตราการเติบโตใดที่ทำให้ราคานี้สมเหตุผล (มูลค่าอิ่มตัวก่อนถึงราคา) = <b>No justifying growth</b> — สองกรณีหลังจะไม่มีราคาเป้าจุดเดียว</td></tr>
         <tr><td><b>EQ verdict</b></td><td>เช็ค 3 ข้อ (cash conversion &lt;0.8 / accruals &gt;5% assets / SBC &gt;10% rev): ผ่านหมด = <b>CLEAN</b> · ติด 1–2 = <b>REVIEW</b> · ติด &ge;3 = <b>LOW</b></td></tr>
         <tr><td><b>Confidence tier (จุดสี)</b></td><td>คะแนนความครบของข้อมูล 0–100: <b>เขียว &ge;80</b> · <b>เหลือง &ge;50</b> · <b>แดง &lt;50</b> — หักตามช่องที่ขาด/flag ร้ายแรง, บวกจาก track record beat และ consensus หลายแหล่งที่แคบ</td></tr>
         <tr><td><b>Market regime</b></td><td><b>RISK-ON</b> = SPY เหนือ SMA200 · <b>RISK-OFF</b> = ใต้ SMA200 (momentum crash-prone, เปิด crash guard)</td></tr>
@@ -1538,7 +1538,7 @@ const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","
 const MOM_COLOR={"Bullish":"#16a34a","Neutral":"#94a3b8","Bearish":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
-const DASH_BUILD="2026-08-11a";
+const DASH_BUILD="2026-08-16a";
 // --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
 async function loadAssumptions(){
   const el=document.getElementById('assumeMsg'); if(!el)return;
@@ -1857,12 +1857,39 @@ function eqBadge(x){
   const c=m[x.eq_verdict]||['#e2e8f0','#475569'];
   return `<div title="Earnings quality (cash conversion / accruals / SBC)" style="font-size:calc(8px*var(--fs));font-weight:700;background:${c[0]};color:${c[1]};border-radius:4px;padding:1px 4px;display:inline-block;margin-top:2px">EQ ${x.eq_verdict}</div>`;
 }
-function kmCard(label,val){return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:6px 9px"><div style="font-size:calc(9px*var(--fs));color:var(--grey)">${label}</div><div style="font-size:calc(14px*var(--fs));font-weight:700">${val}</div></div>`;}
+// 2026-08-16: a bare "&mdash;" told the reader nothing about WHY a metric is absent,
+// unlike the "x n/a" chips in the earnings row which carry the source failure. Every
+// card now gets a tooltip, and the dash gets the reason when one is known.
+const KM_TIP={
+  'Ke':'Cost of equity = Rf + beta x ERP',
+  'WACC':'Ke x (E/V) + Kd-after-tax x (D/V) — the bar ROIC has to clear',
+  'Kd a-t':'Cost of debt after tax = (Rf + default spread) x (1 - tax)',
+  'ROIC*':'ROIC ที่ปรับแล้ว (normalized) — อาจต่างจาก "R&D-capitalized ROIC" บรรทัดแรกของ audit trail ด้านล่าง ซึ่งเป็นค่าก่อน normalize',
+  'Spread':'ROIC* - WACC. บวก = สร้างมูลค่า · ลบ = ทำลายมูลค่า',
+  'EVA':'Economic Value Added = Spread x Invested Capital ($ ต่อปี)',
+};
+const KM_MISSING={
+  'ROIC*':'วัดไม่ได้ — ขาดข้อมูล invested capital หรือ NOPAT',
+  'Spread':'วัดไม่ได้ — ต้องมีทั้ง ROIC* และ WACC',
+  'EVA':'วัดไม่ได้ — ต้องมีทั้ง spread และ invested capital',
+};
+function kmCard(label,val){
+  const missing=String(val).indexOf('mdash')>=0;
+  const tip=(KM_TIP[label]||label)+(missing&&KM_MISSING[label]?(' — '+KM_MISSING[label]):'');
+  return `<div title="${tip.replace(/"/g,'&quot;')}" style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:6px 9px"><div style="font-size:calc(9px*var(--fs));color:var(--grey)">${label}</div><div style="font-size:calc(14px*var(--fs));font-weight:700">${val}</div></div>`;}
 function pctc(v){return v==null?'<span class="muted">&mdash;</span>':(v>=0?'+':'')+v+'%';}
 function adjColor(s){const n=parseFloat(s);return n>0?'#16a34a':n<0?'#dc2626':'#94a3b8';}
 function deepDrawer(x){
   const km=x.key_metrics||{};
-  const evaTxt=(x.eva==null)?'&mdash;':'$'+(x.eva/1e9).toFixed(1)+'B';
+  // 2026-08-16: $XB with one decimal swallowed every small-cap EVA — TMDX $3M and
+  // CELH $41M both printed "$0.0B" — and put the minus inside the currency ("$-0.3B").
+  const evaTxt=(x.eva==null)?'&mdash;':(function(v){
+    const sign=v<0?'-':'', a=Math.abs(v);
+    if(a>=1e9) return sign+'$'+(a/1e9).toFixed(1)+'B';
+    if(a>=1e6) return sign+'$'+(a/1e6).toFixed(0)+'M';
+    if(a>=1e3) return sign+'$'+(a/1e3).toFixed(0)+'k';
+    return sign+'$'+a.toFixed(0);
+  })(x.eva);
   const cards=[['Ke',pctc(km.ke_pct)],['WACC',pctc(km.wacc_pct)],['Kd a-t',pctc(km.kd_pct)],
     ['ROIC*',pctc(km.roic_adj_pct!=null?km.roic_adj_pct:km.roic_pct)],['Spread',pctc(km.spread_pct)],['EVA',evaTxt]]
     .map(c=>kmCard(c[0],c[1])).join('');
@@ -1879,7 +1906,7 @@ function deepDrawer(x){
   return `<div style="padding:10px 12px;background:#f8fafc">
     <div style="display:flex;flex-wrap:wrap;gap:8px">${cards}
       <div style="background:#fff;border:1px solid #e2e8f0;border-radius:6px;padding:6px 9px"><div style="font-size:calc(9px*var(--fs));color:var(--grey)">Earnings quality</div><div style="font-size:calc(13px*var(--fs));font-weight:700">${x.eq_verdict||'&mdash;'}</div></div></div>
-    <div style="margin-top:9px;font-size:calc(9px*var(--fs));color:var(--grey);font-weight:700">SUB-SCORE BREAKDOWN (audit trail) &middot; *ROIC = R&amp;D-capitalized &middot; FCFF&rarr;WACC, FCFE&rarr;Ke</div>
+    <div style="margin-top:9px;font-size:calc(9px*var(--fs));color:var(--grey);font-weight:700">SUB-SCORE BREAKDOWN (audit trail) &middot; *ROIC = ROIC ที่ปรับแล้ว (normalized) &mdash; ค่า &quot;R&amp;D-capitalized ROIC&quot; ก่อน normalize อยู่บรรทัดแรกด้านล่าง และอาจต่างกันได้ถึง ~10pp &middot; FCFF&rarr;WACC, FCFE&rarr;Ke</div>
     <div style="margin-top:4px;line-height:1.9">${bd}</div>
   </div>`;
 }
@@ -2422,7 +2449,7 @@ function renderRisk(d){
   // 4) concentration
   const c=d.concentration||{};
   const conc=`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-    ${rcard('HHI',c.hhi??'—')}${rcard('Effective N',c.eff_n??'—')}${rcard('Top-5',rp(c.top5_pct))}${rcard('Top-10',rp(c.top10_pct))}${rcard('ENB (risk)',(cv.enb_abs??'—'))}</div>
+    ${rcard('HHI',c.hhi??'—')}${rcard('Effective N',c.eff_n??'—')}${rcard('Top-5',rp(c.top5_pct))}${rcard('Top-10',rp(c.top10_pct))}${rcard('ENB (bets)',(((d.diversification||{}).enb)??'—'))}${rcard('Risk balance Nₑ',(cv.risk_balance_n??cv.enb_abs??'—'))}</div>
     <div style="width:300px;max-width:100%;height:110px;position:relative"><canvas id="rcSector"></canvas></div>
     <div style="font-size:calc(11px*var(--fs));margin-top:6px">${hiddenConc(d.allocation,cv)}</div>`;
   // 5) stress (compact bars)
@@ -2591,7 +2618,7 @@ function corrPhilHTML(co){
       <span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
       <div class="cqrcard" style="min-width:calc(150px*var(--fs))"><div class="cqlbl">ENB ÷ Eff N (${mode})</div><b style="color:${rc[0]};font-size:calc(20px*var(--fs))">${cnum(ratio,2)}</b> <span style="color:${rc[0]};font-size:calc(11px*var(--fs))">${rc[1]}</span><div class="muted" style="font-size:calc(9px*var(--fs))">ENB ${cnum(enb,1)} / Eff N ${cnum(g.eff_n,1)}</div></div>
-      <div class="cqrcard" style="min-width:calc(160px*var(--fs))"><div class="cqlbl">Fragility ΔENB · N→Crisis</div><b style="color:#dc2626;font-size:calc(20px*var(--fs))">${cnum(g.enb,1)}→${cnum(g.enb_crisis,1)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">${frag!=null?('การกระจายหาย ~'+frag+'% ตอนวิกฤต'):'corr วิ่งเข้า 1'}</div></div>
+      <div class="cqrcard" style="min-width:calc(160px*var(--fs))"><div class="cqlbl">Fragility ΔENB · N→Crisis</div><b style="color:#dc2626;font-size:calc(20px*var(--fs))">${cnum(g.enb,1)}→${cnum(g.enb_crisis,1)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">${g.fragility_text||(frag!=null?('การกระจายหาย ~'+frag+'% ตอนวิกฤต'):'corr วิ่งเข้า 1')}</div></div>
       <div class="cqrcard" style="min-width:calc(150px*var(--fs))"><div class="cqlbl">avg corr (${mode})</div><b style="font-size:calc(20px*var(--fs))">${cnum(ap,2)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">downside corr ${cnum(dwn,2)} · S4</div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(210px*var(--fs)),1fr));gap:8px;margin-top:10px">${pills}</div>

@@ -1349,7 +1349,11 @@ def cap_reco_without_quality(reco, econ_score):
 
 
 def stars(c):
-    half = round(c * 2) / 2
+    # 2026-08-16: round() is banker's rounding, so a composite landing exactly on a
+    # quarter point tips DOWN — UNH scored 2.25 and drew ★★☆☆☆ (2.0) while REGN's
+    # 2.28 drew ★★½☆☆ (2.5). Composites move in quarter points, so that edge is hit
+    # constantly. Half-up via Decimal, matching _q2() used for the composite itself.
+    half = float((_D(str(c)) * 2).quantize(_D("1"), rounding=_decimal.ROUND_HALF_UP)) / 2
     full = int(half)
     h = (half - full) == 0.5
     return "★" * full + ("½" if h else "") + "☆" * (5 - full - (1 if h else 0))
@@ -1557,9 +1561,16 @@ class DeepV82Engine(DeepEngine):
         _fwd_is_gaap = str((getattr(f, "provenance", None) or {}).get("forward_eps", "")).startswith("sec-derived")
         fwd_eps_dil = f.forward_eps if _fwd_is_gaap else dilute(f.forward_eps, dil_rate, years=1)
         if dil_rate and dil_rate >= SBC_DILUTION_FLAG_AT and not _fwd_is_gaap:
-            _add_flag(f, (f"share-count dilution {dil_rate*100:.1f}%/yr charged to the "
-                          f"non-GAAP forward EPS ({f.forward_eps} -> "
-                          f"{round(fwd_eps_dil, 2) if fwd_eps_dil else None}); source: {dil_label}"))
+            # 2026-08-16: with no consensus there is no EPS to dilute, and the flag read
+            # "charged to the non-GAAP forward EPS (None -> None)" on AXON. Nothing was
+            # charged, so say that instead of printing the hole.
+            if f.forward_eps is None or fwd_eps_dil is None:
+                _add_flag(f, (f"share-count dilution {dil_rate*100:.1f}%/yr NOT charged — "
+                              f"ไม่มี forward EPS ให้หัก (source: {dil_label})"))
+            else:
+                _add_flag(f, (f"share-count dilution {dil_rate*100:.1f}%/yr charged to the "
+                              f"non-GAAP forward EPS ({f.forward_eps} -> "
+                              f"{round(fwd_eps_dil, 2)}); source: {dil_label}"))
         elif _fwd_is_gaap and dil_rate:
             _add_flag(f, "forward EPS is SEC/GAAP-derived - SBC already expensed, "
                          "no dilution charged (would double-count)")
@@ -1983,6 +1994,17 @@ class DeepV82Engine(DeepEngine):
                 _add_flag(f, (f"composite {_renorm:.2f} -> {comp:.2f}: {', '.join(_miss)} not "
                               f"measurable, scored NEUTRAL ({NEUTRAL_SCORE}) instead of inheriting "
                               f"the average of the pillars that were"))
+            # 2026-08-16: the flag above lives in the ⚑ tooltip, which a reader only sees
+            # if they hover the header. A pillar that silently vanished from the drawer's
+            # audit trail while still carrying its full weight (0.20-0.30) is exactly the
+            # thing the audit trail exists to prevent — TSM lost D and HIMS lost E_econ
+            # with not one line to say so. Put it where the scores are read.
+            # Deliberately NOT ending in "=<number>": the drawer colours a trailing
+            # number as an adjustment (green for positive), and a neutral stand-in is
+            # not a bonus. Ending on text renders it grey, like the skipped() lines.
+            for _k in _miss:
+                notes.append(f"{_k} วัดไม่ได้=ใช้ค่ากลาง {NEUTRAL_SCORE} "
+                             f"(น้ำหนัก {WEIGHTS[_k]:.0%} · ไม่มีข้อมูลพอ ไม่ได้แปลว่าแย่)")
         reco = recommendation(comp) if comp is not None else None
         # REV-8: a missing Price pillar must not read as a BUY (see cap_reco_without_price).
         reco, _cap_note = cap_reco_without_price(reco, P)
@@ -2087,8 +2109,18 @@ def _verdict(f, v):
             # P-C: this branch also catches PROFITABLE companies whose FV inputs are
             # missing (e.g. no operating-income tag). Calling those "Pre-profit" is a lie.
             lbl = "Pre-profit" if not (f.net_income and f.net_income > 0) else "No point FV (insufficient data)"
-            return (f"{v.recommendation} {v.stars} - {lbl}: market prices ~{rd.get('implied_cagr_pct')}% 10y CAGR "
-                    f"vs actual {rd.get('actual_1y_pct')}% ({rd.get('verdict')}). conf {f.confidence}")
+            # 2026-08-16: implied_cagr_pct is None whenever no growth rate can justify
+            # the price at all (value peaks below it). Interpolating that straight into
+            # the sentence shipped "market prices ~None% 10y CAGR" onto the AXON and
+            # TSLA cards. There is no number to quote in that case — say what happened.
+            _icagr = rd.get("implied_cagr_pct")
+            _act = rd.get("actual_1y_pct")
+            _lead = (f"market prices ~{_icagr}% 10y CAGR"
+                     if _icagr is not None
+                     else "ไม่มีอัตราการเติบโตใดที่ทำให้ราคานี้สมเหตุผล (มูลค่าอิ่มตัวก่อนถึงราคา)")
+            _cmp = f" vs actual {_act}%" if _act is not None else ""
+            return (f"{v.recommendation} {v.stars} - {lbl}: {_lead}{_cmp} "
+                    f"({rd.get('verdict')}). conf {f.confidence}")
         return (f"{v.recommendation or 'N/A'} {v.stars} - insufficient data for a point fair value. conf {f.confidence}").strip()
     fv = v.anchor_value
     if fv is None:

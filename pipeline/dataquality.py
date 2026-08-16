@@ -119,6 +119,23 @@ def assess(ff, today=None):
         add("short_history", "note",
             f"มีรายได้ย้อนหลังแค่ {n_rev} ปี — CAGR และเทรนด์จะไม่แสดง")
 
+    # --- 3b. forward EPS, the input BOTH point-value methods stand on ---------
+    # 2026-08-16: every one of 16 watchlist rows came back flagged
+    # "missing forward_eps", and ten of them still printed conf 100 with a
+    # Fundamental PEG fair value on the card. Fundamental PEG is
+    # justified_pe x forward_eps and FVP compounds forward EPS forward, so with no
+    # consensus the anchor rests on a fallback the reader is never shown. A green
+    # confidence dot on top of that is the dashboard vouching for a number it did
+    # not have. Losing consensus is a warn, not a block: the row is still worth
+    # showing, it just may not be trusted at face value.
+    if getattr(ff, "profitable", True) and not getattr(ff, "forward_eps", None):
+        add("no_forward_eps", "warn",
+            "ไม่มี forward EPS (consensus) — Fundamental PEG และ FVP ต่างก็ตั้งอยู่บนค่านี้ "
+            "ตัวเลข fair value จึงมาจาก fallback ไม่ใช่ consensus จริง อย่าอ่านเป็นค่าแม่น")
+    elif (getattr(ff, "forward_eps_n", 0) or 0) == 1:
+        add("thin_forward_eps", "note",
+            "forward EPS มาจากแหล่งเดียว — ไม่มีแหล่งที่สองยืนยัน")
+
     # --- 4. currency actually converted -------------------------------------
     ccy = getattr(ff, "currency", None)
     flags = getattr(ff, "flags", None) or []

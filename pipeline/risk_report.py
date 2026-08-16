@@ -243,8 +243,12 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         sc = riskeng.sector_corr(corr, tickers, sectors)
         sc_c = riskeng.sector_corr(corr_c, tickers, sectors)
         _, rc_sum_c = riskeng.risk_contributions(tickers, wvec, cov_c)
-        enb = rc_sum.get("enb_abs")
-        enb_c = rc_sum_c.get("enb_abs")
+        # FIX 2026-08-16: ENB must be the correlation-adjusted count of independent
+        # bets (= DR²), not the inverse-HHI of risk contributions. The old proxy ROSE
+        # from normal→crisis and could exceed Effective N, which inverted the whole
+        # fragility read on the Correlation tab.
+        enb = riskeng.effective_bets(dr_normal)
+        enb_c = riskeng.effective_bets(dr_crisis)
 
         # display order: group by sector, then heaviest weight first
         corr_order = sorted(range(len(tickers)),
@@ -362,11 +366,16 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "beta_based": beta_rc,                 # Phase-1 one-factor view
             "covariance_based": rc_rows,           # Phase-2 full view (preferred)
             "port_vol_pct": rc_sum.get("port_vol_pct"),
-            "enb_abs": rc_sum.get("enb_abs"),
+            # how evenly risk is spread across names (inverse-HHI of |RC|).
+            # NOT the Effective Number of Bets — see risk.effective_bets().
+            "risk_balance_n": rc_sum.get("risk_balance_n"),
+            "enb_abs": rc_sum.get("enb_abs"),   # deprecated alias
         },
         "diversification": {
             "dr_normal": round(dr_normal, 2) if dr_normal else None,
             "dr_crisis": round(dr_crisis, 2) if dr_crisis else None,
+            "enb": riskeng.effective_bets(dr_normal),
+            "enb_crisis": riskeng.effective_bets(dr_crisis),
             "score": score,
         },
         "downside": downside,

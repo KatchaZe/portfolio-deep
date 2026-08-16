@@ -518,7 +518,8 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
         "rsi_signal": mom.get("rsi_signal"), "macd_signal": mom.get("macd_signal"),
         "dbbmv_signal": mom.get("dbbmv_signal"), "momentum_score": mom.get("momentum_score"),
         "momentum_v2": mom_v2 or None,           # primary composite (secondary = fields above)
-        "action": indicators.action(val.signal, mom.get("momentum_signal")),
+        "action": indicators.action(val.signal, mom.get("momentum_signal"),
+                                    mom_label=(mom_v2 or {}).get("mom_label")),
         "anchor_method": val.anchor_method, "anchor_value": anchor,
         "range_low": val.range_low, "range_high": val.range_high,
         "upside_pct": round(upside, 1) if upside is not None else None,
@@ -807,7 +808,8 @@ def portfolio_view(s):
         mv = shares * price if (shares and price) else None
         pl = (mv - cost) if (mv is not None and cost is not None) else None
         signal = val.get("signal")
-        act = indicators.action(signal, mom.get("momentum_signal"))
+        act = indicators.action(signal, mom.get("momentum_signal"),
+                                mom_label=(v2 or {}).get("mom_label"))
         anchor = val.get("anchor_value")
         rd = val.get("reverse_dcf") or {}
         upside = ((anchor - price) / price * 100) if (anchor and price) else None

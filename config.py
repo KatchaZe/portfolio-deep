@@ -103,4 +103,4 @@ CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
 PRICING_ASSET_CAP = 0.05
 
 # Build stamp — bump together with DASH_BUILD in index.html (frontend/deploy guard).
-BUILD = "2026-08-11a"
+BUILD = "2026-08-16a"
