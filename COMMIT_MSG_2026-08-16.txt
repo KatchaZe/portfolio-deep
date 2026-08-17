@@ -1,0 +1,144 @@
+fix(risk)+fix(engine)+docs: ENB inverted in crisis, 4 reader-facing defects, How to/Ref resync (build 2026-08-16a)
+
+Full UI audit against the live dashboard: every value on all six tabs read back
+out of the DOM and window.__last, then recomputed by hand from the raw inputs.
+21 holdings x ~20 derived numbers reconciled, plus the 16-name watchlist and the
+Risk Desk run end to end.
+
+Almost everything held. Prices, P/L, upside, net-after-cost, Ke = Rf + beta x ERP,
+spread, fv_peg = justified_pe x forward_eps, GARP = E_econ + P, the composite
+weights, HHI, Effective N, Top-5/10, portfolio beta, portfolio MOS, the correlation
+matrix (symmetric, unit diagonal, avg 0.1699 -> displayed 0.17) and every 6-month
+momentum figure all reproduced exactly. No NaN, undefined or [object Object]
+anywhere in the rendered page. What follows is what did not hold.
+
+
+THE ONE THAT INVERTED A RISK READ
+- ENB  Correlation tab, CRISIS mode: "ENB 12.28 -> 16.52", "ENB / Eff N 1.06 ดี",
+       "Fragility -35% การกระจายหาย". Diversification IMPROVING as correlations ran
+       to the 0.9 floor, and a ratio above the 1.0 the Ref tab itself documents as
+       perfect. Both cannot be true.
+
+       risk_contributions() returned enb_abs = 1/sum(q_i^2) with q_i = |RC_i|/sum|RC|.
+       That is the inverse-HHI of risk CONTRIBUTIONS - a measure of how evenly risk
+       is spread across names. It ignores whether those contributions are correlated,
+       so when every pair converges the contributions EVEN OUT and the number RISES.
+       It also has no ceiling at Effective N. Neither property belongs to the
+       Effective Number of Bets.
+
+       Three independent checks agreed the displayed value was wrong, not the label:
+         - Ref tab spec: "ENB ... ต่ำกว่า Effective N เสมอ" - violated (16.52 > 15.58)
+         - the same page prints DR normal 1.91 / crisis 1.05, and ENB ~ DR^2, so it
+           should have read 3.65 -> 1.10
+         - 1/(w' P w) computed from the matrix on screen and the real weights:
+           3.79 normal, 1.10 crisis
+       DR was right the whole time. ENB was the outlier.
+
+       effective_bets(dr) = dr^2 now backs the ENB shown, so ENB and DR are printed
+       from the same quantity and cannot disagree. It is bounded by Effective N for
+       any non-negative correlation and falls monotonically as correlation rises.
+       The old number is kept - it is a useful "risk balance" reading and still feeds
+       diversification_score() - but under the name risk_balance_n, and the
+       Concentration Map now shows the two side by side instead of conflating them.
+       enb_abs stays as a deprecated alias.
+
+       diversification_philosophy() gained a guard: a negative fragility is
+       arithmetically impossible for a correct ENB, so instead of rendering
+       "การกระจายหาย ~-35%" it now says the calculation looks wrong. The bug printed
+       a negative loss for weeks and nothing objected.
+
+
+FOUR DEFECTS THE READER COULD SEE
+- None   AXON and TSLA cards read "market prices ~None% 10y CAGR". reverse_dcf's
+         implied_cagr_pct is None exactly when no growth rate justifies the price
+         (value peaks below it) - the interesting case - and it was interpolated
+         straight into the sentence. Now says so in words. Same fix on the SBC flag,
+         which read "charged to the non-GAAP forward EPS (None -> None)" when there
+         was no consensus EPS to charge: nothing was charged, so it says that.
+
+- 2.5    composite() bounds a missing pillar at NEUTRAL (D1) and that logic is
+         right - it is strictly one-sided and can only lower a row. But the only
+         trace was a flag in the header tooltip. TSM lost the entire D pillar and
+         HIMS lost E_econ - 20% and 30% of the weight - with not one line in the
+         drawer's audit trail, the place a reader actually goes to check a score.
+         HIMS 2.25 -> 3.00 crosses HOLD into HOLD / Accumulate on an imputed number.
+         The drawer now carries "<pillar> วัดไม่ได้=ใช้ค่ากลาง 2.5 (น้ำหนัก X%)".
+         Deliberately not ending in "=<number>": the drawer colours a trailing number
+         as an adjustment, and a stand-in is not a bonus.
+
+- conf   All 16 watchlist rows came back flagged "missing forward_eps"; ten still
+         printed conf 100 next to a Fundamental PEG fair value. PEG is
+         justified_pe x forward_eps and FVP compounds forward EPS - with no consensus
+         the anchor rests on a fallback the reader never sees, under a green
+         confidence dot. dataquality.assess() now raises no_forward_eps (warn) for a
+         profitable filer with no consensus, and thin_forward_eps (note) for a single
+         source. SOFI already showed the right behaviour - consensus rejected against
+         the revenue-capacity ceiling, PEG skipped, FVP used - the gap was that
+         "missing" was not treated like "rejected".
+
+- action The Ref tab documents a 3x3 Action matrix. Nine cells; three reachable.
+         action() was fed momentum_signal, the SECONDARY RSI/MACD/Bollinger vote,
+         which needs |sum| >= 2 to leave Neutral - and returned "Neutral" for 21 rows
+         out of 21. ACCUMULATE, STRONG BUY, WAIT, WATCH, TRIM and STRONG SELL could
+         not occur. Meanwhile the card beside it showed "MOMENTUM Strong" from the
+         PRIMARY readout, so the two disagreed in plain sight (ABBV: card 4/4 Strong,
+         action axis Neutral; ORCL: legacy momentum_score +1, primary 1/4 Weak).
+         action() now prefers momentum_v2.mom_label, with the old argument kept as a
+         fallback for un-updated callers.
+
+
+COSMETIC
+- stars() used round(), which is banker's rounding. Composites move in quarter
+  points, so the .25/.75 edge is hit constantly: UNH 2.25 drew 2 stars while REGN
+  2.28 drew 2.5. Decimal ROUND_HALF_UP, matching _q2() on the composite itself.
+- EVA rendered as $XB to one decimal, so TMDX ($3M) and CELH ($41M) both read
+  "$0.0B", and negatives read "$-0.3B". Auto-scales B/M/k, sign outside the currency.
+- Every drawer metric card gained a tooltip, and a "—" now carries the reason it is
+  empty - matching the "x n/a" chips in the earnings row, which already did.
+- The *ROIC footnote claimed the headline figure is the R&D-capitalized ROIC. It is
+  roic_adj (normalized); the R&D-capitalized number is the first line of the audit
+  trail below and differs by up to ~10pp (NVDA 52.98 vs 62.59, LLY 21.42 vs 32.05).
+
+
+HOW TO / REF RESYNC
+The pages had drifted from the code over several builds:
+- FV selection documented as "spread>10pp และ growth>15%", contradicted by 3 of 21
+  rows (MSFT, TSM, NVO). Rewritten as an ordered list with the fallback path stated.
+- RevDCF described as "หุ้นยังไม่มีกำไร" - 3 of the 5 rows using it are profitable.
+  It is the general fallback when no point fair value can be produced.
+- RevDCF verdict list was missing two outcomes the code actually returns: Unknown,
+  and the no-justifying-growth case (6 rows).
+- E_econ documented as "spread + 5y trend"; the code also runs CAP and a
+  sector-relative leg. E_exec was missing beat-consistency and FCF-durability.
+- Composite weights and the NEUTRAL rule were nowhere on the Ref tab.
+- Watchlist cards have no drawer at all; How to described the card anatomy as
+  shared with My Portfolio.
+- ENB entry rewritten, Risk balance added, "1.0 สมบูรณ์" -> "1.0 คือเพดาน".
+- Crisis avg-corr threshold "<0.65 ดี" is unreachable for an all-equity book, which
+  the 0.9 floor pins at exactly 0.9. Reworded as a cross-portfolio comparison.
+- Section numbering ran 0,1,2,3,4,7.
+
+
+NOT BUGS - checked and cleared
+- Watchlist prices. SNDK $1,641.11 and NOW $124.00 looked impossible; both verified
+  correct to the cent against Bigdata.com, timestamped to the Friday close (T-1) as
+  the pipeline intends. SNDK is +3,505% over one year on the NAND cycle; NOW trades
+  post-split at a $128B cap. The all-negative upside across the watchlist follows
+  from it being a momentum list, not from a defect.
+- How to mockups. Measured at 2x2 px, but only because the Chrome window was hidden
+  (innerWidth 0). At a real viewport all five render at 1078px wide, aspect correct.
+- "implied ERP" on the command strip. It really is Damodaran's implied ERP, entered
+  monthly by hand, exactly as How to says.
+
+
+TESTS
+tests/test_qa_2026_08_16.py - 11 new guards, one per defect above: ENB falls in a
+crisis, ENB never exceeds Effective N across rho 0..0.99, ENB agrees with DR,
+risk balance keeps its own name, fragility never reads as a negative loss, quarter
+points round half up, stars stay monotonic, all nine action cells reachable, the old
+action signature still works, and no Python None reaches a narrative string.
+
+270 passed. The 16 failures are the pre-existing missing-fixture and network cases -
+identical count and identical names to a baseline run of the unmodified tree.
+
+BUILD and DASH_BUILD -> 2026-08-16a.

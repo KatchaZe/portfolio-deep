@@ -46,7 +46,7 @@ def test_quota_guard_keyless(monkeypatched=None):
     orig_rf, orig_an = yahoo.fetch_treasury_10y, refresh.analyze
     refresh.yahoo.fetch_treasury_10y = lambda **k: (0.045, True)
 
-    def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None):
+    def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None):
         ff = FinancialFacts(t)
         v = Valuation(version="7.3")
         return ff, v, (1 if fmp_key else 0)

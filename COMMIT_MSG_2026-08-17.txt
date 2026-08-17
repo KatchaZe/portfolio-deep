@@ -1,0 +1,119 @@
+fix(audit): 14 defects from a full-codebase review — units, dates, signs, access (build 2026-08-17a)
+
+Round 14. Prompted by "แก้มาหลายรอบแล้วยังเจอบั๊กอยู่เรื่อยๆ" — so this round also
+cross-checked itself against the 13 earlier ones, which is where the useful part is:
+of 14 findings only 3 are genuinely new, ONE IS A REGRESSION of a July fix, and one is
+an item REVIEW.md has had open since June. Full write-up in
+CODE_REVIEW_2026-08-16_AUDIT.md; process lessons appended to REVIEW_PROCESS.md as
+"ชั้นที่ 6". Every defect was reproduced with concrete inputs before it was fixed, and
+each now has a guard in tests/test_audit_2026_08_16.py.
+
+--- units and scale -----------------------------------------------------------
+ 1. ^TNX is quoted in PERCENT, so one point is 100bps, not 10 (risk_report). The
+    old *10 understated every yield change tenfold, inflating the regressed bond
+    duration tenfold: a true 1.9y read as 19y and the +100bp shock printed -19%
+    instead of -1.9%. yahoo.fetch_treasury_10y already divided by 100 — two sites
+    in one repo disagreed about the same feed. The 0<d<40 sanity band made it
+    selective: long bonds were rejected to the proxy, so only the short and
+    intermediate ones carried the inflated number, tagged "[CALC] empirical".
+13. FCF = CFO - capex added SBC straight back, because CFO does. Damodaran calls
+    that add-back "an indefensible practice", and it fed the P pillar (weight .30)
+    and E_exec. AXON's reported $0.1B FCF is -$0.5B once SBC is charged; GOOGL
+    -53%, TSLA -66%, AVGO -27%, MSFT -18.5%. Now CFO - capex - SBC, from a per-year
+    SBC series (sbc_annuals_dated, available for every filer incl. IFRS), FX-converted
+    with the rest. No double count with the EPS-dilution charge: that adjusts a
+    non-GAAP EPS with SBC removed, this adjusts a cash aggregate with SBC added back.
+14. The forward-EPS blend compared candidates across currencies. Yahoo quotes the
+    LISTED security (USD for an ADR), FMP the filer's reporting currency. TSM printed
+    "fwdEPS 2src spread 184.3% (-6 conf)" — confidence docked and the reader told the
+    analysts disagreed, when one number was TWD. Candidates are now tested against
+    price: an implied forward P/E outside 2-250x is a unit artefact, dropped with the
+    real reason instead of averaged in. Found by live_check, which nothing offline
+    could have caught.
+ 5b. eps_gaap was missing from normalize's FX list — the L2/TSM defect (TWD EPS beside
+    a USD price -> $8,612 fair value) at the other conversion site. Latent only
+    because eps_gaap was None for every IFRS filer until #5.
+
+--- dates and periods ---------------------------------------------------------
+ 3. Return series were paired by POSITION, not date. One bar of source lag turned
+    rho(NVDA,AVGO) from +0.669 into -0.078 and VaR95 from 50.8 into 39.4. Shipped
+    incomplete on 08-16 (only the covariance matrix); completed 08-17 across
+    historical VaR, the downside lens, the whole benchmark table, and the bond
+    duration regression. The guard asserts no consumer reaches for the positional
+    primitives any more — a partial fix on a defect this quiet is worse than none.
+ 4. Total debt was read off a nine-month-old balance sheet: fresh() returned the
+    first ladder entry merely inside a 540d window, the combined tag short-circuited
+    on `or`, and the LT/ST legs could be summed from different dates. ORCL: 92.568B
+    at 2025-05-31 against 134.605B at 2026-02-28 — 42.0B / 31% understated, ROIC
+    17.7% against a true 12.2%, and net debt hence EV wrong with it. Now date-first
+    with ladder order as tie-break, one date per figure, and LongTermNotesAndLoans
+    added to the ladder. Reconciled to Oracle's Q3 FY2026 8-K: 9,887 + 124,718.
+
+--- signs ---------------------------------------------------------------------
+ 6. Reverse DCF booked loss years as POSITIVE cash. FCFF = NOPAT * (1 - reinvest) is
+    safe only while reinvest <= 1, and x/ROIC is routinely 3.0 for the pre-profit
+    names the margin ramp was built for — so a negative NOPAT times a negative factor
+    made -202m arrive in the PV as +403m. REV-24 added the ramp to make the model
+    HARSHER; it did the opposite. Reinvestment is now a capital outlay set by the
+    terminal relation, identical to the old expression whenever the margin is flat.
+ 8. abs(f.acquisitions_net) made a divestiture cost as much capital as a purchase.
+    ROUND3's A2 fixed this sign in acquisition_intensity() and never touched the
+    reinvestment leg ten lines away.
+
+--- double counting -----------------------------------------------------------
+ 7. SBC was charged twice: dilution on forward EPS AND an earnings-quality flag
+    capping E_exec. Kept as a disclosure, removed from the scored verdict. Note this
+    partially reverses REV-1, which deliberately revived the branch after finding it
+    dead — see the report's Open decisions. Damodaran's own rule settles the
+    valuation side ("you cannot do both... reducing value per share twice for the same
+    phenomenon"); PASS2 already had that right, and following the rule to its end is
+    what surfaced #13.
+
+--- security and data loss ----------------------------------------------------
+ 9. No authentication at all when APP_TOKEN was unset — anonymous POSTs to
+    /api/holding, /api/watchlist/add, /api/assumptions and /api/refresh all returned
+    200 on a public URL. REVIEW.md C3 has had this open since June and chose the
+    default deliberately; this reverses it for PUBLIC deploys only (RENDER /
+    RENDER_EXTERNAL_URL / PUBLIC_DEPLOY set + no token -> 503 with an explanation,
+    /healthz still open). Localhost unchanged. Opt out with ALLOW_PUBLIC_NO_AUTH=1.
+    /healthz also stopped minting the session cookie: it is exempt from the 401, so
+    it was handing out cookies and writing the raw token into the access log.
+10. A Drive pull retry overwrote a save made while Drive was down. The push guard
+    protected the remote and thereby made the local copy the only copy; the retry then
+    destroyed it, with no error and no backup. Local now wins when it is genuinely
+    dirty, the remote is kept beside it as .remote, and the flag is set ONLY by explicit
+    user mutations — never by save(), or the 2026-07 empty-store wipe comes straight back.
+
+--- quiet failures ------------------------------------------------------------
+ 2. hybrid_cov mixed a 60-day covariance window with a 400-day volatility, so a
+    correlation came out at 2.59. w'Sigma w went negative, portfolio_vol hit its
+    `if var > 0` guard and returned 0.0, and VaR/CVaR/ENB/diversification-ratio all
+    became None without a word. Correlation is now measured on the window a pair
+    shares, volatility on each name's own history, and a Cholesky test plus
+    off-diagonal shrink keeps the matrix PSD.
+11. REGRESSION of H2 (2026-07-02). H2 found the quota pre-check undercounting and
+    offered two fixes — "ใช้ 5 หรือส่ง budget เข้าไปเช็คแบบ dynamic". The constant was
+    bumped; two months later a stale-financials fallback added 4 more calls and the
+    constant could not know. 330 calls against a 250 cap. This implements H2's other
+    option: an optional cost is reserved at the point of spend, which survives the next
+    path someone adds.
+ 5. IFRS/20-F filers resolved NO scalars — cfo, capex, tax_expense, dep_amort, sbc,
+    shares_diluted and eps_gaap all None for NVO and ASML, though every one was in the
+    same companyfacts JSON under ifrs-full. The dated series already had an IFRS ladder,
+    so one file disagreed with itself about whether NVO has a cash flow statement.
+12. index.html dropped the reverse-DCF verdict when no growth rate justifies the price
+    — REV-5 made the engine explain why, and the panel rendered blank space on exactly
+    the names that need explaining.
+
+--- verification --------------------------------------------------------------
+57 suites green; replay_snapshot clean; live_check run against MSFT/TSM/NVO. The
+replay baseline moved on 10 tickers, all attributable to #6 and #7 and enumerated in
+the report. DESIGN.md and REVIEW_PROCESS.md resynced from 55 suites to 57.
+
+Two things to watch after the next refresh, neither a defect: NVO moved HOLD -> BUY on
+a fair value the engine itself labels a clamp boundary while its Demand pillar reads
+1.0/5 on decelerating growth, and TSM's E_exec jumped +1.00.
+
+BREAKING (deploy): a public deploy now REFUSES to serve without APP_TOKEN. Set it in
+the Render environment and open /?token=... once, or set ALLOW_PUBLIC_NO_AUTH=1.
+Hard-refresh the dashboard — the build stamp moved to 2026-08-17a.

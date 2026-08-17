@@ -90,11 +90,17 @@ def _load_cik_map():
         return {}
 
 
-def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
+def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None):
     """Fetch -> normalize -> validate -> engine. Returns (facts, valuation, fmp_calls).
     NETWORK ONLY — never touches the store, safe to run outside store.LOCK.
     `roc_table` is Damodaran's industry ROIC table, fetched once per refresh by
-    fetch_fundamentals so 20 threads don't each hit his server."""
+    fetch_fundamentals so 20 threads don't each hit his server.
+
+    `quota_left` is a thread-safe budget for the OPTIONAL FMP spend (the
+    stale-financials fallback). See the comment at that call site: the up-front
+    partition can only budget the calls every ticker makes, so the conditional
+    ones have to be checked against the live budget at the moment they are spent,
+    or the daily cap is blown mid-refresh. None = unlimited (single-ticker paths)."""
     t = ticker.upper().strip()
     cik, name = resolve_cik(t)
     fmp_calls = 0
@@ -137,8 +143,18 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
     # a fresher number is better than a warning about a stale one.
     #
     # Costs FMP quota, so it only fires when the check says the data is actually old.
-    if fmp_key and any(d["code"] == "stale_financials"
-                       for d in dataquality.assess(ff)):
+    # FIX (2026-08-16): CHECK THE BUDGET BEFORE SPENDING IT. `_partition_by_quota`
+    # admits tickers at 5 calls each, but this branch spends FOUR MORE in one go, so
+    # the real worst case is 9. With quota_used=150 against a 250 cap the partition
+    # admitted 20 tickers (budgeted 100) whose true worst case is 180 — 330 against a
+    # 250 cap, 80 calls over, and FMP starts answering 429 partway through the
+    # refresh. The names refreshed after that point silently come back with fewer
+    # consensus sources, which is what leaves 13 of 21 holdings on a single-source
+    # forward EPS. Budgeting 9 up front instead would be the wrong correction — it
+    # would refuse half the portfolio for a branch that fires on almost none of it.
+    # An OPTIONAL cost belongs at the point of spend, against the live remainder.
+    if (fmp_key and _quota_take(quota_left, 4)
+            and any(d["code"] == "stale_financials" for d in dataquality.assess(ff))):
         try:
             alt = FinancialFacts(t, company=name)
             fmp.parse(fmp.fetch(t, fmp_key), alt)
@@ -282,8 +298,12 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None):
                 fwd_candidates["finnhub"] = fh_fwd
         except Exception as e:
             log.warning("%s Finnhub eps-estimate failed: %s", t, e)
-    blend = consensus.blend_forward_eps(fwd_candidates)
+    # pass the PRICE so a candidate quoted in another currency is identified as a unit
+    # mismatch instead of being averaged in and then blamed on analyst disagreement.
+    blend = consensus.blend_forward_eps(fwd_candidates, price=ff.price)
     if blend:
+        for _src, _why in (blend.get("rejected") or {}).items():
+            ff.flags.append(f"forward EPS from {_src} dropped before the blend: {_why}")
         ff.set("forward_eps", blend["value"], "consensus-blend(" + "+".join(blend["sources"]) + ")")
         ff.forward_eps_sources = blend["sources"]
         ff.forward_eps_low = blend["low"]
@@ -363,6 +383,34 @@ def _reconcile_earnings(ff, yh, fm):
     return yh
 
 
+class _Budget:
+    """Thread-safe remaining-call counter for OPTIONAL FMP spending.
+
+    fetch_fundamentals runs analyze() across a ThreadPool, so the conditional
+    fallback spend has to be reserved atomically — two threads each seeing "4 left"
+    and both spending is the race this closes."""
+
+    def __init__(self, n):
+        self._n = max(0, int(n))
+        self._lock = threading.Lock()
+
+    def take(self, n):
+        with self._lock:
+            if self._n >= n:
+                self._n -= n
+                return True
+            return False
+
+    def left(self):
+        with self._lock:
+            return self._n
+
+
+def _quota_take(budget, n):
+    """True when `n` optional calls may be spent. None = no budget tracking."""
+    return True if budget is None else budget.take(n)
+
+
 def _partition_by_quota(tickers, cost, quota_used, quota_cap):
     """P1: split tickers into (todo, quota_errors) UP FRONT using the worst-case
     cost per ticker, so the quota pre-check stays exact under parallel fetching."""
@@ -391,9 +439,13 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     fetched, calls = {}, 0
     cost = 5 if fmp_key else 0          # H2: profile + quote-fallback + earnings + estimates + quarterly-est backfill per ticker (0 without a key)
     todo, errors = _partition_by_quota(tickers, cost, quota_used, quota_cap)
+    # whatever the guaranteed per-ticker spend does not claim is what the OPTIONAL
+    # stale-financials fallback (+4/ticker) is allowed to draw on — see analyze().
+    spare = _Budget(max(0, quota_cap - quota_used - len(todo) * cost)) if fmp_key else None
     if todo:
         with ThreadPoolExecutor(max_workers=min(MAX_WORKERS, len(todo))) as ex:
-            futs = {t: ex.submit(analyze, t, rf, fmp_key, rf_live, roc_table) for t in todo}
+            futs = {t: ex.submit(analyze, t, rf, fmp_key, rf_live, roc_table, spare)
+                    for t in todo}
         for t in todo:                   # collect in submission order (stable errors)
             try:
                 ff, val, c = futs[t].result()

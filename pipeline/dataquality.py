@@ -187,7 +187,7 @@ FALLBACK_MONEY = tuple(f for f in FALLBACK_SCALARS
 
 FALLBACK_INVALIDATES = ("revenue_annuals", "revenue_annuals_dated",
                         "operating_income_annuals", "operating_income_annuals_dated",
-                        "cfo_annuals_dated", "capex_annuals_dated",
+                        "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
                         "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
                         "rnd_annuals", "shares_diluted_annuals")
 

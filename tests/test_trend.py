@@ -202,8 +202,16 @@ def test_fixture_values_match_the_filings():
     check(abs(rev - 281.724e9) < 1e8, "FY2025 revenue $281.7B", f"{rev/1e9:.1f}B")
     check(abs(om - 45.6) < 0.2, "FY2025 operating margin 45.6%", str(om))
     check(abs(gm - 68.8) < 0.2, "FY2025 gross margin 68.8%", str(gm))
-    check(abs(fcf - 71.6e9) < 2e8, "FY2025 free cash flow $71.6B (CFO 136.2 - capex 64.6)",
+    # 2026-08-17: FCF now DEDUCTS stock-based compensation. CFO adds SBC back as a
+    # non-cash item by construction, so "CFO - capex" handed the cost straight back to
+    # the company — and Damodaran is explicit that SBC is a real expense whose add-back
+    # is "an indefensible practice". MSFT FY2025: 136.2 - 64.6 - 11.97 = 59.6B.
+    # The reconciliation to the 10-K is unchanged; only the definition of the line is.
+    check(abs(fcf - 59.6e9) < 3e8,
+          "FY2025 free cash flow $59.6B (CFO 136.2 - capex 64.6 - SBC 12.0)",
           f"{fcf/1e9:.1f}B")
+    _sbc = _row(out, "fcf").get("note") or ""
+    check("SBC" in _sbc, "and the row states that SBC was deducted", _sbc)
 
 
 def test_incremental_roic_needs_a_profitable_start():

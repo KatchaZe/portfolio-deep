@@ -137,14 +137,33 @@ def _margin_row(key, label, num, den, years, note=None):
                 summary_unit="pp")         # a CHANGE in margin
 
 
-def free_cash_flow(cfo_dated, capex_dated):
-    """FCF = cash from operations - capital expenditure, per fiscal year.
+def free_cash_flow(cfo_dated, capex_dated, sbc_dated=None):
+    """FCF = cash from operations - capital expenditure - stock-based compensation.
 
-    Both legs required. Capex alone would understate FCF for a year the company did
-    not file it, which is the direction that flatters — and the only reason to look at
-    FCF at all is that it is harder to flatter than earnings."""
+    Both of the first two legs are required. Capex alone would understate FCF for a
+    year the company did not file it, which is the direction that flatters — and the
+    only reason to look at FCF at all is that it is harder to flatter than earnings.
+
+    2026-08-17 — SBC IS DEDUCTED. Damodaran is explicit that stock-based compensation
+    is a real expense and that adding it back is "an indefensible practice"; on share
+    count he writes "you cannot do both, because you are then reducing value per share
+    twice for the same phenomenon". CFO, as the filer reports it, adds SBC back as a
+    non-cash item BY CONSTRUCTION — so "CFO - capex" quietly hands the cost back to
+    the company, and this series feeds the FCF-yield leg of the P pillar (weight 0.30)
+    and the FCF-durability leg of E_exec. Measured on the stored portfolio the gap is
+    not cosmetic: AXON's reported $0.1B FCF is **-$0.5B** once SBC is charged (SBC is
+    4.8x reported FCF), GOOGL loses 53%, AVGO 27%, MSFT 18.5%, TSLA 66%.
+
+    There is no double count with the dilution charge on forward EPS: that one adjusts
+    a NON-GAAP consensus EPS which had SBC removed, this one adjusts a cash-flow
+    aggregate which had SBC added back. Each path is charged exactly once — which is
+    the rule PASS2 established for the EPS paths and this extends to the cash ones.
+
+    `sbc_dated` is optional: a year the filer does not tag SBC is left unadjusted
+    rather than dropped, and the caller states which basis it got."""
     cfo, capex = _pairs(cfo_dated), _pairs(capex_dated)
-    return {d: cfo[d] - capex[d] for d in set(cfo) & set(capex)}
+    sbc = _pairs(sbc_dated) if sbc_dated else {}
+    return {d: cfo[d] - capex[d] - (sbc.get(d) or 0.0) for d in set(cfo) & set(capex)}
 
 
 def gross_profit(gross_dated, revenue_dated, cost_dated):
@@ -292,9 +311,13 @@ def build(f, years=MAX_YEARS, today=None):
         add(_margin_row("op_margin", "Op margin", oi, rev, years,
                         note="EBIT ตามงบ (GAAP) — บริษัทอาจประกาศเป็น adjusted"))
 
-    fcf = free_cash_flow(_get(f, "cfo_annuals_dated"), _get(f, "capex_annuals_dated"))
+    _sbc_ser = _get(f, "sbc_annuals_dated")
+    fcf = free_cash_flow(_get(f, "cfo_annuals_dated"), _get(f, "capex_annuals_dated"),
+                         _sbc_ser)
     if len(fcf) >= 2:
-        add(_money_row("fcf", "Free cash flow", fcf, years, note="CFO − capex (งบกระแสเงินสด)"))
+        _note = ("CFO − capex − SBC (SBC เป็นค่าใช้จ่ายจริง — CFO บวกกลับไว้)"
+                 if _sbc_ser else "CFO − capex (ยังไม่หัก SBC — filer ไม่ได้แท็กไว้)")
+        add(_money_row("fcf", "Free cash flow", fcf, years, note=_note))
 
     rmap = roic_series(_get(f, "operating_income_annuals_dated"),
                        _get(f, "ic_components_dated", {}), _tax_rate(f))

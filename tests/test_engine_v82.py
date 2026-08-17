@@ -294,8 +294,32 @@ def test_review_2026_08_04_fixes():
                    total_debt=0.15e9, cash=1.15e9, wacc_val=0.1319, g=0.045,
                    tax=0.21, margin=0.25, wacc_term=0.1108, roic_term=0.15)
     flat = E.reverse_dcf(**ramp_kw)["implied_cagr_pct"]
-    ramped = E.reverse_dcf(margin_now=-0.152, **ramp_kw)["implied_cagr_pct"]
-    assert ramped is not None and ramped != flat, (flat, ramped)
+    ramped_out = E.reverse_dcf(margin_now=-0.152, **ramp_kw)
+    ramped = ramped_out["implied_cagr_pct"]
+    # The ramp must CHANGE the answer, and change it in the HARSH direction. With a
+    # terminal ROIC of 15% against a 13.19% WACC the spread is so thin that, once
+    # the loss years are actually paid for, no growth rate clears EV — reported
+    # explicitly (REV-5) rather than silently dropped.
+    assert ramped != flat, (flat, ramped)
+    assert ramped is None and ramped_out["out_of_band"] is True, ramped_out
+    assert ramped_out["verdict"], ramped_out
+
+    # 2026-08-16 SIGN-REVERSAL GUARD. Reinvestment is x/ROIC and routinely exceeds 1
+    # for a pre-profit name (x=30%, ROIC=15% -> 2.0). The old path wrote
+    # FCFF = NOPAT * (1 - reinvest), so a NEGATIVE NOPAT times a NEGATIVE factor
+    # booked the loss year as POSITIVE cash and made the ramp KINDER than the flat
+    # path — the exact inversion the ramp exists to prevent. With a workable spread
+    # the invariant is monotone: the deeper today's loss, the more growth the price
+    # implies, and always more than the flat path.
+    wide = dict(ramp_kw, roic_term=0.25)
+    flat_w = E.reverse_dcf(**wide)["implied_cagr_pct"]
+    prev = flat_w
+    for mn in (0.10, 0.0, -0.05, -0.152, -0.30):
+        cur = E.reverse_dcf(margin_now=mn, **wide)["implied_cagr_pct"]
+        assert cur is not None, mn
+        assert cur > flat_w, (mn, cur, flat_w)    # ramping is never a discount
+        assert cur > prev, (mn, cur, prev)        # deeper loss -> more growth needed
+        prev = cur
 
     # REV-25: EV uses the REPORTED market cap when supplied, not price x shares
     a = E.reverse_dcf(price=10.0, shares=1e9, revenue=5e9, rev_1y=4e9, total_debt=0,

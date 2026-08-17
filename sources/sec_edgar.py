@@ -207,7 +207,7 @@ def _accessors(facts):
         return out
 
     return (latest, ttm, annual_series, currency, latest_end, quarters,
-            instant_series, annual_series_dated, instant_at_dates)
+            instant_series, annual_series_dated, instant_at_dates, entries)
 
 
 REV = ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
@@ -236,6 +236,16 @@ GROSS_PROFIT_TAGS = ["GrossProfit"]
 # line, so gross profit is derived as revenue - cost (see domain/trend.py).
 COST_OF_REV_TAGS = ["CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfSales",
                     "CostOfGoodsSold", "CostOfSalesExcludingAmortisation"]
+# 2026-08-17: the SBC ladder gets a dated series too. Damodaran's rule is that SBC is a
+# real expense and must not be added back — but CFO (and therefore "FCF = CFO - capex")
+# adds it back as a non-cash item by construction, so the FCF the scoring legs read was
+# systematically flattered. Adjusting it needs SBC per YEAR, not just the TTM scalar,
+# or the trend would bend where the adjustment starts. Every fixture files this,
+# IFRS included (NVO via ExpenseFromSharebasedPaymentTransactionsWithEmployees).
+SBC_TAGS = ["ShareBasedCompensation",
+            "AllocatedShareBasedCompensationExpense",
+            "ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost",
+            "ExpenseFromSharebasedPaymentTransactionsWithEmployees"]
 
 
 def _ic_components(instant_at_dates, fy_ends, lt_tags=(), st_tags=(), eq_tags=(), cash_tags=()):
@@ -288,7 +298,7 @@ def extract(companyfacts):
     """Return a dict of SEC-derived financial values (in reported currency)."""
     facts = companyfacts.get("facts", companyfacts)
     (latest, ttm, annual_series, currency, latest_end, quarters,
-     instant_series, annual_series_dated, instant_at_dates) = _accessors(facts)
+     instant_series, annual_series_dated, instant_at_dates, entries) = _accessors(facts)
 
     def pick(concepts):
         """Choose the concept with the FRESHEST data, then by LIST ORDER.
@@ -369,21 +379,92 @@ def extract(companyfacts):
             _op_qtr = {d: v + _iq.get(d, 0) for d, v in _pq.items()}
         op_derived = operating_income is not None
 
-    def fresh(*tags, prefer=("USD", "usd")):
-        """Latest value among `tags` whose period end is recent (<540d before the
-        latest filing) — rejects stale tags a filer abandoned (e.g. ORCL's
-        LongTermDebt frozen at 2022)."""
+    def fresh_entry(*tags, prefer=("USD", "usd")):
+        """The entry among `tags` measured CLOSEST TO THE PRESENT, restricted to
+        those within the 540d staleness window. Ladder order breaks ties only.
+
+        FIX (2026-08-16) — this used to return the FIRST tag in ladder order that
+        merely wasn't ancient, which silently paired a stock with the wrong date.
+        ORCL is the live case: it files BOTH `DebtLongtermAndShorttermCombinedAmount`
+        (annual, as-of 2025-05-31) and `LongTermNotesAndLoans`/`NotesPayableCurrent`
+        (quarterly, as-of 2026-02-28). The combined tag sat first in the ladder and
+        was only 273d old, inside the 540d window, so it won — and total debt came
+        back as 92.6B when the balance sheet on the SAME date as the income
+        statement said 134.6B. Understated by 42.0B (-31%), which flowed straight
+        into invested capital (ROIC printed 17.7% against a true 12.2%, a 5.5pp
+        overstatement) and into net debt, hence EV, hence every multiple.
+
+        A balance-sheet stock must be read as near as possible to the period end of
+        the flow it is divided by. Date first, concept preference second."""
+        best = None
         for tag in tags:
             e = latest(tag, prefer)
-            if e and e.get("val") is not None and _recent(e.get("end"), ref_end):
-                return e["val"]
-        return None
+            if not e or e.get("val") is None or not _recent(e.get("end"), ref_end):
+                continue
+            if best is None or (e.get("end") or "") > (best.get("end") or ""):
+                best = e
+        return best
+
+    def fresh(*tags, prefer=("USD", "usd")):
+        """Value of fresh_entry() — see there for the date-first selection rule."""
+        e = fresh_entry(*tags, prefer=prefer)
+        return e["val"] if e else None
 
     # total debt: prefer an explicit combined tag, else long-term + current
-    LT_DEBT = ("LongTermDebtNoncurrent", "LongTermDebt", "LongTermNotesPayable", "Borrowings")
-    ST_DEBT = ("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings", "NotesPayableCurrent")
-    total_debt = (fresh("DebtLongtermAndShorttermCombinedAmount")
-                  or _sum(fresh(*LT_DEBT), fresh(*ST_DEBT)))
+    # 2026-08-16: `LongTermNotesAndLoans` was missing from the ladder entirely, and
+    # it is the ONLY long-term debt concept ORCL tags on its quarterly balance
+    # sheets (124.7B @ 2026-02-28). Without it the ladder fell back to
+    # `LongTermNotesPayable`, which ORCL only files annually (85.3B @ 2025-05-31).
+    LT_DEBT = ("LongTermDebtNoncurrent", "LongTermNotesAndLoans", "LongTermDebt",
+               "LongTermNotesPayable", "Borrowings")
+    ST_DEBT = ("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings",
+               "NotesPayableCurrent", "NotesAndLoansPayableCurrent")
+    # FIX (2026-08-16): the combined tag no longer short-circuits on `or`. ORCL
+    # files the combined amount ANNUALLY (2025-05-31) and the split legs QUARTERLY
+    # (2026-02-28); taking the combined one just because it exists read the debt off
+    # a nine-month-old balance sheet. Take whichever is measured LATER, and only
+    # fall back to the other when the preferred one is missing.
+    def _by_end(tags, prefer=("USD", "usd")):
+        """{period_end: value} for a ladder — first tag in ladder order that reports
+        on that date wins, so every date gets its most-preferred concept."""
+        out = {}
+        for tag in tags:
+            for e in entries(tag, prefer):
+                d, v = e.get("end"), e.get("val")
+                if d and v is not None and d not in out and _recent(d, ref_end):
+                    out[d] = v
+        return out
+
+    def _total_debt_dated():
+        """Total debt read off ONE balance-sheet date — the latest date that can
+        produce a complete figure.
+
+        FIX (2026-08-16): the old expression was
+            fresh("DebtLongtermAndShorttermCombinedAmount") or _sum(fresh(LT), fresh(ST))
+        which had two independent date bugs. The combined tag short-circuited on
+        `or` even when it was three quarters older than the split legs, and the two
+        `fresh()` calls could return legs measured on DIFFERENT dates and add them
+        together. ORCL hit both: the combined tag reported 92.6B at 2025-05-31 while
+        the balance sheet on the income statement's own date (2026-02-28) said
+        134.6B — 42.0B / 31% understated. That flowed into invested capital (ROIC
+        printed 17.7% against a true 12.2%) and into net debt, hence EV and every
+        EV multiple.
+
+        Now: gather every date each ladder reports, then walk dates newest-first and
+        take the first that yields a total. A stock is only meaningful as of one
+        date, and it should be the one closest to the flow it will be divided by."""
+        comb = _by_end(("DebtLongtermAndShorttermCombinedAmount",))
+        lt, st = _by_end(LT_DEBT), _by_end(ST_DEBT)
+        for d in sorted(set(comb) | set(lt), reverse=True):
+            if d in comb:
+                return comb[d]
+            if d in lt:
+                # a filer with no current-debt tag on that date genuinely has none
+                # split out; adding a leg from another date would be worse.
+                return _sum(lt[d], st.get(d))
+        return None
+
+    total_debt = _total_debt_dated()
 
     # --- v8.2 additions (all from the same companyfacts JSON) -----------------
     EQUITY_TAGS = ("StockholdersEquity", "Equity",
@@ -436,8 +517,25 @@ def extract(companyfacts):
                          or quarters("DilutedEarningsLossPerShare", prefer=("USD/shares", "DKK/shares"))),
         "net_income": net_income,
         "operating_income": operating_income,
-        "eps_gaap": ttm("EarningsPerShareDiluted", prefer=("USD/shares",)),
+        # FIX (2026-08-16) — IFRS FILERS GOT NOTHING. Every scalar below resolved
+        # only US-GAAP tags, so for a 20-F filer (NVO, ASML) `eps_gaap`,
+        # `shares_diluted`, `capex`, `dep_amort`, `tax_expense`, `cfo` and `sbc` all
+        # came back None — while the SAME companyfacts JSON carried every one of
+        # them under `ifrs-full` (proven on the NVO fixture:
+        # DilutedEarningsLossPerShare = 23.03, AdjustedWeightedAverageShares =
+        # 4.4477e9, CashFlowsFromUsedInOperatingActivities = 119.1e9 DKK). The DATED
+        # series a few lines down already had an IFRS ladder (CFO_TAGS/CAPEX_TAGS),
+        # so the same file disagreed with itself about whether NVO has a cash flow
+        # statement. With FCF, diluted shares and the tax rate all missing, the
+        # engine fell through to defaults on two of the portfolio's 21 names.
+        # IFRS variants go LAST so a US filer can never resolve to them by accident
+        # — the convention already documented at CFO_TAGS above.
+        "eps_gaap": (ttm("EarningsPerShareDiluted", prefer=("USD/shares",))
+                     or ttm("DilutedEarningsLossPerShare",
+                            prefer=("USD/shares", "DKK/shares", "EUR/shares"))),
         "shares_diluted": _val(latest("WeightedAverageNumberOfDilutedSharesOutstanding", prefer=("shares",))
+                               or latest("AdjustedWeightedAverageShares", prefer=("shares",))
+                               or latest("WeightedAverageShares", prefer=("shares",))
                                or latest("CommonStockSharesOutstanding", prefer=("shares",))),
         # P2-1: the ACTUAL diluted share count, year by year. The SBC-dilution proxy
         # (SBC$ / market cap) measures GROSS grants; what divides earnings is the
@@ -451,7 +549,7 @@ def extract(companyfacts):
         "total_debt": total_debt,
         "cash": fresh(*CASH_TAGS),
         "equity": fresh(*EQUITY_TAGS),
-        "capex": ttm("PaymentsToAcquirePropertyPlantAndEquipment") or ttm("PurchaseOfPropertyPlantAndEquipment"),
+        "capex": next((v for v in (ttm(t) for t in CAPEX_TAGS) if v is not None), None),
         # --- T5: multi-year series for the 5-year trend strip -------------------
         # DATED, not bare lists. `annual_series` returns values newest-first, and two
         # tags do not necessarily cover the same set of fiscal years — a filer can
@@ -461,6 +559,7 @@ def extract(companyfacts):
         # date with every value forces the consumer (domain/trend.py) to align on the
         # date and simply drop years where one side is missing.
         "cfo_annuals_dated": _first_dated(annual_series_dated, CFO_TAGS),
+        "sbc_annuals_dated": _first_dated(annual_series_dated, SBC_TAGS),
         "capex_annuals_dated": _first_dated(annual_series_dated, CAPEX_TAGS),
         "gross_profit_annuals_dated": _first_dated(annual_series_dated, GROSS_PROFIT_TAGS),
         # cost of revenue lets gross profit be DERIVED when the filer tags no subtotal
@@ -473,23 +572,24 @@ def extract(companyfacts):
             instant_at_dates, _fy_ends,
             lt_tags=("DebtLongtermAndShorttermCombinedAmount",) + LT_DEBT,
             st_tags=ST_DEBT, eq_tags=EQUITY_TAGS, cash_tags=CASH_TAGS),
-        "dep_amort": ttm("DepreciationAndAmortization") or ttm("Depreciation") or ttm("DepreciationDepletionAndAmortization"),
+        "dep_amort": (ttm("DepreciationAndAmortization") or ttm("Depreciation")
+                      or ttm("DepreciationDepletionAndAmortization")
+                      or ttm("DepreciationAndAmortisationExpense")          # IFRS
+                      or ttm("DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss")),
         "income_before_tax": ttm("IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest")
                              or ttm("ProfitLossBeforeTax"),
-        "tax_expense": ttm("IncomeTaxExpenseBenefit"),
+        "tax_expense": (ttm("IncomeTaxExpenseBenefit")
+                        or ttm("IncomeTaxExpenseContinuingOperations")),     # IFRS
         "latest_period_end": _latest_end(facts, rev_concept),
         # --- v8.2 additions ---
-        "cfo": ttm("NetCashProvidedByUsedInOperatingActivities")
-               or ttm("NetCashProvidedByUsedInOperatingActivitiesContinuingOperations"),
+        "cfo": next((v for v in (ttm(t) for t in CFO_TAGS) if v is not None), None),
         # REV-1: stock-based compensation. Was declared on FinancialFacts and consumed
         # by earnings_quality + the SBC-dilution rule, but NOTHING ever populated it on
         # the live path (only fmp.parse(), which the pipeline does not call) — so
         # f.sbc was permanently None: the "SBC >10% of revenue" branch could never
         # fire and forward EPS was never diluted. Both concepts below are the standard
         # cash-flow-statement add-back.
-        "sbc": ttm("ShareBasedCompensation")
-               or ttm("AllocatedShareBasedCompensationExpense")
-               or ttm("ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost"),
+        "sbc": next((v for v in (ttm(t) for t in SBC_TAGS) if v is not None), None),
         "total_assets": fresh("Assets"),
         "receivables": fresh(*AR_TAGS),
         # REV-19: the prior-year AR, so the channel-stuffing check the `receivables`
@@ -596,7 +696,7 @@ def populate(ff, companyfacts):
               "eps_annuals_dated",
               # T5: dated annual series behind the 5-year trend strip
               "revenue_annuals_dated", "operating_income_annuals_dated",
-              "cfo_annuals_dated", "capex_annuals_dated",
+              "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
               "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
               "ic_components_dated"):
         ff.set(k, d.get(k), "sec")

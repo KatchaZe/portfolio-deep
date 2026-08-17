@@ -26,14 +26,26 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
           "sbc",
           # REV-18/19: working-capital components + prior AR
           "receivables_prior", "inventory", "inventory_prior",
-          "accounts_payable", "accounts_payable_prior")
+          "accounts_payable", "accounts_payable_prior",
+          # FIX (2026-08-16): eps_gaap. This is the L2 defect (TSM's EPS left in TWD
+          # beside a USD ADR price, printing an $8,612 fair value) reappearing at the
+          # OTHER conversion site: dataquality's FALLBACK list converts PER_SHARE
+          # fields, this primary SEC list never did. It stayed latent only because
+          # eps_gaap resolved to None for every IFRS filer — the scalar tag ladder
+          # carried no `DilutedEarningsLossPerShare`. Fixing that ladder makes NVO
+          # return 23.03 DKK, which would then be divided into a USD price and read
+          # as a P/E about 7x too cheap. Unlike `eps_annuals_dated` — deliberately
+          # excluded below because it is paired with a LOCAL-currency 5y price
+          # percentile — scalar eps_gaap is compared against the USD listed price, so
+          # both sides of that ratio must be USD.
+          "eps_gaap")
 
 # T5: [[FY_end, value], …] money series — converted element-wise, keeping the date.
 # `eps_annuals_dated` is deliberately NOT here: it is a per-share figure paired with a
 # per-share PRICE in the own-5y-P/E percentile, and converting one side of that ratio
 # without the other would break it.
 _MONEY_SERIES_DATED = ("revenue_annuals_dated", "operating_income_annuals_dated",
-                       "cfo_annuals_dated", "capex_annuals_dated",
+                       "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
                        "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated")
 
 

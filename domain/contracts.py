@@ -89,6 +89,7 @@ CLOCK = {
     # --- fiscal-year series WITH the year-end date ---------------------------
     "revenue_annuals_dated": FY_DATED, "operating_income_annuals_dated": FY_DATED,
     "cfo_annuals_dated": FY_DATED, "capex_annuals_dated": FY_DATED,
+    "sbc_annuals_dated": FY_DATED,
     "gross_profit_annuals_dated": FY_DATED, "cost_of_revenue_annuals_dated": FY_DATED,
     "eps_annuals_dated": FY_DATED, "ic_components_dated": FY_DATED,
 
@@ -134,6 +135,7 @@ UNIT = {
     "revenue_annuals": MONEY, "operating_income_annuals": MONEY, "rnd_annuals": MONEY,
     "revenue_annuals_dated": MONEY, "operating_income_annuals_dated": MONEY,
     "cfo_annuals_dated": MONEY, "capex_annuals_dated": MONEY,
+    "sbc_annuals_dated": MONEY,
     "gross_profit_annuals_dated": MONEY, "cost_of_revenue_annuals_dated": MONEY,
     "ic_components_dated": MONEY, "revenue_quarters": MONEY,
     "operating_income_quarters": MONEY, "market_cap": MONEY,

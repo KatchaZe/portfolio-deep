@@ -155,6 +155,14 @@ console.log(JSON.stringify(out));
         panel = out[k]["panel"]
         imp = cases[k]["rev_implied_cagr"]
         assert "price-in" in panel, "%s lost the priced-in block" % k
+        if imp is None:
+            # 2026-08-16: once loss years stopped being booked as POSITIVE cash, a
+            # deeply pre-profit filer can legitimately have no growth rate that
+            # justifies its price. REV-5 says that must be REPORTED — and the panel
+            # used to `return ''` and report nothing at all.
+            assert cases[k]["rev_verdict"], k
+            assert "หา CAGR ที่รองรับราคานี้ไม่ได้" in panel, (k, panel[-700:])
+            continue
         assert ("<b>%s%%</b>" % _js(imp)) in panel, (k, imp, panel[-700:])
         # and never as a bare point estimate: the margin band has to be next to it
         s = cases[k]["rev_sensitivity"]

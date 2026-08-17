@@ -61,6 +61,7 @@ def set_assumptions(s, erp_pct=None, market_pe=None):
     """Persist manual monthly assumptions (dashboard form). Values are validated
     by the caller (app.py). Stamps as-of = current YYYY-MM + source=manual.
     Returns the stored assumptions dict."""
+    store_sync.mark_local_edit()   # explicit user intent — see store_sync._local_dirty
     a = s.setdefault("assumptions", {})
     month = dt.date.today().isoformat()[:7]
     if erp_pct is not None:
@@ -106,6 +107,11 @@ def save(s):
     os.replace(tmp, PATH)
     # Mirror to Google Drive (if configured) — best-effort, background worker,
     # data-loss guard included. The whole subsystem lives in store_sync now.
+    # NOTE: save() deliberately does NOT call store_sync.mark_local_edit(). save() also
+    # runs for writes the app makes on its own — including persisting the EMPTY DEFAULT
+    # store produced by a cold start whose pull failed — and treating that as "the user
+    # edited something" would let the empty store win over a good Drive backup, which is
+    # the 2026-07 wipe incident. Only the explicit user mutations below mark the file.
     store_sync.schedule_push(PATH)
 
 
@@ -122,6 +128,7 @@ def today():
 
 # --- holdings -------------------------------------------------------------- #
 def set_holding(s, ticker, shares=None, avg_cost=None):
+    store_sync.mark_local_edit()   # explicit user intent — see store_sync._local_dirty
     t = clean_ticker(ticker)
     h = s["holdings"].setdefault(t, {"shares": 0, "avg_cost": 0.0, "added": today()})
     if shares is not None:
@@ -132,6 +139,7 @@ def set_holding(s, ticker, shares=None, avg_cost=None):
 
 
 def remove_holding(s, ticker):
+    store_sync.mark_local_edit()   # explicit user intent — see store_sync._local_dirty
     t = clean_ticker(ticker)
     for k in ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises"):
         s.get(k, {}).pop(t, None)
@@ -139,12 +147,14 @@ def remove_holding(s, ticker):
 
 # --- watchlist ------------------------------------------------------------- #
 def add_watch(s, ticker):
+    store_sync.mark_local_edit()   # explicit user intent — see store_sync._local_dirty
     t = clean_ticker(ticker)
     if t and t not in s["watchlist"]:
         s["watchlist"].append(t)
 
 
 def remove_watch(s, ticker):
+    store_sync.mark_local_edit()   # explicit user intent — see store_sync._local_dirty
     t = clean_ticker(ticker)
     if t in s["watchlist"]:
         s["watchlist"].remove(t)

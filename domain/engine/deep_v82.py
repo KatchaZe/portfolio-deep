@@ -564,8 +564,30 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
             rev_t *= (1 + x)
             m_t = margin_at(t, m)
             # a loss-making year produces negative FCFF; that is the honest number and
-            # the solver needs to see it, so no floor here
-            fcff = rev_t * m_t * (1 - tax if m_t > 0 else 1.0) * (1 - reinvest)
+            # the solver needs to see it, so no floor here.
+            #
+            # FIX (2026-08-16) — SIGN REVERSAL. This used to read
+            #     fcff = NOPAT_t * (1 - reinvest)
+            # which is only safe while reinvest <= 1. Reinvestment is x/ROIC and is
+            # routinely >1 for the pre-profit names this ramp was built for (x=30%,
+            # terminal ROIC=10% -> reinvest=3.0). Then (1 - reinvest) = -2.0, and a
+            # NEGATIVE NOPAT times a NEGATIVE factor booked the loss year as POSITIVE
+            # cash: NOPAT -202m arrived in the PV as +403m. The ramp was added to make
+            # the model HARSHER on loss-makers; instead adding four loss years LOWERED
+            # the implied CAGR (34.7% with the ramp vs unreachable without it) and
+            # handed those names a kinder verdict — the exact failure the ramp existed
+            # to prevent.
+            #
+            # Reinvestment is a capital outlay, not a share of profit: under the
+            # constant sales-to-capital assumption above, dCapital = Revenue * x /
+            # (S/C), and S/C is fixed by the TERMINAL relation ROIC = NOPAT/Capital.
+            # So the dollar reinvestment is set by the terminal margin and stays
+            # positive regardless of what this year's margin does — which also makes
+            # it identical to the old expression whenever the margin is flat and
+            # positive, so the calibrated non-ramp path is unchanged.
+            nopat_t = rev_t * m_t * (1 - tax if m_t > 0 else 1.0)
+            reinvest_cash = rev_t * m * (1 - tax) * reinvest
+            fcff = nopat_t - reinvest_cash
             pv += fcff / (1 + wacc_val) ** t
         fcff_next = rev_t * (1 + g) * m * (1 - tax) * (1 - reinvest_t)
         tv = fcff_next / (wacc_term - g)          # perpetuity at the STABLE rate...
@@ -711,9 +733,18 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
         acc = (net_income - cfo) / total_assets
         if acc > 0.05:
             flags.append("high accruals >5% of assets")
+    # FIX (2026-08-16) — SBC DOUBLE COUNTING (v7.1 rule 5). SBC is charged once,
+    # through share DILUTION in forward EPS, and that channel is always on. This
+    # flag used to ALSO enter `verdict`, so crossing 10% of revenue moved the
+    # verdict CLEAN -> REVIEW, cost E_exec a further -0.5 and the composite -0.1,
+    # on top of a dilution charge that had not changed. The framework removed the
+    # qualitative penalty for exactly this reason. Keep the line as a DISCLOSURE —
+    # the user should see the number — but keep it out of the verdict that scores.
+    disclosures = []
     if sbc is not None and revenue:
         if sbc / revenue > 0.10:
-            flags.append("SBC >10% of revenue")
+            disclosures.append(f"SBC {sbc / revenue * 100:.0f}% of revenue "
+                               f"(คิดผ่าน dilution ใน forward EPS แล้ว — ไม่หักคะแนนซ้ำ)")
     _rev_g = revenue_growth if revenue_growth is not None else (
         (revenue / revenue_prior - 1) if (revenue and revenue_prior) else None)
     if receivables and receivables_prior and _rev_g is not None:
@@ -727,8 +758,10 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
         if ar_g > 0.10 and ar_g > rev_g + 0.15:
             flags.append(f"receivables +{ar_g*100:.0f}% vs revenue +{rev_g*100:.0f}% "
                          f"(sales not turning into cash)")
+    # the verdict scores only the accrual-quality flags; disclosures ride along for
+    # display so nothing the user used to see disappears from the card.
     verdict = "CLEAN" if not flags else "REVIEW" if len(flags) <= 2 else "LOW"
-    return verdict, flags, cc
+    return verdict, flags + disclosures, cc
 
 
 def fade_ratio(near, far):
@@ -1447,7 +1480,16 @@ class DeepV82Engine(DeepEngine):
         # acquisition leg was already fetched (f.acquisitions_net, used only for the
         # organic-growth penalty) but was missing here, so a serial acquirer looked
         # as capital-light as an organic grower and its FCFF read too high.
-        acq = abs(f.acquisitions_net) if f.acquisitions_net is not None else 0.0
+        # FIX (2026-08-16) — the A2 sign bug survived here. `abs()` made a
+        # DIVESTITURE cost exactly as much capital as a purchase of the same size:
+        # sell a business for $2B and the reinvestment bill rose $2B, so the
+        # incremental-ROIC leg scored a seller and a buyer identically (both 15.0%
+        # in the repro) while acquisition_intensity() ten lines up already read the
+        # same field correctly. `PaymentsToAcquireBusinessesNetOfCashAcquired` is a
+        # PAYMENT: negative means cash came IN. Cash coming in is not reinvestment.
+        # Floor at zero rather than subtracting it — a divestiture releases capital
+        # but crediting it as negative reinvestment would flatter FCFF the other way.
+        acq = max(0.0, f.acquisitions_net) if f.acquisitions_net is not None else 0.0
         # REV-18: the dWC leg completes capex + acquisitions + dWC - D&A.
         dwc, dwc_label = working_capital_change(f)
         # REV-23: the ceiling here used to be 0.8, which made the FCFF gate below

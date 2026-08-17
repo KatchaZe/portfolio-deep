@@ -73,12 +73,56 @@ def _covariance(a, b):
 
 def align_returns(returns_by_ticker, tickers):
     """Trim every ticker's return series to the SAME length (the shortest), so the
-    covariance matrix is computed over a common window. Returns a new dict."""
+    covariance matrix is computed over a common window. Returns a new dict.
+
+    NOTE: this is POSITIONAL alignment and is only correct when every series ends
+    on the same trading day. Prefer align_on_dates() whenever dates are available
+    — see the comment there."""
     series = [returns_by_ticker.get(t, []) for t in tickers]
     n = min((len(s) for s in series if s), default=0)
     if n < 2:
         return {t: [] for t in tickers}
     return {t: (returns_by_ticker.get(t, [])[-n:] if returns_by_ticker.get(t) else []) for t in tickers}
+
+
+def align_on_dates(rdata, tickers):
+    """FIX (2026-08-16) — align return series by DATE, not by position.
+
+    `rdata` is the {ticker: {returns, dates, n, ...}} contract that
+    pipeline.prices.fetch_returns builds. Returns (aligned, mode) where
+    `aligned` is {ticker: [returns]} restricted to the dates EVERY named ticker
+    shares, and `mode` is "dates" or "positional".
+
+    Why this exists: the old code trimmed each series from the front (`x[-n:]`)
+    and assumed they all ended on the same bar. When one source lagged a single
+    day — routine, the three price tiers publish at different times — the engine
+    silently paired NVDA(t) with AVGO(t-1). The Correlation tab then printed a
+    lag-1 cross-correlation (+0.67 became -0.08) and VaR95 moved 50.8 -> 39.4
+    with no warning anywhere. Dates are authoritative; positions are not.
+
+    Falls back to positional alignment (with mode="positional") when any ticker
+    lacks dates, so a cache written before this fix still works."""
+    have_dates = all((rdata.get(t) or {}).get("dates") for t in tickers)
+    if not tickers or not have_dates:
+        return (align_returns({t: (rdata.get(t) or {}).get("returns", []) for t in tickers},
+                              tickers),
+                "positional")
+
+    common = None
+    for t in tickers:
+        ds = set((rdata.get(t) or {}).get("dates") or [])
+        common = ds if common is None else (common & ds)
+    common = common or set()
+    if len(common) < 2:
+        return ({t: [] for t in tickers}, "dates")
+
+    order = sorted(common)
+    aligned = {}
+    for t in tickers:
+        e = rdata.get(t) or {}
+        by_date = dict(zip(e.get("dates") or [], e.get("returns") or []))
+        aligned[t] = [by_date[d] for d in order]
+    return aligned, "dates"
 
 
 # --------------------------------------------------------------------------- #
@@ -195,9 +239,23 @@ def hybrid_cov(returns_by_ticker, tickers, proxy_vols, asset_class,
     """PER-PAIR covariance (2026-07-19): realized cov for pairs where BOTH series
     have >= min_n daily returns; ASSUMED correlation only for pairs touching a
     thin-history name. Fixes the all-or-nothing cliff where ONE thin ticker
-    forced the whole matrix to the proxy 0.60. Per-pair windows differ, so the
-    matrix is not guaranteed PSD — acceptable for display/attribution here.
-    Returns (cov, realized_tickers). Caller tags [CALC]/[JUDG-PROXY]."""
+    forced the whole matrix to the proxy 0.60.
+    Returns (cov, realized_tickers). Caller tags [CALC]/[JUDG-PROXY].
+
+    FIX (2026-08-16) — the matrix used to mix windows and stop being a covariance
+    matrix at all. The diagonal took each name's vol over its FULL history while
+    an off-diagonal took the covariance over the pair's COMMON tail, so with one
+    400-bar name beside one 60-bar name the implied correlation came out at 2.59.
+    A rho above 1 makes w'Sigma w go negative, portfolio_vol() hit its `if var > 0`
+    guard and return 0.0, and every downstream number (VaR95, CVaR, ENB,
+    diversification ratio, per-name risk contribution) silently became None.
+
+    The estimator now separates the two things it is estimating: CORRELATION is
+    measured on the window the pair actually shares, VOLATILITY on each name's own
+    full history (more data, and it is the diagonal the user sees). Rebuilding
+    cov = rho * vol_i * vol_j keeps |rho| <= 1 by construction, and a final
+    off-diagonal shrink makes the whole matrix positive semi-definite so
+    portfolio variance can never come out negative again."""
     n = len(tickers)
     rets = {t: (returns_by_ticker.get(t) or []) for t in tickers}
     has = {t: len(rets[t]) >= min_n for t in tickers}
@@ -208,18 +266,75 @@ def hybrid_cov(returns_by_ticker, tickers, proxy_vols, asset_class,
 
     vols = [annualized_vol(rets[t]) if has[t] else proxy_vols[i]
             for i, t in enumerate(tickers)]
-    C = [[0.0] * n for _ in range(n)]
+    R = [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
     for i in range(n):
-        C[i][i] = vols[i] * vols[i]
         for j in range(i + 1, n):
             ti, tj = tickers[i], tickers[j]
             if has[ti] and has[tj] and min(len(rets[ti]), len(rets[tj])) >= min_n:
-                c = _covariance(rets[ti], rets[tj])
+                rho = _corr_common_window(rets[ti], rets[tj])
+                if rho is None:                     # zero variance in the overlap
+                    rho = equity_corr if (is_equity(ti) and is_equity(tj)) else cross_corr
             else:
                 rho = equity_corr if (is_equity(ti) and is_equity(tj)) else cross_corr
-                c = rho * vols[i] * vols[j]
-            C[i][j] = C[j][i] = c
+            R[i][j] = R[j][i] = rho
+
+    R = shrink_to_psd(R)
+    C = [[R[i][j] * vols[i] * vols[j] for j in range(n)] for i in range(n)]
     return C, [t for t in tickers if has[t]]
+
+
+def _corr_common_window(a, b):
+    """Correlation of two return series over the window they SHARE, with both the
+    covariance and both standard deviations measured on that same window. Returns
+    None when either leg has no variance there. Result is clamped to [-1, 1] to
+    absorb floating-point overshoot."""
+    n = min(len(a), len(b))
+    if n < 2:
+        return None
+    a, b = a[-n:], b[-n:]
+    sa, sb = _stdev(a), _stdev(b)
+    if sa <= 0 or sb <= 0:
+        return None
+    ma, mb = _mean(a), _mean(b)
+    cov = sum((a[i] - ma) * (b[i] - mb) for i in range(n)) / (n - 1)
+    return max(-1.0, min(1.0, cov / (sa * sb)))
+
+
+def _cholesky_ok(M):
+    """True when M is positive definite — a pure-python Cholesky attempt, which is
+    all the PSD test we need for the <=30x30 matrices this app builds."""
+    n = len(M)
+    L = [[0.0] * n for _ in range(n)]
+    for i in range(n):
+        for j in range(i + 1):
+            s = sum(L[i][k] * L[j][k] for k in range(j))
+            if i == j:
+                d = M[i][i] - s
+                if d <= 1e-12:
+                    return False
+                L[i][j] = math.sqrt(d)
+            else:
+                L[i][j] = (M[i][j] - s) / L[j][j]
+    return True
+
+
+def shrink_to_psd(R, floor=0.0):
+    """Shrink a correlation matrix's OFF-DIAGONALS toward zero until it is positive
+    definite: R(w) = w*R + (1-w)*I. Correlations estimated on differing windows are
+    individually valid but need not be jointly consistent, and an inconsistent set
+    yields negative portfolio variance. Shrinking is the mildest repair that keeps
+    every pair's sign and relative magnitude. Returns the repaired matrix (the
+    original when it was already fine)."""
+    if len(R) < 2 or _cholesky_ok(R):
+        return R
+    n = len(R)
+    w = 0.99
+    while w > floor:
+        S = [[R[i][j] * (1.0 if i == j else w) for j in range(n)] for i in range(n)]
+        if _cholesky_ok(S):
+            return S
+        w -= 0.05
+    return [[1.0 if i == j else 0.0 for j in range(n)] for i in range(n)]
 
 
 def corr_from_cov(cov):
@@ -527,9 +642,63 @@ def portfolio_returns(returns_by_ticker, tickers, weights):
 #  Correlation Monitor (Correlation tab) — pairwise / sector / downside / roll  #
 #  All pure; consume the same return series the risk desk already fetched.      #
 # --------------------------------------------------------------------------- #
+def align_pair(a_rets, a_dates, b_rets, b_dates):
+    """Two return series restricted to the dates they SHARE -> (a, b).
+
+    FIX (2026-08-16, completing the date-alignment fix). `align_on_dates` only ever
+    reached the covariance matrix, so the Correlation tab's benchmark cells
+    (holding-vs-SPY/QQQ/TLT/GLD, portfolio-vs-ref, ref-vs-ref), the downside lens and
+    HISTORICAL VaR were all still pairing series by POSITION — the exact defect that
+    turned rho(NVDA,AVGO) from +0.669 into -0.078 when one source lagged a single bar.
+    A partial fix on a defect this quiet is worse than none: it makes the tab look
+    audited.
+
+    Falls back to the common tail (the old behaviour) when either side has no dates,
+    so a cache written before dates were carried still works."""
+    a_rets, b_rets = list(a_rets or []), list(b_rets or [])
+    if a_dates and b_dates and len(a_dates) == len(a_rets) and len(b_dates) == len(b_rets):
+        common = sorted(set(a_dates) & set(b_dates))
+        if len(common) < 2:
+            return [], []
+        am, bm = dict(zip(a_dates, a_rets)), dict(zip(b_dates, b_rets))
+        return [am[d] for d in common], [bm[d] for d in common]
+    n = min(len(a_rets), len(b_rets))
+    return (a_rets[-n:], b_rets[-n:]) if n else ([], [])
+
+
+def pair_corr_dated(a_rets, a_dates, b_rets, b_dates):
+    """pair_corr() on a DATE-aligned pair — see align_pair for why this exists."""
+    a, b = align_pair(a_rets, a_dates, b_rets, b_dates)
+    return pair_corr(a, b)
+
+
+def portfolio_returns_dated(rdata, tickers, weights):
+    """(series, dates) for the weighted portfolio return, built on the dates every
+    covered holding shares. Returning the dates is the point: the portfolio series is
+    then a first-class series that can itself be date-aligned against SPY, instead of
+    being pinned to a benchmark by position."""
+    aligned, mode = align_on_dates(rdata, tickers)
+    have = [t for t in tickers if aligned.get(t)]
+    if not have:
+        return [], []
+    n = min(len(aligned[t]) for t in have)
+    if n == 0:
+        return [], []
+    series = [sum(weights.get(t, 0.0) * aligned[t][i] for t in have) for i in range(n)]
+    if mode != "dates":
+        return series, []
+    common = None
+    for t in tickers:
+        ds = set((rdata.get(t) or {}).get("dates") or [])
+        common = ds if common is None else (common & ds)
+    return series, sorted(common or [])
+
+
 def pair_corr(a, b):
     """Pearson correlation of two daily-return series over their common tail
-    window. Returns None if <2 overlapping points or a series is flat."""
+    window. Returns None if <2 overlapping points or a series is flat.
+
+    NOTE: this is POSITIONAL. Prefer pair_corr_dated() whenever dates exist."""
     n = min(len(a or []), len(b or []))
     if n < 2:
         return None

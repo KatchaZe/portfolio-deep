@@ -33,7 +33,7 @@ def test_parallel_fundamentals():
         def set(self, *a, **k):
             pass
 
-    def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None):
+    def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None):
         with lock:
             seen.append(t)
         if t == "BAD":

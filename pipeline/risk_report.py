@@ -101,11 +101,23 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         quota_used, quota_cap, prefer_fmp=prefer_fmp)
 
     have_realized = all((rdata.get(t, {}).get("n") or 0) >= 60 for t in tickers)
-    aligned = riskeng.align_returns({t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers)
+    # FIX (2026-08-16): align by DATE. The old positional trim paired NVDA(t) with
+    # AVGO(t-1) whenever one source lagged a bar, turning the correlation matrix
+    # into a lag-1 cross-correlation matrix. `align_mode` is surfaced so the card
+    # can say which alignment it got.
+    aligned, align_mode = riskeng.align_on_dates(rdata, tickers)
     common_n = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
 
+    def _rd(sym):
+        """(returns, dates) for ANY symbol in rdata — holdings and the SPY/QQQ/GLD/IBIT
+        references alike. Every correlation below pairs series through this so nothing
+        is matched by position; see riskeng.align_pair."""
+        e = rdata.get(sym) or {}
+        return (e.get("returns") or []), (e.get("dates") or [])
+
     if have_realized and common_n >= 60:
-        cov = riskeng.cov_matrix({t: rdata[t]["returns"] for t in tickers}, tickers)
+        # feed the DATE-ALIGNED series, not the raw ones
+        cov = riskeng.cov_matrix(aligned, tickers)
         cov_mode, cov_tag, proxy_tickers = "realized", "[CALC]", []
     else:
         # FIX (2026-07-19): per-pair hybrid — realized pairs keep their REAL corr;
@@ -113,8 +125,12 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         # proxy matrix from a single thin ticker).
         pvols = [config.CLASS_PROXY_VOL.get(asset_class[t], _proxy_vol(sectors[t]))
                  if asset_class[t] != "equity" else _proxy_vol(sectors[t]) for t in tickers]
+        # hybrid_cov measures each pair's correlation on the window that pair
+        # shares, so it takes the RAW series (a thin name must not truncate the
+        # long names' vol estimate) — but the dates now travel with them.
         cov, realized_tk = riskeng.hybrid_cov(
-            {t: rdata.get(t, {}).get("returns", []) for t in tickers},
+            {t: (aligned.get(t) if align_mode == "dates" and len(aligned.get(t) or []) >= 60
+                 else rdata.get(t, {}).get("returns", [])) for t in tickers},
             tickers, pvols, asset_class)
         proxy_tickers = [t for t in tickers if t not in realized_tk]
         if realized_tk:
@@ -146,9 +162,10 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
 
     # ---- downside-risk lens (Damodaran S2/S4) — defensive: never crash the payload ----
     try:
-        spy_rets = rdata.get("SPY", {}).get("returns", [])
-        port_rets = riskeng.portfolio_returns(
-            {t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers, weights)
+        spy_rets, spy_dates = _rd("SPY")
+        port_rets, port_dates = riskeng.portfolio_returns_dated(rdata, tickers, weights)
+        # the downside lens regresses the portfolio ON SPY, so the two must share dates
+        port_rets, spy_rets = riskeng.align_pair(port_rets, port_dates, spy_rets, spy_dates)
         downside = {
             "vol_pct": round(riskeng.annualized_vol(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
             "semidev_pct": round(riskeng.semideviation(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
@@ -173,11 +190,28 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             try:
                 from sources import yahoo as _yh
                 tnx = _yh.fetch_chart("^TNX", rng="1y", interval="1d")
-                tc = [c for c in (tnx.get("closes") or []) if c]
-                dy_bps = [(tc[i] - tc[i - 1]) * 10 for i in range(1, len(tc))]  # ^TNX 42.5 = 4.25%
+                # keep the DATE with every close: the regression below pairs a bond
+                # ETF's daily return with that day's yield change, and ^TNX does not
+                # trade on exactly the same calendar as an ETF (different holidays,
+                # different vendor gaps). Zipping the two by position was the same
+                # off-by-one class as the correlation matrix — a shifted pair here
+                # biases the regressed duration toward zero.
+                _tz = [(d, c) for d, c in zip(tnx.get("dates") or [],
+                                              tnx.get("closes") or []) if c]
+                tc = [c for _d, c in _tz]
+                tnx_dates = [d for d, _c in _tz]
+                # ^TNX is quoted in PERCENT (4.25 == 4.25%), the same convention
+                # yahoo.fetch_treasury_10y() relies on when it divides by 100.
+                # So one ^TNX point == 100bps, not 10.  The old *10 understated
+                # every yield change tenfold, which inflated the regressed
+                # duration tenfold (a true 1.9y read came out as 19y) and made
+                # the +100bp shock print -19% instead of -1.9%.
+                dy_bps = [(tc[i] - tc[i - 1]) * 100 for i in range(1, len(tc))]
+                dy_dates = tnx_dates[1:]           # one change per gap, dated at its end
                 for t in bond_ticks:
-                    rets = (rdata.get(t, {}) or {}).get("returns", [])
-                    d_emp = riskeng.effective_duration(rets, dy_bps)
+                    b_rets, b_dates = _rd(t)
+                    b_al, dy_al = riskeng.align_pair(b_rets, b_dates, dy_bps, dy_dates)
+                    d_emp = riskeng.effective_duration(b_al, dy_al)
                     if d_emp and 0 < d_emp < 40:            # sanity band
                         durations[t] = d_emp
                         dur_src[t] = "empirical"
@@ -203,8 +237,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     # P1-7 (S2/S4): HISTORICAL VaR from realized portfolio returns (fat tails as
     # they happened) alongside the parametric-normal estimate. Defensive.
     try:
-        _prets = riskeng.portfolio_returns(
-            {t: rdata.get(t, {}).get("returns", []) for t in tickers}, tickers, weights)
+        _prets, _ = riskeng.portfolio_returns_dated(rdata, tickers, weights)
         var_hist = riskeng.historical_var(_prets, horizon_years)
     except Exception:
         var_hist = {"var95_pct": None, "var99_pct": None, "cvar95_pct": None,
@@ -274,34 +307,39 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
                 return None
             return round(max(v, floor), 3) if (_is_eq(a) and _is_eq(b)) else round(v, 3)
 
-        rets = {t: rdata.get(t, {}).get("returns", []) for t in tickers}
-        ref_rets = {sym: rdata.get(sym, {}).get("returns", []) for sym, _nm, _cls in REFS}
-        spy_rets = ref_rets.get("SPY", [])
-        port_rets = riskeng.portfolio_returns(rets, tickers, weights)
+        # every cell below is DATE-aligned per pair (2026-08-16). The benchmark table is
+        # the most-read number on this tab and it was the last place still pairing by
+        # position, which silently turned a one-day source lag into a lag-1 correlation.
+        port_rets, port_dates = riskeng.portfolio_returns_dated(rdata, tickers, weights)
 
-        def _pc(a, b):
-            v = riskeng.pair_corr(a, b)
+        def _pc(a_rets, a_dates, b_rets, b_dates):
+            v = riskeng.pair_corr_dated(a_rets, a_dates, b_rets, b_dates)
             return round(v, 3) if v is not None else None
 
         bench_port = {}
         for sym, _nm, _cls in REFS:
-            v = _pc(port_rets, ref_rets.get(sym, []))
+            v = _pc(port_rets, port_dates, *_rd(sym))
             bench_port[sym] = {"normal": v, "crisis": _crisis(v, "PORT", sym)}
         bench_hold = {}
         for t in order_tk:
-            bench_hold[t] = {sym: {"normal": _pc(rets.get(t, []), ref_rets.get(sym, [])),
-                                   "crisis": _crisis(_pc(rets.get(t, []), ref_rets.get(sym, [])), t, sym)}
-                             for sym, _nm, _cls in REFS}
+            row = {}
+            for sym, _nm, _cls in REFS:
+                v = _pc(*_rd(t), *_rd(sym))
+                row[sym] = {"normal": v, "crisis": _crisis(v, t, sym)}
+            bench_hold[t] = row
         bench_ref = {}
         for i in range(len(REFS)):
             for j in range(i + 1, len(REFS)):
                 a, b = REFS[i][0], REFS[j][0]
-                v = _pc(ref_rets.get(a, []), ref_rets.get(b, []))
+                v = _pc(*_rd(a), *_rd(b))
                 bench_ref[f"{a}-{b}"] = {"normal": v, "crisis": _crisis(v, a, b)}
 
-        dcorr = riskeng.downside_corr(port_rets, spy_rets, spy_rets)
-        pearson = _pc(port_rets, spy_rets)
-        roll = riskeng.rolling_corr(port_rets, spy_rets, 60)
+        # the downside / rolling lenses regress the portfolio on SPY — align that pair too
+        _spy_r, _spy_d = _rd("SPY")
+        _pr, _sr = riskeng.align_pair(port_rets, port_dates, _spy_r, _spy_d)
+        dcorr = riskeng.downside_corr(_pr, _sr, _sr)
+        pearson = _pc(port_rets, port_dates, _spy_r, _spy_d)
+        roll = riskeng.rolling_corr(_pr, _sr, 60)
 
         marginal = [{"ticker": r["ticker"], "cap_pct": r["capital_pct"],
                      "risk_pct": r.get("abs_risk_share_pct"), "diff_pp": r.get("diff_pp")}
@@ -336,7 +374,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "philosophy": philosophy,
             "meta": {"cov_mode": cov_mode, "tag": cov_tag, "n_window": common_n,
                      "proxy_tickers": proxy_tickers,
-                     "refs_fetched": {s2: bool(ref_rets.get(s2)) for s2, _nm, _cls in REFS}},
+                     "refs_fetched": {s2: bool(_rd(s2)[0]) for s2, _nm, _cls in REFS}},
         }
     except Exception as _ce:                    # never break the risk payload
         import traceback as _tb

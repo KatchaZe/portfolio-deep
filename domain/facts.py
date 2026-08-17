@@ -109,6 +109,8 @@ class FinancialFacts:
     revenue_annuals_dated: list = field(default_factory=list)
     operating_income_annuals_dated: list = field(default_factory=list)
     cfo_annuals_dated: list = field(default_factory=list)
+    # 2026-08-17: per-year SBC, so free_cash_flow can deduct the expense CFO adds back
+    sbc_annuals_dated: list = field(default_factory=list)
     capex_annuals_dated: list = field(default_factory=list)
     gross_profit_annuals_dated: list = field(default_factory=list)
     cost_of_revenue_annuals_dated: list = field(default_factory=list)

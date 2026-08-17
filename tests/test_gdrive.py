@@ -92,6 +92,11 @@ def test_push_blocked_until_pull_succeeds(tmp):
     os.environ["GDRIVE_SA_JSON"] = "{}"
     _reset_drive_cache()
     gdrive_store._enabled = True                       # force-enable
+    # 2026-08-16: this scenario is a COLD START with no un-mirrored user edit. The
+    # previous test in this module deliberately leaves one behind (it edits MSFT while
+    # Drive is down and the push is blocked), and store_sync's per-process dirty flag
+    # is global — so clear it here or we are testing the local-wins path instead.
+    store_sync._local_dirty = False
     pushes = []
     orig_pull, orig_push = gdrive_store.drive_pull, gdrive_store.drive_push
     gdrive_store.drive_pull = lambda path: "error"     # simulate token-expired / outage

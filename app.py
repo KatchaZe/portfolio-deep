@@ -74,8 +74,37 @@ def auth_ok(supplied: Optional[str], expected: Optional[str] = None) -> bool:
     return bool(supplied) and hmac.compare_digest(str(supplied), exp)
 
 
+# FIX (2026-08-16) — BROKEN ACCESS CONTROL. Auth was "optional", and unset is the
+# default, so a deploy that forgot APP_TOKEN served every route to the whole
+# internet. Reproduced in _audit_app/r1_no_auth.py: with APP_TOKEN empty, anonymous
+# POSTs to /api/holding, /api/watchlist/add, /api/assumptions, /api/refresh and
+# /api/daily all returned 200 and actually mutated the store — a stranger can edit
+# the portfolio, rewrite the ERP/market-PE assumptions the whole engine reads, and
+# burn the FMP daily quota; GET /api/portfolio hands them the holdings.
+#
+# Optional is fine on localhost, where the socket is the boundary. It is not fine on
+# a public URL. So: when the process looks publicly deployed and no token is set, the
+# app FAILS CLOSED with an explanatory 503 rather than serving. `ALLOW_PUBLIC_NO_AUTH=1`
+# is the deliberate opt-out for someone who really does want it open.
+PUBLIC_DEPLOY = bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_URL")
+                     or os.environ.get("PUBLIC_DEPLOY"))
+ALLOW_PUBLIC_NO_AUTH = os.environ.get("ALLOW_PUBLIC_NO_AUTH", "") == "1"
+AUTH_REQUIRED_BUT_MISSING = PUBLIC_DEPLOY and not APP_TOKEN and not ALLOW_PUBLIC_NO_AUTH
+if AUTH_REQUIRED_BUT_MISSING:
+    log.error("APP_TOKEN is not set but this looks like a PUBLIC deployment. "
+              "Every route is refused until you set APP_TOKEN (or set "
+              "ALLOW_PUBLIC_NO_AUTH=1 to deliberately serve it open).")
+
+
 @app.middleware("http")
 async def _auth_middleware(request: Request, call_next):
+    if AUTH_REQUIRED_BUT_MISSING and request.url.path != "/healthz":
+        return JSONResponse(
+            {"error": "APP_TOKEN is not set on a public deployment — refusing to "
+                      "serve the portfolio. Set APP_TOKEN in the environment and "
+                      "open /?token=YOUR_APP_TOKEN once, or set "
+                      "ALLOW_PUBLIC_NO_AUTH=1 to serve it open on purpose."},
+            status_code=503)
     if APP_TOKEN and request.url.path != "/healthz":
         supplied = (request.query_params.get("token")
                     or request.headers.get("x-app-token")
@@ -89,7 +118,12 @@ async def _auth_middleware(request: Request, call_next):
     # secure=True: never send the token over plain HTTP (Render serves HTTPS).
     # Local http://localhost dev still works — the browser just skips the cookie
     # and ?token= / X-App-Token per request keep working.
-    if APP_TOKEN and auth_ok(request.query_params.get("token")):
+    # 2026-08-16: only mint the cookie on a real page/API hit. /healthz is exempt from
+    # the 401 check, and minting there meant the unauthenticated health endpoint also
+    # handed out session cookies — and every /healthz?token=... probe wrote the raw
+    # token into Render's access log for no benefit.
+    if (APP_TOKEN and request.url.path != "/healthz"
+            and auth_ok(request.query_params.get("token"))):
         resp.set_cookie("app_token", APP_TOKEN, httponly=True, secure=True,
                         samesite="lax", max_age=30 * 86400)
     return resp

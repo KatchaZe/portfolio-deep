@@ -11,6 +11,7 @@ Owns BOTH directions plus the data-loss guard:
 
 Per-process state — the app must run as exactly ONE worker (H5).
 """
+import os
 import time
 import logging
 import threading
@@ -28,6 +29,46 @@ _pull_state = None
 _last_try = 0.0
 RETRY_SECS = 60           # retry a failed pull at most once a minute
 
+# FIX (2026-08-16) — DATA LOSS. The push guard above protects the REMOTE copy while
+# the initial pull is failing, but nothing protected the LOCAL one. The sequence,
+# reproduced in _audit_app/r3_drive_pull_clobbers.py:
+#   1. cold start, Drive unreachable      -> _pull_state = "error"
+#   2. user adds NVDA 250sh               -> saved locally; push correctly BLOCKED,
+#                                            so this edit exists in exactly one place
+#   3. Drive recovers, retry pull succeeds -> drive_pull() overwrites the local file
+#                                            with the stale remote. NVDA is gone.
+# No error, no backup, no warning — the guard that was protecting the remote is what
+# made the local copy the only copy, and then the retry destroyed it. An edit made
+# while the remote was unreachable is strictly NEWER than that remote, so the retry
+# must not overwrite it.
+# _local_dirty means precisely: "there is a user edit here that has NOT reached
+# Drive". It is set by the explicit mutations in store.py (never by save() — an
+# app-initiated write of the empty default store must not count, or the 2026-07 wipe
+# comes straight back), and cleared as soon as the edit is safely mirrored, whether
+# that happens via a successful push or a successful pull. `_dirty_gen` makes the
+# clear race-free: the push worker only clears the flag if no NEW edit arrived while
+# it was uploading.
+_local_dirty = False
+_dirty_gen = 0
+_dirty_lock = threading.Lock()
+
+
+def mark_local_edit():
+    """Record that the local file has been written since the last successful pull,
+    so a later pull retry cannot silently overwrite that edit."""
+    global _local_dirty, _dirty_gen
+    with _dirty_lock:
+        _local_dirty = True
+        _dirty_gen += 1
+
+
+def _clear_local_edit(gen=None):
+    """Clear the dirty flag — but only if no newer edit landed since `gen`."""
+    global _local_dirty
+    with _dirty_lock:
+        if gen is None or gen == _dirty_gen:
+            _local_dirty = False
+
 
 def ensure_pull(path):
     """Restore `path` from Google Drive (if configured) on cold start. A FAILED
@@ -42,7 +83,27 @@ def ensure_pull(path):
     if _pull_state == "error" and now - _last_try < RETRY_SECS:
         return                                     # throttle retries
     _last_try = now
+
+    if _local_dirty and os.path.exists(path):
+        # The user edited while Drive was down. Local wins: adopt it as the source of
+        # truth, unblock pushing so the edit reaches Drive, and keep whatever the
+        # remote held in a sidecar rather than discarding either version.
+        try:
+            gdrive_store.drive_pull(path + ".remote")
+        except Exception:
+            pass
+        _pull_state = "pulled"
+        log.warning("Drive pull SKIPPED: local %s was edited while Drive was "
+                    "unreachable, so it is newer than the remote. Keeping local and "
+                    "pushing it up; the remote copy was saved to %s.remote",
+                    path, path)
+        gdrive_store.STATUS["pull_result"] = "local-kept"
+        schedule_push(path)
+        return
+
     _pull_state = gdrive_store.drive_pull(path)
+    if _pull_state in ("pulled", "absent"):
+        _clear_local_edit()
 
 
 # --- background push (C1 fix) ---------------------------------------------- #
@@ -61,7 +122,12 @@ def _push_worker():
                 return
             path, name = _pending.pop(0)
         if name is None:
-            gdrive_store.drive_push(path)          # never raises (best-effort mirror)
+            with _dirty_lock:
+                gen = _dirty_gen
+            if gdrive_store.drive_push(path):      # never raises (best-effort mirror)
+                # the local edit is now ON Drive, so it no longer needs protecting
+                # from a pull. `gen` guards the race with an edit made mid-upload.
+                _clear_local_edit(gen)
         else:
             gdrive_store.drive_push_json(name, path)
 

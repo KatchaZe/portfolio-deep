@@ -381,8 +381,18 @@ def fetch_returns(tickers, fmp_key="", quota_used=0, quota_cap=250,
         if used:
             calls += 1
         rets = risk.daily_returns(series["closes"]) if series else []
+        # FIX (2026-08-16): carry the DATE of every return, not just the last one.
+        # Without dates the risk engine paired series by POSITION, so a source that
+        # lagged by a single bar silently produced a lag-1 cross-correlation
+        # (NVDA/AVGO went +0.67 -> -0.08) and a VaR95 that moved 50.8 -> 39.4.
+        # daily_returns() emits one return per price gap, so the return dates are
+        # the close dates minus the first one.
+        rdates = list(series["dates"][1:]) if (series and series.get("dates")) else []
+        if len(rdates) != len(rets):                # never ship a mismatched pair
+            rdates = []
         data[t] = {
             "returns": rets,
+            "dates": rdates,
             "vol": round(risk.annualized_vol(rets), 4) if rets else None,
             "source": source,
             "as_of": (series["dates"][-1] if series and series.get("dates") else None),

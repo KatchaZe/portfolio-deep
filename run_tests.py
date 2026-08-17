@@ -32,6 +32,11 @@ TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
          # one year), missing-pillar inflation, and a screen that shows everything
          # it screened.
          "tests.test_review3", "tests.test_review3d",
+         # 2026-08-16 full-codebase audit: ^TNX unit scale, covariance/date
+         # alignment, reverse-DCF loss sign, SBC double count, divestiture sign,
+         # balance-sheet date alignment, IFRS tag ladders, per-share FX,
+         # fail-closed auth, Drive clobber, FMP quota gate.
+         "tests.test_audit_2026_08_16",
          # T5: the 5-year performance strip — date alignment, gaps, staleness,
          # watchlist/holdings parity, and the E_exec cash-durability leg.
          "tests.test_trend",
