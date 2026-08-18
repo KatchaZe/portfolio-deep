@@ -1,0 +1,103 @@
+fix(validate): a 200x forward P/E is an expensive stock, not a broken unit (A16)
+
+Found on the LIVE Render deploy (build 2026-08-17a) on 2026-08-18 by reading
+TSLA's flags off /api/portfolio in the browser. Invisible on a local run.
+
+SYMPTOM
+-------
+TSLA and AXON showed no fair value, no PEG and no Future-Value Projection.
+Their flags said:
+
+  TSLA  forward_eps 1.69 rejected (implied forward P/E 200.6x outside [3, 200]
+        - currency or share-unit mismatch vs price 339.3);
+        SEC fallback 1.13 rejected too (300.0x) - PEG valuation skipped
+  AXON  no consensus, and SEC-derived 3.02 rejected (implied forward P/E 200.2x
+        outside [3, 200] ... vs price 604.32) - PEG valuation skipped
+
+              price      fwd EPS   implied P/E   over the ceiling by
+  TSLA      $339.30    1.69 FMP        200.6x                 +0.3%
+  AXON      $604.32    3.02 SEC        200.2x                 +0.1%
+
+Two of 21 live rows lost their entire per-share valuation path and fell back to
+reverse DCF alone.
+
+ROOT CAUSE
+----------
+pipeline/validate.py used ONE symmetric band, FWD_PE_MIN, FWD_PE_MAX = 3.0, 200.0,
+and labelled every rejection "currency or share-unit mismatch". The two sides do
+not fail the same way:
+
+  * LOW side really is the currency test. An unconverted local currency always
+    makes EPS TOO LARGE (TWD, JPY, KRW, DKK all take many units to the dollar),
+    so the tell is a P/E far below anything a real business trades at (TSM 1.2x).
+    This bound is correct and unchanged.
+
+  * HIGH side cannot be a currency artefact at all - no FX rate makes EPS smaller.
+    What it catches is a NEAR-ZERO forward EPS, where PEG and FVP divide by noise
+    (RKLB: 0.01 against $80 = 9,608x). But 200x sits INSIDE the range real, very
+    expensive equities trade at. A unit artefact is off by a FACTOR; TSLA and AXON
+    were off by a fraction of a percent.
+
+FIX
+---
+The high side splits in two:
+
+    FWD_PE_MIN, FWD_PE_MAX = 3.0, 600.0   # reject: currency (low) / near-zero EPS (high)
+    FWD_PE_EXTREME = 200.0                # keep the value above this, but never silently
+
+New forward_eps_extreme() is the counterpart to forward_eps_rejection(): between
+200x and 600x the value REACHES the valuation and the row carries an explicit flag
+saying the multiple is extreme and PEG/FVP are assumption-sensitive, so the reader
+weighs them against the reverse DCF.
+
+All THREE accept branches in _resolve_forward_eps route through _flag_extreme() -
+flagging only the first would be the same bug class as L1 (2026-08-10).
+
+per_share_unit_mismatch() is untouched: it only ever tested the low side, and its
+docstring now says the two functions share the LOW bound only.
+
+WHY 14 ROUNDS OF REVIEW MISSED IT
+---------------------------------
+Locally the blend has two sources - Yahoo 2.175 + FMP 1.6913 -> 1.9331, an implied
+175.5x, comfortably inside the old band. On Render, Yahoo blocks datacenter IPs
+(source census: local yahoo 21/21, Render yahoo 1/21), so TSLA had FMP's 1.69 alone
+and tipped over the edge.
+
+A defect that only appears with a DEGRADED SOURCE SET cannot be found by running
+the suite against a full local store. REVIEW_PROCESS.md gains checklist items
+16 (run at least one source-starved store), 17 (every threshold must answer whether
+the fault it catches distorts by a FACTOR or by a PERCENT - and if real values can
+reach it, warn rather than discard) and 18 (read flags on production, not just the
+displayed numbers - A16 was only visible in a flag; the page showed a blank).
+
+TESTS
+-----
+tests/test_audit_2026_08_16.test_extreme_pe_is_not_treated_as_a_unit_error - 16 checks:
+  * both live false positives accepted AND flagged
+  * TSM (low side, 1.2x) and RKLB (high side, 8,004x) still rejected
+  * a rejected value is never ALSO reported as merely extreme
+  * boundaries: 200x clean, 201x flagged, 601x rejected
+  * revenue-capacity ceiling untouched (NVDA passes; a wild EPS still fails)
+  * all three accept branches route through the flag helper (source assertion)
+  * a TSLA-shaped row driven end-to-end through _resolve_forward_eps keeps its EPS,
+    gains the extreme flag, and no longer claims it was rejected
+
+tests/test_contracts.py L1: fixture moved from forward_eps=1.5 (281x - now
+legitimately kept) to forward_eps=200.0 (2.1x), so it trips the gate on the currency
+side, which is what TSM actually is. The behaviour under test is unchanged.
+
+VERIFICATION
+------------
+  python run_tests.py          -> ALL TEST SUITES PASSED (57 suites)
+  python -m tests.replay_snapshot -> replay clean, 21 tickers, no tracked value moved
+
+Build stamped 2026-08-18a (config.BUILD + index.html DASH_BUILD).
+
+FILES
+-----
+  pipeline/validate.py                  band split + forward_eps_extreme + _flag_extreme
+  tests/test_audit_2026_08_16.py        guard #16
+  tests/test_contracts.py               L1 fixture moved to the currency side
+  config.py, index.html                 build stamp 2026-08-17a -> 2026-08-18a
+  CODE_REVIEW_2026-08-16_AUDIT.md       A16 write-up
+  REVIEW_PROCESS.md                     layer 7, checklist 16/17/18

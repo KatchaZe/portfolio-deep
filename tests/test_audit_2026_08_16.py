@@ -548,6 +548,134 @@ def test_forward_eps_spread_is_not_a_currency_artefact():
           "and puts the rejection on the card as a flag")
 
 
+def test_the_reference_tab_describes_the_code_that_ships():
+    """2026-08-18, found by reading the deployed dashboard. Two fixes changed what a
+    number MEANS, and the in-app documentation still described the old meaning — the
+    exact doc-drift PASS2 treated as a defect ("DESIGN.md said 40 suites, run_tests had
+    47"). A Ref table that lies is worse than no Ref table: the reader trusts it."""
+    print("\n15. the in-app Ref/How-to tables match the code that ships")
+    here = os.path.dirname(os.path.abspath(__file__))
+    html = open(os.path.join(os.path.dirname(here), "index.html"), encoding="utf-8").read()
+
+    # #13: FCF now deducts SBC, so the Ref definition must say so
+    i = html.find("FCF (Free cash flow)")
+    row = html[i:i + 1400] if i >= 0 else ""
+    check(i >= 0, "the Ref tab still documents FCF")
+    check("SBC" in row, "and its definition names the SBC deduction")
+    check("CFO &minus; capex &minus; SBC" in row or "CFO − capex − SBC" in row,
+          "spelled as the formula the code computes")
+
+    # #7: SBC no longer moves the earnings-quality VERDICT, only the disclosure
+    j = html.find("EQ วัดว่ากำไรกลายเป็นเงินสดจริงไหม")
+    eq = html[j:j + 700] if j >= 0 else ""
+    check(j >= 0, "the How-to tab still explains the EQ badge")
+    check("ไม่หักคะแนน" in eq,
+          "and says SBC is disclosed rather than scored (no double count)")
+
+    # and the trend row's own note, which the card renders, agrees with both
+    from domain import trend as T
+    import inspect
+    src = inspect.getsource(T)
+    check("CFO − capex − SBC" in src,
+          "the trend row note the card renders says the same thing")
+
+
+# --------------------------------------------------------------------------- #
+#  16. a 200x forward P/E is an expensive stock, not a broken unit             #
+# --------------------------------------------------------------------------- #
+def test_extreme_pe_is_not_treated_as_a_unit_error():
+    """A16 (found live on Render, 2026-08-18).
+
+    The forward-EPS gate rejected anything outside [3, 200]x and called every
+    rejection a "currency or share-unit mismatch". On the production deploy that
+    threw away two perfectly real consensus numbers by a rounding error:
+
+        TSLA  fwd 1.69 vs $339.30 = 200.6x   (over by 0.3%)
+        AXON  fwd 3.02 vs $604.32 = 200.2x   (over by 0.1%)
+
+    Both rows lost forward_eps entirely, so PEG and FVP were skipped and the
+    valuation fell back to reverse DCF alone. A unit artefact is off by a FACTOR
+    (TSM 1.2x, RKLB 9,608x); these were off by a fraction of a percent.
+
+    The gate now splits: reject below 3x (currency) and above 600x (near-zero EPS),
+    and between 200x and 600x KEEP the value with a loud flag."""
+    print("\n16. an extreme-but-real forward P/E survives the gate")
+    from pipeline import validate as V
+
+    # the two live false positives must now pass
+    tsla = dict(forward_eps=1.69, revenue=None, shares=None, price=339.30, growth_lt=0.20)
+    axon = dict(forward_eps=3.02, revenue=None, shares=None, price=604.32, growth_lt=0.25)
+    check(V.forward_eps_rejection(**tsla) is None,
+          "TSLA 1.69 @ $339.30 (200.6x) is accepted, not rejected as a unit error")
+    check(V.forward_eps_rejection(**axon) is None,
+          "AXON 3.02 @ $604.32 (200.2x) is accepted, not rejected as a unit error")
+
+    # ...but neither is allowed through in silence
+    for name, kw in (("TSLA", tsla), ("AXON", axon)):
+        note = V.forward_eps_extreme(kw["forward_eps"], kw["price"])
+        check(bool(note) and "P/E" in note,
+              f"{name} still carries an explicit extreme-multiple flag")
+
+    # the faults the gate was actually built for are still caught, both sides
+    tsm = V.forward_eps_rejection(forward_eps=323.34, revenue=88.27e9, shares=None,
+                                  price=398.37, growth_lt=0.155)     # TWD vs USD, 1.2x
+    check(tsm is not None and "below" in tsm,
+          "TSM's TWD EPS against a USD ADR price is still rejected (low side)")
+    rklb = V.forward_eps_rejection(forward_eps=0.01, revenue=None, shares=None,
+                                   price=80.04, growth_lt=0.38)      # 8,004x
+    check(rklb is not None and "above" in rklb,
+          "a near-zero forward EPS (8,004x) is still rejected (high side)")
+    check(V.forward_eps_extreme(0.01, 80.04) is None,
+          "and a rejected value is never ALSO reported as merely extreme")
+
+    # the boundary itself: 200x passes clean, 201x passes flagged, 601x is gone
+    check(V.forward_eps_rejection(forward_eps=1.0, revenue=None, shares=None,
+                                  price=200.0, growth_lt=0.1) is None
+          and V.forward_eps_extreme(1.0, 200.0) is None,
+          "exactly 200x is accepted without the extreme flag")
+    check(V.forward_eps_rejection(forward_eps=1.0, revenue=None, shares=None,
+                                  price=201.0, growth_lt=0.1) is None
+          and V.forward_eps_extreme(1.0, 201.0) is not None,
+          "201x is accepted WITH the extreme flag")
+    check(V.forward_eps_rejection(forward_eps=1.0, revenue=None, shares=None,
+                                  price=601.0, growth_lt=0.1) is not None,
+          "601x is rejected")
+
+    # the revenue-capacity ceiling is untouched — it must still bite where it did
+    nvda = dict(forward_eps=8.18, revenue=253.491e9, shares=24.391e9,
+                price=202.81, growth_lt=0.2632)
+    check(V.forward_eps_rejection(**nvda) is None, "NVDA's real consensus still passes")
+    check(V.forward_eps_rejection(**{**nvda, "forward_eps": 30.0, "growth_lt": 5.0}) is not None,
+          "a wild EPS still fails the revenue-capacity ceiling")
+
+    # EVERY accept path in _resolve_forward_eps must flag, not just the first
+    import inspect
+    src = inspect.getsource(V._resolve_forward_eps)
+    check(src.count("_flag_extreme") == 3,
+          "all three accept branches route through the extreme-flag helper")
+
+    # and the flag must actually land on a real row, not just on the helper
+    class _FF:
+        price = 339.30
+        forward_eps = 1.69
+        forward_eps_raw = None
+        revenue = None
+        shares_diluted = None
+        net_income = None
+        eps_gaap = None
+        growth_lt = 0.20
+        provenance = {}
+    ff = _FF()
+    ff.flags = []
+    ff.provenance = {}
+    V._resolve_forward_eps(ff)
+    check(ff.forward_eps == 1.69, "a TSLA-shaped row keeps its forward EPS end-to-end")
+    check(any("P/E" in f for f in ff.flags),
+          "and the row carries the extreme-multiple flag after validate runs")
+    check(not any("rejected" in f for f in ff.flags),
+          "and no longer claims the number was rejected")
+
+
 def main():
     for fn in (test_tnx_percent_convention,
                test_hybrid_cov_is_a_real_covariance_matrix,
@@ -566,7 +694,9 @@ def main():
                test_local_edit_survives_a_late_drive_pull,
                test_an_app_write_is_not_a_user_edit,
                test_optional_fmp_spend_is_budget_gated,
-               test_forward_eps_spread_is_not_a_currency_artefact):
+               test_forward_eps_spread_is_not_a_currency_artefact,
+               test_the_reference_tab_describes_the_code_that_ships,
+               test_extreme_pe_is_not_treated_as_a_unit_error):
         fn()
     print("\n" + "=" * 62)
     if FAILS:

@@ -13,7 +13,25 @@ MAX_NET_MARGIN = 0.65
 # forward EPS of 323.34, which is TWD per ORDINARY share against a USD ADR price of
 # $398: an implied forward P/E of 1.2x). Price and EPS must at least be in the same
 # currency and the same share unit; a P/E outside this band says they are not.
-FWD_PE_MIN, FWD_PE_MAX = 3.0, 200.0
+#
+# A16 (2026-08-18). The band used to be [3, 200] on BOTH sides, and the high side was
+# wrong in kind, not just in level. The two sides do not fail the same way:
+#
+#   LOW side is the currency test. An unconverted local currency always makes EPS
+#   TOO LARGE (TWD, JPY, KRW, DKK all take many units to the dollar), so the tell is
+#   a P/E far BELOW anything a real business trades at. 3.0x stays.
+#
+#   HIGH side cannot be a currency artefact at all — no FX rate makes EPS smaller.
+#   What it catches is a NEAR-ZERO forward EPS, where PEG and FVP divide by noise
+#   (RKLB: 0.01 against $80 = 9,608x). But 200x is inside the range real, very
+#   expensive equities actually trade at, and the old ceiling threw away two live
+#   rows for missing it by a rounding error: TSLA 1.69 vs $339.30 = 200.6x (+0.3%)
+#   and AXON 3.02 vs $604.32 = 200.2x (+0.1%). A unit artefact is off by a FACTOR;
+#   these were off by a fraction of a percent. So the high side splits in two: keep
+#   rejecting past 600x (no listed equity sustains that — it is a broken number),
+#   and between 200x and 600x keep the value and say out loud that it is extreme.
+FWD_PE_MIN, FWD_PE_MAX = 3.0, 600.0
+FWD_PE_EXTREME = 200.0      # keep the value above this, but never silently
 # R3: the capacity ceiling must be compared against FORWARD revenue, since the EPS
 # being tested is a forward number. Holding it against CURRENT revenue per share is
 # systematically tight for fast growers and did reject NVDA's real consensus
@@ -40,9 +58,30 @@ def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt):
     # the ceiling above silently disappears (TSM: TWD EPS against a USD ADR price)
     if price:
         pe = price / forward_eps
-        if not (FWD_PE_MIN <= pe <= FWD_PE_MAX):
-            return (f"implied forward P/E {pe:.1f}x outside [{FWD_PE_MIN:.0f}, {FWD_PE_MAX:.0f}] "
+        if pe < FWD_PE_MIN:
+            return (f"implied forward P/E {pe:.1f}x below {FWD_PE_MIN:.0f}x "
                     f"- currency or share-unit mismatch vs price {price}")
+        if pe > FWD_PE_MAX:
+            return (f"implied forward P/E {pe:.1f}x above {FWD_PE_MAX:.0f}x "
+                    f"- forward EPS is near zero against price {price}, so PEG/FVP "
+                    f"would divide by noise")
+    return None
+
+
+def forward_eps_extreme(forward_eps, price):
+    """Why this forward EPS is EXTREME but still usable, or None.
+
+    A16: the counterpart to the high side of `forward_eps_rejection`. A forward P/E
+    between FWD_PE_EXTREME and FWD_PE_MAX is a real reading on a very expensive
+    equity, not a broken number — it must reach the valuation, because dropping it
+    is what left TSLA and AXON with no PEG and no FVP at all. But a PEG built on a
+    200x+ multiple is fragile enough that the row has to say so."""
+    if not forward_eps or forward_eps <= 0 or not price or price <= 0:
+        return None
+    pe = price / forward_eps
+    if FWD_PE_EXTREME < pe <= FWD_PE_MAX:
+        return (f"forward P/E {pe:.0f}x (สูงมาก แต่เป็นตัวเลขจริง ไม่ใช่หน่วยเพี้ยน) "
+                f"— PEG/FVP อ่อนไหวต่อสมมติฐานการเติบโตมาก ให้ถ่วงน้ำหนักกับ reverse DCF")
     return None
 
 
@@ -69,8 +108,10 @@ def per_share_unit_mismatch(price, eps):
     Only the low side is rejected, and only on POSITIVE earnings. A very high P/E is
     ordinary in a trough year, and a loss-making company has no meaningful P/E at all —
     rejecting either would throw away good rows to catch a fault that cannot produce
-    them. Same band as the forward-EPS gate, deliberately: one definition of "these two
-    numbers are not comparable", not two that can drift apart."""
+    them. Same LOW bound as the forward-EPS gate, deliberately: one definition of "these
+    two numbers are not in the same currency", not two that can drift apart. (A16: only
+    the low bound is shared now — the forward gate's high bound tests something else
+    entirely, a near-zero EPS, and this function already declines to test the high side.)"""
     if not price or price <= 0 or eps is None or eps <= 0:
         return None
     pe = price / eps
@@ -156,6 +197,7 @@ def _resolve_forward_eps(ff):
     y = ff.forward_eps
     reason = forward_eps_rejection(y, ff.revenue, ff.shares_diluted, ff.price, ff.growth_lt)
     if y and y > 0 and reason is None:
+        _flag_extreme(ff, y)
         return
     # L1 (2026-08-10): THE REPLACEMENT MUST CLEAR THE SAME BAR AS THE VALUE IT REPLACES.
     # The gate used to be run on the consensus figure only, so a rejected number was
@@ -172,6 +214,7 @@ def _resolve_forward_eps(ff):
         ff.forward_eps = round(usable, 2)
         ff.provenance["forward_eps"] = "sec-derived (consensus rejected)"
         ff.flags.append(f"forward_eps {round(y, 2)} rejected ({reason}); used SEC {ff.forward_eps}")
+        _flag_extreme(ff, ff.forward_eps)
     elif reason:
         ff.forward_eps = None
         ff.provenance["forward_eps"] = "rejected (no usable fallback)"
@@ -182,11 +225,21 @@ def _resolve_forward_eps(ff):
     elif usable:                       # nothing from consensus at all
         ff.forward_eps = round(usable, 2)
         ff.provenance["forward_eps"] = "sec-derived (no consensus)"
+        _flag_extreme(ff, ff.forward_eps)
     elif sec_reason:                   # no consensus AND the SEC figure fails the gate
         ff.forward_eps = None
         ff.provenance["forward_eps"] = "rejected (sec-derived failed the gate)"
         ff.flags.append(f"no consensus, and SEC-derived {round(sec_fwd, 2)} rejected "
                         f"({sec_reason}) - PEG valuation skipped")
+
+
+def _flag_extreme(ff, eps):
+    """A16: every path that KEEPS a forward EPS runs through here, so an extreme
+    multiple can never reach a valuation unannounced. Three accept branches existed
+    and flagging only one of them is the same bug class as L1 above."""
+    note = forward_eps_extreme(eps, ff.price)
+    if note and note not in ff.flags:
+        ff.flags.append(note)
 
 
 def _assumption_flags(ff):

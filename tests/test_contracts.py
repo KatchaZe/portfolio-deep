@@ -241,7 +241,13 @@ def test_a_rejected_forward_eps_is_not_swapped_for_a_worse_one():
           "the no-consensus path is gated too (it used to take the value unchecked)",
           f"forward_eps = {f.forward_eps}")
 
-    f = resolve(forward_eps=1.5, eps_gaap=9.6)         # same EPS, correct currency
+    # A16 (2026-08-18): this case used forward_eps=1.5 against a $422 price — an
+    # implied 281x, which the old [3, 200] ceiling rejected. 281x is now KEPT as an
+    # extreme-but-real multiple (that ceiling was throwing away live TSLA and AXON
+    # rows at 200.6x and 200.2x). The behaviour under test — a rejected consensus
+    # falling back to a SOUND SEC figure — is unchanged; only the way this fixture
+    # trips the gate moves to the currency side, which is what TSM actually is.
+    f = resolve(forward_eps=200.0, eps_gaap=9.6)       # TWD consensus, USD filed EPS
     check(f.forward_eps == round(9.6 * 1.25, 2),
           "a SOUND fallback is still used — the gate rejects units, not fallbacks",
           f"forward_eps = {f.forward_eps}")
