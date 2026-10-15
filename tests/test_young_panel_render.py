@@ -3,15 +3,14 @@ test_young_panel_render (REV-16) — actually RENDER the S20 card panel.
 
 test_frontend only proves the token exists in index.html. That has never caught a
 panel that throws, prints `undefined`, or divides by zero on a real payload — and
-this one does arithmetic on six optional fields. So: pull the functions straight
-out of the shipped frontend, run them in node against payloads the real engine produced, and
+this one does arithmetic on six optional fields. So: load the card modules exactly as
+index.html ships them, run them in node against payloads the real engine produced, and
 assert on the HTML that comes back.
 
 Skips (does not fail) when node is unavailable.
 """
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
@@ -21,20 +20,13 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from domain.engine.deep_v82 import DeepV82Engine   # noqa: E402
 from domain.facts import FinancialFacts            # noqa: E402
-from tests.frontend_source import frontend_source  # noqa: E402
+from tests.frontend_source import frontend_files   # noqa: E402
 from tests.test_young_dcf import PREPROFIT         # noqa: E402
 
-# the card helpers under test + the ones they call
+# The card modules as index.html ships them. They define functions only (no DOM work at
+# load), so node can run them unmodified.
+CARD_MODULES = ("format.js", "card_signals.js", "card_value.js")
 WANT = ["youngPanel", "pricedInLine", "upsideCell", "methodShort", "anchorCell"]
-
-SHIM = r"""
-// minimal stand-ins for the dashboard globals these helpers touch
-function esc(s){return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;')
-  .replace(/>/g,'&gt;').replace(/"/g,'&quot;');}
-function f(v,d){return v==null?'&mdash;':'$'+Number(v).toFixed(d==null?2:d);}
-function pct(v){return v==null?'&mdash;':(v>=0?'+':'')+v+'%';}
-function consensusBadge(){return '';}
-"""
 
 
 def _js(n):
@@ -42,31 +34,17 @@ def _js(n):
     return ("%g" % n) if float(n) != int(n) else str(int(n))
 
 
-def _extract(src, name):
-    """Pull `function name(...) { ... }` out by brace matching."""
-    m = re.search(r"^function %s\(" % re.escape(name), src, re.M)
-    assert m, "the frontend has no function %s" % name
-    i = src.index("{", m.start())
-    depth, j, in_s, esc_c = 0, i, None, False
-    while j < len(src):
-        c = src[j]
-        if in_s:
-            if esc_c:
-                esc_c = False
-            elif c == "\\":
-                esc_c = True
-            elif c == in_s:
-                in_s = None
-        elif c in "'\"`":
-            in_s = c
-        elif c == "{":
-            depth += 1
-        elif c == "}":
-            depth -= 1
-            if depth == 0:
-                return src[m.start():j + 1]
-        j += 1
-    raise AssertionError("unbalanced braces extracting %s" % name)
+def _card_js():
+    shipped = {os.path.basename(p): p for p in frontend_files()}
+    missing = [m for m in CARD_MODULES if m not in shipped]
+    assert not missing, "index.html no longer loads %s" % missing
+    parts = []
+    for m in CARD_MODULES:
+        with open(shipped[m], encoding="utf-8") as fh:
+            parts.append(fh.read())
+    checks = "".join("if(typeof %s!=='function')throw new Error('the frontend has no function %s');\n"
+                     % (n, n) for n in WANT)
+    return "\n".join(parts) + "\n" + checks
 
 
 def _row(**over):
@@ -97,8 +75,7 @@ def test_panel_renders():
     if not node:
         print("SKIP: node not available")
         return
-    src = frontend_source()
-    js = SHIM + "\n".join(_extract(src, n) for n in WANT)
+    js = _card_js()
 
     promoted = _row()
     assert promoted["young_dcf"]["promote"] is True, "fixture should promote"
@@ -185,8 +162,7 @@ def test_panel_survives_missing_fields():
     if not node:
         print("SKIP: node not available")
         return
-    src = frontend_source()
-    js = SHIM + "\n".join(_extract(src, n) for n in WANT)
+    js = _card_js()
     partial = [
         {"price": 10, "young_dcf": {}},
         {"price": 10, "young_dcf": {"promote": False, "monte_carlo": None}},

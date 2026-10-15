@@ -1,9 +1,10 @@
-// --- Monthly assumptions (ERP / S&P PE) — form -> POST /api/assumptions -> store -> Drive ---
+// Monthly assumptions (ERP, S&P P/E): the form posts to /api/assumptions, which saves
+// to the store and mirrors it to Drive.
 async function loadAssumptions(){
   const el=document.getElementById('assumeMsg'); if(!el)return;
   try{
     const a=await (await fetch('/api/assumptions')).json();
-    window._assume=a;                       // ให้ renderAssumptions เทียบ snapshot vs live
+    window._assume=a;   // renderAssumptions compares the Run Daily snapshot with these live values
     const src=(a.source||{});
     el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':'default'})`+
       ` · PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'})`+
@@ -26,23 +27,24 @@ async function saveAssumptions(){
     else{
       msg.innerHTML='<span style="color:#16a34a">✓ บันทึกแล้ว (sync Google Drive)</span> — '+esc(d.note||'');
       document.getElementById('erpIn').value='';document.getElementById('peIn').value='';
-      await loadAssumptions(); load();          // refresh view with new assumption
+      await loadAssumptions(); load();
     }
   }catch(err){msg.innerHTML='<span style="color:#dc2626">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
   sp.style.display='none';
 }
+// 'YYYY-MM...' -> whole calendar months before today, or null
+function monthsSince(a){if(!a)return null;const m=String(a).match(/^(\d{4})-(\d{2})/);if(!m)return null;const n=new Date();return (n.getFullYear()-(+m[1]))*12+(n.getMonth()+1-(+m[2]));}
+// S32/33: the whole market overlay rests on the manual ERP / P/E, so stale values get a banner
 function renderAssumptions(mk){
-  // S32/33 hygiene: market overlay ทั้งชั้นพิงค่า manual (ERP/PE) — stale ต้องตะโกน
   const el=document.getElementById('assumeBanner'); if(!el)return;
   const v=(mk||{}).valuation||{};
-  const months=a=>{if(!a)return null;const m=String(a).match(/^(\d{4})-(\d{2})/);if(!m)return null;const n=new Date();return (n.getFullYear()-(+m[1]))*12+(n.getMonth()+1-(+m[2]));};
-  const em=months(v.erp_as_of), pm=months(v.market_pe_as_of), lim=v.erp_stale_months||3;
+  const em=monthsSince(v.erp_as_of), pm=monthsSince(v.market_pe_as_of), lim=v.erp_stale_months||3;
   const bad=[];
   if(em!=null&&em>lim)bad.push(`ERP${v.implied_erp_pct!=null?' '+v.implied_erp_pct+'%':''} as-of ${v.erp_as_of} (<b>เก่า ${em} เดือน</b>)`);
   if(pm!=null&&pm>lim)bad.push(`Market P/E as-of ${v.market_pe_as_of} (<b>เก่า ${pm} เดือน</b>)`);
   if(!bad.length){el.style.display='none';return;}
-  // แบนเนอร์นี้อ่านจาก SNAPSHOT ของ Run Daily ครั้งก่อน — ถ้าฟอร์ม Assumptions
-  // ถูกอัพเดตไปแล้ว (ค่า live ใหม่กว่า snapshot) ให้บอกว่าแค่กด Run Daily พอ
+  // The banner reads the last Run Daily snapshot. If the form has newer live values,
+  // say that a Run Daily is all it takes.
   const cur=window._assume||{};
   const snapshotStale=cur.erp_as_of&&v.erp_as_of&&cur.erp_as_of>v.erp_as_of;
   el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:calc(12px*var(--fs));background:#fff7ed;color:#9a3412;border:1px solid #fdba74';

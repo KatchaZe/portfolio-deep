@@ -23,7 +23,7 @@ function corrColor(v){
   if(v>=0.5)return['#f59e0b','#3b2a00']; if(v>=0.35)return['#eab308','#3b2a00']; if(v>=0.2)return['#84cc16','#1a2e05'];
   return['#22c55e','#052e16'];
 }
-function corrCell(v){const c=corrColor(v);return `<td style="background:${c[0]};color:${c[1]}" title="${cnum(v,2)} (${corrMode})">${cnum(v,2)}</td>`;}
+function corrCell(v){const c=corrColor(v);return `<td style="background:${c[0]};color:${c[1]}" title="${plainNum(v,2)} (${corrMode})">${plainNum(v,2)}</td>`;}
 
 function renderCorr(d){
   const body=document.getElementById('corrBody'); if(!body)return;
@@ -59,16 +59,16 @@ function corrPhilHTML(co){
   const mg=(co.marginal||[]); let a1='';
   if(mg.length){a1=`<div class="cqlbl" style="margin-top:12px">A1 · %Capital vs %Risk (S2/S4 marginal) · แดง = %risk เกิน %capital</div>
     <div style="overflow-x:auto;margin-top:4px"><table class="cqhm"><tr><th class="row"></th>${mg.map(r=>`<th class="col">${esc(r.ticker)}</th>`).join('')}</tr>
-    <tr><th class="row" style="font-size:calc(9px*var(--fs))">%Cap</th>${mg.map(r=>`<td style="background:#94a3b8;color:#fff">${cnum(r.cap_pct,0)}</td>`).join('')}</tr>
-    <tr><th class="row" style="font-size:calc(9px*var(--fs))">%Risk</th>${mg.map(r=>{const drv=(r.risk_pct||0)>(r.cap_pct||0);return `<td style="background:${drv?'#dc2626':'#16a34a'};color:#fff" title="%risk ${cnum(r.risk_pct,0)} vs %cap ${cnum(r.cap_pct,0)}">${cnum(r.risk_pct,0)}</td>`;}).join('')}</tr></table></div>`;}
+    <tr><th class="row" style="font-size:calc(9px*var(--fs))">%Cap</th>${mg.map(r=>`<td style="background:#94a3b8;color:#fff">${plainNum(r.cap_pct,0)}</td>`).join('')}</tr>
+    <tr><th class="row" style="font-size:calc(9px*var(--fs))">%Risk</th>${mg.map(r=>{const drv=(r.risk_pct||0)>(r.cap_pct||0);return `<td style="background:${drv?'#dc2626':'#16a34a'};color:#fff" title="%risk ${plainNum(r.risk_pct,0)} vs %cap ${plainNum(r.cap_pct,0)}">${plainNum(r.risk_pct,0)}</td>`;}).join('')}</tr></table></div>`;}
   return `<div class="cqcard" style="border-color:#ddd6fe">
     <div style="display:flex;justify-content:space-between;align-items:baseline;flex-wrap:wrap;gap:6px">
       <div><b style="font-size:calc(13px*var(--fs))">&#129517; Diversification Philosophy</b> <span class="muted" style="font-size:calc(10px*var(--fs))">· ราย "พอร์ต" ตามเสา Damodaran — คู่กับ VALUE→QUALITY→TIMING ราย "หุ้น" ที่ Allocation</span></div>
       <span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px">
-      <div class="cqrcard" style="min-width:calc(150px*var(--fs))"><div class="cqlbl">ENB ÷ Eff N (${mode})</div><b style="color:${rc[0]};font-size:calc(20px*var(--fs))">${cnum(ratio,2)}</b> <span style="color:${rc[0]};font-size:calc(11px*var(--fs))">${rc[1]}</span><div class="muted" style="font-size:calc(9px*var(--fs))">ENB ${cnum(enb,1)} / Eff N ${cnum(g.eff_n,1)}</div></div>
-      <div class="cqrcard" style="min-width:calc(160px*var(--fs))"><div class="cqlbl">Fragility ΔENB · N→Crisis</div><b style="color:#dc2626;font-size:calc(20px*var(--fs))">${cnum(g.enb,1)}→${cnum(g.enb_crisis,1)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">${g.fragility_text||(frag!=null?('การกระจายหาย ~'+frag+'% ตอนวิกฤต'):'corr วิ่งเข้า 1')}</div></div>
-      <div class="cqrcard" style="min-width:calc(150px*var(--fs))"><div class="cqlbl">avg corr (${mode})</div><b style="font-size:calc(20px*var(--fs))">${cnum(ap,2)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">downside corr ${cnum(dwn,2)} · S4</div></div>
+      <div class="cqrcard" style="min-width:calc(150px*var(--fs))"><div class="cqlbl">ENB ÷ Eff N (${mode})</div><b style="color:${rc[0]};font-size:calc(20px*var(--fs))">${plainNum(ratio,2)}</b> <span style="color:${rc[0]};font-size:calc(11px*var(--fs))">${rc[1]}</span><div class="muted" style="font-size:calc(9px*var(--fs))">ENB ${plainNum(enb,1)} / Eff N ${plainNum(g.eff_n,1)}</div></div>
+      <div class="cqrcard" style="min-width:calc(160px*var(--fs))"><div class="cqlbl">Fragility ΔENB · N→Crisis</div><b style="color:#dc2626;font-size:calc(20px*var(--fs))">${plainNum(g.enb,1)}→${plainNum(g.enb_crisis,1)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">${g.fragility_text||(frag!=null?('การกระจายหาย ~'+frag+'% ตอนวิกฤต'):'corr วิ่งเข้า 1')}</div></div>
+      <div class="cqrcard" style="min-width:calc(150px*var(--fs))"><div class="cqlbl">avg corr (${mode})</div><b style="font-size:calc(20px*var(--fs))">${plainNum(ap,2)}</b><div class="muted" style="font-size:calc(9px*var(--fs))">downside corr ${plainNum(dwn,2)} · S4</div></div>
     </div>
     <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(210px*var(--fs)),1fr));gap:8px;margin-top:10px">${pills}</div>
     <div class="cqleg" style="background:#f5f3ff;border-color:#ddd6fe;color:#4b3869;margin-top:10px">${esc(story||'')}</div>${a1}</div>`;
@@ -84,7 +84,7 @@ function corrHeatHTML(co){
     h+=`<tr><th class="row" style="${sepR}" title="${esc(secs[r]||'')}">${esc(r)}</th>`;
     order.forEach((c,j)=>{const v=(mat[i]||[])[j]; const sc=corrColor(v); const bd=(j>0&&secs[c]!==secs[order[j-1]])?'border-left:2px solid #0f172a22;':'';
       const isD=(i===j); const bg=isD?'#0f172a':sc[0], fg=isD?'#fff':sc[1];
-      h+=`<td style="${bd}${sepR?'border-top:2px solid #0f172a22;':''}background:${bg};color:${fg}" title="${esc(r)} × ${esc(c)} = ${cnum(v,2)} (${mode})">${cnum(v,2)}</td>`;});
+      h+=`<td style="${bd}${sepR?'border-top:2px solid #0f172a22;':''}background:${bg};color:${fg}" title="${esc(r)} × ${esc(c)} = ${plainNum(v,2)} (${mode})">${plainNum(v,2)}</td>`;});
     h+='</tr>';
   });
   h+='</table>';
@@ -101,13 +101,13 @@ function corrSectorHTML(co,d){
     const ac=a==null?'#94a3b8':a>=0.7?'#dc2626':a>=0.5?'#d97706':'#16a34a', wc=w>=45?'#dc2626':w>=30?'#d97706':'#2563eb';
     return `<div style="display:flex;align-items:center;gap:8px;margin:6px 0"><div style="width:calc(110px*var(--fs));flex:none;font-size:calc(12px*var(--fs));font-weight:600">${esc(s.label)}</div>
       <div style="flex:1;background:#eef2f7;border-radius:6px;height:16px;overflow:hidden"><div style="height:100%;border-radius:6px;width:${Math.min(w,100)}%;background:${wc}"></div></div>
-      <div style="width:calc(120px*var(--fs));flex:none;text-align:right;font-size:calc(11px*var(--fs))"><b>${cnum(w,1)}%</b> · <span style="color:${ac}">corr ${a==null?'—':cnum(a,2)}</span></div></div>`;}).join('');
+      <div style="width:calc(120px*var(--fs));flex:none;text-align:right;font-size:calc(11px*var(--fs))"><b>${plainNum(w,1)}%</b> · <span style="color:${ac}">corr ${a==null?'—':plainNum(a,2)}</span></div></div>`;}).join('');
   return `<div class="cqcard"><b style="font-size:calc(13px*var(--fs))">Sector Summary</b><div class="muted" style="font-size:calc(10px*var(--fs));margin-bottom:6px">แถบ = %น้ำหนักพอร์ต · ขวา = avg corr ในกลุ่ม</div>${rows||'<span class="muted" style="font-size:calc(11px*var(--fs))">—</span>'}</div>`;
 }
 
 function corrPairsHTML(co){
   const mode=corrMode, p=((co.pairs||{})[mode])||{high:[],low:[]};
-  const row=x=>{const c=corrColor(x[2]);return `<tr><td style="padding:4px 6px;border-top:.5px solid #e2e8f0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:${c[0]}"></span>${esc(x[0])}–${esc(x[1])}</td><td style="padding:4px 6px;border-top:.5px solid #e2e8f0;text-align:right;font-weight:700">${cnum(x[2],2)}</td></tr>`;};
+  const row=x=>{const c=corrColor(x[2]);return `<tr><td style="padding:4px 6px;border-top:.5px solid #e2e8f0"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:5px;background:${c[0]}"></span>${esc(x[0])}–${esc(x[1])}</td><td style="padding:4px 6px;border-top:.5px solid #e2e8f0;text-align:right;font-weight:700">${plainNum(x[2],2)}</td></tr>`;};
   return `<div class="cqcard"><b style="font-size:calc(13px*var(--fs))">คู่สัมพันธ์ สูงสุด / ต่ำสุด</b><div class="muted" style="font-size:calc(10px*var(--fs));margin-bottom:4px">คู่ต่ำ = ตัวช่วยกระจายจริง</div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px"><div><div class="cqlbl" style="color:#dc2626">สูงสุด</div><table style="width:100%;border-collapse:collapse;font-size:calc(12px*var(--fs))">${(p.high||[]).map(row).join('')}</table></div>
     <div><div class="cqlbl" style="color:#16a34a">ต่ำสุด</div><table style="width:100%;border-collapse:collapse;font-size:calc(12px*var(--fs))">${(p.low||[]).map(row).join('')}</table></div></div></div>`;
@@ -118,7 +118,7 @@ function corrBenchHTML(co){
   const mode=corrMode, refs=b.refs||[], order=co.order||[];
   const pv=(o)=>o?(mode==='crisis'?o.crisis:o.normal):null;
   const chips=refs.map(r=>{const v=pv((b.portfolio||{})[r.sym]); const c=corrColor(v);
-    return `<div style="flex:1 1 130px;min-width:130px;background:${c[0]};color:${c[1]};border-radius:10px;padding:8px 12px" title="พอร์ต × ${esc(r.name)} = ${cnum(v,2)} (${mode})"><div style="font-size:calc(10px*var(--fs));opacity:.9">${esc(r.name)} · ${esc(r.sym)}</div><b style="font-size:calc(19px*var(--fs))">${cnum(v,2)}</b></div>`;}).join('');
+    return `<div style="flex:1 1 130px;min-width:130px;background:${c[0]};color:${c[1]};border-radius:10px;padding:8px 12px" title="พอร์ต × ${esc(r.name)} = ${plainNum(v,2)} (${mode})"><div style="font-size:calc(10px*var(--fs));opacity:.9">${esc(r.name)} · ${esc(r.sym)}</div><b style="font-size:calc(19px*var(--fs))">${plainNum(v,2)}</b></div>`;}).join('');
   let hb=`<table class="cqhm"><tr><th></th>${refs.map(r=>`<th class="col">${esc(r.sym)}</th>`).join('')}</tr>`;
   order.forEach(t=>{hb+=`<tr><th class="row">${esc(t)}</th>${refs.map(r=>corrCell(pv(((b.holdings||{})[t]||{})[r.sym])) ).join('')}</tr>`;});
   hb+='</table>';
@@ -136,7 +136,7 @@ function corrLegendHTML(co){
   const roll=((co.rolling||{}).port_vs_spy)||[]; let spark='';
   if(roll.length>2){const w=180,h=28,mn=Math.min(...roll),mx=Math.max(...roll),rg=(mx-mn)||1;
     const pts=roll.map((v,i)=>`${(i/(roll.length-1)*w).toFixed(1)},${(h-((v-mn)/rg)*h).toFixed(1)}`).join(' ');
-    spark=`<div style="margin-top:6px"><span class="muted" style="font-size:calc(11px*var(--fs))">A7 · Rolling 60d corr พอร์ต vs S&amp;P (${cnum(roll[0],2)}→${cnum(roll[roll.length-1],2)}):</span>
+    spark=`<div style="margin-top:6px"><span class="muted" style="font-size:calc(11px*var(--fs))">A7 · Rolling 60d corr พอร์ต vs S&amp;P (${plainNum(roll[0],2)}→${plainNum(roll[roll.length-1],2)}):</span>
       <svg width="${w}" height="${h}" style="vertical-align:middle;margin-left:6px"><polyline points="${pts}" fill="none" stroke="#2563eb" stroke-width="1.5"/></svg>
       <span class="muted" style="font-size:calc(10px*var(--fs))"> ${roll[roll.length-1]>roll[0]?'▲ กำลังไต่ขึ้น (เตือน)':'▼/flat'}</span></div>`;}
   return `<div class="cqleg" style="background:#f1f5f9;border-color:#e2e8f0;color:#334155;margin-top:2px">

@@ -12,16 +12,16 @@ function renderQuota(q){
   el.className='quota'+(q.warn?' warn':'');
   el.textContent=`FMP today ${q.used}/${q.cap} (${q.pct}%) · holdings ${q.holdings} · ~${q.headroom_tickers} ticker-fetches left`+(q.warn?' · ⚠ near quota — add fewer / refresh later':'');
 }
-function tdInner(html){try{const t=document.createElement('table');t.innerHTML='<tbody><tr>'+html+'</tr></tbody>';const td=t.querySelector('td');return td?td.innerHTML:html;}catch(e){return html;}}
+function cellContent(html){try{const t=document.createElement('table');t.innerHTML='<tbody><tr>'+html+'</tr></tbody>';const td=t.querySelector('td');return td?td.innerHTML:html;}catch(e){return html;}}
 function cardCell(lbl,html){return `<div style="min-width:96px;flex:1 1 96px"><div style="font-size:calc(9px*var(--fs));color:var(--grey);letter-spacing:.03em;text-transform:uppercase">${lbl}</div><div style="font-size:calc(12px*var(--fs));margin-top:2px">${html}</div></div>`;}
 function pcard(x,watch){
-  const chg=x.change==null?'':` <span class="${x.change>=0?'up':'down'}" style="font-size:calc(11px*var(--fs))">${x.change>=0?'+':''}${f(x.change)}%</span>`;
+  const chg=x.change==null?'':` <span class="${x.change>=0?'up':'down'}" style="font-size:calc(11px*var(--fs))">${x.change>=0?'+':''}${fixed(x.change)}%</span>`;
   const reco=`<span style="font-size:calc(10px*var(--fs));font-weight:700;color:${RECO_COLOR[x.recommendation]||'#64748b'}">${x.recommendation||''}</span>`;
   const rmFn=watch?`removeWatch('${x.ticker}')`:`removeHolding('${x.ticker}')`;
   const ac=ASSET_CLASS[x.ticker];
   // Value-first (S5): ราคา/P&L เป็นบริบทมุมขวาแบบจาง — มูลค่า (gauge) คือพระเอกของ card
-  const right=`<div style="text-align:right"><div style="font-size:calc(12px*var(--fs));font-weight:600;color:#475569">${f(x.price)}${chg}</div>`
-    +(watch?'':`<div class="muted" style="font-size:calc(10px*var(--fs));margin-top:2px">P/L ${x.pl==null?'&mdash;':`${x.pl>=0?'+':'-'}${money(Math.abs(x.pl)).replace(/<[^>]*>/g,'')} (${x.pl_pct>=0?'+':''}${f(x.pl_pct,1)}%)`}</div>`)+`</div>`;
+  const right=`<div style="text-align:right"><div style="font-size:calc(12px*var(--fs));font-weight:600;color:#475569">${fixed(x.price)}${chg}</div>`
+    +(watch?'':`<div class="muted" style="font-size:calc(10px*var(--fs));margin-top:2px">P/L ${x.pl==null?'&mdash;':`${x.pl>=0?'+':'-'}${money(Math.abs(x.pl)).replace(/<[^>]*>/g,'')} (${x.pl_pct>=0?'+':''}${fixed(x.pl_pct,1)}%)`}</div>`)+`</div>`;
   const head=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
     <div>${dot(x.confidence_tier)}<b style="font-size:calc(14px*var(--fs))">${x.ticker}</b>${flagIcon(x)}${ac?' '+pricingBadge(ac):''} <span class="rm" title="remove" onclick="${rmFn}">&times;</span>
       <div class="muted" style="font-size:calc(10px*var(--fs))">${esc(x.company)} &middot; ${esc(x.sector)}</div></div>
@@ -35,8 +35,8 @@ function pcard(x,watch){
       ?'ตราสารหนี้ — ความเสี่ยงหลักคืออัตราดอกเบี้ย (duration) ดูผลใน Allocation &rarr; Bond rate risk'
       :'ไม่แสดง FV / Upside / GARP — สินทรัพย์นี้เล่นเกม <b>pricing</b> ไม่ใช่ valuation (S40-41): กำไรมาจากคนถัดไปจ่ายแพงกว่าเท่านั้น จำกัดน้ำหนัก';
     const grid0=`<div style="display:flex;flex-wrap:wrap;gap:10px;margin:8px 0 6px">
-      ${cardCell('Momentum',tdInner(momCell(x)))}
-      ${cardCell('Rank',tdInner(rankCell(x)))}
+      ${cardCell('Momentum',cellContent(momCell(x)))}
+      ${cardCell('Rank',cellContent(rankCell(x)))}
       ${cardCell('Action',dispAction(x))}</div>`;
     return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;padding:12px 14px">${head}
       <div class="muted" style="font-size:calc(11px*var(--fs));margin:8px 0 2px">${note}</div>${grid0}${guardBadges(x)}${adviceLine(x)}${extra}</div>`;
@@ -45,15 +45,15 @@ function pcard(x,watch){
   // layout below — `vg` alone still answers "is there a value visual?".
   const vg=valueGauge(x);
   const yp=youngPanel(x);
-  const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:calc(16px*var(--fs))">${f(x.composite,2)}</b><span style="font-size:calc(11px*var(--fs))">${x.stars||''}</span>${reco}${moatChip(x)}${eqBadge(x)}${garpBadge(x)}</div>`;
+  const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:calc(16px*var(--fs))">${fixed(x.composite,2)}</b><span style="font-size:calc(11px*var(--fs))">${x.stars||''}</span>${reco}${moatChip(x)}${eqBadge(x)}${garpBadge(x)}</div>`;
   const grid=vg
     ? `<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
-    ${cardCell('Momentum',tdInner(momCell(x)))}
-    ${cardCell('Rank',tdInner(rankCell(x)))}
+    ${cardCell('Momentum',cellContent(momCell(x)))}
+    ${cardCell('Rank',cellContent(rankCell(x)))}
     ${cardCell('Action',dispAction(x))}</div>`
     : `<div style="display:flex;flex-wrap:wrap;gap:10px;margin:6px 0">
-    ${cardCell('Momentum',tdInner(momCell(x)))}
-    ${cardCell('Rank',tdInner(rankCell(x)))}
+    ${cardCell('Momentum',cellContent(momCell(x)))}
+    ${cardCell('Rank',cellContent(rankCell(x)))}
     ${cardCell('Action',dispAction(x))}
     ${cardCell('Anchor FV',anchorCell(x))}
     ${cardCell('Upside',upsideCell(x))}</div>`;
@@ -75,7 +75,7 @@ function renderPortfolio(d){
   // P4: the old <table> row builder was dead code (card layout replaced it) — removed.
   const t=d.totals||{};
   const __cards=(d.rows||[]).map(x=>pcard(x,false)).join('');
-  const __tot=`<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:calc(13px*var(--fs))"><div><span class="muted" style="font-size:calc(11px*var(--fs))">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:calc(11px*var(--fs))">P/L</span> ${t.pl==null?'<span class="muted">&mdash;</span>':`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${pct(t.pl_pct)}</b>`}</div></div>`;
+  const __tot=`<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:calc(13px*var(--fs))"><div><span class="muted" style="font-size:calc(11px*var(--fs))">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:calc(11px*var(--fs))">P/L</span> ${t.pl==null?'<span class="muted">&mdash;</span>':`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${upDownPct(t.pl_pct)}</b>`}</div></div>`;
   document.getElementById('p1').innerHTML = (d.rows&&d.rows.length)?(__tot+`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(330px*var(--fs)),1fr));gap:12px">${__cards}</div>`):'<div class="muted" style="padding:10px;font-size:calc(13px*var(--fs))">No holdings yet — add one above.</div>';
 }
 
