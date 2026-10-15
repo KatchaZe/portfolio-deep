@@ -1,0 +1,2 @@
+httpx>=0.27,<1      # fastapi.testclient (golden_snapshot, auth tests)
+freezegun>=1.5,<2   # golden_snapshot freezes the clock

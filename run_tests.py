@@ -68,6 +68,10 @@ TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
          #              accepted with --update, and the baseline diff is reviewed with
          #              the change. This is the harness that found most of the defects.
          "tests.replay_snapshot",
+         # golden       every field the engine returns, every endpoint the dashboard
+         #              reads, and the offline sources -> engine path, in one frozen,
+         #              offline run. A behaviour-preserving change leaves it clean.
+         "tests.golden_snapshot",
          # qa_2026_08_16  guards for the defects the live-UI audit found: ENB rising
          #              in a crisis (it was the inverse-HHI of risk contributions, not
          #              DR^2), Python None reaching a card, banker's rounding on the

@@ -21,7 +21,7 @@ jobs:
         with:
           node-version: "20"
       - name: Install runtime deps
-        run: pip install fastapi "uvicorn[standard]" requests pydantic
+        run: pip install -r requirements.txt -r requirements-dev.txt
       - name: Check node is available (render tests must not silently skip)
         run: node --version
       - name: Run test suite
