@@ -76,75 +76,76 @@ def assess(ff, today=None):
     """[{code, severity, message, penalty}] — everything wrong with this row's data.
 
     Reads only what is on the facts object; safe to call before or after the engine."""
-    out = []
+    found = [*_staleness(ff, today), *_series_gaps(ff), *_short_history(ff),
+             *_forward_eps(ff), *_currency(ff)]
+    return [{"code": code, "severity": severity, "message": message,
+             "penalty": PENALTY[severity]} for code, severity, message in found]
 
-    def add(code, severity, message):
-        out.append({"code": code, "severity": severity, "message": message,
-                    "penalty": PENALTY[severity]})
 
-    # --- 1. how old are the financials -------------------------------------
+def _staleness(ff, today):
+    """How old the financials are."""
     age = staleness_months(getattr(ff, "fiscal_year", None), today)
     if age is None:
-        add("no_fiscal_year", "warn",
-            "ไม่รู้ว่างบล่าสุดเป็นงวดไหน — ตรวจความสดของข้อมูลไม่ได้")
+        yield ("no_fiscal_year", "warn",
+               "ไม่รู้ว่างบล่าสุดเป็นงวดไหน — ตรวจความสดของข้อมูลไม่ได้")
     elif age >= STALE_BLOCK_MONTHS:
-        add("stale_financials", "block",
-            f"งบล่าสุดคืองวด {ff.fiscal_year} — เก่า {age} เดือน "
-            f"(เกิน {STALE_BLOCK_MONTHS}) ตัวเลขอธิบายบริษัทคนละช่วงเวลากับราคาปัจจุบัน")
+        yield ("stale_financials", "block",
+               f"งบล่าสุดคืองวด {ff.fiscal_year} — เก่า {age} เดือน "
+               f"(เกิน {STALE_BLOCK_MONTHS}) ตัวเลขอธิบายบริษัทคนละช่วงเวลากับราคาปัจจุบัน")
     elif age >= STALE_WARN_MONTHS:
-        add("stale_financials", "warn",
-            f"งบล่าสุดคืองวด {ff.fiscal_year} — เก่า {age} เดือน "
-            f"(เกิน {STALE_WARN_MONTHS}) น่าจะมีงบใหม่กว่านี้แล้ว")
+        yield ("stale_financials", "warn",
+               f"งบล่าสุดคืองวด {ff.fiscal_year} — เก่า {age} เดือน "
+               f"(เกิน {STALE_WARN_MONTHS}) น่าจะมีงบใหม่กว่านี้แล้ว")
 
-    # --- 2. gaps inside the series the trend strip and ROIC series ride on ---
+
+def _series_gaps(ff):
+    """Gaps inside the series the trend strip and the ROIC series ride on."""
     for name, label in (("revenue_annuals_dated", "รายได้"),
                         ("operating_income_annuals_dated", "operating income"),
                         ("cfo_annuals_dated", "กระแสเงินสดจากการดำเนินงาน"),
                         ("capex_annuals_dated", "capex")):
         g = _gaps(getattr(ff, name, None))
         if g:
-            add(f"gap_{name}", "note",
-                f"{label}: ปีงบขาด {', '.join(g)} — เทรนด์จะสั้นลงเท่าที่ต่อเนื่องจริง")
+            yield (f"gap_{name}", "note",
+                   f"{label}: ปีงบขาด {', '.join(g)} — เทรนด์จะสั้นลงเท่าที่ต่อเนื่องจริง")
     ic = getattr(ff, "ic_components_dated", None) or {}
     if ic:
         g = _gaps([[d, 0] for d in ic])
         if g:
-            add("gap_invested_capital", "warn",
-                f"ทุนที่ลงไป: ปีงบขาด {', '.join(g)} — ROIC รายปีจะข้ามช่วงนั้น "
-                f"(นี่คือกรณี AVGO ที่เคยทำให้ ROIC อ่านได้ 130%)")
+            yield ("gap_invested_capital", "warn",
+                   f"ทุนที่ลงไป: ปีงบขาด {', '.join(g)} — ROIC รายปีจะข้ามช่วงนั้น "
+                   f"(นี่คือกรณี AVGO ที่เคยทำให้ ROIC อ่านได้ 130%)")
 
-    # --- 3. is there enough history to say anything about a trend -----------
+
+def _short_history(ff):
     n_rev = len(getattr(ff, "revenue_annuals", None) or [])
     if 0 < n_rev < 3:
-        add("short_history", "note",
-            f"มีรายได้ย้อนหลังแค่ {n_rev} ปี — CAGR และเทรนด์จะไม่แสดง")
+        yield ("short_history", "note",
+               f"มีรายได้ย้อนหลังแค่ {n_rev} ปี — CAGR และเทรนด์จะไม่แสดง")
 
-    # --- 3b. forward EPS, the input BOTH point-value methods stand on ---------
-    # 2026-08-16: every one of 16 watchlist rows came back flagged
-    # "missing forward_eps", and ten of them still printed conf 100 with a
-    # Fundamental PEG fair value on the card. Fundamental PEG is
-    # justified_pe x forward_eps and FVP compounds forward EPS forward, so with no
-    # consensus the anchor rests on a fallback the reader is never shown. A green
-    # confidence dot on top of that is the dashboard vouching for a number it did
-    # not have. Losing consensus is a warn, not a block: the row is still worth
-    # showing, it just may not be trusted at face value.
+
+def _forward_eps(ff):
+    """Forward EPS is the input BOTH point-value methods stand on (Fundamental PEG is
+    justified_pe x forward_eps; FVP compounds it), so without consensus the fair value
+    rests on a fallback the reader is never shown. A warn, not a block: the row is
+    still worth showing, just not at face value."""
     if getattr(ff, "profitable", True) and not getattr(ff, "forward_eps", None):
-        add("no_forward_eps", "warn",
-            "ไม่มี forward EPS (consensus) — Fundamental PEG และ FVP ต่างก็ตั้งอยู่บนค่านี้ "
-            "ตัวเลข fair value จึงมาจาก fallback ไม่ใช่ consensus จริง อย่าอ่านเป็นค่าแม่น")
+        yield ("no_forward_eps", "warn",
+               "ไม่มี forward EPS (consensus) — Fundamental PEG และ FVP ต่างก็ตั้งอยู่บนค่านี้ "
+               "ตัวเลข fair value จึงมาจาก fallback ไม่ใช่ consensus จริง อย่าอ่านเป็นค่าแม่น")
     elif (getattr(ff, "forward_eps_n", 0) or 0) == 1:
-        add("thin_forward_eps", "note",
-            "forward EPS มาจากแหล่งเดียว — ไม่มีแหล่งที่สองยืนยัน")
+        yield ("thin_forward_eps", "note",
+               "forward EPS มาจากแหล่งเดียว — ไม่มีแหล่งที่สองยืนยัน")
 
-    # --- 4. currency actually converted -------------------------------------
+
+def _currency(ff):
+    """A non-USD row with no trace of a conversion."""
     ccy = getattr(ff, "currency", None)
     flags = getattr(ff, "flags", None) or []
     if ccy and ccy != "USD" and not any(str(f).startswith("converted") for f in flags):
-        add("currency_unconverted", "block",
-            f"งบเป็นสกุล {ccy} แต่ไม่พบร่องรอยการแปลงเป็น USD — "
-            f"ตัวเลขเงินจะถูกเทียบกับราคาคนละสกุล")
-
-    return out
+        yield ("currency_unconverted", "block",
+               f"งบเป็นสกุล {ccy} แต่ไม่พบร่องรอยการแปลงเป็น USD — "
+               f"ตัวเลขเงินจะถูกเทียบกับราคาคนละสกุล")
 
 
 def worst(findings):
@@ -171,20 +172,15 @@ def total_penalty(findings):
 FALLBACK_SCALARS = ("revenue", "operating_income", "net_income", "eps_gaap",
                     "shares_diluted", "income_before_tax", "tax_expense",
                     "total_debt", "cash", "equity", "capex", "dep_amort", "sbc")
-# SEC-derived series that describe a DIFFERENT set of years once the scalars come from a
-# newer source. They are cleared rather than kept, and the reason is the whole point of
-# this repo's last three review rounds: a fresh FY2025 revenue divided by a stale
-# FY2023 series entry is P3-1 again, rebuilt by the very code meant to fix staleness.
-# L2 (2026-08-10): the fields above that carry a CURRENCY, derived from the unit
-# contract instead of typed out again. The first version of the FX loop in
-# refresh.py was hand-written and listed 11 of these 13 — it silently omitted
-# `eps_gaap`, so TSM's fallback EPS stayed in TWD beside a USD ADR price. Derived,
-# the two lists cannot drift: add a scalar to FALLBACK_SCALARS and it is converted
-# if — and only if — its declared unit says it is money.
-# `shares_diluted` is excluded on purpose and by construction: it is a COUNT.
+# The fields above that carry a CURRENCY, derived from the unit contract so the two
+# lists cannot drift (a hand-typed list once omitted eps_gaap and left TSM's EPS in
+# TWD beside a USD ADR price). `shares_diluted` is excluded by construction: a COUNT.
 FALLBACK_MONEY = tuple(f for f in FALLBACK_SCALARS
                        if contracts.UNIT.get(f) in (contracts.MONEY, contracts.PER_SHARE))
 
+# SEC-derived series that describe a DIFFERENT set of years once the scalars come from a
+# newer source. Cleared, not kept: a fresh FY2025 revenue divided by a stale FY2023
+# series entry is the TTM-vs-FY mismatch again.
 FALLBACK_INVALIDATES = ("revenue_annuals", "revenue_annuals_dated",
                         "operating_income_annuals", "operating_income_annuals_dated",
                         "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
@@ -196,16 +192,12 @@ def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):
     """The FX rate to convert a FALLBACK source's figures with, or None when it cannot
     be established — in which case the fallback MUST NOT be used.
 
-    L5 (2026-08-10). `sec_fx` describes the currency SEC reported, and reusing it for a
-    different source's numbers is the bug. TSM proves the two can differ: its 20-F
-    carries a USD convenience translation, so SEC reads USD and `sec_fx` is None, while
-    FMP reports the same company as filed — in TWD. The old code asked
-    `if alt.currency != "USD" and sec_fx:`, so with no rate it converted nothing and
-    said nothing, and every downstream reader took TWD for dollars.
+    `sec_fx` describes the currency SEC reported; never reuse it for another source's
+    numbers. TSM's 20-F carries a USD convenience translation (SEC reads USD, no rate)
+    while FMP reports the same company in TWD.
 
-    None means REFUSE THE FALLBACK. Stale-but-coherent beats fresh-but-mixed: a warning
-    about old financials is recoverable, a row silently denominated in two currencies is
-    not — it produced a $8,612 fair value on a $422 ADR and read as BUY."""
+    None means REFUSE THE FALLBACK. Stale-but-coherent beats fresh-but-mixed: a row
+    silently denominated in two currencies is not recoverable."""
     alt = (alt_currency or "USD").upper()
     if alt == "USD":
         return 1.0
@@ -220,21 +212,10 @@ def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):
 def apply_stale_fallback(ff, alt, sec_currency, sec_fx, fetch_rate):
     """The whole stale-financials decision in one testable place: get the right rate,
     apply the fallback only if it is genuinely newer, convert what it moved, and say
-    what happened. Returns (applied, [notes]) — the caller attaches the notes.
-
-    2026-08-11: this logic lived inline in `refresh.analyze`, wrapped in network calls,
-    which is why its THREE refusal paths — no exchange rate, source not newer, fetch
-    failed — had no test touching them at all while `pipeline/refresh.py` measured 0%
-    coverage. Those paths are now the only line of defence, because a third fallback
-    source was measured and declined: after L5 fixed TSM, ZERO of 21 holdings are stale
-    enough to reach here (median financials 2 months old against a 15-month threshold),
-    and a third source would add another set of tagging and currency conventions —
-    the exact surface that produced four defects in one day — to a path nothing uses."""
+    what happened. Returns (applied, [notes]) — the caller attaches the notes."""
     notes = []
     # named fx_rate, not rate: contracts.fx_conversion_sites finds every place money is
-    # multiplied by an exchange rate by looking for exactly that. Moving this block out
-    # of refresh.py made BOTH the old site and the new one invisible to it for a few
-    # minutes — the hole the site registry exists to close, reopened by a refactor.
+    # multiplied by an exchange rate by looking for `* ...fx...`.
     fx_rate = fallback_rate(getattr(alt, "currency", None), sec_currency, sec_fx, fetch_rate)
     ccy = (getattr(alt, "currency", None) or "USD").upper()
     if not fx_rate:
@@ -270,11 +251,9 @@ def refresh_from_fallback(ff, alt_facts):
     """Replace stale SEC scalars with a fresher source's, and DROP the SEC series that
     those scalars no longer belong with. Returns (applied, note).
 
-    The temptation is to keep the SEC series — they are longer and richer, and the
-    trend strip goes blank without them. That temptation is exactly how this codebase
-    produced P3-1: a value from one clock used beside a series from another. A blank
-    strip that says why is correct; a strip drawn from two different years of the same
-    company is not.
+    Keeping the SEC series would put a value from one clock beside a series from
+    another. A blank strip that says why is correct; a strip drawn from two different
+    years of the same company is not.
 
     `alt_facts` is a FinancialFacts already populated by the fallback source."""
     if not fallback_is_fresher(getattr(ff, "fiscal_year", None),
