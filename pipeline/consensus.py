@@ -13,23 +13,17 @@ Two pure helpers (no network, fully unit-testable):
 Source priority (most → least authoritative for our use): Yahoo (adjusted/street,
 matches forwardEps) > FMP (GAAP) > Finnhub > Alpha Vantage.
 """
+from domain import pead
 
 SOURCE_PRIORITY = ("yahoo", "fmp", "finnhub", "alphavantage")
 
 
-# A forward EPS is only comparable to another forward EPS in the SAME currency, and
-# nothing upstream guarantees that. Yahoo's `forwardEps` is quoted for the LISTED
-# security (so USD for an ADR); FMP's analyst estimates come in the filer's own
-# reporting currency. For TSM that is TWD against USD — about 32x apart — and the blend
-# had no way to know, so it reported `fwdEPS 2src spread 184.3%` and docked 6 points of
-# confidence for "the analysts disagree" when the truth was "one of these is in another
-# currency". Same class as the L2/TSM defect (TWD EPS beside a USD price -> $8,612 fair
-# value), one layer up: there it corrupted a valuation, here it corrupts the DIAGNOSIS.
-#
-# We cannot label the currency at this layer — the free tiers do not return one. But we
-# can test each candidate against the PRICE, which is always in the listed security's
-# currency: a forward P/E outside this band is not an opinion about the business, it is
-# a unit artefact. TSM's TWD candidate implies 1.6x; its USD siblings imply 20-36x.
+# A forward EPS is only comparable to another in the SAME currency, and nothing upstream
+# guarantees that: Yahoo quotes the LISTED security (USD for an ADR), FMP the filer's
+# reporting currency (TSM: TWD, ~32x apart), which read as a 184% "analyst spread".
+# The free tiers return no currency label, so each candidate is tested against the
+# PRICE (always the listed currency): a forward P/E outside this band is a unit
+# artefact, not an opinion. TSM's TWD candidate implies 1.6x; USD siblings 20-36x.
 PE_MIN, PE_MAX = 2.0, 250.0
 
 
@@ -85,8 +79,6 @@ def blend_forward_eps(candidates, price=None):
             "rejected": rejected}
 
 
-from domain import pead
-
 def _primary_order(present):
     """present: iterable of source names that actually returned data. Yield in
     priority order, then any extras (stable)."""
@@ -107,10 +99,8 @@ def reconcile_earnings(by_source):
                 "agree": 0, "total": 0, "disagree": False}
     order = _primary_order(present)
     primary = order[0]
-    # B6: order the chosen track record by DATE before storing it, and pick the latest
-    # quarter by date too. The Yahoo parser delivers newest-first while every other
-    # source delivers oldest-first, so `[-1]` was comparing a 9-month-old quarter
-    # against other sources' current one when Yahoo won the primary slot.
+    # Order by DATE, never by position: sources do not agree on list order (Yahoo rows
+    # have arrived newest-first while every other source is oldest-first).
     plist = pead.chronological(present[primary])
     p_last = (pead.latest(plist) or {}).get("grade") if plist else None
 
