@@ -1,0 +1,6 @@
+when	decision	why	evidence	result
+2026-10-15	Work in a cloud copy of the repo (git bundle), deliver back as a branch	Sandbox mount serves stale sizes for edited files; device shell cannot delete git lock files	memory note cowork-mount-stale-size; device python 3.10 lacks fastapi	branch refactor/clean-architecture
+2026-10-15	Re-pin replay baseline before any change	replay failed on data drift (portfolio.json pulled from Drive), not code	replay_snapshot input fingerprint mismatch; all other suites green	baseline e284cf6
+2026-10-15	Build golden_snapshot (full Valuation, all endpoints, offline pipeline)	replay pins 19 fields/ticker; a refactor can move flags, verdict text, risk payload	mutation: _clamp hi=4.9 -> ASML/CELH drift reported	926b9bd
+2026-10-15	Delete v7.3 engine	all 4 audit rounds fixed only v8.2; rollback to 7.3 = rollback of fixes	grep: only tests used get_engine('7.3')	a158cad
+2026-10-15	Contracts scanner scans packages by directory	file-name target list silently skipped any file that moved	scan_all over domain/pipeline/sources = 0 hits, same as before	a158cad
