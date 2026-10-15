@@ -68,6 +68,48 @@ CHARTS = r"""
   });
 }
 """
+FIXTURE_PORTFOLIO = r"""
+const d = await (await fetch('/api/portfolio')).json();
+const r = d.rows;
+Object.assign(r[0], {ticker: 'TLT'});
+Object.assign(r[1], {ticker: 'GLD'});
+r[2].momentum_v2 = Object.assign({}, r[2].momentum_v2 || {}, {mom_label: 'Strong', crash_guard: true,
+  dividend_adjusted: false, stale: true, age_days: 9, mom_bucket: 'Top', mom_rank_pct: 0.91,
+  quality: {bars: 250, dropped_nonpos: 1, dropped_spikes: 1}});
+r[2].action = 'BUY';
+r[3].key_metrics = Object.assign({}, r[3].key_metrics || {}, {fv_disagreement_x: 3.2, spread_pct: 4.1});
+Object.assign(r[3], {forward_eps_n: 3, forward_eps: 5.1, forward_eps_low: 4.2, forward_eps_high: 6.3,
+  forward_eps_spread_pct: 41, forward_eps_sources: {fmp: 5.0, yahoo: 5.2, finnhub: 5.1}});
+Object.assign(r[4], {earnings_surprises: [], rev_surprises: [], margin_trend: [], change: -1.25,
+  earn_status: {eps: {reason: 'stale-facts', detail: 'old schema'}, rev: {}, mgn: {reason: 'stale-facts'}},
+  pl: -1234.5, pl_pct: -12.3, eq_verdict: 'LOW', advice: null, flags: []});
+Object.assign(r[5], {pead: {bias: 'down', strength: 'strong', quarter: 'Q2 2026', note: 'x'}});
+d.market = Object.assign({}, d.market, {regime: 'risk_off', dist_pct: -4.2,
+  valuation: Object.assign({}, (d.market || {}).valuation, {regime: 'expensive', tilt: 'raise cash'})});
+d.benchmark = Object.assign({}, d.benchmark, {excess_pp: -3.4, portfolio_12m: 5.1, market_12m: 8.5});
+d.philosophy = Object.assign({}, d.philosophy, {running: 'GARP', fit_ok: false, notes: ['drift']});
+d.totals = Object.assign({}, d.totals, {pl: -2500, pl_pct: -4.4});
+d.momentum_meta = {stale: true, as_of: null, stale_count: 1};
+renderPortfolio(d);
+"""
+FIXTURE_RISK = r"""
+const d = JSON.parse(JSON.stringify(__riskCache.data));
+const top = ((d.capital_vs_risk || {}).covariance_based || [])[0] || {ticker: 'MSFT'};
+d.rebalance = {no_trade: false, after: {port_vol_pct: 18.2, top_risk: 'MSFT', stress_worst_pct: -31.5},
+  trades: [{ticker: top.ticker, action: 'TRIM', from_pct: 14.1, to_pct: 10, amount_pct: -4.1, priority: 'Must'},
+           {ticker: 'TLT', action: 'ADD', from_pct: 0, to_pct: 4.1, amount_pct: 4.1, priority: 'Should'}]};
+d.rate_risk = {has_bonds: true, loss_pct: -0.6, tag: '[CALC]'};
+d.meta = Object.assign({}, d.meta, {pricing_assets: ['GLD', 'IBIT'], quota_degraded: true});
+d.suitability = Object.assign({}, d.suitability, {within_tolerance: true});
+d.downside = Object.assign({}, d.downside, {downside_beta: 9, vol_pct: null, tag: 'error: empty'});
+renderRisk(d);
+"""
+FIXTURE_CORR = r"""
+const d = JSON.parse(JSON.stringify(__corr));
+if (!d.correlation) throw new Error('correlation payload missing: ' + Object.keys(d) + ' ' + d.status + ' ' + d.message);
+d.correlation.meta = Object.assign({}, d.correlation.meta, {cov_mode: '%s', proxy_tickers: ['TMDX', 'HIMS']});
+renderCorr(d);
+"""
 # <style> blocks (and the indentation before them) are left out of the markup: where CSS
 # lives is not behaviour, and what it does is pinned by STYLE_PROBE. <script> and <style>
 # elements render nothing, so the probe skips them too.
@@ -174,6 +216,13 @@ def _views():
         ("assumptions_bad", [fill("#erpIn", "50"), click(on("saveAssumptions()"))]),
         ("watch_add", [click("#tab2"), fill("#wt", "ZZZZ"), click(on("addWatch()"))]),
         ("watch_remove", [click("#watchNames " + on("removeWatch('ZZZZ')"))]),
+        # The stored data never reaches some branches (asset-class cards, crash guard,
+        # rebalance trades, proxy correlation). Re-render the real payloads with those
+        # fields switched on.
+        ("fixture_portfolio", [click("#tab1"), ("js", FIXTURE_PORTFOLIO), ("click_all", "#p1 details > summary")]),
+        ("fixture_risk", [click("#tab3"), ("js", FIXTURE_RISK)]),
+        ("fixture_corr_mixed", [click("#tab6"), ("js", FIXTURE_CORR % "mixed")]),
+        ("fixture_corr_proxy", [("js", FIXTURE_CORR % "proxy")]),
         ("daily", [click("#tab1"), click("#btnDaily")]),
         ("refresh", [click("#btnRefresh")]),
         # last: a rejected add replaces the portfolio view with the error body
@@ -193,6 +242,8 @@ def _run_steps(page, app, steps):
             page.fill(sel, step[2])
         elif kind == "select":
             page.select_option(sel, step[2])
+        elif kind == "js":
+            page.evaluate("async () => { %s }" % sel)
         _settle(page, app)
 
 
