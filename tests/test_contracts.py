@@ -74,7 +74,7 @@ def test_production_code_is_clean():
     hits = contracts.scan_all(ROOT)
     detail = "; ".join(f"{f}:{ln} {a} vs {b} — {why} [{kind}]"
                        for f, hs in hits.items() for ln, a, b, why, kind in hs)
-    check(not hits, f"clean across {len(contracts.DEFAULT_TARGETS)} modules", detail)
+    check(not hits, f"clean across {len(contracts.default_targets(ROOT))} modules", detail)
 
 
 P31_AS_IT_REALLY_LOOKED = '''

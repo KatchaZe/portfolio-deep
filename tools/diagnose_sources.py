@@ -6,13 +6,13 @@ each one returns (counts + first row), so we can see which link in the chain
 is broken (Yahoo blocked? FMP endpoint empty? SEC missing eps? pairing failed?).
 
 Usage (uses your real env keys, ~5 FMP calls):
-    py diagnose_sources.py NVDA
+    python -m tools.diagnose_sources NVDA
 """
 import os
 import sys
 import json
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from sources import sec_edgar, yahoo, fmp, finnhub
 from pipeline import refresh, surprise_backfill

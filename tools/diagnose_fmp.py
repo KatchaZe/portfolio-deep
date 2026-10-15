@@ -5,13 +5,13 @@ quarterly-estimates come back empty (premium-gated? deprecated? renamed field?).
 
 Usage (needs FMP_API_KEY in env; ~8 calls):
     $env:FMP_API_KEY="your_key"
-    py diagnose_fmp.py NVDA
+    python -m tools.diagnose_fmp NVDA
 The API key is NEVER printed.
 """
 import os
 import sys
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 import requests
 

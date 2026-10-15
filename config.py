@@ -1,5 +1,5 @@
 """
-Configuration for the DEEP v7.3 app (v2).
+Configuration for the DEEP portfolio app (engine version = DEEP_VERSION below).
 
 The FMP API key is read from the environment, never hard-coded:
     Windows PowerShell:  $env:FMP_API_KEY="your_key_here"

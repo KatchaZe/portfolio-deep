@@ -5,8 +5,8 @@ Phase 1 capture — save real fixtures from the FREE stack:
 
 Run on your machine (internet; FMP key optional for the profile):
     $env:FMP_API_KEY="your_new_key"   # optional
-    python capture.py
-Then run:  python verify.py
+    python -m tools.capture
+Then run:  python -m tools.verify
 """
 import os
 import sys
@@ -15,7 +15,7 @@ import time
 
 import requests
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from sources import sec_edgar
 
@@ -81,7 +81,7 @@ def main():
         save(t, "yahoo_quotesummary", yahoo_consensus(t))
         print(f"  Yahoo consensus saved")
         time.sleep(0.5)
-    print("\nDone. Now run:  python verify.py")
+    print("\nDone. Now run:  python -m tools.verify")
 
 
 if __name__ == "__main__":

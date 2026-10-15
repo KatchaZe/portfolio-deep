@@ -218,7 +218,7 @@ from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output s
 ## 6. Tests
 
 ```powershell
-python capture.py        # one-time: fetch real fixtures (or commit them)
+python -m tools.capture        # one-time: fetch real fixtures (or commit them)
 python run_tests.py      # 35 modules: FMP/SEC/engine + momentum, consensus blend,
                          # margin trend, Stooq, revenue surprise, assumption flags,
                          # risk engine, no-regression isolation, advice, earn-status,

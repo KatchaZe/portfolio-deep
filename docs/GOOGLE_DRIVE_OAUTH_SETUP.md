@@ -17,7 +17,7 @@
 ```
 1. สร้าง OAuth client ID (Desktop app)   ← กุญแจให้แอป login แทนคุณ
 2. เพิ่มตัวเองเป็น Test user             ← อนุญาตให้บัญชีคุณใช้ได้
-3. รัน get_gdrive_token.py บนเครื่อง     ← เปิดเบราว์เซอร์ กดอนุญาต → ได้ refresh token
+3. รัน tools/get_gdrive_token.py บนเครื่อง     ← เปิดเบราว์เซอร์ กดอนุญาต → ได้ refresh token
 4. เอาโค้ดใหม่ขึ้น GitHub                ← gdrive_store.py + requirements.txt
 5. ตั้ง 3 env vars บน Render             ← เอา token ไปบอกแอป
 6. Deploy แล้วทดสอบ                      ← เพิ่มหุ้น → redeploy → หุ้นยังอยู่
@@ -33,7 +33,7 @@
 3. กดด้านบน **+ Create credentials → OAuth client ID**
 4. **Application type** เลือก **Desktop app** → ตั้งชื่ออะไรก็ได้ → **Create**
 5. กด **Download JSON** → ได้ไฟล์มา **เปลี่ยนชื่อเป็น `client_secret.json`**
-   แล้ววางไว้ **โฟลเดอร์เดียวกับ** `get_gdrive_token.py`
+   แล้ววางไว้ที่ **โฟลเดอร์หลักของโปรเจกต์** (ที่รันคำสั่ง)
 
 > 💡 ถ้ายังไม่เคยเปิด Google Drive API ให้พิมพ์ค้น "Google Drive API" → **Enable** ก่อน
 
@@ -47,7 +47,7 @@
 เปิด PowerShell ในโฟลเดอร์โปรเจกต์ แล้วพิมพ์:
 ```powershell
 pip install google-auth-oauthlib google-api-python-client
-python get_gdrive_token.py
+python -m tools.get_gdrive_token
 ```
 - เบราว์เซอร์จะเด้งขึ้นมา → เลือกบัญชี Google ของคุณ
 - ถ้าขึ้นเตือน "Google hasn't verified this app" → **Continue** (เพราะเป็นแอปคุณเอง)
@@ -66,10 +66,10 @@ GDRIVE_OAUTH_REFRESH_TOKEN = 1//xxxx
 แทนที่ไฟล์เดิมด้วยไฟล์ใหม่ 2 ไฟล์ แล้ว push:
 - `sources/gdrive_store.py`  (ไฟล์ที่แก้แล้ว)
 - `requirements.txt`         (ไฟล์ที่เพิ่ม library แล้ว)
-- (จะใส่ `get_gdrive_token.py` ขึ้น repo ด้วยก็ได้ ไม่มีความลับในไฟล์นี้)
+- (จะใส่ `tools/get_gdrive_token.py` ขึ้น repo ด้วยก็ได้ ไม่มีความลับในไฟล์นี้)
 
 ```powershell
-git add sources/gdrive_store.py requirements.txt get_gdrive_token.py
+git add sources/gdrive_store.py requirements.txt tools/get_gdrive_token.py
 git commit -m "Drive persistence via OAuth (fix service-account quota issue)"
 git push
 ```
@@ -102,7 +102,7 @@ Render Dashboard → service → **Environment → + Add Environment Variable** 
 |---|---|
 | สคริปต์ไม่พิมพ์ refresh token | ไปลบสิทธิ์เก่าที่ https://myaccount.google.com/permissions แล้วรันใหม่ |
 | Logs ขึ้น `Drive push failed` | เช็คว่า 3 env ครบ + ค่าถูก (โดยเฉพาะ refresh token ก๊อปครบ) |
-| Logs ขึ้น `invalid_grant` | refresh token หมดอายุ/ถูกเพิกถอน → รัน `get_gdrive_token.py` ใหม่ |
+| Logs ขึ้น `invalid_grant` | refresh token หมดอายุ/ถูกเพิกถอน → รัน `tools/get_gdrive_token.py` ใหม่ |
 | ไฟล์ไม่อยู่ในโฟลเดอร์ `portfolio-data` | ปกติ — fallback ไป My Drive ค้นชื่อ `portfolio.json` เจอแน่ |
 
 ---

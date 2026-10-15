@@ -193,7 +193,7 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 | หุ้นขึ้น ⚑ "yahoo unavailable" | Yahoo บล็อก IP (เจอบ่อยบน Render/cloud) | รันบนเครื่องตัวเอง หรือยอมรับว่า fwd EPS/momentum อาจไม่ครบ |
 | ⚑ "Rf fallback" | ดึง 10Y Treasury ไม่ได้ → ใช้ 4.3% | ชั่วคราว รอเน็ต/Yahoo กลับมา แล้ว refresh ใหม่ |
 | ⚑ "terminal margin default" | หุ้นไม่อยู่ใน `TERMINAL_MARGIN` | ใส่ค่า margin จริง (ดู 3.3) — หรือปล่อยไว้ (verdict แค่ประมาณ) |
-| ตัวเลขหุ้นดูผิดเพี้ยน | tag SEC เปลี่ยน/ข้อมูลแปลก | รัน `python verify.py` ดูว่าตัวไหน CHECK! |
+| ตัวเลขหุ้นดูผิดเพี้ยน | tag SEC เปลี่ยน/ข้อมูลแปลก | รัน `python -m tools.verify` ดูว่าตัวไหน CHECK! |
 | test `FAILED` หลังแก้สูตร | ค่าคาดหวังใน test ไม่ตรงสูตรใหม่ | อัปเดตตัวเลขใน `tests/test_engine.py` ให้ตรง (ตั้งใจให้สูตรใหม่ถูก) |
 | portfolio หาย หลัง redeploy บน Render | ยังไม่ได้เปิด Google Drive persistence | ตั้งค่า OAuth ตาม `GOOGLE_DRIVE_OAUTH_SETUP.md` (ฟรี — ข้อมูล sync ขึ้น Drive อัตโนมัติ ไม่หายอีก) |
 | แอปค้างตอน refresh เยอะๆ | (แก้แล้วในเวอร์ชันนี้) network ทำนอก lock | ถ้ายังค้าง = แก้โค้ดผิด ดู `app.py::_fetch_and_commit` |

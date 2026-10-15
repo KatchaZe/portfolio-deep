@@ -3,13 +3,13 @@ Phase 1 verify — run the SEC robust extraction on the captured fixtures and ch
 the result against known-good values. This is the proof that the free data stack
 reads CORRECT numbers (the v1 bugs would show up here as CHECK!).
 
-    python verify.py     (after capture.py)
+    python -m tools.verify     (after capture.py)
 """
 import os
 import sys
 import json
 
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from sources import sec_edgar
 

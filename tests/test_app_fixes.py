@@ -85,7 +85,7 @@ def test_commit_split_merges_store():
 
 
 def test_verdict_never_prints_none():
-    eng = get_engine("7.3")
+    eng = get_engine("8.2")
     # totally empty facts -> the old code printed "$None" / "None%"
     v = eng.evaluate(FinancialFacts("XXXX"), rf=0.045)
     assert "None" not in (v.verdict or ""), v.verdict
@@ -96,7 +96,7 @@ def test_verdict_never_prints_none():
     v2 = eng.evaluate(ff, rf=0.045)
     assert "None" not in (v2.verdict or ""), v2.verdict
     # generic-margin flag should appear for a ticker outside TERMINAL_MARGIN
-    assert any("terminal margin default" in f for f in v2.flags), v2.flags
+    assert any("terminal margin" in f and "generic" in f for f in v2.flags), v2.flags
     print("verdict no-None OK:", v2.verdict[:70], "…")
 
 

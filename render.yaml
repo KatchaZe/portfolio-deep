@@ -22,7 +22,7 @@ services:
         sync: false             # set this in the Render dashboard, never commit it
       - key: GDRIVE_OAUTH_CLIENT_SECRET  # OAuth client secret
         sync: false             # set this in the Render dashboard, never commit it
-      - key: GDRIVE_OAUTH_REFRESH_TOKEN  # refresh token printed by get_gdrive_token.py
+      - key: GDRIVE_OAUTH_REFRESH_TOKEN  # refresh token printed by tools/get_gdrive_token.py
         sync: false             # set this in the Render dashboard, never commit it
       - key: GDRIVE_FOLDER_ID   # optional — Drive folder id for portfolio.json (else falls back to My Drive)
         sync: false             # set this in the Render dashboard, never commit it

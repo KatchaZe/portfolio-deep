@@ -1,5 +1,5 @@
 """
-get_gdrive_token.py — one-time helper to obtain a Google Drive OAuth refresh token.
+tools/get_gdrive_token.py — one-time helper to obtain a Google Drive OAuth refresh token.
 
 WHY: Render's free tier wipes data/portfolio.json on every restart/redeploy. The app
 mirrors that file to YOUR Google Drive so it survives. To let the app write to your Drive
@@ -19,7 +19,7 @@ automatically and skips the prompts.)
 
 USAGE (run in the project folder):
     pip install google-auth-oauthlib google-api-python-client
-    python get_gdrive_token.py
+    python -m tools.get_gdrive_token
 
 Then copy the three GDRIVE_OAUTH_* lines it prints into Render -> Environment.
 See GOOGLE_DRIVE_OAUTH_SETUP.md for the full walkthrough.

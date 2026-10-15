@@ -542,14 +542,24 @@ def scan_source(path):
     return sorted(out)
 
 
-DEFAULT_TARGETS = ("domain/engine/deep_v82.py", "domain/engine/deep_v73.py",
-                   "domain/engine/young_dcf.py", "domain/trend.py",
-                   "pipeline/refresh.py", "pipeline/normalize.py", "pipeline/validate.py")
+# Every package that computes with facts. Scanned by directory, not by file name, so a
+# module split or a new file is covered the day it lands instead of silently skipped.
+DEFAULT_PACKAGES = ("domain", "pipeline", "sources")
 
 
-def scan_all(root, targets=DEFAULT_TARGETS):
+def default_targets(root):
+    found = []
+    for pkg in DEFAULT_PACKAGES:
+        for dirpath, dirnames, files in os.walk(os.path.join(root, pkg)):
+            dirnames[:] = sorted(d for d in dirnames if d != "__pycache__")
+            found += [os.path.relpath(os.path.join(dirpath, f), root)
+                      for f in sorted(files) if f.endswith(".py")]
+    return found
+
+
+def scan_all(root, targets=None):
     out = {}
-    for rel in targets:
+    for rel in targets if targets is not None else default_targets(root):
         p = os.path.join(root, rel)
         if os.path.exists(p):
             hits = scan_source(p)

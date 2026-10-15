@@ -14,10 +14,10 @@ engine is READ, not merely committed.
 It commits nothing: `analyze_row` is documented ephemeral (network only, no store),
 and the stored side is read straight off disk so not even a Drive pull is triggered.
 
-    python -m tests.live_check                 # MSFT TSM NVO — the three that matter
-    python -m tests.live_check AAPL NVDA
-    python -m tests.live_check NVO --why       # the inputs each fair value was built on
-    python -m tests.live_check --all           # every stored ticker (costs quota)
+    python -m tools.live_check                 # MSFT TSM NVO — the three that matter
+    python -m tools.live_check AAPL NVDA
+    python -m tools.live_check NVO --why       # the inputs each fair value was built on
+    python -m tools.live_check --all           # every stored ticker (costs quota)
 
 Why those three by default:
     MSFT  a clean, complete filer — the trend strip and every new leg should populate
