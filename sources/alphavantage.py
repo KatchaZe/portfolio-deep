@@ -54,6 +54,8 @@ def fetch_earnings(symbol, key, requests_mod=None, timeout=20):
     / no key."""
     if not key:
         return {}
-    j = get_json(BASE, requests_mod, params={"function": "EARNINGS", "symbol": symbol,
-                                             "apikey": key}, timeout=timeout)
+    import requests as _r
+    j = get_json(BASE, requests_mod or _r,
+                 params={"function": "EARNINGS", "symbol": symbol, "apikey": key},
+                 timeout=timeout)
     return j if isinstance(j, dict) else {}

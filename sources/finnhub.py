@@ -61,7 +61,8 @@ def fetch_earnings(symbol, key, requests_mod=None, timeout=15, limit=8):
     """EPS surprise history (FREE). Returns a raw list or [] on any error / no key."""
     if not key:
         return []
-    j = get_json(f"{BASE}/stock/earnings", requests_mod,
+    import requests as _r
+    j = get_json(f"{BASE}/stock/earnings", requests_mod or _r,
                  params={"symbol": symbol, "limit": limit, "token": key}, timeout=timeout)
     return j if isinstance(j, list) else []
 
@@ -71,6 +72,7 @@ def fetch_eps_estimate(symbol, key, requests_mod=None, timeout=15, freq="annual"
     a missing value as 'this source unavailable' (the blend still works on the rest)."""
     if not key:
         return {}
-    j = get_json(f"{BASE}/stock/eps-estimate", requests_mod,
+    import requests as _r
+    j = get_json(f"{BASE}/stock/eps-estimate", requests_mod or _r,
                  params={"symbol": symbol, "freq": freq, "token": key}, timeout=timeout)
     return j if isinstance(j, dict) else {}
