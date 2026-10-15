@@ -8,7 +8,7 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from pipeline.refresh import _earn_status
+from pipeline.rows import earn_status as _earn_status
 
 
 def test_filled_tracks_report_source():
@@ -48,12 +48,12 @@ def test_no_fmp_key_hides_fmp_fallbacks():
 def test_view_rows_always_carry_status():
     """portfolio_view must emit earn_status for every holding (incl. NVO-style
     rows where every list is empty)."""
-    import pipeline.refresh as refresh
+    from pipeline import portfolio
     s = {"holdings": {"NVO": {"shares": 1, "avg_cost": 1.0}},
          "facts": {"NVO": {"company": "Novo", "sector": "Healthcare"}},
          "results": {}, "momentum": {}, "updated": {}, "rev_surprises": {},
          "market": {}}
-    view = refresh.portfolio_view(s)
+    view = portfolio.view(s)
     r = view["rows"][0]
     assert "earn_status" in r and r["earn_status"]["stale_facts"] is True
     assert "advice" in r

@@ -3,7 +3,7 @@ live_check — the ONE check that talks to the real network. Writes nothing.
 
 Everything else in the safety net is offline: contracts read source, invariants read
 the stored rows, replay re-scores what is already on disk. None of them execute
-`refresh.analyze_row`, which is why `pipeline/refresh.py` measured 0% coverage and
+`watchlist.analyze_row`, which is why the refresh orchestration measured 0% coverage and
 `sources/fmp.py` 8% on the day the stale-financials fallback was written. Code that
 has never run is not code that works.
 
@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config                                    # noqa: E402
 from sources import yahoo, damodaran             # noqa: E402
-from pipeline import refresh                     # noqa: E402
+from pipeline import fundamentals                # noqa: E402
 from domain import trend as trend_mod            # noqa: E402
 
 DEFAULT = ["MSFT", "TSM", "NVO"]
@@ -115,8 +115,8 @@ def main(argv):
         print(t)
         print("=" * 78)
         try:
-            ff, val, calls = refresh.analyze(t, rf, config.FMP_API_KEY,
-                                             rf_live=rf_live, roc_table=roc)
+            ff, val, calls = fundamentals.analyze(t, rf, config.FMP_API_KEY,
+                                                  rf_live=rf_live, roc_table=roc)
         except Exception as e:                       # a live failure is a RESULT here
             failed.append(t)
             print(f"  !! ล้มเหลว: {type(e).__name__}: {e}\n")

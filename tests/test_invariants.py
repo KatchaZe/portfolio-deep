@@ -13,7 +13,7 @@ TWO code paths, and every one of them was a real defect first:
   I5  the GARP score on the screen must equal the pillars it claims to combine
   I6  upside% must equal (anchor - price)/price
   I7  the watchlist row and the holdings row must carry the same fields
-      (`2df2ce2 watchlist parity` — the schema is written twice, 300 lines apart)
+      (`2df2ce2 watchlist parity` — the schema used to be written twice)
   I8  a surprise list must be read newest-by-DATE, whatever order the source sent
       (B6: Yahoo returns newest-first, everything else oldest-first)
   I9  no pillar may score above 5 or below 0, and the composite must lie between the
@@ -169,22 +169,32 @@ def test_upside_identity():
 
 
 def test_row_schema_parity():
-    """I7 — the row dict is built twice: analyze_row (watchlist) and portfolio_view
-    (holdings). Every field the watchlist emits must exist on the holdings path, or one
-    tab silently lacks a feature the other has. This has shipped once already."""
+    """I7 — the watchlist row (watchlist.analyze_row) and the holdings row
+    (portfolio.view) must carry the same fields, or one tab silently lacks a feature
+    the other has. This has shipped once already. Both now build through
+    rows.valuation_row; this pins that they still do, and that the holdings row keeps
+    every field the shared builder emits."""
     print("I7 watchlist and holdings rows carry the same fields")
-    src = open(os.path.join(ROOT, "pipeline", "refresh.py"), encoding="utf-8").read()
+    import inspect
+    from pipeline import portfolio, rows, watchlist
+    shared = "rows.valuation_row("
+    check(shared in inspect.getsource(watchlist.analyze_row)
+          and shared in inspect.getsource(portfolio),
+          "both row paths build through rows.valuation_row")
 
-    def keys(fn):
-        i = src.index(f"def {fn}(")
-        m = re.search(r"\ndef ", src[i + 10:])
-        j = i + 10 + (m.start() if m else len(src))
-        return set(re.findall(r'"([a-z_][a-z0-9_]*)":', src[i:j]))
-
-    watch, hold = keys("analyze_row"), keys("portfolio_view")
-    missing = sorted(watch - hold)
-    check(not missing, f"holdings path has every watchlist field ({len(watch)} checked)",
-          str(missing))
+    ff = FinancialFacts("PARITY", company="Parity", sector="Technology", price=100.0)
+    f = ff.to_dict()
+    v = DeepV82Engine().evaluate(ff, rf=RF).to_dict()
+    watch = rows.valuation_row("PARITY", f, v, {}, None, rev_surprises=None,
+                               has_new_schema=True, fmp_on=False)
+    watch["advice"] = None
+    s = {"holdings": {"PARITY": {"shares": 1, "avg_cost": 50.0}},
+         "facts": {"PARITY": f}, "results": {"PARITY": v}, "momentum": {},
+         "updated": {}, "rev_surprises": {}, "market": {}}
+    hold = portfolio.view(s)["rows"][0]
+    missing = sorted(set(watch) - set(hold))
+    check(not missing and len(watch) > 40,
+          f"holdings path has every watchlist field ({len(watch)} checked)", str(missing))
 
 
 def test_surprise_lists_are_read_by_date():

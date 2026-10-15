@@ -14,7 +14,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import store
-from pipeline import refresh
+from pipeline import fundamentals, daily, allocation
 from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from domain.engine.contract import Valuation
@@ -33,7 +33,7 @@ def test_whatif_bad_amount_safe():
            {"ticker": "MSFT", "amount": 500},
            {"ticker": "", "amount": 100},
            None if False else {"ticker": "AAPL", "amount": None}]
-    res, calls = refresh.allocation(s, bad, fmp_key="")
+    res, calls = allocation.build(s, bad, fmp_key="")
     added = {a["ticker"] for a in res.get("added", [])}
     assert added == {"MSFT"}, added
     assert "NVDA" in res.get("skipped", []), res.get("skipped")
@@ -43,29 +43,29 @@ def test_whatif_bad_amount_safe():
 
 def test_quota_guard_keyless(monkeypatched=None):
     # monkeypatch the network bits
-    orig_rf, orig_an = yahoo.fetch_treasury_10y, refresh.analyze
-    refresh.yahoo.fetch_treasury_10y = lambda **k: (0.045, True)
+    orig_rf, orig_an = yahoo.fetch_treasury_10y, fundamentals.analyze
+    fundamentals.yahoo.fetch_treasury_10y = lambda **k: (0.045, True)
 
     def fake_analyze(t, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None):
         ff = FinancialFacts(t)
         v = Valuation(version="7.3")
         return ff, v, (1 if fmp_key else 0)
-    refresh.analyze = fake_analyze
+    fundamentals.analyze = fake_analyze
     # no unit test may reach the network — the Damodaran ROC fetch is per-refresh
-    refresh.damodaran.fetch_roc_table = lambda **k: {}
+    fundamentals.damodaran.fetch_roc_table = lambda **k: {}
     try:
         # no key, quota already at cap -> must NOT skip (zero FMP calls happen)
-        fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(
+        fetched, errors, calls, rf_pct, rf_live = fundamentals.fetch_fundamentals(
             ["NVDA", "MSFT"], fmp_key="", quota_used=250, quota_cap=250)
         assert sorted(fetched) == ["MSFT", "NVDA"] and calls == 0 and not errors, (errors, calls)
         # with a key at cap -> every ticker skipped with (quota)
-        fetched2, errors2, calls2, _, _ = refresh.fetch_fundamentals(
+        fetched2, errors2, calls2, _, _ = fundamentals.fetch_fundamentals(
             ["NVDA", "MSFT"], fmp_key="k", quota_used=250, quota_cap=250)
         assert not fetched2 and calls2 == 0 and all("(quota)" in e for e in errors2), errors2
         assert rf_pct == 4.5 and rf_live is True
     finally:
-        refresh.yahoo.fetch_treasury_10y = orig_rf
-        refresh.analyze = orig_an
+        fundamentals.yahoo.fetch_treasury_10y = orig_rf
+        fundamentals.analyze = orig_an
     print("quota guard keyless OK")
 
 
@@ -74,12 +74,12 @@ def test_commit_split_merges_store():
     ff = FinancialFacts("NVDA", company="NVIDIA")
     ff.revenue_quarters = {}
     val = Valuation(version="7.3", composite=4.2)
-    refresh.commit_fundamentals(s, {"NVDA": (ff, val)}, fmp_calls=3)
+    fundamentals.commit_fundamentals(s, {"NVDA": (ff, val)}, fmp_calls=3)
     assert s["facts"]["NVDA"]["company"] == "NVIDIA"
     assert s["results"]["NVDA"]["composite"] == 4.2
     assert "NVDA" in s["updated"]
     assert store.fmp_used_today(s) == 3
-    n = refresh.commit_daily(s, {"NVDA": {"price": 100.0, "momentum_signal": "Bullish"}})
+    n = daily.commit_daily(s, {"NVDA": {"price": 100.0, "momentum_signal": "Bullish"}})
     assert n == ["NVDA"] and s["momentum"]["NVDA"]["price"] == 100.0
     print("commit split merges store OK")
 

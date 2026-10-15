@@ -60,7 +60,7 @@ def _capture():
         import store as st
         from domain.engine import get_engine
         from domain.facts import FinancialFacts
-        from pipeline import refresh
+        from pipeline import fundamentals
 
         client = TestClient(app_mod.app)
         out = {}
@@ -107,7 +107,7 @@ def _capture():
         out["api_write"]["assumptions_after"] = get("/api/assumptions")
 
         tickers = sorted(store.get("holdings", {}))[:6]
-        fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(tickers, "", 0, 250)
+        fetched, errors, calls, rf_pct, rf_live = fundamentals.fetch_fundamentals(tickers, "", 0, 250)
         out["offline_pipeline"] = {
             "errors": errors, "calls": calls, "rf_pct": rf_pct, "rf_live": rf_live,
             "fetched": {t: {"facts": ff.to_dict(), "valuation": v.to_dict()}
