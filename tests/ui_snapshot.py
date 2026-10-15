@@ -120,6 +120,7 @@ PANEL_HTML = r"""
   const copy = document.getElementById(id).cloneNode(true);
   copy.querySelectorAll('style').forEach(s => s.remove());
   copy.querySelectorAll('canvas').forEach(c => { for (const a of ['width','height','style']) c.removeAttribute(a); });
+  copy.normalize();
   const walk = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
   const blank = [];
   while (walk.nextNode()) if (!walk.currentNode.textContent.trim()) blank.push(walk.currentNode);
