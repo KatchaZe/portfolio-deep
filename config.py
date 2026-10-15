@@ -1,43 +1,41 @@
 """
-Configuration for the DEEP portfolio app (engine version = DEEP_VERSION below).
-
-The FMP API key is read from the environment, never hard-coded:
+Configuration for the DEEP portfolio app. Secrets come from the environment only:
     Windows PowerShell:  $env:FMP_API_KEY="your_key_here"
     macOS / Linux:       export FMP_API_KEY=your_key_here
+
+Deployment/auth env vars (APP_TOKEN, RENDER, WEB_CONCURRENCY, ...) are read by app.py
+and Drive credentials (GDRIVE_*) by sources/gdrive_store.py, at import time there.
 """
 import os
 
+# --- data-source keys and endpoints ------------------------------------------
 FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 FMP_BASE = "https://financialmodelingprep.com/stable"     # stable endpoints (?symbol=)
 FMP_LEGACY = "https://financialmodelingprep.com/api/v3"   # fallback path style
 QUOTA_CAP = 250            # FMP free-tier daily call budget (single source of truth)
 
-# Optional extra free consensus sources for the EPS blend / cross-check (Phase 2).
-# Both are OPTIONAL — without a key the source is simply skipped (app still runs).
-#   Finnhub:        free 60 req/min  — EPS surprise history (reliable cross-check)
-#   Alpha Vantage:  free 25 req/day  — historical quarterly EPS surprise (tight cap)
+# Optional consensus cross-check sources; without a key the source is skipped.
+#   Finnhub:        free 60 req/min  -- EPS surprise history
+#   Alpha Vantage:  free 25 req/day  -- historical quarterly EPS surprise
 FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "")
 ALPHAVANTAGE_API_KEY = os.environ.get("ALPHAVANTAGE_API_KEY", "")
 
-# SEC fair-access requires a contact in the User-Agent. Set SEC_CONTACT_EMAIL in
-# your environment so your address is NOT hard-coded in this (public) repo.
+# SEC fair-access requires a contact in the User-Agent; keep the address out of git.
 SEC_CONTACT_EMAIL = os.environ.get("SEC_CONTACT_EMAIL", "your-email@example.com")
-SEC_USER_AGENT = f"PortfolioDeepApp {SEC_CONTACT_EMAIL}"  # SEC fair-access contact
+SEC_USER_AGENT = f"PortfolioDeepApp {SEC_CONTACT_EMAIL}"
 
-# Active DEEP framework version — change this ONE line to swap engines (e.g. "7.4")
-DEEP_VERSION = "8.2"
+# --- engine -------------------------------------------------------------------
+DEEP_VERSION = "8.2"         # active DEEP framework version; change this ONE line to swap engines
 
-# Market assumption: equity risk premium (Damodaran implied, US). There is no free
-# live feed, so it is a manually-refreshed constant — central HERE so the engine and
-# the validate sanity-band read the SAME value. Update both ERP and ERP_AS_OF when you
-# refresh it; the app FLAGS the value once it is older than ERP_STALE_MONTHS.
-ERP = 0.0445                 # SOURCE OF TRUTH — ifa-stock-analysis-v8/scripts keep their own
-                             # CLI default; when refreshing here, update those too if used.
-                             # 2026-07 update: Damodaran US ERP 4.45% (mature market 4.17%);
-                             # US carries a small country premium over mature this cycle.
+# Equity risk premium (Damodaran implied, US). No free live feed, so it is refreshed
+# by hand; the engine and the validate sanity band both read it from here (a value
+# saved from the dashboard overrides it at runtime, see store._apply_assumptions).
+# ifa-stock-analysis-v8/scripts keep their own CLI default: update those too.
+ERP = 0.0445                 # decimal, not percent
 ERP_AS_OF = "2026-07"        # year-month this ERP was last set
 ERP_STALE_MONTHS = 3         # flag the ERP as stale once it is older than this
 
+# --- paths and caches -----------------------------------------------------------
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")          # SEC companyfacts + CIK map cache
@@ -48,6 +46,7 @@ SEC_MIN_INTERVAL = 0.15      # seconds between SEC requests (~6-7/s)
 SEC_CACHE_TTL_HOURS = 12     # re-use cached companyfacts within this window
 PRICE_CACHE_TTL_HOURS = 18   # R4: re-use the long (2y) price series within a trading day
 
+# --- reference data ---------------------------------------------------------------
 # Core 12 (ticker -> SEC CIK) — used for SEC cross-check
 CIKS = {
     "NVDA": "0001045810", "MSFT": "0000789019", "AVGO": "0001730168", "TSM": "0001046179",
@@ -75,7 +74,8 @@ CAPGAINS_TAX_RATE = 0.15     # investor capital-gains tax on realized gains (lon
 TRADING_COST_BPS = 20        # round-trip trading cost in bps (bid-ask + impact); 20 = 0.20%
 
 # --- Damodaran S32/33: market-valuation overlay (manual, refresh monthly like ERP)
-# S&P 500 trailing P/E — no free API; update from multpl.com / Damodaran monthly.
+# S&P 500 trailing P/E; no free API, update from multpl.com / Damodaran monthly.
+# Overridden at runtime by a dashboard-saved value, like ERP.
 MARKET_PE = 25.1
 MARKET_PE_AS_OF = "2026-06"
 
