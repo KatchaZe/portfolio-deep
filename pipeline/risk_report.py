@@ -1,17 +1,18 @@
 """
-pipeline/risk_report.py — the /api/risk payload builder (extracted verbatim from
-app.py on 2026-07-19 so it is unit-testable).
+pipeline/risk_report.py — the /api/risk payload builder.
 
-Three concerns, now with visible seams:
-  * network  — ONLY through the injected `fetch_returns` (default:
-               pipeline.prices.fetch_returns);
-  * math     — pure calls into domain.engine.risk / domain.diversification;
-  * shaping  — the payload dict consumed by index.html (Risk Desk + Correlation).
+  * network  ONLY through the injected `fetch_returns` (default
+             pipeline.prices.fetch_returns);
+  * math     pure calls into domain.engine.risk / domain.diversification;
+  * shaping  one function per payload section, assembled by `build`.
 
 READ-ONLY on the store dict; the FMP-quota counter is committed by the caller
 (app.py) under store.LOCK.
 """
 import logging
+import math
+import traceback
+from dataclasses import dataclass
 
 import config
 from pipeline import prices
@@ -20,13 +21,10 @@ from domain import diversification
 
 log = logging.getLogger("portfolio.risk_report")
 
-# --------------------------------------------------------------------------- #
-#  Risk engine  (Allocation tab — institutional risk-desk view)               #
-#  READ-ONLY on the main store. Network (price history) runs OUTSIDE st.LOCK;  #
-#  only the fmp_usage counter is committed under the lock (same safe pattern   #
-#  as /api/allocation/whatif). All risk data goes to data/risk_cache.json.     #
-# --------------------------------------------------------------------------- #
-import math as _math
+# benchmark yardsticks: fetched alongside the holdings, kept OUT of the weights
+REFS = (("SPY", "S&P 500", "equity"), ("QQQ", "Nasdaq-100", "equity"),
+        ("GLD", "Gold", "gold"), ("IBIT", "Bitcoin", "crypto"))
+MIN_REALIZED = 60           # returns per name before its realized history is trusted
 
 
 def _sleeve(sector):
@@ -54,119 +52,87 @@ def _proxy_vol(sector):
     return riskeng.PROXY_VOL["us_large"]
 
 
-def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
-          prefer_fmp, fetch_returns=None):
-    """Assemble the full risk payload. Returns (payload, fmp_calls).
-    `fetch_returns` is the ONLY network seam — inject a fake provider to
-    unit-test the whole payload shaping offline (tests/test_risk_report.py)."""
-    fetch_returns = fetch_returns or prices.fetch_returns
-    holdings = s.get("holdings", {})
-    facts = s.get("facts", {})
-    mom = s.get("momentum", {})
+@dataclass
+class _Book:
+    """Priced positions and the per-name attributes every section reads."""
+    positions: dict
+    betas: dict
+    beta_check: dict
+    sectors: dict
+    currencies: dict
+    asset_class: dict
 
-    positions, betas, sectors, currencies, asset_class = {}, {}, {}, {}, {}
-    beta_check = {}
-    for t, h in holdings.items():
+
+def _book(s):
+    facts, mom = s.get("facts", {}), s.get("momentum", {})
+    b = _Book({}, {}, {}, {}, {}, {})
+    for t, h in s.get("holdings", {}).items():
         sh = h.get("shares") or 0
         ff = facts.get(t, {}) or {}
         price = (mom.get(t, {}) or {}).get("price") or ff.get("price")
         if sh <= 0 or not price:
             continue
-        positions[t] = sh * price
-        # P1-6 (S4): vendor beta primary; regression beta (daily run, vs SPY) as
-        # fallback + cross-check. Large disagreement is surfaced in meta.
+        b.positions[t] = sh * price
+        # vendor beta primary; the daily run's regression beta (vs SPY) is the
+        # fallback and a cross-check, with large disagreement surfaced in meta
         b_calc = ((mom.get(t, {}) or {}).get("v2") or {}).get("beta_calc")
         b_fmp = ff.get("beta")
-        betas[t] = b_fmp if b_fmp is not None else b_calc
+        b.betas[t] = b_fmp if b_fmp is not None else b_calc
         if b_calc is not None:
-            beta_check[t] = {"fmp": b_fmp, "calc": b_calc,
-                             "diverge": bool(b_fmp is not None and abs(b_fmp - b_calc) > 0.4)}
-        sectors[t] = ff.get("sector") or "Unknown"
-        currencies[t] = ff.get("currency") or "USD"
-        asset_class[t] = config.ASSET_CLASS_MAP.get(t, "equity")   # S3/S38-41 multi-class
+            b.beta_check[t] = {"fmp": b_fmp, "calc": b_calc,
+                               "diverge": bool(b_fmp is not None and abs(b_fmp - b_calc) > 0.4)}
+        b.sectors[t] = ff.get("sector") or "Unknown"
+        b.currencies[t] = ff.get("currency") or "USD"
+        b.asset_class[t] = config.ASSET_CLASS_MAP.get(t, "equity")
+    return b
 
-    weights = riskeng.capital_weights(positions)
-    if not weights:                        # LEVEL 3 — insufficient data
-        return ({"status": "insufficient",
-                 "message": "ยังไม่มี holding ที่มีราคา/จำนวนหุ้นพอจะวิเคราะห์ — เพิ่ม holding หรือกด Run Daily ก่อน",
-                 "snapshot": None}, 0)
 
-    tickers = sorted(weights, key=lambda t: -weights[t])
-    wvec = [weights[t] for t in tickers]
-    total_value = sum(positions.values())
+def _series(rdata, sym):
+    """(returns, dates) for any symbol in rdata, holdings and refs alike. Every
+    correlation pairs series through this so nothing is matched by position."""
+    e = rdata.get(sym) or {}
+    return (e.get("returns") or []), (e.get("dates") or [])
 
-    # ---- price history -> returns (network, accuracy-first, quota-guarded) ----
-    rdata, calls, rmeta = fetch_returns(
-        tickers + ["SPY", "QQQ", "GLD", "IBIT"], fmp_key if prefer_fmp else "",
-        quota_used, quota_cap, prefer_fmp=prefer_fmp)
 
-    have_realized = all((rdata.get(t, {}).get("n") or 0) >= 60 for t in tickers)
-    # FIX (2026-08-16): align by DATE. The old positional trim paired NVDA(t) with
-    # AVGO(t-1) whenever one source lagged a bar, turning the correlation matrix
-    # into a lag-1 cross-correlation matrix. `align_mode` is surfaced so the card
-    # can say which alignment it got.
+def _covariance(rdata, tickers, book):
+    """Covariance on DATE-aligned returns when every name has enough history;
+    otherwise a per-pair hybrid where only thin-history pairs use the assumed
+    proxy correlation. Returns (cov, cov_mode, cov_tag, proxy_tickers, n_window)."""
+    have_realized = all((rdata.get(t, {}).get("n") or 0) >= MIN_REALIZED for t in tickers)
     aligned, align_mode = riskeng.align_on_dates(rdata, tickers)
-    common_n = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
+    n_window = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
+    if have_realized and n_window >= MIN_REALIZED:
+        return riskeng.cov_matrix(aligned, tickers), "realized", "[CALC]", [], n_window
+    ac = book.asset_class
+    pvols = [config.CLASS_PROXY_VOL.get(ac[t], _proxy_vol(book.sectors[t]))
+             if ac[t] != "equity" else _proxy_vol(book.sectors[t]) for t in tickers]
+    # each pair is measured on the window it shares, so a thin name gets its raw
+    # series and cannot truncate the long names' vol estimate
+    cov, realized_tk = riskeng.hybrid_cov(
+        {t: (aligned.get(t) if align_mode == "dates" and len(aligned.get(t) or []) >= MIN_REALIZED
+             else rdata.get(t, {}).get("returns", [])) for t in tickers},
+        tickers, pvols, ac)
+    proxy_tickers = [t for t in tickers if t not in realized_tk]
+    if realized_tk:
+        return cov, "mixed", "[CALC + JUDG-PROXY]", proxy_tickers, n_window
+    return cov, "proxy", "[JUDG-PROXY]", proxy_tickers, n_window
 
-    def _rd(sym):
-        """(returns, dates) for ANY symbol in rdata — holdings and the SPY/QQQ/GLD/IBIT
-        references alike. Every correlation below pairs series through this so nothing
-        is matched by position; see riskeng.align_pair."""
-        e = rdata.get(sym) or {}
-        return (e.get("returns") or []), (e.get("dates") or [])
 
-    if have_realized and common_n >= 60:
-        # feed the DATE-ALIGNED series, not the raw ones
-        cov = riskeng.cov_matrix(aligned, tickers)
-        cov_mode, cov_tag, proxy_tickers = "realized", "[CALC]", []
-    else:
-        # FIX (2026-07-19): per-pair hybrid — realized pairs keep their REAL corr;
-        # only thin-history names use the assumed 0.60/0.20 (no more all-or-nothing
-        # proxy matrix from a single thin ticker).
-        pvols = [config.CLASS_PROXY_VOL.get(asset_class[t], _proxy_vol(sectors[t]))
-                 if asset_class[t] != "equity" else _proxy_vol(sectors[t]) for t in tickers]
-        # hybrid_cov measures each pair's correlation on the window that pair
-        # shares, so it takes the RAW series (a thin name must not truncate the
-        # long names' vol estimate) — but the dates now travel with them.
-        cov, realized_tk = riskeng.hybrid_cov(
-            {t: (aligned.get(t) if align_mode == "dates" and len(aligned.get(t) or []) >= 60
-                 else rdata.get(t, {}).get("returns", [])) for t in tickers},
-            tickers, pvols, asset_class)
-        proxy_tickers = [t for t in tickers if t not in realized_tk]
-        if realized_tk:
-            cov_mode, cov_tag = "mixed", "[CALC + JUDG-PROXY]"
-        else:
-            cov_mode, cov_tag = "proxy", "[JUDG-PROXY]"
-
-    vols = [_math.sqrt(cov[i][i]) if cov[i][i] > 0 else 0.0 for i in range(len(tickers))]
+def _vol_and_dr(wvec, cov):
+    """(portfolio vol, diversification ratio) for one covariance regime."""
+    vols = [math.sqrt(cov[i][i]) if cov[i][i] > 0 else 0.0 for i in range(len(wvec))]
     port_vol = riskeng.portfolio_vol(wvec, cov)
-    dr_normal = riskeng.diversification_ratio(wvec, vols, port_vol)
+    return port_vol, riskeng.diversification_ratio(wvec, vols, port_vol)
 
-    cov_c = riskeng.crisis_cov(cov, tickers, asset_class)
-    vols_c = [_math.sqrt(cov_c[i][i]) if cov_c[i][i] > 0 else 0.0 for i in range(len(tickers))]
-    port_vol_c = riskeng.portfolio_vol(wvec, cov_c)
-    dr_crisis = riskeng.diversification_ratio(wvec, vols_c, port_vol_c)
 
-    rc_rows, rc_sum = riskeng.risk_contributions(tickers, wvec, cov)
-    conc = riskeng.concentration(weights)
-    gap = riskeng.gap_coverage(weights, asset_class)
-    score = riskeng.diversification_score(
-        dr_normal, dr_crisis, rc_sum.get("enb_abs"), conc.get("eff_n"), conc.get("n"), gap)
-
-    # ---- exposures ----
-    by_sector = riskeng.group_exposure(weights, sectors)
-    by_currency = riskeng.group_exposure(weights, currencies)
-    by_sleeve = riskeng.group_exposure(weights, {t: _sleeve(sectors[t]) for t in tickers})
-    beta_rc = riskeng.beta_risk_contribution(weights, betas)
-    port_beta = riskeng.portfolio_beta(weights, betas)
-
-    # ---- downside-risk lens (Damodaran S2/S4) — defensive: never crash the payload ----
+def _downside(rdata, tickers, weights, cov_mode):
+    """Damodaran S2/S4 downside lens; never breaks the payload."""
     try:
-        spy_rets, spy_dates = _rd("SPY")
+        spy_rets, spy_dates = _series(rdata, "SPY")
         port_rets, port_dates = riskeng.portfolio_returns_dated(rdata, tickers, weights)
-        # the downside lens regresses the portfolio ON SPY, so the two must share dates
+        # the lens regresses the portfolio ON SPY, so the two must share dates
         port_rets, spy_rets = riskeng.align_pair(port_rets, port_dates, spy_rets, spy_dates)
-        downside = {
+        return {
             "vol_pct": round(riskeng.annualized_vol(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
             "semidev_pct": round(riskeng.semideviation(port_rets) * 100, 1) if len(port_rets) >= 2 else None,
             "sortino": riskeng.sortino(port_rets),
@@ -175,46 +141,43 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "tag": "[CALC]" if cov_mode == "realized" else "[JUDG-PROXY] thin history",
         }
     except Exception as e:
-        downside = {"vol_pct": None, "semidev_pct": None, "sortino": None,
-                    "downside_beta": None, "n": 0, "tag": f"[error] {type(e).__name__}"}
+        return {"vol_pct": None, "semidev_pct": None, "sortino": None,
+                "downside_beta": None, "n": 0, "tag": f"[error] {type(e).__name__}"}
 
-    # ---- bond rate risk (Damodaran S3) + pricing-asset flag (S40-41) — defensive ----
+
+def _empirical_durations(rdata, bond_ticks):
+    """Yield (bond, effective duration) regressed on daily 10Y yield changes (S3),
+    inside a sanity band. A failure part-way keeps the durations already yielded."""
+    from sources import yahoo
+    tnx = yahoo.fetch_chart("^TNX", rng="1y", interval="1d")
+    # keep the DATE with every close: ^TNX and an ETF trade on different calendars,
+    # and a shifted pair biases the regressed duration toward zero
+    dated = [(d, c) for d, c in zip(tnx.get("dates") or [], tnx.get("closes") or []) if c]
+    tc = [c for _d, c in dated]
+    # ^TNX is quoted in PERCENT (4.25 == 4.25%), so one point is 100bps, not 10
+    dy_bps = [(tc[i] - tc[i - 1]) * 100 for i in range(1, len(tc))]
+    dy_dates = [d for d, _c in dated][1:]          # one change per gap, dated at its end
+    for t in bond_ticks:
+        b_rets, b_dates = _series(rdata, t)
+        b_al, dy_al = riskeng.align_pair(b_rets, b_dates, dy_bps, dy_dates)
+        d_emp = riskeng.effective_duration(b_al, dy_al)
+        if d_emp and 0 < d_emp < 40:
+            yield t, d_emp
+
+
+def _rate_risk(rdata, tickers, weights, asset_class):
+    """(+100bp bond shock, pricing assets S40-41); never breaks the payload."""
     try:
         bond_ticks = [t for t in tickers if asset_class.get(t) == "bond"]
         durations = {t: config.DURATION_PROXY.get(t) for t in bond_ticks}
         durations = {t: d for t, d in durations.items() if d}
         dur_src = {t: "proxy" for t in durations}
-        # P2-12 (S3): EMPIRICAL effective duration (bond returns vs Δ10Y-yield)
-        # overrides the static proxy table when computable — as config promised.
+        # the empirical duration overrides the static proxy table when computable
         if bond_ticks:
             try:
-                from sources import yahoo as _yh
-                tnx = _yh.fetch_chart("^TNX", rng="1y", interval="1d")
-                # keep the DATE with every close: the regression below pairs a bond
-                # ETF's daily return with that day's yield change, and ^TNX does not
-                # trade on exactly the same calendar as an ETF (different holidays,
-                # different vendor gaps). Zipping the two by position was the same
-                # off-by-one class as the correlation matrix — a shifted pair here
-                # biases the regressed duration toward zero.
-                _tz = [(d, c) for d, c in zip(tnx.get("dates") or [],
-                                              tnx.get("closes") or []) if c]
-                tc = [c for _d, c in _tz]
-                tnx_dates = [d for d, _c in _tz]
-                # ^TNX is quoted in PERCENT (4.25 == 4.25%), the same convention
-                # yahoo.fetch_treasury_10y() relies on when it divides by 100.
-                # So one ^TNX point == 100bps, not 10.  The old *10 understated
-                # every yield change tenfold, which inflated the regressed
-                # duration tenfold (a true 1.9y read came out as 19y) and made
-                # the +100bp shock print -19% instead of -1.9%.
-                dy_bps = [(tc[i] - tc[i - 1]) * 100 for i in range(1, len(tc))]
-                dy_dates = tnx_dates[1:]           # one change per gap, dated at its end
-                for t in bond_ticks:
-                    b_rets, b_dates = _rd(t)
-                    b_al, dy_al = riskeng.align_pair(b_rets, b_dates, dy_bps, dy_dates)
-                    d_emp = riskeng.effective_duration(b_al, dy_al)
-                    if d_emp and 0 < d_emp < 40:            # sanity band
-                        durations[t] = d_emp
-                        dur_src[t] = "empirical"
+                for t, d_emp in _empirical_durations(rdata, bond_ticks):
+                    durations[t] = d_emp
+                    dur_src[t] = "empirical"
             except Exception as _de:
                 log.warning("empirical duration failed (proxy kept): %s", _de)
         rate_risk = {
@@ -226,164 +189,204 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
                     else "[JUDG-PROXY] category duration; +100bps parallel shock"),
         }
         pricing_assets = [t for t in tickers if asset_class.get(t) in ("crypto", "collectible")]
+        return rate_risk, pricing_assets
     except Exception:
-        rate_risk = {"has_bonds": False, "bps": 100, "loss_pct": None, "durations": {}, "tag": "[error]"}
-        pricing_assets = []
+        return ({"has_bonds": False, "bps": 100, "loss_pct": None, "durations": {}, "tag": "[error]"},
+                [])
 
-    # ---- stress / tail ----
+
+def _historical_var(rdata, tickers, weights, horizon_years):
+    """VaR from realized portfolio returns (fat tails as they happened), shown
+    beside the parametric-normal estimate."""
+    try:
+        prets, _ = riskeng.portfolio_returns_dated(rdata, tickers, weights)
+        return riskeng.historical_var(prets, horizon_years)
+    except Exception:
+        return {"var95_pct": None, "var99_pct": None, "cvar95_pct": None,
+                "n": 0, "method": "historical (error)"}
+
+
+def _after_rebalance(reb, tickers, cov, betas, sectors):
+    """Post-trade re-validation on the proposed weights (same covariance)."""
+    if reb["no_trade"]:
+        return None
+    pw = reb["proposed_weights"]
+    pvec = [pw.get(t, 0.0) for t in tickers]
+    proposed = {t: pw.get(t, 0.0) for t in tickers}
+    a_vol = riskeng.portfolio_vol(pvec, cov)
+    a_rc, _ = riskeng.risk_contributions(tickers, pvec, cov)
+    a_conc = riskeng.concentration(proposed)
+    return {
+        "port_vol_pct": round(a_vol * 100, 1),
+        "eff_n": a_conc.get("eff_n"),
+        "top_risk": (a_rc[0]["ticker"] if a_rc else None),
+        "stress_worst_pct": min([r["loss_pct"] for r in riskeng.stress_test(
+            proposed, betas, sectors)], default=None),
+    }
+
+
+def _benchmarks(rdata, tickers, weights, order_tk, asset_class):
+    """Correlation of the portfolio, each holding and each ref pair against the
+    refs, every cell DATE-aligned per pair, with the crisis floor applied to
+    equity-equity pairs only (mirrors crisis_cov). Returns (portfolio, holdings,
+    refref, (port_rets, port_dates))."""
+    floor = riskeng.CRISIS_EQUITY_CORR
+    ac_all = {**{t: asset_class.get(t, "equity") for t in tickers},
+              **{sym: cls for sym, _nm, cls in REFS}}
+
+    def is_eq(sym):
+        a = (ac_all.get(sym) or "equity").lower()
+        return not any(k in a for k in ("bond", "gold", "cash", "real"))
+
+    def cell(a_series, b_series, a, b):
+        v = riskeng.pair_corr_dated(*a_series, *b_series)
+        v = round(v, 3) if v is not None else None
+        crisis = None if v is None else (round(max(v, floor), 3) if (is_eq(a) and is_eq(b)) else round(v, 3))
+        return {"normal": v, "crisis": crisis}
+
+    port = riskeng.portfolio_returns_dated(rdata, tickers, weights)
+    portfolio = {sym: cell(port, _series(rdata, sym), "PORT", sym) for sym, _nm, _cls in REFS}
+    holdings = {t: {sym: cell(_series(rdata, t), _series(rdata, sym), t, sym)
+                    for sym, _nm, _cls in REFS} for t in order_tk}
+    refref = {}
+    for i in range(len(REFS)):
+        for j in range(i + 1, len(REFS)):
+            a, b = REFS[i][0], REFS[j][0]
+            refref[f"{a}-{b}"] = cell(_series(rdata, a), _series(rdata, b), a, b)
+    return portfolio, holdings, refref, port
+
+
+def _correlation(rdata, tickers, weights, book, cov, cov_c, cov_info,
+                         dr_normal, dr_crisis, conc, rc_rows, by_sector):
+    cov_mode, cov_tag, proxy_tickers, n_window = cov_info
+    sectors = book.sectors
+    corr, corr_c = riskeng.corr_from_cov(cov), riskeng.corr_from_cov(cov_c)
+    sc = riskeng.sector_corr(corr, tickers, sectors)
+    sc_c = riskeng.sector_corr(corr_c, tickers, sectors)
+    # ENB is the correlation-adjusted count of independent bets (= DR^2), not the
+    # inverse-HHI of risk contributions, which RISES in a crisis
+    enb, enb_c = riskeng.effective_bets(dr_normal), riskeng.effective_bets(dr_crisis)
+
+    # display order: group by sector, then heaviest weight first
+    corr_order = sorted(range(len(tickers)),
+                        key=lambda i: (sectors.get(tickers[i]) or "zz", -weights[tickers[i]]))
+    order_tk = [tickers[i] for i in corr_order]
+    m = len(order_tk)
+    mtx = [[round(corr[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
+    mtx_c = [[round(corr_c[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
+
+    bench_port, bench_hold, bench_ref, (port_rets, port_dates) = _benchmarks(
+        rdata, tickers, weights, order_tk, book.asset_class)
+
+    spy_r, spy_d = _series(rdata, "SPY")
+    pr, sr = riskeng.align_pair(port_rets, port_dates, spy_r, spy_d)
+    dcorr = riskeng.downside_corr(pr, sr, sr)
+    pearson = riskeng.pair_corr_dated(port_rets, port_dates, spy_r, spy_d)
+    pearson = round(pearson, 3) if pearson is not None else None
+    roll = riskeng.rolling_corr(pr, sr, 60)
+
+    marginal = [{"ticker": r["ticker"], "cap_pct": r["capital_pct"],
+                 "risk_pct": r.get("abs_risk_share_pct"), "diff_pp": r.get("diff_pp")}
+                for r in rc_rows]
+
+    top_sec = by_sector[0]["label"] if by_sector else None
+    top_sec_wt = by_sector[0]["value"] if by_sector else None
+    top_sec_corr = (sc["sector_avg"].get(top_sec, {}) or {}).get("avg") if top_sec else None
+
+    philosophy = diversification.diversification_philosophy(
+        n_holdings=len(tickers), enb=enb, enb_crisis=enb_c, eff_n=conc.get("eff_n"),
+        top_sector=top_sec, top_sector_wt=top_sec_wt, top_sector_corr=top_sec_corr,
+        avg_pairwise=sc["avg_pairwise"], avg_pairwise_crisis=sc_c["avg_pairwise"],
+        bench_nasdaq_corr=bench_port.get("QQQ", {}).get("normal"), downside_corr=dcorr,
+        top_risk_driver=(rc_rows[0]["ticker"] if rc_rows else None))
+
+    return {
+        "order": order_tk,
+        "sectors": {t: sectors.get(t) for t in tickers},
+        "matrix": mtx, "crisis_matrix": mtx_c,
+        "sector_avg": {"normal": sc["sector_avg"], "crisis": sc_c["sector_avg"]},
+        "avg_pairwise": {"normal": sc["avg_pairwise"], "crisis": sc_c["avg_pairwise"]},
+        "pairs": {"normal": riskeng.top_pairs(corr, tickers),
+                  "crisis": riskeng.top_pairs(corr_c, tickers)},
+        "concentration": {"enb": enb, "enb_crisis": enb_c,
+                          "eff_n": conc.get("eff_n"), "n": conc.get("n")},
+        "benchmark": {"refs": [{"sym": s2, "name": nm, "cls": cl} for s2, nm, cl in REFS],
+                      "portfolio": bench_port, "holdings": bench_hold, "refref": bench_ref,
+                      "downside": {"pearson": pearson, "downside": dcorr}},
+        "rolling": {"port_vs_spy": roll},
+        "marginal": marginal,
+        "philosophy": philosophy,
+        "meta": {"cov_mode": cov_mode, "tag": cov_tag, "n_window": n_window,
+                 "proxy_tickers": proxy_tickers,
+                 "refs_fetched": {s2: bool(_series(rdata, s2)[0]) for s2, _nm, _cls in REFS}},
+    }
+
+
+def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
+          prefer_fmp, fetch_returns=None):
+    """Assemble the full risk payload. Returns (payload, fmp_calls).
+    `fetch_returns` is the ONLY network seam: inject a fake provider to unit-test
+    the whole payload shaping offline (tests/test_risk_report.py)."""
+    fetch_returns = fetch_returns or prices.fetch_returns
+    book = _book(s)
+    weights = riskeng.capital_weights(book.positions)
+    if not weights:
+        return ({"status": "insufficient",
+                 "message": "ยังไม่มี holding ที่มีราคา/จำนวนหุ้นพอจะวิเคราะห์ — เพิ่ม holding หรือกด Run Daily ก่อน",
+                 "snapshot": None}, 0)
+
+    tickers = sorted(weights, key=lambda t: -weights[t])
+    wvec = [weights[t] for t in tickers]
+    betas, sectors, asset_class = book.betas, book.sectors, book.asset_class
+
+    rdata, calls, rmeta = fetch_returns(
+        tickers + [sym for sym, _nm, _cls in REFS], fmp_key if prefer_fmp else "",
+        quota_used, quota_cap, prefer_fmp=prefer_fmp)
+
+    cov, cov_mode, cov_tag, proxy_tickers, n_window = _covariance(rdata, tickers, book)
+    port_vol, dr_normal = _vol_and_dr(wvec, cov)
+    cov_c = riskeng.crisis_cov(cov, tickers, asset_class)
+    _port_vol_c, dr_crisis = _vol_and_dr(wvec, cov_c)
+
+    rc_rows, rc_sum = riskeng.risk_contributions(tickers, wvec, cov)
+    conc = riskeng.concentration(weights)
+    gap = riskeng.gap_coverage(weights, asset_class)
+    score = riskeng.diversification_score(
+        dr_normal, dr_crisis, rc_sum.get("enb_abs"), conc.get("eff_n"), conc.get("n"), gap)
+
+    by_sector = riskeng.group_exposure(weights, sectors)
+    by_currency = riskeng.group_exposure(weights, book.currencies)
+    by_sleeve = riskeng.group_exposure(weights, {t: _sleeve(sectors[t]) for t in tickers})
+    beta_rc = riskeng.beta_risk_contribution(weights, betas)
+    port_beta = riskeng.portfolio_beta(weights, betas)
+
+    downside = _downside(rdata, tickers, weights, cov_mode)
+    rate_risk, pricing_assets = _rate_risk(rdata, tickers, weights, asset_class)
+
     stress = riskeng.stress_test(weights, betas, sectors)
     historical = riskeng.stress_test(weights, betas, sectors, scenarios=riskeng.HISTORICAL)
     var = riskeng.var_cvar(port_vol, horizon_years)
-    # P1-7 (S2/S4): HISTORICAL VaR from realized portfolio returns (fat tails as
-    # they happened) alongside the parametric-normal estimate. Defensive.
-    try:
-        _prets, _ = riskeng.portfolio_returns_dated(rdata, tickers, weights)
-        var_hist = riskeng.historical_var(_prets, horizon_years)
-    except Exception:
-        var_hist = {"var95_pct": None, "var99_pct": None, "cvar95_pct": None,
-                    "n": 0, "method": "historical (error)"}
+    var_hist = _historical_var(rdata, tickers, weights, horizon_years)
     reverse = riskeng.reverse_stress(weights, betas, tolerance_pct)
     severe_dd = min([r["loss_pct"] for r in (stress + historical)], default=None)
 
-    # ---- suitability / sizing / rebalance ----
     suit = riskeng.suitability(stress + historical, var, tolerance_pct)
-    # P1-11 (S40-41): pricing assets (crypto/collectible) get a harder cap
     sizing = riskeng.position_sizing(rc_rows, sectors, asset_class=asset_class,
                                      pricing_cap=config.PRICING_ASSET_CAP)
     reb = riskeng.rebalance(weights, sizing)
+    after = _after_rebalance(reb, tickers, cov, betas, sectors)
 
-    # post-trade re-validation: recompute on the proposed weights (same cov)
-    after = None
-    if not reb["no_trade"]:
-        pw = reb["proposed_weights"]
-        pvec = [pw.get(t, 0.0) for t in tickers]
-        a_vol = riskeng.portfolio_vol(pvec, cov)
-        a_rc, a_sum = riskeng.risk_contributions(tickers, pvec, cov)
-        a_conc = riskeng.concentration({t: pw.get(t, 0.0) for t in tickers})
-        after = {
-            "port_vol_pct": round(a_vol * 100, 1),
-            "eff_n": a_conc.get("eff_n"),
-            "top_risk": (a_rc[0]["ticker"] if a_rc else None),
-            "stress_worst_pct": min([r["loss_pct"] for r in riskeng.stress_test(
-                {t: pw.get(t, 0.0) for t in tickers}, betas, sectors)], default=None),
-        }
-
-    # ---- Correlation Monitor (Correlation tab) — reuse cov/cov_c + benchmark refs ----
-    # Defensive: correlation must NEVER break the risk payload.
-    try:
-        corr = riskeng.corr_from_cov(cov)
-        corr_c = riskeng.corr_from_cov(cov_c)
-        sc = riskeng.sector_corr(corr, tickers, sectors)
-        sc_c = riskeng.sector_corr(corr_c, tickers, sectors)
-        _, rc_sum_c = riskeng.risk_contributions(tickers, wvec, cov_c)
-        # FIX 2026-08-16: ENB must be the correlation-adjusted count of independent
-        # bets (= DR²), not the inverse-HHI of risk contributions. The old proxy ROSE
-        # from normal→crisis and could exceed Effective N, which inverted the whole
-        # fragility read on the Correlation tab.
-        enb = riskeng.effective_bets(dr_normal)
-        enb_c = riskeng.effective_bets(dr_crisis)
-
-        # display order: group by sector, then heaviest weight first
-        corr_order = sorted(range(len(tickers)),
-                            key=lambda i: (sectors.get(tickers[i]) or "zz", -weights[tickers[i]]))
-        order_tk = [tickers[i] for i in corr_order]
-        m = len(order_tk)
-        mtx = [[round(corr[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
-        mtx_c = [[round(corr_c[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
-
-        # benchmark refs — kept OUT of weights (yardsticks, not holdings)
-        REFS = [("SPY", "S&P 500", "equity"), ("QQQ", "Nasdaq-100", "equity"),
-                ("GLD", "Gold", "gold"), ("IBIT", "Bitcoin", "crypto")]
-        floor = riskeng.CRISIS_EQUITY_CORR
-        ac_all = {**{t: asset_class.get(t, "equity") for t in tickers},
-                  **{sym: cls for sym, _nm, cls in REFS}}
-
-        def _is_eq(sym):
-            a = (ac_all.get(sym) or "equity").lower()
-            return not any(k in a for k in ("bond", "gold", "cash", "real"))
-
-        def _crisis(v, a, b):                  # mirror crisis_cov: floor equity↔equity only
-            if v is None:
-                return None
-            return round(max(v, floor), 3) if (_is_eq(a) and _is_eq(b)) else round(v, 3)
-
-        # every cell below is DATE-aligned per pair (2026-08-16). The benchmark table is
-        # the most-read number on this tab and it was the last place still pairing by
-        # position, which silently turned a one-day source lag into a lag-1 correlation.
-        port_rets, port_dates = riskeng.portfolio_returns_dated(rdata, tickers, weights)
-
-        def _pc(a_rets, a_dates, b_rets, b_dates):
-            v = riskeng.pair_corr_dated(a_rets, a_dates, b_rets, b_dates)
-            return round(v, 3) if v is not None else None
-
-        bench_port = {}
-        for sym, _nm, _cls in REFS:
-            v = _pc(port_rets, port_dates, *_rd(sym))
-            bench_port[sym] = {"normal": v, "crisis": _crisis(v, "PORT", sym)}
-        bench_hold = {}
-        for t in order_tk:
-            row = {}
-            for sym, _nm, _cls in REFS:
-                v = _pc(*_rd(t), *_rd(sym))
-                row[sym] = {"normal": v, "crisis": _crisis(v, t, sym)}
-            bench_hold[t] = row
-        bench_ref = {}
-        for i in range(len(REFS)):
-            for j in range(i + 1, len(REFS)):
-                a, b = REFS[i][0], REFS[j][0]
-                v = _pc(*_rd(a), *_rd(b))
-                bench_ref[f"{a}-{b}"] = {"normal": v, "crisis": _crisis(v, a, b)}
-
-        # the downside / rolling lenses regress the portfolio on SPY — align that pair too
-        _spy_r, _spy_d = _rd("SPY")
-        _pr, _sr = riskeng.align_pair(port_rets, port_dates, _spy_r, _spy_d)
-        dcorr = riskeng.downside_corr(_pr, _sr, _sr)
-        pearson = _pc(port_rets, port_dates, _spy_r, _spy_d)
-        roll = riskeng.rolling_corr(_pr, _sr, 60)
-
-        marginal = [{"ticker": r["ticker"], "cap_pct": r["capital_pct"],
-                     "risk_pct": r.get("abs_risk_share_pct"), "diff_pp": r.get("diff_pp")}
-                    for r in rc_rows]
-
-        top_sec = by_sector[0]["label"] if by_sector else None
-        top_sec_wt = by_sector[0]["value"] if by_sector else None
-        top_sec_corr = (sc["sector_avg"].get(top_sec, {}) or {}).get("avg") if top_sec else None
-
-        philosophy = diversification.diversification_philosophy(
-            n_holdings=len(tickers), enb=enb, enb_crisis=enb_c, eff_n=conc.get("eff_n"),
-            top_sector=top_sec, top_sector_wt=top_sec_wt, top_sector_corr=top_sec_corr,
-            avg_pairwise=sc["avg_pairwise"], avg_pairwise_crisis=sc_c["avg_pairwise"],
-            bench_nasdaq_corr=bench_port.get("QQQ", {}).get("normal"), downside_corr=dcorr,
-            top_risk_driver=(rc_rows[0]["ticker"] if rc_rows else None))
-
-        correlation = {
-            "order": order_tk,
-            "sectors": {t: sectors.get(t) for t in tickers},
-            "matrix": mtx, "crisis_matrix": mtx_c,
-            "sector_avg": {"normal": sc["sector_avg"], "crisis": sc_c["sector_avg"]},
-            "avg_pairwise": {"normal": sc["avg_pairwise"], "crisis": sc_c["avg_pairwise"]},
-            "pairs": {"normal": riskeng.top_pairs(corr, tickers),
-                      "crisis": riskeng.top_pairs(corr_c, tickers)},
-            "concentration": {"enb": enb, "enb_crisis": enb_c,
-                              "eff_n": conc.get("eff_n"), "n": conc.get("n")},
-            "benchmark": {"refs": [{"sym": s2, "name": nm, "cls": cl} for s2, nm, cl in REFS],
-                          "portfolio": bench_port, "holdings": bench_hold, "refref": bench_ref,
-                          "downside": {"pearson": pearson, "downside": dcorr}},
-            "rolling": {"port_vs_spy": roll},
-            "marginal": marginal,
-            "philosophy": philosophy,
-            "meta": {"cov_mode": cov_mode, "tag": cov_tag, "n_window": common_n,
-                     "proxy_tickers": proxy_tickers,
-                     "refs_fetched": {s2: bool(_rd(s2)[0]) for s2, _nm, _cls in REFS}},
-        }
-    except Exception as _ce:                    # never break the risk payload
-        import traceback as _tb
-        _tb.print_exc()
-        correlation = {"status": "error", "message": f"{type(_ce).__name__}: {_ce}"}
+    try:                                # the Correlation tab must NEVER break the payload
+        correlation = _correlation(rdata, tickers, weights, book, cov, cov_c,
+                                   (cov_mode, cov_tag, proxy_tickers, n_window),
+                                   dr_normal, dr_crisis, conc, rc_rows, by_sector)
+    except Exception as e:
+        traceback.print_exc()
+        correlation = {"status": "error", "message": f"{type(e).__name__}: {e}"}
 
     snapshot = {
         "as_of": s.get("updated", {}).get("_daily") or None,
-        "total_value": round(total_value, 2),
+        "total_value": round(sum(book.positions.values()), 2),
         "n_positions": len(weights),
         "cash_pct": None,                  # not in data model -> "Invested Portfolio"
         "equity_pct": 100.0,
@@ -401,8 +404,8 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         "correlation": correlation,
         "concentration": conc,
         "capital_vs_risk": {
-            "beta_based": beta_rc,                 # Phase-1 one-factor view
-            "covariance_based": rc_rows,           # Phase-2 full view (preferred)
+            "beta_based": beta_rc,                 # one-factor view
+            "covariance_based": rc_rows,           # full view (preferred)
             "port_vol_pct": rc_sum.get("port_vol_pct"),
             # how evenly risk is spread across names (inverse-HHI of |RC|).
             # NOT the Effective Number of Bets — see risk.effective_bets().
@@ -432,7 +435,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "tags": {"history": cov_tag, "stress": "[JUDG-SCENARIO]",
                      "beta_sector": "[STORED]", "weights": "[CALC]"},
             "pricing_assets": pricing_assets,
-            "beta_check": beta_check,          # P1-6: fmp vs regression beta (cross-check)
+            "beta_check": book.beta_check,     # vendor vs regression beta
             "pricing_asset_cap_pct": round(config.PRICING_ASSET_CAP * 100, 1),
         },
     }, calls)
