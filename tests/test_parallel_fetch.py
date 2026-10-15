@@ -1,6 +1,6 @@
 """
 test_parallel_fetch — P1: quota partition + ThreadPool fetch integrity.
-Offline: analyze / get_prices* / treasury are monkeypatched — no network.
+Offline: analyze / price ladders / treasury are monkeypatched — no network.
 """
 import os
 import sys
@@ -60,12 +60,12 @@ def test_parallel_fundamentals():
 
 
 def test_parallel_daily_shape():
-    orig_gp, orig_gpl = refresh.get_prices, refresh.get_prices_long
+    orig_gp, orig_gpl = refresh.prices.fetch_daily_series, refresh.prices.fetch_daily_adjusted
     closes = [100 + i * 0.1 for i in range(300)]
     dates = [f"2025-{(i % 12) + 1:02d}-01" for i in range(300)]
-    refresh.get_prices = lambda t, **k: {"closes": closes[-90:], "volumes": [1e6] * 90,
+    refresh.prices.fetch_daily_series = lambda t, **k: {"closes": closes[-90:], "volumes": [1e6] * 90,
                                          "dates": dates[-90:]}
-    refresh.get_prices_long = lambda t, key="", **k: {"closes": closes, "volumes": [1e6] * 300,
+    refresh.prices.fetch_daily_adjusted = lambda t, key="", **k: {"closes": closes, "volumes": [1e6] * 300,
                                                       "dates": dates, "dividend_adjusted": True,
                                                       "source": "test"}
     try:
@@ -75,7 +75,7 @@ def test_parallel_daily_shape():
         assert "^MARKET" in out
         print("parallel daily OK")
     finally:
-        refresh.get_prices, refresh.get_prices_long = orig_gp, orig_gpl
+        refresh.prices.fetch_daily_series, refresh.prices.fetch_daily_adjusted = orig_gp, orig_gpl
 
 
 if __name__ == "__main__":

@@ -32,21 +32,6 @@ _cik_lock = threading.Lock()       # P1: parallel workers share the lazy CIK map
 MAX_WORKERS = 4                    # P1: parallel ticker fetches (SEC throttle is global)
 
 
-def get_prices(ticker, rng="3mo", interval="1d"):
-    """Thin delegator (2026-07-19) — ladder lives in pipeline/prices.fetch_daily_series
-    (yahoo chart -> stooq, >=30 bars). Kept here so callers/tests that
-    monkeypatch refresh.get_prices keep working."""
-    return prices.fetch_daily_series(ticker, rng=rng, interval=interval)
-
-
-def get_prices_long(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
-    """Thin delegator (2026-07-19) — ladder lives in
-    pipeline/prices.fetch_daily_adjusted (yahoo adj -> fmp adj -> stooq,
-    +pricecache with the H3/R4 policies unchanged)."""
-    return prices.fetch_daily_adjusted(ticker, fmp_key=fmp_key, rng=rng,
-                                       full_bars=full_bars, min_bars=min_bars)
-
-
 def resolve_cik(ticker):
     global _cik_map
     t = ticker.upper().strip()
@@ -361,28 +346,6 @@ def compute_peer_medians(fetched):
     return out
 
 
-def _reconcile_earnings(ff, yh, fm):
-    """Pick the earnings list to show and tag its provenance.
-      • Yahoo present            -> keep Yahoo (adjusted/street, matches forward_eps);
-        if FMP also present and the latest quarter disagrees beat-vs-miss, flag it.
-      • Yahoo empty, FMP present -> use FMP and flag the substitution.
-      • both empty               -> leave as-is."""
-    if yh:
-        src = "yahoo"
-        if fm:
-            if {(yh[-1] or {}).get("grade"), (fm[-1] or {}).get("grade")} == {"beat", "miss"}:
-                ff.flags.append("earnings beat/miss disagree (yahoo vs FMP)")
-            else:
-                src = "yahoo+fmp✓"
-        ff.provenance["earnings_surprises"] = src
-        return yh
-    if fm:
-        ff.flags.append("earnings via FMP (yahoo earningsHistory empty)")
-        ff.provenance["earnings_surprises"] = "fmp"
-        return fm
-    return yh
-
-
 class _Budget:
     """Thread-safe remaining-call counter for OPTIONAL FMP spending.
 
@@ -477,18 +440,6 @@ def commit_fundamentals(s, fetched, fmp_calls):
     return s
 
 
-def refresh_fundamentals(s, tickers, fmp_key="", quota_cap=250):
-    """Back-compat wrapper (fetch + commit in one call). Prefer the split
-    fetch_fundamentals / commit_fundamentals so the lock isn't held during
-    network I/O — see app.py."""
-    fetched, errors, calls, rf_pct, rf_live = fetch_fundamentals(
-        tickers, fmp_key, store_mod.fmp_used_today(s), quota_cap)
-    commit_fundamentals(s, fetched, calls)
-    return {"refreshed": list(fetched.keys()), "errors": errors, "fmp_calls": calls,
-            "fmp_used_today": store_mod.fmp_used_today(s), "rf_pct": rf_pct,
-            "rf_live": rf_live}
-
-
 def _earn_status(eps_list, rev_list, mgn_list, provenance, facts_has_new_schema, fmp_on):
     """Why is each earnings track (EPS / Rev / Mgn) filled or empty? Shown as a
     tooltip so a blank row is EXPLAINED instead of silently missing (user ask:
@@ -529,14 +480,14 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     mom = {}
     mom_v2 = {}
     try:
-        c = get_prices(t)
+        c = prices.fetch_daily_series(t)
         m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
         if "error" not in m:
             mom = m
     except Exception as e:
         log.warning("%s momentum failed: %s", t, e)
     try:                                            # faithful composite momentum (v2)
-        lc = get_prices_long(t, fmp_key)
+        lc = prices.fetch_daily_adjusted(t, fmp_key)
         mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
         if "error" not in mv:
             mv["src"] = lc.get("source")
@@ -627,7 +578,7 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     # cross-sectional momentum rank among the watchlist names (mirrors portfolio_view)
     momentum.cross_sectional_rank([r["momentum_v2"] for r in rows if r.get("momentum_v2")])
     try:                                            # S9 market regime -> crash guard per row (mirror portfolio)
-        sp = get_prices_long("SPY", fmp_key, rng="2y")
+        sp = prices.fetch_daily_adjusted("SPY", fmp_key, rng="2y")
         regime = momentum.market_state(sp["closes"]).get("regime")
         for r in rows:
             v2 = r.get("momentum_v2")
@@ -639,23 +590,16 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
             "rf_pct": round(rf * 100, 2), "rf_live": rf_live}
 
 
-def watchlist_run(s, tickers, fmp_key="", quota_cap=250):
-    """Back-compat wrapper. Prefer fetch_watchlist + commit quota in app.py."""
-    res = fetch_watchlist(tickers, fmp_key, store_mod.fmp_used_today(s), quota_cap)
-    store_mod.add_fmp_calls(s, res["fmp_calls"])
-    return res
-
-
 def fetch_daily(tickers, fmp_key=""):
     """NETWORK PHASE — per ticker: short-window indicators (RSI/MACD/DBBMV, secondary)
     plus the faithful composite momentum (v2, primary) under m["v2"].
-    `fmp_key` is only spent if Yahoo is blocked (get_prices_long tier 2); leave ""
+    `fmp_key` is only spent if Yahoo is blocked (fetch_daily_adjusted tier 2); leave ""
     to keep the daily run quota-free (Yahoo->Stooq). Run OUTSIDE store.LOCK."""
     # P1-6 (S4): fetch SPY FIRST so every ticker can compute a regression beta
     # (weekly, ~2y) as a free cross-check / fallback of the FMP vendor beta.
     sp = None
     try:
-        sp = get_prices_long("SPY", fmp_key, rng="2y")     # ~1y+ is enough for SMA200
+        sp = prices.fetch_daily_adjusted("SPY", fmp_key, rng="2y")     # ~1y+ is enough for SMA200
     except Exception as e:
         log.warning("SPY fetch failed (beta_calc + market_state skipped): %s", e)
 
@@ -663,14 +607,14 @@ def fetch_daily(tickers, fmp_key=""):
         """Per-ticker daily payload. Never raises (each part is contained)."""
         m = {}
         try:
-            c = get_prices(t)
+            c = prices.fetch_daily_series(t)
             mm = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
             if "error" not in mm:
                 m = mm
         except Exception as e:
             log.warning("%s daily momentum failed: %s", t, e)
         try:
-            lc = get_prices_long(t, fmp_key, rng="5y", full_bars=780)  # H3: S9 reversal needs 756 bars — demand them
+            lc = prices.fetch_daily_adjusted(t, fmp_key, rng="5y", full_bars=780)  # H3: S9 reversal needs 756 bars — demand them
             mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
             if "error" not in mv:
                 mv["src"] = lc.get("source")
@@ -699,7 +643,7 @@ def fetch_daily(tickers, fmp_key=""):
     # S9 market regime (once per run): SPY trend gates per-name momentum reliability.
     try:
         if sp is None:
-            sp = get_prices_long("SPY", fmp_key, rng="2y")
+            sp = prices.fetch_daily_adjusted("SPY", fmp_key, rng="2y")
         mkt = momentum.market_state(sp["closes"])
         mkt["ret_12m"] = momentum.roc(sp["closes"], 252)   # S16/S35 benchmark
         mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
@@ -727,11 +671,6 @@ def commit_daily(s, fetched):
         else:
             s["momentum"][t] = m
     return [t for t in fetched if t != "^MARKET"]
-
-
-def run_daily(s, tickers):
-    """Back-compat wrapper (fetch + commit in one call)."""
-    return commit_daily(s, fetch_daily(tickers))
 
 
 def allocation(s, whatif=None, fmp_key=""):
