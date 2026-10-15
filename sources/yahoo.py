@@ -6,6 +6,8 @@ it is unit-testable against saved quoteSummary fixtures.
 import time
 import threading
 
+from sources.surprise import grade
+
 
 def _raw(node):
     if isinstance(node, dict):
@@ -28,7 +30,7 @@ def parse_consensus(qs_json):
     out["beta"] = _raw(dks.get("beta"))
     out["shares"] = _raw(dks.get("sharesOutstanding")) or _raw(price.get("sharesOutstanding"))
     out["price"] = _raw(price.get("regularMarketPrice")) or _raw(fin.get("currentPrice"))
-    # T1: quoted for the US-listed security, so already ADR-ratio consistent
+    # quoted for the US-listed security, so already ADR-ratio consistent
     out["market_cap"] = _raw(price.get("marketCap"))
     out["revenue_growth"] = _raw(fin.get("revenueGrowth"))
     for tr in res.get("earningsTrend", {}).get("trend", []):
@@ -36,17 +38,6 @@ def parse_consensus(qs_json):
             out["growth_lt"] = _raw(tr.get("growth"))
             break
     return out
-
-
-def _grade(surprise_pct):
-    """BEAT/MEET/MISS from an EPS surprise percent (threshold ±2%)."""
-    if surprise_pct is None:
-        return None
-    if surprise_pct > 2:
-        return "beat"
-    if surprise_pct < -2:
-        return "miss"
-    return "meet"
 
 
 def parse_earnings_history(qs_json):
@@ -63,10 +54,9 @@ def parse_earnings_history(qs_json):
     for h in hist:
         act = _raw(h.get("epsActual"))
         est = _raw(h.get("epsEstimate"))
-        # BUGFIX (2026-07): Yahoo's surprisePercent raw is a FRACTION (0.041 =
-        # +4.1%), not a percent — trusting it as-is graded real beats as "meet".
-        # Prefer computing from act/est (unit-unambiguous); fall back to the
-        # fraction ×100 only when the estimate is missing.
+        # Yahoo's surprisePercent raw is a FRACTION (0.041 = +4.1%), not a percent.
+        # Compute from act/est (unit-unambiguous); use the fraction x100 only when
+        # the estimate is missing.
         sp = None
         if act is not None and est not in (None, 0):
             sp = (act - est) / abs(est) * 100
@@ -80,7 +70,7 @@ def parse_earnings_history(qs_json):
                     else _raw(h.get("quarter")),
                     "eps_actual": act, "eps_estimate": est,
                     "surprise_pct": round(sp, 1) if sp is not None else None,
-                    "grade": _grade(sp)})
+                    "grade": grade(sp)})
     # earningsHistory is newest-first; present oldest -> newest for the circle row
     return list(reversed(out))[-4:]
 
@@ -127,9 +117,9 @@ def _session(requests_mod):
     return s, crumb
 
 
-# P2: cache (session, crumb) per process — the warm-up (2 requests + crumb) used
-# to run per ATTEMPT per ticker, adding seconds each. requests.Session is
-# thread-safe for concurrent GETs (urllib3 pool), so P1 parallel fetch is fine.
+# Cache (session, crumb) per process: the warm-up costs 2 requests + a crumb, too
+# much per attempt per ticker. requests.Session is thread-safe for concurrent GETs
+# (urllib3 pool), so the parallel refresh can share it.
 _sess_lock = threading.Lock()
 _sess_cached = None
 
@@ -164,7 +154,7 @@ def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.
     requests_mod = requests_mod or _r
     last = {"_error": "no attempt"}
     for attempt in range(1, retries + 1):
-        # P2: reuse the cached session on the first attempt; re-warm on retries
+        # reuse the cached session on the first attempt; re-warm on retries
         # (a blocked/expired crumb is the usual reason the first round failed).
         s, crumb = (_session(requests_mod) if injected
                     else _get_session(requests_mod, force_new=(attempt > 1)))

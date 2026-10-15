@@ -9,19 +9,10 @@ offline. Endpoints:
   /stock/earnings?symbol=X      -> EPS surprise history  (FREE)
   /stock/eps-estimate?symbol=X  -> forward EPS estimate  (often PREMIUM -> {} / skip)
 """
+from sources.jsonapi import get_json
+from sources.surprise import grade
+
 BASE = "https://finnhub.io/api/v1"
-
-
-def _grade(surprise_pct):
-    """BEAT/MEET/MISS at ±2% — same rule as the Yahoo/FMP adapters so all sources
-    are directly comparable."""
-    if surprise_pct is None:
-        return None
-    if surprise_pct > 2:
-        return "beat"
-    if surprise_pct < -2:
-        return "miss"
-    return "meet"
 
 
 def parse_earnings(raw):
@@ -42,7 +33,7 @@ def parse_earnings(raw):
             sp = (act - est) / abs(est) * 100
         out.append({"quarter": e.get("period"), "eps_actual": act, "eps_estimate": est,
                     "surprise_pct": round(sp, 1) if sp is not None else None,
-                    "grade": _grade(sp)})
+                    "grade": grade(sp)})
     out.sort(key=lambda x: x["quarter"] or "")
     return out[-4:]
 
@@ -70,18 +61,9 @@ def fetch_earnings(symbol, key, requests_mod=None, timeout=15, limit=8):
     """EPS surprise history (FREE). Returns a raw list or [] on any error / no key."""
     if not key:
         return []
-    import requests as _r
-    requests_mod = requests_mod or _r
-    try:
-        r = requests_mod.get(f"{BASE}/stock/earnings",
-                             params={"symbol": symbol, "limit": limit, "token": key},
-                             timeout=timeout)
-        if r.status_code != 200:
-            return []
-        j = r.json()
-        return j if isinstance(j, list) else []
-    except Exception:
-        return []
+    j = get_json(f"{BASE}/stock/earnings", requests_mod,
+                 params={"symbol": symbol, "limit": limit, "token": key}, timeout=timeout)
+    return j if isinstance(j, list) else []
 
 
 def fetch_eps_estimate(symbol, key, requests_mod=None, timeout=15, freq="annual"):
@@ -89,15 +71,6 @@ def fetch_eps_estimate(symbol, key, requests_mod=None, timeout=15, freq="annual"
     a missing value as 'this source unavailable' (the blend still works on the rest)."""
     if not key:
         return {}
-    import requests as _r
-    requests_mod = requests_mod or _r
-    try:
-        r = requests_mod.get(f"{BASE}/stock/eps-estimate",
-                             params={"symbol": symbol, "freq": freq, "token": key},
-                             timeout=timeout)
-        if r.status_code != 200:
-            return {}
-        j = r.json()
-        return j if isinstance(j, dict) else {}
-    except Exception:
-        return {}
+    j = get_json(f"{BASE}/stock/eps-estimate", requests_mod,
+                 params={"symbol": symbol, "freq": freq, "token": key}, timeout=timeout)
+    return j if isinstance(j, dict) else {}

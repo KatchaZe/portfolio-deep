@@ -5,11 +5,12 @@ Includes historical-price (adjClose) for the momentum composite.
 import time
 
 import config
+from sources.jsonapi import get_json
+from sources.surprise import grade
 
 BASE = config.FMP_BASE
 
-# P5: shared requests.Session for connection reuse (TLS handshake once, not per
-# call). An injected requests_mod (unit tests) is passed through untouched.
+# Shared requests.Session for connection reuse (TLS handshake once, not per call). An injected requests_mod (unit tests) is passed through untouched.
 _session_cached = None
 
 
@@ -23,26 +24,34 @@ def _http(requests_mod=None):
     return _session_cached
 
 
+def _nonempty_list(j):
+    return j if isinstance(j, list) and j else None
+
+
+def _first_accepted(http, attempts, timeout, accept):
+    """`accept(json)` of the first (url, params) attempt that answers 200 with a body
+    `accept` does not reject (None) or choke on; None when every attempt fails."""
+    for url, params in attempts:
+        j = get_json(url, http, params=params, timeout=timeout)
+        try:
+            out = accept(j)
+        except Exception:
+            continue
+        if out is not None:
+            return out
+    return None
+
+
 def fetch_profile(ticker, key, requests_mod=None, timeout=15):
     """Company profile (sector/beta/price/currency) — stable endpoint, then
-    legacy. Returns the raw json (list/dict) or [] on any failure. Single home
-    for the profile call (was duplicated inline in pipeline/refresh.py)."""
+    legacy. Returns the raw json (list/dict) or [] on any failure."""
     requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/profile", {"symbol": ticker, "apikey": key}),
         (f"{config.FMP_LEGACY}/profile/{ticker}", {"apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if isinstance(j, (list, dict)) and j:
-                return j
-        except Exception:
-            continue
-    return []
+    return _first_accepted(requests_mod, attempts, timeout,
+                           lambda j: j if isinstance(j, (list, dict)) and j else None) or []
 
 
 ENDPOINTS = {
@@ -102,17 +111,7 @@ def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=5):
         (f"{config.FMP_LEGACY}/earnings-surprises/{ticker}", {"apikey": key}),
         (f"{config.FMP_LEGACY}/historical/earning_calendar/{ticker}", {"apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if isinstance(j, list) and j:
-                return j
-        except Exception:
-            continue
-    return []
+    return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
 
 def fetch_quote(ticker, key, requests_mod=None, timeout=15):
@@ -121,23 +120,13 @@ def fetch_quote(ticker, key, requests_mod=None, timeout=15):
         (f"{BASE}/quote", {"symbol": ticker, "apikey": key}),
         (f"{config.FMP_LEGACY}/quote/{ticker}", {"apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if isinstance(j, list) and j:
-                return j
-        except Exception:
-            continue
-    return []
+    return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
 
 def fetch_history(ticker, key, requests_mod=None, timeout=25, days=400):
     """Daily historical prices (raw json) for the momentum composite. API-key based
-    so it answers when Yahoo is IP-blocked from a cloud host. Tries legacy
-    historical-price-full (returns adjClose+volume) then the stable EOD endpoint.
+    so it answers when Yahoo is IP-blocked from a cloud host. Tries the stable EOD
+    endpoint, then legacy historical-price-full (adjClose+volume).
     Returns the raw json (dict or list); {} if all attempts fail. Costs 1 FMP call
     (tier-2 fallback, used only when Yahoo is short/blocked)."""
     requests_mod = _http(requests_mod)
@@ -147,17 +136,8 @@ def fetch_history(ticker, key, requests_mod=None, timeout=25, days=400):
         (f"{BASE}/historical-price-eod/full", {"symbol": ticker, "apikey": key}),
         (f"{config.FMP_LEGACY}/historical-price-full/{ticker}", {"timeseries": days, "apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if parse_history(j)["closes"]:
-                return j
-        except Exception:
-            continue
-    return {}
+    return _first_accepted(requests_mod, attempts, timeout,
+                           lambda j: j if parse_history(j)["closes"] else None) or {}
 
 
 def parse_history(j):
@@ -201,17 +181,7 @@ def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=5):
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "annual", "limit": limit, "apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if isinstance(j, list) and j:
-                return j
-        except Exception:
-            continue
-    return []
+    return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
 
 def fetch_estimates_quarter(ticker, key, requests_mod=None, timeout=20, limit=12):
@@ -226,17 +196,7 @@ def fetch_estimates_quarter(ticker, key, requests_mod=None, timeout=20, limit=12
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "quarter", "limit": limit, "apikey": key}),
         (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "quarter", "limit": limit, "apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if isinstance(j, list) and j:
-                return j
-        except Exception:
-            continue
-    return []
+    return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
 
 def parse_estimates_quarterly(estimates):
@@ -265,20 +225,14 @@ def fetch_peers(ticker, key, requests_mod=None, timeout=15):
         (f"{BASE}/stock-peers", {"symbol": ticker, "apikey": key}),
         (f"{config.FMP_LEGACY}/stock_peers", {"symbol": ticker, "apikey": key}),
     ]
-    for url, params in attempts:
-        try:
-            r = requests_mod.get(url, params=params, timeout=timeout)
-            if r.status_code != 200:
-                continue
-            j = r.json()
-            if isinstance(j, list) and j:
-                if isinstance(j[0], dict) and j[0].get("peersList"):
-                    return list(j[0]["peersList"])
-                return [e.get("symbol") for e in j if isinstance(e, dict)
-                        and e.get("symbol") and e.get("symbol") != ticker]
-        except Exception:
-            continue
-    return []
+    def peers(j):
+        if not (isinstance(j, list) and j):
+            return None
+        if isinstance(j[0], dict) and j[0].get("peersList"):
+            return list(j[0]["peersList"])
+        return [e.get("symbol") for e in j if isinstance(e, dict)
+                and e.get("symbol") and e.get("symbol") != ticker]
+    return _first_accepted(requests_mod, attempts, timeout, peers) or []
 
 
 def _num(d, *names):
@@ -299,16 +253,6 @@ def parse_profile(profile_json):
     }
 
 
-def _grade(surprise_pct):
-    if surprise_pct is None:
-        return None
-    if surprise_pct > 2:
-        return "beat"
-    if surprise_pct < -2:
-        return "miss"
-    return "meet"
-
-
 def parse_earnings(earn_json):
     rows = earn_json if isinstance(earn_json, list) else []
     out = []
@@ -325,7 +269,7 @@ def parse_earnings(earn_json):
         out.append({"quarter": e.get("date") or e.get("fillingDate") or e.get("period"),
                     "eps_actual": act, "eps_estimate": est,
                     "surprise_pct": round(sp, 1) if sp is not None else None,
-                    "grade": _grade(sp)})
+                    "grade": grade(sp)})
     out.sort(key=lambda x: x["quarter"] or "")
     return out[-4:]
 
@@ -349,7 +293,7 @@ def parse_revenue_surprises(earn_json):
         out.append({"quarter": e.get("date") or e.get("fillingDate")
                     or e.get("fiscalDateEnding") or e.get("period"),
                     "rev_actual": act, "rev_estimate": est,
-                    "surprise_pct": round(sp, 1), "grade": _grade(sp)})
+                    "surprise_pct": round(sp, 1), "grade": grade(sp)})
     out.sort(key=lambda x: x["quarter"] or "")
     return out[-4:]
 
@@ -424,9 +368,9 @@ def parse(bundle, facts):
     facts.set("company", _num(prof, "companyName"), SRC)
     facts.set("sector", _num(prof, "sector"), SRC)
     facts.set("beta", _num(prof, "beta"), SRC)
-    facts.set("dividend_ps", _num(prof, "lastDiv"), SRC)   # R2: dividend-aware split-only warning
+    facts.set("dividend_ps", _num(prof, "lastDiv"), SRC)   # dividend-aware split-only warning
     facts.set("price", _num(quote, "price") or _num(prof, "price"), SRC)
-    # T1: market cap of the US-LISTED security — same unit as price, so it carries
+    # Market cap of the US-LISTED security — same unit as price, so it carries
     # the ADR ratio for free. Lets normalize derive a share count that price can be
     # multiplied by, instead of guessing a depositary ratio.
     facts.set("market_cap", _num(prof, "marketCap", "mktCap") or _num(quote, "marketCap", "mktCap"), SRC)

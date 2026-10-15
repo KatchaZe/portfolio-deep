@@ -12,17 +12,7 @@ Store shape:
   s["rev_surprises"][TICKER] = [ {quarter, rev_actual, rev_estimate, surprise_pct, grade}, ... ]  # oldest->newest, <=4
 """
 
-THRESHOLD = 2.0   # percent; |surprise| <= 2% == "meet"
-
-
-def grade(surprise_pct):
-    if surprise_pct is None:
-        return None
-    if surprise_pct > THRESHOLD:
-        return "beat"
-    if surprise_pct < -THRESHOLD:
-        return "miss"
-    return "meet"
+from sources.surprise import grade
 
 
 def update(s, ticker, rev_estimate_curq, revenue_quarters, today_str):

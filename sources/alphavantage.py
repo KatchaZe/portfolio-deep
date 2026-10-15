@@ -8,17 +8,10 @@ treat it as a cross-check, not a per-refresh call for many tickers).
 Fetch (network) separated from parse (pure) for offline unit tests.
 Endpoint:  /query?function=EARNINGS&symbol=X&apikey=KEY
 """
+from sources.jsonapi import get_json
+from sources.surprise import grade
+
 BASE = "https://www.alphavantage.co/query"
-
-
-def _grade(surprise_pct):
-    if surprise_pct is None:
-        return None
-    if surprise_pct > 2:
-        return "beat"
-    if surprise_pct < -2:
-        return "miss"
-    return "meet"
 
 
 def _f(x):
@@ -51,7 +44,7 @@ def parse_earnings(raw):
         out.append({"quarter": e.get("fiscalDateEnding"), "eps_actual": act,
                     "eps_estimate": est,
                     "surprise_pct": round(sp, 1) if sp is not None else None,
-                    "grade": _grade(sp)})
+                    "grade": grade(sp)})
     out.sort(key=lambda x: x["quarter"] or "")
     return out[-4:]
 
@@ -61,14 +54,6 @@ def fetch_earnings(symbol, key, requests_mod=None, timeout=20):
     / no key."""
     if not key:
         return {}
-    import requests as _r
-    requests_mod = requests_mod or _r
-    try:
-        r = requests_mod.get(BASE, params={"function": "EARNINGS", "symbol": symbol,
-                                           "apikey": key}, timeout=timeout)
-        if r.status_code != 200:
-            return {}
-        j = r.json()
-        return j if isinstance(j, dict) else {}
-    except Exception:
-        return {}
+    j = get_json(BASE, requests_mod, params={"function": "EARNINGS", "symbol": symbol,
+                                             "apikey": key}, timeout=timeout)
+    return j if isinstance(j, dict) else {}

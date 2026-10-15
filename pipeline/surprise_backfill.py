@@ -20,18 +20,9 @@ Item shapes (oldest->newest, <=limit), identical to fmp/yahoo parse_earnings:
 """
 import datetime as dt
 
-THRESHOLD = 2.0    # percent; |surprise| <= 2% == "meet"
+from sources.surprise import grade
+
 TOL_DAYS = 45      # max gap when pairing a SEC actual to an FMP estimate date
-
-
-def grade(surprise_pct):
-    if surprise_pct is None:
-        return None
-    if surprise_pct > THRESHOLD:
-        return "beat"
-    if surprise_pct < -THRESHOLD:
-        return "miss"
-    return "meet"
 
 
 def _nearest(end, est_dates):
