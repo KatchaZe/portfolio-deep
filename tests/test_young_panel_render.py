@@ -4,7 +4,7 @@ test_young_panel_render (REV-16) — actually RENDER the S20 card panel.
 test_frontend only proves the token exists in index.html. That has never caught a
 panel that throws, prints `undefined`, or divides by zero on a real payload — and
 this one does arithmetic on six optional fields. So: pull the functions straight
-out of index.html, run them in node against payloads the real engine produced, and
+out of the shipped frontend, run them in node against payloads the real engine produced, and
 assert on the HTML that comes back.
 
 Skips (does not fail) when node is unavailable.
@@ -21,10 +21,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from domain.engine.deep_v82 import DeepV82Engine   # noqa: E402
 from domain.facts import FinancialFacts            # noqa: E402
+from tests.frontend_source import frontend_source  # noqa: E402
 from tests.test_young_dcf import PREPROFIT         # noqa: E402
-
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HTML = os.path.join(ROOT, "index.html")
 
 # the card helpers under test + the ones they call
 WANT = ["youngPanel", "pricedInLine", "upsideCell", "methodShort", "anchorCell"]
@@ -47,7 +45,7 @@ def _js(n):
 def _extract(src, name):
     """Pull `function name(...) { ... }` out by brace matching."""
     m = re.search(r"^function %s\(" % re.escape(name), src, re.M)
-    assert m, "index.html has no function %s" % name
+    assert m, "the frontend has no function %s" % name
     i = src.index("{", m.start())
     depth, j, in_s, esc_c = 0, i, None, False
     while j < len(src):
@@ -99,7 +97,7 @@ def test_panel_renders():
     if not node:
         print("SKIP: node not available")
         return
-    src = open(HTML, encoding="utf-8").read()
+    src = frontend_source()
     js = SHIM + "\n".join(_extract(src, n) for n in WANT)
 
     promoted = _row()
@@ -187,7 +185,7 @@ def test_panel_survives_missing_fields():
     if not node:
         print("SKIP: node not available")
         return
-    src = open(HTML, encoding="utf-8").read()
+    src = frontend_source()
     js = SHIM + "\n".join(_extract(src, n) for n in WANT)
     partial = [
         {"price": 10, "young_dcf": {}},

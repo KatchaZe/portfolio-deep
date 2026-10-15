@@ -27,6 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from domain.engine import deep_v82 as E          # noqa: E402
 from domain.facts import FinancialFacts          # noqa: E402
 from pipeline import screen                      # noqa: E402
+from tests.frontend_source import frontend_source  # noqa: E402
 
 FAIL = []
 
@@ -227,10 +228,9 @@ def test_screen_keeps_unscreenable_names():
 def test_screen_frontend_renders_the_reason():
     """The backend keeping the row is only half the fix — the table has to show it."""
     print("P3-3b dashboard renders the unscreenable rows")
-    here = os.path.dirname(os.path.abspath(__file__))
-    html = open(os.path.join(os.path.dirname(here), "index.html"), encoding="utf-8").read()
+    html = frontend_source()
     for needle in ("it.unscreenable", "x.unscreenable"):
-        check(needle in html, f"index.html reads {needle}")
+        check(needle in html, f"the frontend reads {needle}")
 
 
 def main():

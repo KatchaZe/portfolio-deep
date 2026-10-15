@@ -1,10 +1,11 @@
 """
-test_frontend — proves index.html actually carries the new UI and stays wired to
-the backend payload. Catches three things run_tests.py otherwise misses:
-  1. index.html reverted / is an old build (new functions + element ids absent)
+test_frontend — proves the shipped frontend (index.html plus the /static files it
+loads) actually carries the new UI and stays wired to the backend payload. Catches
+three things run_tests.py otherwise misses:
+  1. the frontend reverted / is an old build (new functions + element ids absent)
   2. backend adds a payload key the frontend forgot to consume
-  3. build-stamp drift (index.html DASH_BUILD != config.BUILD)
-Pure/offline — reads the file, no browser needed.
+  3. build-stamp drift (DASH_BUILD != config.BUILD)
+Pure/offline — reads the files, no browser needed.
 """
 import os
 import re
@@ -12,9 +13,10 @@ import sys
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
+from tests.frontend_source import frontend_source
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-HTML = open(os.path.join(ROOT, "index.html"), encoding="utf-8").read()
+HTML = frontend_source()
 
 
 def test_new_ui_present():
@@ -35,7 +37,7 @@ def test_new_ui_present():
         "function pricedInLine", "pricedInLine(x)", "margin ±5pp",
     ]
     missing = [t for t in required if t not in HTML]
-    assert not missing, ("index.html missing new UI tokens: %s" % missing)
+    assert not missing, ("frontend missing new UI tokens: %s" % missing)
     print("new UI tokens present OK")
 
 
@@ -47,15 +49,15 @@ def test_backend_keys_referenced():
             # implied CAGR honest for a pre-profit filer
             "young_dcf", "rev_sensitivity", "terminal_margin_anchored"]
     missing = [k for k in keys if k not in HTML]
-    assert not missing, ("backend payload keys not consumed by index.html: %s" % missing)
+    assert not missing, ("backend payload keys not consumed by the frontend: %s" % missing)
     print("backend keys referenced OK")
 
 
 def test_build_stamp_matches_config():
     m = re.search(r'DASH_BUILD\s*=\s*"([^"]+)"', HTML)
-    assert m, "DASH_BUILD not found in index.html"
+    assert m, "DASH_BUILD not found in the frontend"
     assert m.group(1) == config.BUILD, (
-        "BUILD drift: index.html DASH_BUILD=%s but config.BUILD=%s — bump both together"
+        "BUILD drift: frontend DASH_BUILD=%s but config.BUILD=%s — bump both together"
         % (m.group(1), config.BUILD))
     print("build stamp matches config OK (%s)" % config.BUILD)
 
@@ -87,7 +89,7 @@ def test_build_stamp_is_not_older_than_the_engine():
     stamp = config.BUILD[:10]
     assert newest is None or stamp >= newest, (
         "BUILD %s is older than the newest dated change %s (%s) — bump config.BUILD "
-        "and index.html DASH_BUILD so the dashboard says which engine produced its "
+        "and the frontend DASH_BUILD (static/js/app.js) so the dashboard says which engine produced its "
         "numbers" % (config.BUILD, newest, where))
     print("build stamp is current OK (%s >= newest change %s)" % (stamp, newest))
 

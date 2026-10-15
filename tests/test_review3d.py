@@ -26,6 +26,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from domain.engine import deep_v82 as E          # noqa: E402
 from domain.facts import FinancialFacts          # noqa: E402
+from tests.frontend_source import frontend_source  # noqa: E402
 
 FAIL = []
 
@@ -188,9 +189,8 @@ def test_no_false_disagreement_when_methods_agree():
 
 def test_frontend_shows_the_conflict():
     print("D4c dashboard renders the conflict marker")
-    here = os.path.dirname(os.path.abspath(__file__))
-    html = open(os.path.join(os.path.dirname(here), "index.html"), encoding="utf-8").read()
-    check("fv_disagreement_x" in html, "index.html reads key_metrics.fv_disagreement_x")
+    html = frontend_source()
+    check("fv_disagreement_x" in html, "the frontend reads key_metrics.fv_disagreement_x")
 
 
 # --------------------------------------------------------------------------
