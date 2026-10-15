@@ -5,7 +5,7 @@ app.py on 2026-07-19 so it is unit-testable).
 Three concerns, now with visible seams:
   * network  — ONLY through the injected `fetch_returns` (default:
                pipeline.prices.fetch_returns);
-  * math     — pure calls into domain.engine.risk / domain.diversification;
+  * math     — pure calls into domain.risk / domain.diversification;
   * shaping  — the payload dict consumed by index.html (Risk Desk + Correlation).
 
 READ-ONLY on the store dict; the FMP-quota counter is committed by the caller
@@ -15,7 +15,7 @@ import logging
 
 import config
 from pipeline import prices
-from domain.engine import risk as riskeng
+from domain import risk as riskeng
 from domain import diversification
 
 log = logging.getLogger("portfolio.risk_report")

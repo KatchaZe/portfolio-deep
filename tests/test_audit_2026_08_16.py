@@ -77,7 +77,7 @@ def _series(n, seed, scale=1.0):
 
 def test_hybrid_cov_is_a_real_covariance_matrix():
     print("\n2. hybrid covariance: rho in [-1,1] and the matrix is PSD")
-    from domain.engine import risk as R
+    from domain import risk as R
 
     long_s = _series(400, 7)
     short_s = _series(60, 99, scale=2.6)
@@ -97,7 +97,7 @@ def test_hybrid_cov_is_a_real_covariance_matrix():
           "portfolio_vol does not collapse to 0.0 and blank out VaR/CVaR (got %.4f)" % pv)
 
     # and the repaired matrix passes a real PSD test
-    check(R._cholesky_ok(R.corr_from_cov(cov)) or R.shrink_to_psd(R.corr_from_cov(cov)),
+    check(R.covariance._cholesky_ok(R.corr_from_cov(cov)) or R.shrink_to_psd(R.corr_from_cov(cov)),
           "the correlation matrix is PSD (or is repaired to be)")
 
     # a 4-name mixed-window portfolio must also stay well-behaved
@@ -117,7 +117,7 @@ def test_hybrid_cov_is_a_real_covariance_matrix():
 # --------------------------------------------------------------------------- #
 def test_returns_align_on_dates():
     print("\n3. date alignment (a one-bar source lag was silently making it a lag-1 corr)")
-    from domain.engine import risk as R
+    from domain import risk as R
 
     dates = ["2026-08-%02d" % d for d in range(1, 11)]
     a = [0.01, -0.02, 0.03, -0.01, 0.02, -0.03, 0.01, 0.00, -0.02, 0.04]
@@ -161,7 +161,7 @@ def test_every_correlation_consumer_is_date_aligned():
     partial fix on a defect this quiet is worse than none: it makes the tab look
     audited. This pins the whole seam, not one function."""
     print("\n3c. EVERY correlation consumer aligns on dates, not just cov_matrix")
-    from domain.engine import risk as R
+    from domain import risk as R
 
     dates = ["2026-08-%02d" % d for d in range(1, 13)]
     a = [0.01, -0.02, 0.03, -0.01, 0.02, -0.03, 0.01, 0.005, -0.02, 0.04, -0.01, 0.02]

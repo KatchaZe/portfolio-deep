@@ -1,5 +1,5 @@
 """
-test_risk — the risk engine math (domain/engine/risk.py). Pure / offline.
+test_risk — the risk engine math (domain/risk/). Pure / offline.
 Locks the core invariants so a refactor can't silently break the Allocation tab's
 risk numbers: weights sum to 1, RC sums to σp, signed %RC sums to 100%, a true
 diversifier gets a NEGATIVE risk contribution, DR>=1, and the score stays 0-100.
@@ -10,7 +10,7 @@ import math
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from domain.engine import risk as R
+from domain import risk as R
 
 
 def test_weights_and_concentration():

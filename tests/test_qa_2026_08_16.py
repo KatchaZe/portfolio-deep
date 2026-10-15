@@ -30,7 +30,7 @@ if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
 from domain import diversification, indicators            # noqa: E402
-from domain.engine import risk as riskeng                 # noqa: E402
+from domain import risk as riskeng                 # noqa: E402
 from domain.engine.deep_v82 import stars                  # noqa: E402
 
 
