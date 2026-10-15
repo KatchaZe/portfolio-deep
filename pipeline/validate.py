@@ -7,46 +7,30 @@ from pipeline import dataquality
 
 ERP = config.ERP            # import-time snapshot (back-compat); checks read config.ERP live
 MAX_NET_MARGIN = 0.65
-# S1: shares-free sanity band on the CONSENSUS forward EPS. The revenue-capacity
-# ceiling below needs shares_diluted, which IFRS/ADR filers often don't give us —
-# and when it is missing that guard silently disappears (TSM sailed through with a
-# forward EPS of 323.34, which is TWD per ORDINARY share against a USD ADR price of
-# $398: an implied forward P/E of 1.2x). Price and EPS must at least be in the same
-# currency and the same share unit; a P/E outside this band says they are not.
-#
-# A16 (2026-08-18). The band used to be [3, 200] on BOTH sides, and the high side was
-# wrong in kind, not just in level. The two sides do not fail the same way:
-#
-#   LOW side is the currency test. An unconverted local currency always makes EPS
-#   TOO LARGE (TWD, JPY, KRW, DKK all take many units to the dollar), so the tell is
-#   a P/E far BELOW anything a real business trades at. 3.0x stays.
-#
-#   HIGH side cannot be a currency artefact at all — no FX rate makes EPS smaller.
-#   What it catches is a NEAR-ZERO forward EPS, where PEG and FVP divide by noise
-#   (RKLB: 0.01 against $80 = 9,608x). But 200x is inside the range real, very
-#   expensive equities actually trade at, and the old ceiling threw away two live
-#   rows for missing it by a rounding error: TSLA 1.69 vs $339.30 = 200.6x (+0.3%)
-#   and AXON 3.02 vs $604.32 = 200.2x (+0.1%). A unit artefact is off by a FACTOR;
-#   these were off by a fraction of a percent. So the high side splits in two: keep
-#   rejecting past 600x (no listed equity sustains that — it is a broken number),
-#   and between 200x and 600x keep the value and say out loud that it is extreme.
+# Shares-free sanity band on the CONSENSUS forward EPS. The revenue-capacity ceiling
+# needs shares_diluted, which IFRS/ADR filers often lack (TSM: 323.34 TWD per ORDINARY
+# share against a USD ADR price of $398, a 1.2x P/E, sailed through). The two sides
+# test different faults:
+#   LOW side is the currency test. An unconverted local currency always makes EPS TOO
+#   LARGE (TWD, JPY, KRW, DKK), so the tell is a P/E far below any real business.
+#   HIGH side cannot be a currency artefact (no FX rate makes EPS smaller). It catches
+#   a NEAR-ZERO EPS where PEG/FVP divide by noise (RKLB 9,608x). Real, very expensive
+#   equities trade near 200x (TSLA, AXON), so reject only past 600x and between 200x
+#   and 600x keep the value with an explicit flag.
 FWD_PE_MIN, FWD_PE_MAX = 3.0, 600.0
 FWD_PE_EXTREME = 200.0      # keep the value above this, but never silently
-# R3: the capacity ceiling must be compared against FORWARD revenue, since the EPS
-# being tested is a forward number. Holding it against CURRENT revenue per share is
-# systematically tight for fast growers and did reject NVDA's real consensus
-# (fwd EPS 8.18 vs a ceiling of 6.76 built on today's revenue). Growth is capped at
-# the engine's own GROWTH_CAP so the ceiling can't be inflated by a wild estimate.
+# The capacity ceiling is built on FORWARD revenue, since the EPS tested is forward;
+# current revenue rejected NVDA's real consensus. Growth is capped so a wild estimate
+# cannot inflate the ceiling.
 CEILING_GROWTH_CAP = 0.30
 
 
 def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt):
     """Why this consensus forward EPS is not credible, or None if it is.
 
-    R1: ONE gate, used by both normalize._score (confidence) and _resolve_forward_eps
-    (substitution). They used to be separate copies — normalize kept its own
-    hardcoded 0.65 ceiling and never got the P/E check — so a value could be
-    rejected for valuation while still scoring as trustworthy."""
+    ONE gate, used by both normalize._score (confidence) and _resolve_forward_eps
+    (substitution), so a value can never be rejected for valuation while still
+    scoring as trustworthy."""
     if not forward_eps or forward_eps <= 0:
         return None
     if revenue and shares:
@@ -71,11 +55,9 @@ def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt):
 def forward_eps_extreme(forward_eps, price):
     """Why this forward EPS is EXTREME but still usable, or None.
 
-    A16: the counterpart to the high side of `forward_eps_rejection`. A forward P/E
-    between FWD_PE_EXTREME and FWD_PE_MAX is a real reading on a very expensive
-    equity, not a broken number — it must reach the valuation, because dropping it
-    is what left TSLA and AXON with no PEG and no FVP at all. But a PEG built on a
-    200x+ multiple is fragile enough that the row has to say so."""
+    A forward P/E between FWD_PE_EXTREME and FWD_PE_MAX is a real reading on a very
+    expensive equity and must reach the valuation, but a PEG built on a 200x+
+    multiple is fragile enough that the row has to say so."""
     if not forward_eps or forward_eps <= 0 or not price or price <= 0:
         return None
     pe = price / forward_eps
@@ -100,18 +82,11 @@ def trailing_eps(net_income, shares_diluted, eps_gaap):
 def per_share_unit_mismatch(price, eps):
     """Why this EPS cannot be in the same currency and share unit as this price.
 
-    L4 (2026-08-10). An unconverted local currency always makes EPS TOO LARGE — TWD,
-    JPY, KRW and DKK all take many units to the dollar — so the tell is an implied
-    trailing P/E far BELOW anything a real business trades at. TSM: EPS 309 (TWD, per
-    ADS) against a USD ADR price of 421 is a P/E of 1.4x.
-
-    Only the low side is rejected, and only on POSITIVE earnings. A very high P/E is
-    ordinary in a trough year, and a loss-making company has no meaningful P/E at all —
-    rejecting either would throw away good rows to catch a fault that cannot produce
-    them. Same LOW bound as the forward-EPS gate, deliberately: one definition of "these
-    two numbers are not in the same currency", not two that can drift apart. (A16: only
-    the low bound is shared now — the forward gate's high bound tests something else
-    entirely, a near-zero EPS, and this function already declines to test the high side.)"""
+    An unconverted local currency makes EPS TOO LARGE, so the tell is an implied
+    trailing P/E far below any real business (TSM: TWD EPS 309 vs a USD ADR price of
+    421 is 1.4x). Only the low side, and only on POSITIVE earnings: a high P/E is
+    ordinary in a trough year and a loss has no P/E. The low bound is the forward
+    gate's, so "not the same currency" has one definition."""
     if not price or price <= 0 or eps is None or eps <= 0:
         return None
     pe = price / eps
@@ -136,9 +111,23 @@ def _per_share_unit_gate(ff):
 
 
 def validate(ff, fmp_income=None, rf=0.045):
+    _sanity_bands(ff, rf)
+    if fmp_income:
+        _cross_check(ff, fmp_income)
+    # BEFORE the forward-EPS resolution: if the filed per-share figures are not in the
+    # price's unit, the SEC-derived substitute is built from those same figures, so
+    # there is no point offering it one.
+    _per_share_unit_gate(ff)
+    _resolve_forward_eps(ff)
+    _assumption_flags(ff)
+    _rescore(ff)
+    return ff
+
+
+def _sanity_bands(ff, rf):
+    """Flag an operating margin, ROIC or WACC outside any plausible band."""
     tax = ff.tax_rate
     nopat = ff.operating_income * (1 - tax) if ff.operating_income is not None else None
-
     if ff.operating_income is not None and ff.revenue:
         opm = ff.operating_income / ff.revenue
         if not (-0.50 <= opm <= 0.90):
@@ -151,18 +140,6 @@ def validate(ff, fmp_income=None, rf=0.045):
         wacc = rf + ff.beta * config.ERP     # call-time read (assumptions override aware)
         if not (0.03 <= wacc <= 0.25):
             ff.flags.append(f"WACC {wacc:.0%} out of band")
-
-    if fmp_income:
-        _cross_check(ff, fmp_income)
-
-    # BEFORE the forward-EPS resolution: if the filed per-share figures are not in the
-    # price's unit, the SEC-derived substitute is built from those same figures, so
-    # there is no point offering it one.
-    _per_share_unit_gate(ff)
-    _resolve_forward_eps(ff)
-    _assumption_flags(ff)
-    _rescore(ff)
-    return ff
 
 
 def _cross_check(ff, fmp_income):
@@ -180,7 +157,7 @@ def _cross_check(ff, fmp_income):
 def _resolve_forward_eps(ff):
     """Trust analyst consensus unless it fails a sanity gate.
 
-    Two independent gates, because each one can be blind on its own (S1/S2):
+    Two independent gates, because each one can be blind on its own:
       * revenue capacity — needs shares_diluted, absent for several IFRS/ADR filers;
       * implied forward P/E — needs only price, so it still works when shares don't.
     When a value is rejected and there is no SEC fallback, forward_eps is CLEARED
@@ -199,14 +176,9 @@ def _resolve_forward_eps(ff):
     if y and y > 0 and reason is None:
         _flag_extreme(ff, y)
         return
-    # L1 (2026-08-10): THE REPLACEMENT MUST CLEAR THE SAME BAR AS THE VALUE IT REPLACES.
-    # The gate used to be run on the consensus figure only, so a rejected number was
-    # swapped for an unchecked one — and on TSM the substitute was WORSE: consensus
-    # 277.21 was rejected at an implied P/E of 1.5x and replaced by an SEC-derived
-    # 386.69, an implied P/E of 1.09x. Nothing looked at it, fv_peg came out at $8,612
-    # against a $422 price, the Price pillar scored a maximum 5.0, and the row read BUY.
-    # The docstring above already said a flagged blank beats an unflagged wrong number;
-    # that principle was applied to the no-fallback branch and skipped on this one.
+    # The replacement must clear the same bar as the value it replaces: on TSM the
+    # unchecked SEC substitute was worse than the rejected consensus (1.09x P/E) and
+    # produced an $8,612 fair value against a $422 price.
     sec_reason = (forward_eps_rejection(sec_fwd, ff.revenue, ff.shares_diluted,
                                         ff.price, ff.growth_lt) if sec_fwd else None)
     usable = sec_fwd if (sec_fwd and sec_reason is None) else None
@@ -234,9 +206,8 @@ def _resolve_forward_eps(ff):
 
 
 def _flag_extreme(ff, eps):
-    """A16: every path that KEEPS a forward EPS runs through here, so an extreme
-    multiple can never reach a valuation unannounced. Three accept branches existed
-    and flagging only one of them is the same bug class as L1 above."""
+    """Every path that KEEPS a forward EPS runs through here, so an extreme multiple
+    can never reach a valuation unannounced."""
     note = forward_eps_extreme(eps, ff.price)
     if note and note not in ff.flags:
         ff.flags.append(note)
@@ -247,16 +218,13 @@ def _assumption_flags(ff):
     rather than real data — so a guessed value is never silent (DEEP invariant 17)."""
     if ff.beta is None:
         ff.flags.append("beta missing → defaults to 1.0 (assumption)")
-    # S3: shares_diluted going missing is not just one blank field — it silently
-    # removes the forward-EPS ceiling AND collapses WACC to Ke (no market cap means
-    # no equity/debt weights). IFRS/ADR filers (TSM, NVO) hit this. Never silent.
+    # A missing share count silently removes the forward-EPS ceiling AND collapses
+    # WACC to Ke (no market cap, no weights). IFRS/ADR filers (TSM, NVO) hit this.
     if not ff.shares_diluted:
         ff.flags.append("shares outstanding missing → no market cap: WACC falls back to Ke "
                         "(unweighted) and the forward-EPS ceiling is disabled")
     elif str((ff.provenance or {}).get("shares_diluted", "")).startswith("derived"):
-        # T2: SEC gave no share count (typical of IFRS filers), so it was derived
-        # from market cap / price. That is the right UNIT for a depositary listing,
-        # but it is a derived input — say so rather than presenting it as filed data.
+        # the right UNIT for a depositary listing, but derived, not filed
         ff.flags.append("shares outstanding derived from market cap / price "
                         "(SEC count missing or in a different share unit)")
     ibt, txe = ff.income_before_tax, ff.tax_expense
@@ -278,17 +246,14 @@ def _rescore(ff):
     score -= 8 * len(serious)
     if any(f.startswith("converted") for f in ff.flags):
         score -= 12
-    # L4: the filings and the price are not in the same unit. That is not one weak
-    # input among several — every per-share number on the card is unusable, so the row
-    # must not read as trustworthy while it is true.
+    # filings and price in different units: every per-share number on the card is
+    # unusable, so the row must not read as trustworthy
     if not getattr(ff, "per_share_unit_ok", True):
         score -= 30
     score += _earnings_confidence(ff)
     score += _consensus_confidence(ff)
-    # DQ: the data's own condition costs confidence — stale financials, a gap in the
-    # invested-capital series, an unconverted currency. Applied here rather than as
-    # another `serious` flag so the penalty is graded by severity instead of a flat -8,
-    # and so a row can be scored while still being visibly less trustworthy.
+    # the data's own condition (stale financials, an invested-capital gap, an
+    # unconverted currency), graded by severity rather than a flat -8 `serious` flag
     score -= dataquality.total_penalty(dataquality.apply(ff))
     ff.confidence = max(0, min(100, score))
     ff.confidence_tier = "green" if ff.confidence >= 80 else "yellow" if ff.confidence >= 50 else "red"
