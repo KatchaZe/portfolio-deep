@@ -110,18 +110,20 @@ if (!d.correlation) throw new Error('correlation payload missing: ' + Object.key
 d.correlation.meta = Object.assign({}, d.correlation.meta, {cov_mode: '%s', proxy_tickers: ['TMDX', 'HIMS']});
 renderCorr(d);
 """
-# <style> blocks (and the indentation before them) are left out of the markup: where CSS
-# lives is not behaviour, and what it does is pinned by STYLE_PROBE. <script> and <style>
-# elements render nothing, so the probe skips them too.
+# Source layout is not behaviour, so the markup is normalised before it is compared:
+# <style> blocks are dropped (what CSS does is pinned by STYLE_PROBE, which skips the
+# non-rendering <script> and <style> elements too), and a whitespace-only text node is
+# reduced to one space, which renders the same; the text and the layout digest still
+# see any whitespace that shows.
 PANEL_HTML = r"""
 (id) => {
   const copy = document.getElementById(id).cloneNode(true);
-  copy.querySelectorAll('style').forEach(s => {
-    const ws = s.previousSibling;
-    if (ws && ws.nodeType === Node.TEXT_NODE && !ws.textContent.trim()) ws.remove();
-    s.remove();
-  });
+  copy.querySelectorAll('style').forEach(s => s.remove());
   copy.querySelectorAll('canvas').forEach(c => { for (const a of ['width','height','style']) c.removeAttribute(a); });
+  const walk = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
+  const blank = [];
+  while (walk.nextNode()) if (!walk.currentNode.textContent.trim()) blank.push(walk.currentNode);
+  blank.forEach(t => { t.textContent = ' '; });
   return copy.innerHTML;
 }
 """
