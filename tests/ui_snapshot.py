@@ -47,6 +47,7 @@ STYLE_PROBE = r"""
                  'paddingLeft','marginTop','gridTemplateColumns'];
   const out = [];
   for (const el of [root, ...root.querySelectorAll('*')]) {
+    if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
     const cs = getComputedStyle(el);
     const sized = el.tagName !== 'CANVAS' && !el.querySelector('canvas');
     out.push([el.tagName, ...props.map(p => cs[p]), el.offsetLeft, el.offsetWidth,
@@ -67,12 +68,17 @@ CHARTS = r"""
   });
 }
 """
-# <style> blocks are left out of the markup: where CSS lives is not behaviour, and what
-# it does is pinned by STYLE_PROBE.
+# <style> blocks (and the indentation before them) are left out of the markup: where CSS
+# lives is not behaviour, and what it does is pinned by STYLE_PROBE. <script> and <style>
+# elements render nothing, so the probe skips them too.
 PANEL_HTML = r"""
 (id) => {
   const copy = document.getElementById(id).cloneNode(true);
-  copy.querySelectorAll('style').forEach(s => s.remove());
+  copy.querySelectorAll('style').forEach(s => {
+    const ws = s.previousSibling;
+    if (ws && ws.nodeType === Node.TEXT_NODE && !ws.textContent.trim()) ws.remove();
+    s.remove();
+  });
   copy.querySelectorAll('canvas').forEach(c => { for (const a of ['width','height','style']) c.removeAttribute(a); });
   return copy.innerHTML;
 }
