@@ -33,7 +33,7 @@ def _clear_drive_env():
 def _reset_drive_cache():
     gdrive_store._enabled = None
     gdrive_store._service = None
-    gdrive_store._file_id = None
+    gdrive_store._ids = {}
     store_sync._pull_state = None
     store_sync._last_try = 0.0
 
@@ -170,13 +170,13 @@ def test_push_does_not_hold_the_local_file_open(tmp):
         def files(self):
             return _Files()
 
-    orig_client, orig_find = gdrive_store._client, gdrive_store._find_file_id
+    orig_client, orig_find = gdrive_store._client, gdrive_store._find_id
     gdrive_store._client = lambda: _Svc()
-    gdrive_store._find_file_id = lambda svc: "fid1"
+    gdrive_store._find_id = lambda svc, name: "fid1"
     try:
         ok = gdrive_store.drive_push(path)
     finally:
-        gdrive_store._client, gdrive_store._find_file_id = orig_client, orig_find
+        gdrive_store._client, gdrive_store._find_id = orig_client, orig_find
         os.environ.pop("GDRIVE_SA_JSON", None)
         _reset_drive_cache()
 
