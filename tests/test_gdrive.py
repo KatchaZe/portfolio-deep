@@ -76,7 +76,7 @@ def test_push_failure_never_raises(tmp):
         store.set_holding(s, "msft", 5, 50.0)
         store.save(s)                                  # push BLOCKED (pull never ok) -> must NOT raise
         assert store.load()["holdings"]["MSFT"]["shares"] == 5
-        st = store.persist_status()
+        st = store_sync.status()
         assert st["push_blocked"] is True              # guard active while pull is failing
         print("push-failure-never-raises OK")
     finally:
@@ -96,7 +96,7 @@ def test_push_blocked_until_pull_succeeds(tmp):
     # previous test in this module deliberately leaves one behind (it edits MSFT while
     # Drive is down and the push is blocked), and store_sync's per-process dirty flag
     # is global — so clear it here or we are testing the local-wins path instead.
-    store_sync._local_dirty = False
+    store_sync._mirrored = store_sync._edits
     pushes = []
     orig_pull, orig_push = gdrive_store.drive_pull, gdrive_store.drive_push
     gdrive_store.drive_pull = lambda path: "error"     # simulate token-expired / outage
@@ -106,14 +106,14 @@ def test_push_blocked_until_pull_succeeds(tmp):
         store.PATH = os.path.join(tmp, "portfolio.json")
         s = store.load()                               # pull errors -> empty default store
         store.save(s)                                  # would have wiped Drive before the fix
-        store.wait_push()                              # push runs on a worker now (C1)
+        store_sync.wait_push()                              # push runs on a worker now (C1)
         assert pushes == [], "push must be BLOCKED while pull is failing"
         # recovery: next load retries the pull (throttle bypassed) and it succeeds
         store_sync._last_try = 0.0
         gdrive_store.drive_pull = lambda path: "absent"
         s = store.load()
         store.save(s)
-        store.wait_push()                              # wait for the async worker before asserting
+        store_sync.wait_push()                              # wait for the async worker before asserting
         assert len(pushes) == 1, "push must RESUME once a pull succeeds"
         print("push-blocked-until-pull-succeeds OK")
     finally:

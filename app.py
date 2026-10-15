@@ -1,29 +1,25 @@
 """
-FastAPI app — DEEP portfolio dashboard (v2.1, hardened; engine version = config.DEEP_VERSION).
+FastAPI app — DEEP portfolio dashboard (engine version = config.DEEP_VERSION).
 
 Run:
     set FMP_API_KEY (optional, for sector/beta via FMP profile)
-    set APP_TOKEN   (optional — protects the app when deployed publicly)
+    set APP_TOKEN   (protects the app when deployed publicly)
     pip install -r requirements.txt
     uvicorn app:app --port 8000
-    open http://localhost:8000
 
-Concurrency model (this fixes the v2 server-freeze):
-  * ALL endpoints are plain sync `def` -> FastAPI runs them in its threadpool,
-    so the asyncio event loop is NEVER blocked (the old async what-if endpoint
-    could freeze the whole server, including /healthz).
-  * Slow network work (SEC / FMP / Yahoo) runs OUTSIDE store.LOCK via the
-    fetch_* functions; the lock is held only for a fast load -> merge -> save
-    (commit_*). The UI stays responsive even during a long fundamental refresh.
-  * Trade-off (single-user app): two overlapping refreshes could both pass the
-    FMP quota pre-check; the counter is still committed correctly afterwards.
-  * DEPLOY (H5): run exactly ONE worker process (uvicorn default). store.LOCK,
-    the background Drive-push worker and the pull-state guard are per-process;
-    multiple workers would silently break all of them.
+Concurrency model:
+  * Every endpoint is a plain sync `def`, so FastAPI runs it in its threadpool and
+    the event loop is never blocked (an `async` endpoint waiting on store.LOCK once
+    froze the whole server, /healthz included).
+  * Slow network work (SEC / FMP / Yahoo) runs OUTSIDE store.LOCK; the lock is held
+    only for a fast load -> merge -> save (store.transaction).
+  * Single-user trade-off: two overlapping refreshes can both pass the FMP quota
+    pre-check; the counter is still committed correctly afterwards.
+  * Run exactly ONE worker process. store.LOCK, the Drive push worker and the pull
+    guard are per-process; multiple workers would silently break all of them.
 
-Optional auth (set env APP_TOKEN):
-  open  https://your-app/?token=YOUR_TOKEN  once — a cookie is stored, after
-  that the plain URL works. /healthz stays open for Render health checks.
+Auth (env APP_TOKEN): open https://your-app/?token=YOUR_TOKEN once and a cookie is
+stored. /healthz stays open for Render health checks.
 """
 import os
 import hmac
@@ -37,6 +33,7 @@ from pydantic import BaseModel
 
 import config
 import store as st
+import store_sync
 from pipeline import refresh, risk_report
 from pipeline import screen as screen_mod
 
@@ -46,16 +43,11 @@ log = logging.getLogger("portfolio")
 
 app = FastAPI(title=f"Portfolio DEEP v{config.DEEP_VERSION}")
 BASE = os.path.dirname(os.path.abspath(__file__))
-QUOTA_CAP = config.QUOTA_CAP
-APP_TOKEN = os.environ.get("APP_TOKEN", "")
 
-# P2-9: vendored Chart.js (static/chart.umd.js) — no CDN dependency at runtime.
-if os.path.isdir(os.path.join(BASE, "static")):
+if os.path.isdir(os.path.join(BASE, "static")):          # vendored Chart.js, no CDN
     app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
 
-# P1-7 (deploy H5, enforced): store.LOCK, the Drive-push worker and the pull-state
-# guard are all PER-PROCESS — the app must run as exactly ONE worker. Detect the
-# common multi-worker env configs and surface loudly (healthz + error log).
+# Read at import (not from config) so reloading this module re-reads the env.
 _workers = os.environ.get("WEB_CONCURRENCY") or os.environ.get("UVICORN_WORKERS")
 SINGLE_WORKER_OK = not (_workers and str(_workers).isdigit() and int(_workers) > 1)
 if not SINGLE_WORKER_OK:
@@ -64,28 +56,12 @@ if not SINGLE_WORKER_OK:
 
 
 # --------------------------------------------------------------------------- #
-#  Auth (optional — active only when APP_TOKEN env var is set)                 #
+#  Auth                                                                        #
 # --------------------------------------------------------------------------- #
-def auth_ok(supplied: Optional[str], expected: Optional[str] = None) -> bool:
-    """Constant-time token check. Empty expected token == auth disabled."""
-    exp = APP_TOKEN if expected is None else expected
-    if not exp:
-        return True
-    return bool(supplied) and hmac.compare_digest(str(supplied), exp)
-
-
-# FIX (2026-08-16) — BROKEN ACCESS CONTROL. Auth was "optional", and unset is the
-# default, so a deploy that forgot APP_TOKEN served every route to the whole
-# internet. Reproduced in _audit_app/r1_no_auth.py: with APP_TOKEN empty, anonymous
-# POSTs to /api/holding, /api/watchlist/add, /api/assumptions, /api/refresh and
-# /api/daily all returned 200 and actually mutated the store — a stranger can edit
-# the portfolio, rewrite the ERP/market-PE assumptions the whole engine reads, and
-# burn the FMP daily quota; GET /api/portfolio hands them the holdings.
-#
-# Optional is fine on localhost, where the socket is the boundary. It is not fine on
-# a public URL. So: when the process looks publicly deployed and no token is set, the
-# app FAILS CLOSED with an explanatory 503 rather than serving. `ALLOW_PUBLIC_NO_AUTH=1`
-# is the deliberate opt-out for someone who really does want it open.
+APP_TOKEN = os.environ.get("APP_TOKEN", "")
+# No token is fine on localhost, where the socket is the boundary. On a public URL it
+# would hand every route (holdings, assumption writes, FMP quota) to the internet, so
+# the app fails closed instead. ALLOW_PUBLIC_NO_AUTH=1 is the deliberate opt-out.
 PUBLIC_DEPLOY = bool(os.environ.get("RENDER") or os.environ.get("RENDER_EXTERNAL_URL")
                      or os.environ.get("PUBLIC_DEPLOY"))
 ALLOW_PUBLIC_NO_AUTH = os.environ.get("ALLOW_PUBLIC_NO_AUTH", "") == "1"
@@ -95,34 +71,38 @@ if AUTH_REQUIRED_BUT_MISSING:
               "Every route is refused until you set APP_TOKEN (or set "
               "ALLOW_PUBLIC_NO_AUTH=1 to deliberately serve it open).")
 
+_NO_TOKEN_ON_PUBLIC = {
+    "error": "APP_TOKEN is not set on a public deployment — refusing to "
+             "serve the portfolio. Set APP_TOKEN in the environment and "
+             "open /?token=YOUR_APP_TOKEN once, or set "
+             "ALLOW_PUBLIC_NO_AUTH=1 to serve it open on purpose."}
+_UNAUTHORIZED = {"error": "unauthorized — open /?token=YOUR_APP_TOKEN once"}
+
+
+def auth_ok(supplied: Optional[str], expected: Optional[str] = None) -> bool:
+    """Constant-time token check. Empty expected token == auth disabled."""
+    exp = APP_TOKEN if expected is None else expected
+    if not exp:
+        return True
+    return bool(supplied) and hmac.compare_digest(str(supplied), exp)
+
 
 @app.middleware("http")
 async def _auth_middleware(request: Request, call_next):
-    if AUTH_REQUIRED_BUT_MISSING and request.url.path != "/healthz":
-        return JSONResponse(
-            {"error": "APP_TOKEN is not set on a public deployment — refusing to "
-                      "serve the portfolio. Set APP_TOKEN in the environment and "
-                      "open /?token=YOUR_APP_TOKEN once, or set "
-                      "ALLOW_PUBLIC_NO_AUTH=1 to serve it open on purpose."},
-            status_code=503)
-    if APP_TOKEN and request.url.path != "/healthz":
+    if request.url.path != "/healthz":
+        if AUTH_REQUIRED_BUT_MISSING:
+            return JSONResponse(_NO_TOKEN_ON_PUBLIC, status_code=503)
         supplied = (request.query_params.get("token")
                     or request.headers.get("x-app-token")
                     or request.cookies.get("app_token"))
         if not auth_ok(supplied):
-            return JSONResponse(
-                {"error": "unauthorized — open /?token=YOUR_APP_TOKEN once"},
-                status_code=401)
+            return JSONResponse(_UNAUTHORIZED, status_code=401)
     resp = await call_next(request)
-    # first successful visit with ?token=... -> remember it in a cookie.
-    # secure=True: never send the token over plain HTTP (Render serves HTTPS).
-    # Local http://localhost dev still works — the browser just skips the cookie
-    # and ?token= / X-App-Token per request keep working.
-    # 2026-08-16: only mint the cookie on a real page/API hit. /healthz is exempt from
-    # the 401 check, and minting there meant the unauthenticated health endpoint also
-    # handed out session cookies — and every /healthz?token=... probe wrote the raw
-    # token into Render's access log for no benefit.
-    if (APP_TOKEN and request.url.path != "/healthz"
+    # Remember a valid ?token= in a cookie. secure=True keeps the token off plain
+    # HTTP; on http://localhost the browser skips it and ?token= / X-App-Token still
+    # work. Never on /healthz: it is unauthenticated, and minting there would hand
+    # out sessions and write the raw token into the platform's access log.
+    if (request.url.path != "/healthz" and APP_TOKEN
             and auth_ok(request.query_params.get("token"))):
         resp.set_cookie("app_token", APP_TOKEN, httponly=True, secure=True,
                         samesite="lax", max_age=30 * 86400)
@@ -133,36 +113,52 @@ async def _auth_middleware(request: Request, call_next):
 #  Helpers                                                                     #
 # --------------------------------------------------------------------------- #
 def _quota(s):
+    cap = config.QUOTA_CAP
     used = st.fmp_used_today(s)
-    return {"used": used, "cap": QUOTA_CAP, "pct": round(used / QUOTA_CAP * 100),
-            "warn": used >= 0.9 * QUOTA_CAP,
+    return {"used": used, "cap": cap, "pct": round(used / cap * 100),
+            "warn": used >= 0.9 * cap,
             "holdings": len(s.get("holdings", {})),
-            "headroom_tickers": max(0, QUOTA_CAP - used)}
+            "headroom_tickers": max(0, cap - used)}
+
+
+def _holding_tickers():
+    return list(st.load().get("holdings", {}).keys())
+
+
+def _commit_fmp_calls(calls):
+    """Persist only the FMP quota counter; returns the saved store."""
+    with st.transaction() as s:
+        st.add_fmp_calls(s, calls)
+    return s
 
 
 def _fetch_and_commit(tickers):
-    """Fundamentals + daily momentum for `tickers`.
-    Phase 1 (slow, NO lock): SEC + FMP + Yahoo fetch & analysis.
-    Phase 2 (fast, locked):  reload fresh store, merge, atomic save.
-    Returns (result_meta, fresh_store)."""
-    s0 = st.load()
-    used = st.fmp_used_today(s0)
+    """Fundamentals + daily momentum for `tickers`: slow fetch with no lock, then a
+    locked merge into a freshly loaded store. Returns (result_meta, saved_store)."""
+    used = st.fmp_used_today(st.load())
     fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(
-        tickers, config.FMP_API_KEY, used, QUOTA_CAP)
+        tickers, config.FMP_API_KEY, used, config.QUOTA_CAP)
     daily = refresh.fetch_daily(tickers, config.FMP_API_KEY)
-    with st.LOCK:
-        s = st.load()
+    with st.transaction() as s:
         refresh.commit_fundamentals(s, fetched, calls)
         refresh.commit_daily(s, daily)
-        st.save(s)
     meta = {"refreshed": sorted(fetched.keys()), "errors": errors,
             "fmp_calls": calls, "fmp_used_today": st.fmp_used_today(s),
             "rf_pct": rf_pct, "rf_live": rf_live}
     return meta, s
 
 
+def _assumption_values():
+    return {"erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
+            "market_pe": config.MARKET_PE, "market_pe_as_of": config.MARKET_PE_AS_OF}
+
+
+def _invalid(message):
+    return JSONResponse({"error": message}, status_code=422)
+
+
 # --------------------------------------------------------------------------- #
-#  Endpoints                                                                   #
+#  Read endpoints                                                              #
 # --------------------------------------------------------------------------- #
 @app.get("/healthz")
 def healthz():
@@ -191,112 +187,20 @@ def api_quota():
 
 @app.get("/api/persist")
 def api_persist():
-    """Google-Drive persistence health — surfaced as a header badge so a silent
-    backup failure (expired token, quota, network) is visible BEFORE data is lost."""
-    return JSONResponse(st.persist_status())
-
-
-# --------------------------------------------------------------------------- #
-#  Monthly assumptions (ERP / MARKET_PE) — dashboard form -> store -> Drive.    #
-#  store.load() overlays saved values onto config, so the engine (Ke/WACC),     #
-#  validate band and the market overlay all pick them up at call time.          #
-# --------------------------------------------------------------------------- #
-@app.get("/api/assumptions")
-def api_assumptions():
-    s = st.load()                        # also applies any stored override to config
-    a = s.get("assumptions") or {}
-    from domain.engine.deep_v82 import erp_months_old
-    return JSONResponse({
-        "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
-        "market_pe": config.MARKET_PE, "market_pe_as_of": config.MARKET_PE_AS_OF,
-        "source": {"erp": "manual" if a.get("erp") else "config-default",
-                   "market_pe": "manual" if a.get("market_pe") else "config-default"},
-        "erp_months_old": erp_months_old(),
-        "erp_stale": erp_months_old() > config.ERP_STALE_MONTHS,
-        "updated": a.get("updated"),
-    })
-
-
-@app.post("/api/assumptions")
-def api_set_assumptions(erp_pct: float = None, market_pe: float = None):
-    """Save the monthly manual values (Damodaran implied ERP %, S&P trailing P/E).
-    Persisted in portfolio.json -> mirrored to Google Drive by the normal save()
-    flow (same guard/worker as holdings), restored automatically on cold start."""
-    if erp_pct is None and market_pe is None:
-        return JSONResponse({"error": "provide erp_pct and/or market_pe"}, status_code=422)
-    if erp_pct is not None and not (1.0 <= erp_pct <= 10.0):
-        return JSONResponse({"error": "erp_pct out of sane band 1-10 (percent, e.g. 4.45)"},
-                            status_code=422)
-    if market_pe is not None and not (5.0 <= market_pe <= 60.0):
-        return JSONResponse({"error": "market_pe out of sane band 5-60"}, status_code=422)
-    with st.LOCK:
-        s = st.load()
-        a = st.set_assumptions(s, erp_pct, market_pe)
-        st.save(s)                                   # atomic write + Drive mirror
-    return JSONResponse({
-        "ok": True, "assumptions": a,
-        "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
-        "market_pe": config.MARKET_PE, "market_pe_as_of": config.MARKET_PE_AS_OF,
-        "note": "มีผลกับ Ke/WACC/market overlay ทันที — กด Run Fundamental Refresh เพื่อคำนวณ fair value ใหม่ด้วยค่านี้",
-    })
-
-
-@app.post("/api/holding")
-def api_set_holding(ticker: str, shares: float = None, avg_cost: float = None):
-    t = st.clean_ticker(ticker)
-    if not t:
-        return JSONResponse({"error": "invalid ticker"}, status_code=422)
-    with st.LOCK:                                   # fast: set holding only
-        s = st.load()
-        st.set_holding(s, t, shares, avg_cost)
-        st.save(s)
-        need_fetch = t not in s["facts"]
-    meta = None
-    if need_fetch:                                  # slow fetch OUTSIDE the lock
-        meta, s = _fetch_and_commit([t])
-    else:
-        s = st.load()
-    return JSONResponse({"view": refresh.portfolio_view(s),
-                         "quota": _quota(s), "result": meta})
-
-
-@app.post("/api/holding/remove")
-def api_remove_holding(ticker: str):
-    with st.LOCK:
-        s = st.load()
-        st.remove_holding(s, ticker)
-        st.save(s)
-    return JSONResponse(refresh.portfolio_view(s))
-
-
-@app.post("/api/refresh")
-def api_refresh():
-    tickers = list(st.load().get("holdings", {}).keys())
-    meta, s = _fetch_and_commit(tickers)
-    return {"result": meta, "view": refresh.portfolio_view(s), "quota": _quota(s)}
-
-
-@app.post("/api/daily")
-def api_daily():
-    tickers = list(st.load().get("holdings", {}).keys())
-    daily = refresh.fetch_daily(tickers, config.FMP_API_KEY)   # FMP only if Yahoo blocked
-    with st.LOCK:
-        s = st.load()
-        refresh.commit_daily(s, daily)
-        st.save(s)
-    return JSONResponse(refresh.portfolio_view(s))
+    """Drive persistence health, shown as a header badge so a silent backup
+    failure is visible BEFORE data is lost."""
+    return JSONResponse(store_sync.status())
 
 
 @app.get("/api/watchlist")
 def api_watchlist():
-    s = st.load()
-    return JSONResponse({"names": s.get("watchlist", [])})
+    return JSONResponse({"names": st.load().get("watchlist", [])})
 
 
 @app.get("/api/screen")
 def api_screen():
-    """Damodaran S13/S19 GARP screen: rank every analysed name (holdings + watchlist
-    results) on CHEAP x QUALITY using the stored DEEP subscores. Read-only."""
+    """GARP screen: rank every analysed name on CHEAP x QUALITY from the stored
+    DEEP subscores. Read-only."""
     s = st.load()
     facts = s.get("facts", {})
     items = []
@@ -308,21 +212,116 @@ def api_screen():
     return JSONResponse({"items": screen_mod.rank(items)})
 
 
+@app.get("/api/allocation")
+def api_allocation():
+    res, _ = refresh.allocation(st.load())
+    return JSONResponse(res)
+
+
+@app.get("/api/risk")
+def api_risk(risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0, enrich: str = "auto"):
+    """Risk-desk analysis of the current portfolio. enrich='auto' uses FMP adjusted
+    history when quota allows, else free stooq; enrich='free' never spends quota."""
+    s = st.load()
+    try:
+        payload, calls = risk_report.build(
+            s, config.FMP_API_KEY, st.fmp_used_today(s), config.QUOTA_CAP,
+            risk_tolerance_pct, horizon_years, enrich != "free")
+    except Exception as e:      # a bare 500 would crash the frontend's JSON.parse
+        log.exception("risk analysis failed")
+        return JSONResponse({"status": "error", "snapshot": None,
+                             "message": f"Risk analysis failed: {type(e).__name__}: {e}"})
+    payload["quota"] = _quota(_commit_fmp_calls(calls) if calls else s)
+    return JSONResponse(payload)
+
+
+# --------------------------------------------------------------------------- #
+#  Monthly assumptions (ERP / MARKET_PE). store.load() overlays saved values    #
+#  onto config, so the engine, validate band and market overlay read them.     #
+# --------------------------------------------------------------------------- #
+@app.get("/api/assumptions")
+def api_assumptions():
+    from domain.engine.deep_v82 import erp_months_old
+    a = st.load().get("assumptions") or {}      # load() also applies the override
+    return JSONResponse({
+        **_assumption_values(),
+        "source": {"erp": "manual" if a.get("erp") else "config-default",
+                   "market_pe": "manual" if a.get("market_pe") else "config-default"},
+        "erp_months_old": erp_months_old(),
+        "erp_stale": erp_months_old() > config.ERP_STALE_MONTHS,
+        "updated": a.get("updated"),
+    })
+
+
+@app.post("/api/assumptions")
+def api_set_assumptions(erp_pct: float = None, market_pe: float = None):
+    """Save the monthly manual values (Damodaran implied ERP %, S&P trailing P/E)."""
+    if erp_pct is None and market_pe is None:
+        return _invalid("provide erp_pct and/or market_pe")
+    if erp_pct is not None and not (1.0 <= erp_pct <= 10.0):
+        return _invalid("erp_pct out of sane band 1-10 (percent, e.g. 4.45)")
+    if market_pe is not None and not (5.0 <= market_pe <= 60.0):
+        return _invalid("market_pe out of sane band 5-60")
+    with st.transaction() as s:
+        a = st.set_assumptions(s, erp_pct, market_pe)
+    return JSONResponse({
+        "ok": True, "assumptions": a, **_assumption_values(),
+        "note": "มีผลกับ Ke/WACC/market overlay ทันที — กด Run Fundamental Refresh เพื่อคำนวณ fair value ใหม่ด้วยค่านี้",
+    })
+
+
+# --------------------------------------------------------------------------- #
+#  Holdings                                                                    #
+# --------------------------------------------------------------------------- #
+@app.post("/api/holding")
+def api_set_holding(ticker: str, shares: float = None, avg_cost: float = None):
+    t = st.clean_ticker(ticker)
+    if not t:
+        return _invalid("invalid ticker")
+    with st.transaction() as s:
+        st.set_holding(s, t, shares, avg_cost)
+    meta = None
+    if t not in s["facts"]:                     # new name: slow fetch OUTSIDE the lock
+        meta, s = _fetch_and_commit([t])
+    return JSONResponse({"view": refresh.portfolio_view(s),
+                         "quota": _quota(s), "result": meta})
+
+
+@app.post("/api/holding/remove")
+def api_remove_holding(ticker: str):
+    with st.transaction() as s:
+        st.remove_holding(s, ticker)
+    return JSONResponse(refresh.portfolio_view(s))
+
+
+@app.post("/api/refresh")
+def api_refresh():
+    meta, s = _fetch_and_commit(_holding_tickers())
+    return {"result": meta, "view": refresh.portfolio_view(s), "quota": _quota(s)}
+
+
+@app.post("/api/daily")
+def api_daily():
+    daily = refresh.fetch_daily(_holding_tickers(), config.FMP_API_KEY)
+    with st.transaction() as s:
+        refresh.commit_daily(s, daily)
+    return JSONResponse(refresh.portfolio_view(s))
+
+
+# --------------------------------------------------------------------------- #
+#  Watchlist                                                                   #
+# --------------------------------------------------------------------------- #
 @app.post("/api/watchlist/add")
 def api_watch_add(ticker: str):
-    with st.LOCK:
-        s = st.load()
+    with st.transaction() as s:
         st.add_watch(s, ticker)
-        st.save(s)
     return JSONResponse({"names": s["watchlist"]})
 
 
 @app.post("/api/watchlist/remove")
 def api_watch_remove(ticker: str):
-    with st.LOCK:
-        s = st.load()
+    with st.transaction() as s:
         st.remove_watch(s, ticker)
-        st.save(s)
     return JSONResponse({"names": s["watchlist"]})
 
 
@@ -330,13 +329,9 @@ def api_watch_remove(ticker: str):
 def api_watch_run(ticker: str = None):
     s0 = st.load()
     names = [st.clean_ticker(ticker)] if ticker else list(s0.get("watchlist", []))
-    names = [n for n in names if n]
-    res = refresh.fetch_watchlist(names, config.FMP_API_KEY,
-                                  st.fmp_used_today(s0), QUOTA_CAP)
-    with st.LOCK:                                   # persist only the quota counter
-        s = st.load()
-        st.add_fmp_calls(s, res["fmp_calls"])
-        st.save(s)
+    res = refresh.fetch_watchlist([n for n in names if n], config.FMP_API_KEY,
+                                  st.fmp_used_today(s0), config.QUOTA_CAP)
+    s = _commit_fmp_calls(res["fmp_calls"])
     res["names"] = s.get("watchlist", [])
     res["quota"] = _quota(s)
     return JSONResponse(res)
@@ -344,73 +339,31 @@ def api_watch_run(ticker: str = None):
 
 @app.post("/api/watchlist/promote")
 def api_watch_promote(ticker: str, shares: float = None, avg_cost: float = None):
-    """Move a watchlist ticker into the portfolio (then it behaves like a holding)."""
+    """Move a watchlist ticker into the portfolio."""
     t = st.clean_ticker(ticker)
     if not t:
-        return JSONResponse({"error": "invalid ticker"}, status_code=422)
-    with st.LOCK:
-        s = st.load()
+        return _invalid("invalid ticker")
+    with st.transaction() as s:
         st.set_holding(s, t, shares, avg_cost)
         st.remove_watch(s, t)
-        st.save(s)
     meta, s = _fetch_and_commit([t])
     return {"view": refresh.portfolio_view(s), "names": s.get("watchlist", []),
             "quota": _quota(s), "result": meta}
 
 
-@app.get("/api/allocation")
-def api_allocation():
-    s = st.load()
-    res, _ = refresh.allocation(s)
-    return JSONResponse(res)
-
-
+# --------------------------------------------------------------------------- #
+#  What-if allocation                                                          #
+# --------------------------------------------------------------------------- #
 class WhatIfBuy(BaseModel):
-    """One what-if purchase. Pydantic rejects non-numeric amounts with a clear
-    422 instead of the old unhandled-500 crash."""
+    """One what-if purchase. Pydantic turns a non-numeric amount into a 422."""
     ticker: str = ""
     amount: Optional[float] = None
 
 
 @app.post("/api/allocation/whatif")
 def api_whatif(items: List[WhatIfBuy]):
-    # NOTE: deliberately a sync `def`. The old `async def` version blocked the
-    # event loop waiting for the store lock and froze the ENTIRE server.
     body = [{"ticker": i.ticker, "amount": i.amount} for i in items]
     s = st.load()
-    res, calls = refresh.allocation(s, body, config.FMP_API_KEY)  # may hit FMP — no lock
-    if calls:
-        with st.LOCK:
-            s = st.load()
-            st.add_fmp_calls(s, calls)
-            st.save(s)
-    res["quota"] = _quota(s)
+    res, calls = refresh.allocation(s, body, config.FMP_API_KEY)  # may hit FMP: no lock
+    res["quota"] = _quota(_commit_fmp_calls(calls) if calls else s)
     return JSONResponse(res)
-
-
-@app.get("/api/risk")
-def api_risk(risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0, enrich: str = "auto"):
-    """Full risk-desk analysis of the current portfolio.
-    enrich='auto' (default) uses FMP adjusted history when quota allows, else free
-    stooq; enrich='free' never spends FMP quota (used by the regression test)."""
-    prefer_fmp = (enrich != "free")
-    s = st.load()
-    quota_used = st.fmp_used_today(s)
-    try:
-        payload, calls = risk_report.build(
-            s, config.FMP_API_KEY, quota_used, QUOTA_CAP,
-            risk_tolerance_pct, horizon_years, prefer_fmp)
-    except Exception as e:                              # never return a bare 500 (frontend JSON.parse crashes)
-        import traceback as _tb
-        _tb.print_exc()
-        return JSONResponse({"status": "error", "snapshot": None,
-                             "message": f"Risk analysis failed: {type(e).__name__}: {e}"})
-    if calls:                               # commit ONLY the quota counter, safely
-        with st.LOCK:
-            s2 = st.load()
-            st.add_fmp_calls(s2, calls)
-            st.save(s2)
-        payload["quota"] = _quota(st.load())
-    else:
-        payload["quota"] = _quota(s)
-    return JSONResponse(payload)
