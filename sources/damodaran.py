@@ -27,11 +27,8 @@ on a slightly different basis than the engine's own ROIC and reads a little
 generous. That is the safe direction for a CEILING — it can only ever restrain
 a company, never gift it anything: the engine applies it as
 max(WACC, min(own_ROIC, sector_cap, half_fade)), and in practice half_fade or
-the firm's own ROIC binds first for all but a handful of names.
-
-Note this ceiling can only ever RESTRAIN a company, never gift it anything: the
-engine applies it as max(WACC, min(own_ROIC, sector_cap, half_fade)), so a firm
-earning below its industry is still held to its own number.
+the firm's own ROIC binds first for all but a handful of names, and a firm earning
+below its industry is still held to its own number.
 
 Network is optional. The bundled FALLBACK snapshot (his January 2026 analysis)
 is used whenever the fetch or the cache is unavailable, so a refresh never
@@ -330,7 +327,7 @@ def fetch_roc_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeou
 
 
 # Market-wide normalized ROIC from the same table — the "converge to the average
-# company" number used when we have no real industry view (REV-26).
+# company" number used when we have no real industry view.
 MARKET_DEFAULT = 0.1492
 
 
@@ -340,7 +337,7 @@ def terminal_roic_for(ticker, sector, table=None):
     None means 'no industry view' — the engine then keeps its global default
     rather than inventing a number.
 
-    REV-26: a hit on SECTOR_TO_INDUSTRY is NOT an industry view. FMP's eleven
+    A hit on SECTOR_TO_INDUSTRY is NOT an industry view. FMP's eleven
     GICS-style sectors are far coarser than Damodaran's ninety-odd industries, so
     mapping the whole "healthcare" bucket onto Drugs (Pharmaceutical) at 23.52%
     hands every unmapped healthcare name the ceiling of one of its most profitable
