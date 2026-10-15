@@ -9,14 +9,9 @@ and returns a forward drift BIAS. Pure; never fabricates.
 def chronological(rows):
     """Surprise rows sorted OLDEST -> NEWEST by their own `quarter` date.
 
-    B6: every consumer of these lists took `[-1]` as "the latest quarter", trusting
-    list ORDER to encode chronology. Most sources deliver oldest-first, but the Yahoo
-    path does not, and on the committed portfolio TSLA and REGN — both Yahoo-primary —
-    carried [2026-03-31, 2025-12-31, 2025-09-30, 2025-06-30]. `[-1]` therefore read a
-    quarter NINE MONTHS stale as the newest one, so the PEAD drift signal, the
-    source-reconciliation tie-break and the earnings circles were all describing the
-    wrong quarter. The rows carry the date; nothing has to be inferred from position.
-    Same lesson as P3-1: when a value has a date on it, join on the date.
+    List order is not chronology: the Yahoo path delivers newest-first, so `[-1]` read
+    TSLA's and REGN's quarter from nine months earlier as the latest. The rows carry
+    their date, so sort on it.
 
     Rows with no usable quarter keep their relative order and sort last, since the only
     honest guess about an undated row is that it is not the newest."""
