@@ -62,18 +62,22 @@ def test_build_stamp_matches_config():
     print("build stamp matches config OK (%s)" % config.BUILD)
 
 
-def test_build_stamp_is_not_older_than_the_engine():
-    """The stamp must identify the code that produced the numbers.
+def _newest_behaviour_change():
+    """Date and subject of the newest fix/feat/perf commit under domain/ pipeline/ sources/.
+    None when git is unavailable (e.g. a deploy without .git)."""
+    import subprocess
+    try:
+        out = subprocess.run(
+            ["git", "log", "--no-merges", "--format=%cs %s", "-E",
+             "--grep=^(fix|feat|perf)[(:!]", "--", "domain", "pipeline", "sources"],
+            cwd=ROOT, capture_output=True, text=True, timeout=20)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    line = out.stdout.splitlines()[0] if out.returncode == 0 and out.stdout else ""
+    return (line[:10], line[11:]) if line else None
 
-    Found by opening the dashboard on 2026-08-11: it read `build 2026-08-04a` after
-    five commits that changed the engine (T5, A1-A4, B5-B8, L1-L5). The existing check
-    only compares index.html to config, and both were equally stale — so a reader could
-    not tell whether a score moved because the DATA changed or because the ENGINE did.
 
-    Enforced against a convention this repo already follows without fail: every fix
-    carries a dated comment. If any module under domain/ pipeline/ sources/ mentions a
-    date later than the build stamp, the stamp is behind the code.
-    """
+def _newest_dated_comment():
     newest, where = None, None
     for pkg in ("domain", "pipeline", "sources"):
         for root, _, files in os.walk(os.path.join(ROOT, pkg)):
@@ -86,12 +90,22 @@ def test_build_stamp_is_not_older_than_the_engine():
                         for d in re.findall(r"20\d\d-\d\d-\d\d", line):
                             if newest is None or d > newest:
                                 newest, where = d, f"{os.path.relpath(p, ROOT)}:{i}"
+    return (newest, where) if newest else None
+
+
+def test_build_stamp_is_not_older_than_the_engine():
+    """The stamp must identify the code that produced the numbers, so a reader can tell
+    whether a score moved because the DATA changed or because the ENGINE did. The newest
+    behaviour-changing commit (fix/feat/perf) under the computing packages must not be
+    newer than the build stamp. Without git, dated comments are the fallback evidence."""
+    newest = _newest_behaviour_change() or _newest_dated_comment()
+    assert newest, "no evidence of the engine's age (no git history, no dated comment)"
     stamp = config.BUILD[:10]
-    assert newest is None or stamp >= newest, (
-        "BUILD %s is older than the newest dated change %s (%s) — bump config.BUILD "
-        "and the frontend DASH_BUILD (static/js/app.js) so the dashboard says which engine produced its "
-        "numbers" % (config.BUILD, newest, where))
-    print("build stamp is current OK (%s >= newest change %s)" % (stamp, newest))
+    assert stamp >= newest[0], (
+        "BUILD %s is older than the newest behaviour change %s (%s) — bump config.BUILD "
+        "and the frontend DASH_BUILD (static/js/app.js) so the dashboard says which engine "
+        "produced its numbers" % (config.BUILD, newest[0], newest[1]))
+    print("build stamp is current OK (%s >= newest change %s)" % (stamp, newest[0]))
 
 
 if __name__ == "__main__":
