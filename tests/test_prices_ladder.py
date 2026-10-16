@@ -4,6 +4,7 @@ pricecache pool momentum already fetched, tries Yahoo directly for NEW holdings
 Offline — pricecache / yahoo / fmp / stooq are monkeypatched."""
 import os
 import sys
+import json
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -106,10 +107,111 @@ def test_short_cache_skipped():
     print("short-cache skipped OK")
 
 
+def test_short_live_answers_fall_through():
+    """A Yahoo series too short for 60 returns is not written to the pool, and an
+    empty Stooq answer is a miss, not a success."""
+    with _Lad() as L:
+        yahoo.fetch_chart = lambda t, **k: (L.calls.append("yahoo") or
+                                            {**_series(30), "adj_closes": _series(30)["closes"]})
+        stooq.fetch_chart = lambda t, **k: L.calls.append("stooq") or {"closes": []}
+        pay, src, used = prices._fetch_one("SHORT", "key", True, 400)
+        assert (pay, src, used) == (None, "proxy", False)
+        assert L.wrote == [], "a short yahoo series must not enter the pool"
+        assert L.calls == ["yahoo", "fmp", "stooq"], L.calls
+    print("short live answers fall through OK")
+
+
+class _Desk:
+    """fetch_returns with a scripted _fetch_one, a temp risk cache, no Drive."""
+
+    def __init__(self, td, answers):
+        self.td, self.answers, self.asked = td, answers, []
+
+    def __enter__(self):
+        import time
+        import store_sync
+        self._store_sync = store_sync
+        self._orig = (prices.RISK_CACHE_PATH, prices._fetch_one,
+                      prices._last_remote_pull, store_sync.schedule_push_named)
+        prices.RISK_CACHE_PATH = os.path.join(self.td, "risk_cache.json")
+        prices._last_remote_pull = time.time()          # throttled: no Drive pull
+        store_sync.schedule_push_named = lambda *a, **k: None
+
+        def fetch_one(t, key, may, days):
+            self.asked.append((t, key, may, days))
+            series, source = self.answers[t]
+            if source == "fmp" and not may:
+                source = "stooq"                        # the ladder skips FMP
+            return series, (source if series else "proxy"), source == "fmp"
+        prices._fetch_one = fetch_one
+        return self
+
+    def __exit__(self, *a):
+        (prices.RISK_CACHE_PATH, prices._fetch_one, prices._last_remote_pull,
+         self._store_sync.schedule_push_named) = self._orig
+
+
+def _closes(n, dates=True, ndates=None):
+    s = {"closes": [100.0 + i * (1 if i % 2 else -0.5) for i in range(n)]}
+    if dates:
+        s["dates"] = ["2026-03-%02d" % (i % 28 + 1) for i in range(ndates or n)]
+    return s
+
+
+def test_fetch_returns_quota_records_and_meta():
+    """Pins the quota rule (spend only while used+spent+1 < cap), the per-ticker
+    record (dates dropped when they do not pair with the returns), and the meta."""
+    import tempfile
+    from domain import risk
+    answers = {"A": (_closes(70), "fmp"), "B": (_closes(65), "fmp"),
+               "C": (_closes(64, ndates=10), "fmp"), "D": (_closes(62, dates=False), "stooq"),
+               "E": (None, "proxy")}
+    with tempfile.TemporaryDirectory() as td, _Desk(td, answers) as desk:
+        data, calls, meta = prices.fetch_returns(["A", "B", "", "C", "A", "D", "E"],
+                                                 fmp_key="k", quota_used=247,
+                                                 quota_cap=250, days=50)
+        assert [a[2] for a in desk.asked] == [True, True, False, False, False], desk.asked
+        assert all(a[1] == "k" and a[3] == 50 for a in desk.asked)
+        assert calls == 2, calls
+        assert list(data) == ["A", "B", "C", "D", "E"]
+        for t in "ABCD":
+            series = answers[t][0]
+            rets = risk.daily_returns(series["closes"])
+            dates = series.get("dates")
+            rdates = list(dates[1:]) if dates and len(dates) - 1 == len(rets) else []
+            assert data[t] == {"returns": rets, "dates": rdates,
+                               "vol": round(risk.annualized_vol(rets), 4),
+                               "source": "fmp" if t in "AB" else "stooq",
+                               "as_of": dates[-1] if dates else None,
+                               "n": len(rets)}, t
+        assert data["C"]["dates"] == [] and data["C"]["as_of"] == "2026-03-10"
+        assert data["E"] == {"returns": [], "dates": [], "vol": None,
+                             "source": "proxy", "as_of": None, "n": 0}
+        assert meta == {"cache": "miss", "key": prices.holdings_key(list("ABCDE")),
+                        "quota_degraded": True, "drive_cache_merged": 0}, meta
+        saved = json.load(open(prices.RISK_CACHE_PATH))
+        assert sorted(saved["data"]) == list("ABCD"), "only GOOD series persist"
+
+    with tempfile.TemporaryDirectory() as td, _Desk(td, answers) as desk:
+        _d, calls, meta = prices.fetch_returns(list("AB"), fmp_key="k", prefer_fmp=False)
+        assert [a[2] for a in desk.asked] == [False, False] and calls == 0
+        assert meta["quota_degraded"] is True
+
+    with tempfile.TemporaryDirectory() as td, _Desk(td, answers) as desk:
+        _d, calls, meta = prices.fetch_returns(list("AB"), use_cache=False)
+        assert [a[2] for a in desk.asked] == [False, False] and calls == 0
+        assert meta == {"cache": "miss", "key": prices.holdings_key(list("AB")),
+                        "quota_degraded": False, "drive_cache_merged": 0}, meta
+        assert not os.path.exists(prices.RISK_CACHE_PATH), "use_cache=False never saves"
+    print("fetch_returns quota + records + meta OK")
+
+
 if __name__ == "__main__":
     test_tier0_pricecache_first()
     test_tier1_yahoo_new_holding()
     test_tier4_stale_cache_beats_proxy()
     test_tier5_proxy_last()
     test_short_cache_skipped()
+    test_short_live_answers_fall_through()
+    test_fetch_returns_quota_records_and_meta()
     print("ALL test_prices_ladder OK")

@@ -149,7 +149,7 @@ def test_fetch_returns_carries_dates():
     print("\n3b. the returns contract carries dates at all")
     import inspect
     from pipeline import prices
-    src = inspect.getsource(prices.fetch_returns)
+    src = inspect.getsource(prices._returns_record)
     check('"dates": rdates' in src, "fetch_returns stores a per-return date list")
     check("len(rdates) != len(rets)" in src,
           "and refuses to ship dates that do not line up with the returns")

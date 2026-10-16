@@ -111,10 +111,56 @@ def test_no_cache_spends_fmp():
     print("no-cache-spends-fmp OK")
 
 
+class _PatchStale(_Patch):
+    """_Patch with a separate any-age cache and a record of pool writes."""
+    def __init__(self, stale=None, **kw):
+        super().__init__(**kw)
+        self.stale, self.wrote = stale, []
+
+    def __enter__(self):
+        super().__enter__()
+        prices.pricecache.read_any = lambda t, **k: self.stale
+        prices.pricecache.write = lambda t, p, **k: self.wrote.append((t, p)) or True
+        return self
+
+
+def test_best_partial_written_first_longest_wins():
+    # no cache, no FMP key; yahoo and stooq both short of full_bars -> the FIRST
+    # longest wins (a tie keeps the earlier tier) and is written to the pool
+    with _PatchStale(fresh=None, yahoo_bars=100, stooq_bars=100) as p:
+        out = prices.fetch_daily_adjusted("XX", "", full_bars=250, min_bars=60)
+        assert out["source"] == "yahoo" and len(out["closes"]) == 100
+        assert not out.get("from_cache") and p.wrote == [("XX", out)]
+    print("best-partial-written OK")
+
+
+def test_stale_cache_when_live_too_short():
+    with _PatchStale(fresh=None, stale=_series(90), yahoo_bars=40) as p:
+        out = prices.fetch_daily_adjusted("XX", "key", full_bars=250, min_bars=60)
+        assert out.get("from_cache") is True and out.get("stale_cache") is True
+        assert len(out["closes"]) == 90 and p.wrote == [] and p.fmp_called is True
+    print("stale-cache-fallback OK")
+
+
+def test_raises_when_nothing_long_enough():
+    with _PatchStale(fresh=_series(50), stale=_series(59), yahoo_bars=40) as p:
+        try:
+            prices.fetch_daily_adjusted("XX", "key", full_bars=250, min_bars=60)
+        except RuntimeError as e:
+            assert str(e) == "no long price data for XX (yahoo+fmp+stooq)", e
+        else:
+            raise AssertionError("must raise")
+        assert p.fmp_called is True, "a sub-min_bars cache does not block FMP"
+    print("raises-when-too-short OK")
+
+
 if __name__ == "__main__":
     test_full_cache_short_circuits()
     test_partial_cache_no_longer_blocks_longer_fetch()
     test_partial_cache_served_when_live_fails()
     test_cache_kept_when_still_longest()
     test_no_cache_spends_fmp()
+    test_best_partial_written_first_longest_wins()
+    test_stale_cache_when_live_too_short()
+    test_raises_when_nothing_long_enough()
     print("\nALL PRICE-FULLBARS TESTS PASSED ✅")

@@ -27,29 +27,27 @@ REFS = (("SPY", "S&P 500", "equity"), ("QQQ", "Nasdaq-100", "equity"),
 MIN_REALIZED = 60           # returns per name before its realized history is trusted
 
 
+# (substrings of the lower-cased sector, sleeve) in priority order; "tech" also
+# catches "information technology"
+_SLEEVES = ((("semicond",), "Semiconductor"),
+            (("tech",), "Growth / Technology"),
+            (("health", "pharmac"), "Defensive / Healthcare"),
+            (("financ", "bank"), "Financial"),
+            (("consumer",), "Consumer"),
+            (("communication",), "Communication / Media"))
+_TECH_LIKE = ("tech", "semicond", "communication")
+
+
 def _sleeve(sector):
     """Coarse risk-driver sleeve for the allocation donut (not just sector names)."""
     s = (sector or "").lower()
-    if "semicond" in s:
-        return "Semiconductor"
-    if "tech" in s or "information technology" in s:
-        return "Growth / Technology"
-    if "health" in s or "pharmac" in s:
-        return "Defensive / Healthcare"
-    if "financ" in s or "bank" in s:
-        return "Financial"
-    if "consumer" in s:
-        return "Consumer"
-    if "communication" in s:
-        return "Communication / Media"
-    return sector or "Unknown"
+    return next((sleeve for keys, sleeve in _SLEEVES if any(k in s for k in keys)),
+                sector or "Unknown")
 
 
 def _proxy_vol(sector):
     s = (sector or "").lower()
-    if "tech" in s or "semicond" in s or "information technology" in s or "communication" in s:
-        return riskeng.PROXY_VOL["tech"]
-    return riskeng.PROXY_VOL["us_large"]
+    return riskeng.PROXY_VOL["tech" if any(k in s for k in _TECH_LIKE) else "us_large"]
 
 
 @dataclass
@@ -271,9 +269,8 @@ def _correlation(rdata, tickers, weights, book, cov, cov_c, cov_info,
     corr_order = sorted(range(len(tickers)),
                         key=lambda i: (sectors.get(tickers[i]) or "zz", -weights[tickers[i]]))
     order_tk = [tickers[i] for i in corr_order]
-    m = len(order_tk)
-    mtx = [[round(corr[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
-    mtx_c = [[round(corr_c[corr_order[a]][corr_order[b]], 3) for b in range(m)] for a in range(m)]
+    def ordered(c):
+        return [[round(c[i][j], 3) for j in corr_order] for i in corr_order]
 
     bench_port, bench_hold, bench_ref, (port_rets, port_dates) = _benchmarks(
         rdata, tickers, weights, order_tk, book.asset_class)
@@ -303,7 +300,7 @@ def _correlation(rdata, tickers, weights, book, cov, cov_c, cov_info,
     return {
         "order": order_tk,
         "sectors": {t: sectors.get(t) for t in tickers},
-        "matrix": mtx, "crisis_matrix": mtx_c,
+        "matrix": ordered(corr), "crisis_matrix": ordered(corr_c),
         "sector_avg": {"normal": sc["sector_avg"], "crisis": sc_c["sector_avg"]},
         "avg_pairwise": {"normal": sc["avg_pairwise"], "crisis": sc_c["avg_pairwise"]},
         "pairs": {"normal": riskeng.top_pairs(corr, tickers),
