@@ -1,89 +1,37 @@
 """
-Run the full v2 test suite.  python run_tests.py
+Run every test suite.  python run_tests.py
 
-  tests.test_fmp_parse  — FMP parser on real ABBV schema (offline, synthetic)
-  tests.test_extract    — SEC robust extraction + normalize on real fixtures
-  tests.test_engine     — DEEP engine contract on real fixtures
+A suite is any tests/test_*.py; each runs in its own `python -m` subprocess, so each
+must end in an `if __name__ == "__main__":` block (checked below, since a suite
+without one imports cleanly, runs nothing and exits 0). Other modules in tests/ are
+helpers or manual tools unless listed in EXTRA. EXTRA are the system-level guards
+(see docs/REVIEW_PROCESS.md) and run last.
 
 test_extract / test_engine need the captured fixtures in tests/fixtures/
-(run `python capture.py` once, or commit the fixtures to the repo).
+(run `python -m tools.capture` once, or commit the fixtures to the repo).
 """
+import ast
 import os
-import sys
 import subprocess
+import sys
+from pathlib import Path
 
-TESTS = ["tests.test_fmp_parse", "tests.test_extract", "tests.test_engine",
-         "tests.test_engine_v82", "tests.test_earnings", "tests.test_fmp_earnings",
-         "tests.test_rev", "tests.test_margin", "tests.test_stooq", "tests.test_momentum",
-         "tests.test_pricecache",
-         "tests.test_consensus", "tests.test_finnhub", "tests.test_fmp_rev",
-         "tests.test_followups",
-         "tests.test_hardening", "tests.test_app_fixes", "tests.test_gdrive",
-         "tests.test_risk", "tests.test_no_regression", "tests.test_costs", "tests.test_downside", "tests.test_pead", "tests.test_screen", "tests.test_market_valuation", "tests.test_assetclass", "tests.test_philosophy", "tests.test_frontend", "tests.test_correlation",
-         "tests.test_advice", "tests.test_earn_status", "tests.test_sec_stale_cache",
-         "tests.test_price_fullbars", "tests.test_parallel_fetch",
-         "tests.test_fmp_freetier", "tests.test_surprise_backfill",
-         "tests.test_philosophy2026", "tests.test_skill_parity",
-         "tests.test_quickpatch_corr", "tests.test_risk_report",
-         "tests.test_cache_sync", "tests.test_prices_ladder",
-         "tests.test_damodaran_roc", "tests.test_young_dcf",
-         "tests.test_young_panel_render",
-         # round-3 review guard: period alignment (a "1-year" growth rate must span
-         # one year), missing-pillar inflation, and a screen that shows everything
-         # it screened.
-         "tests.test_review3", "tests.test_review3d",
-         # 2026-08-16 full-codebase audit: ^TNX unit scale, covariance/date
-         # alignment, reverse-DCF loss sign, SBC double count, divestiture sign,
-         # balance-sheet date alignment, IFRS tag ladders, per-share FX,
-         # fail-closed auth, Drive clobber, FMP quota gate.
-         "tests.test_audit_2026_08_16",
-         # T5: the 5-year performance strip — date alignment, gaps, staleness,
-         # watchlist/holdings parity, and the E_exec cash-durability leg.
-         "tests.test_trend",
-         # A1-A4: Price gains an FCF-yield leg, D loses two sign bugs, Economics is
-         # normalised one-sidedly, incremental ROIC moves to the capital delta.
-         "tests.test_pillars_a",
-         # B5-B8: growth consistency, beat/miss record, sector-relative ROIC, CAP,
-         # the surprise-ordering fix, and the per-pillar adjustment budget.
-         "tests.test_pillars_b",
-         # --- the safety net (2026-08-09). These are not unit tests: each one checks a
-         # property of the SYSTEM, and each was built after a defect that 46 green unit
-         # suites had failed to see. See REVIEW_PROCESS.md.
-         #
-         # dataquality  the DATA, not the code — staleness, series gaps, unconverted
-         #              currency, and that the stale-data fallback does not rebuild a
-         #              clock mismatch while fixing one. TSM (SEC stops at FY2024) is live.
-         "tests.test_dataquality",
-         # contracts    every fact field declares a CLOCK and a UNIT; an AST scan rejects
-         #              dividing, subtracting or comparing across them, and rejects a
-         #              money field that normalize never FX-converts. 1,128 possible
-         #              mispairings — past what review by eye can cover.
-         "tests.test_contracts",
-         # invariants   identities that must hold across TWO code paths (the two "actual
-         #              growth" figures agree; spread = ROIC - WACC; watchlist and
-         #              holdings rows carry the same fields). Mutation-tests itself.
-         "tests.test_invariants",
-         # replay       re-scores every stored ticker against a committed baseline and
-         #              fails when a REAL company's score moves. Intentional moves are
-         #              accepted with --update, and the baseline diff is reviewed with
-         #              the change. This is the harness that found most of the defects.
-         "tests.replay_snapshot",
-         # golden       every field the engine returns, every endpoint the dashboard
-         #              reads, and the offline sources -> engine path, in one frozen,
-         #              offline run. A behaviour-preserving change leaves it clean.
-         "tests.golden_snapshot",
-         # qa_2026_08_16  guards for the defects the live-UI audit found: ENB rising
-         #              in a crisis (it was the inverse-HHI of risk contributions, not
-         #              DR^2), Python None reaching a card, banker's rounding on the
-         #              star edge, an imputed pillar with no audit line, and an Action
-         #              matrix whose momentum axis was pinned at Neutral for 21/21 rows.
-         "tests.test_qa_2026_08_16",
-         "tests.audit2"]
 HERE = os.path.dirname(os.path.abspath(__file__))
+SUITE_FILES = sorted(Path(HERE, "tests").glob("test_*.py"))
+EXTRA = ["tests.replay_snapshot", "tests.golden_snapshot", "tests.audit2"]
+TESTS = ["tests." + p.stem for p in SUITE_FILES] + EXTRA
+
+
+def _has_main_block(path):
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    return any(isinstance(node, ast.If)
+               and ast.unparse(node.test) == "__name__ == '__main__'"
+               for node in tree.body)
 
 
 def main():
-    failed = []
+    failed = ["tests.%s (no __main__ block, so it runs nothing)" % p.stem
+              for p in SUITE_FILES if not _has_main_block(p)]
     for t in TESTS:
         print("=" * 60)
         print("RUN", t)
