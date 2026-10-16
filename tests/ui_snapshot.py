@@ -308,10 +308,22 @@ def _capture():
     return out
 
 
+def _age_data_files(data_dir):
+    """Every cache TTL compares a file's mtime with the frozen clock, so a fresh checkout
+    or a plain `cp -r` (new mtimes, later than FROZEN_AT) would flip cached reads into
+    fetches. One fixed mtime, older than every TTL, makes the cache path independent of
+    when and how the repo was copied."""
+    stamp = time.mktime(time.strptime(FROZEN_AT, "%Y-%m-%d %H:%M:%S")) - 90 * 86400
+    for base, _dirs, files in os.walk(data_dir):
+        for name in files:
+            os.utime(os.path.join(base, name), (stamp, stamp))
+
+
 def _run_in_copy():
     tmp = tempfile.mkdtemp(prefix="ui_snapshot_")
     work = os.path.join(tmp, "app")
     shutil.copytree(ROOT, work, ignore=shutil.ignore_patterns(".git", "__pycache__", "golden"))
+    _age_data_files(os.path.join(work, "data"))
     env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV}
     env["PYTHONHASHSEED"] = "0"
     # Price fetches go through libcurl, below the Python socket patch. A proxy on a
