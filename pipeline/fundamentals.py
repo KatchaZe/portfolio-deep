@@ -58,6 +58,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     fmp_calls += calls
     fmp_calls += _surprise_backfill(ff, t, fmp_key)
     _blend_forward_eps(ff, t, estimates)
+    normalize.resolve_growth(ff)
     _own_pe_percentile(ff, t)
     _terminal_roic(ff, t, roc_table)
 

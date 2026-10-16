@@ -93,7 +93,7 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
     if yahoo_qs:
         _apply_yahoo(ff, yahoo_qs)
     if ff.growth_lt is None:
-        ff.set("growth_lt", _annual_cagr(ff.revenue_annuals), "sec-cagr(min 3y/5y)")
+        ff.set("growth_lt", _annual_cagr(ff.revenue_annuals), HISTORICAL_GROWTH)
 
     _resolve_shares(ff)
     _score(ff)
@@ -133,7 +133,7 @@ def _apply_yahoo(ff, yahoo_qs):
     g = y.get("growth_lt")
     if g is None:
         g = _annual_cagr(ff.revenue_annuals)
-    ff.set("growth_lt", g, "yahoo" if y.get("growth_lt") is not None else "sec-cagr(min 3y/5y)")
+    ff.set("growth_lt", g, "yahoo" if y.get("growth_lt") is not None else HISTORICAL_GROWTH)
 
 
 # How far price x shares may sit from the reported market cap before we call it
@@ -202,6 +202,39 @@ def _annual_cagr(annuals):
         except Exception:
             return None
     return max(0.0, min(cands))
+
+
+HISTORICAL_GROWTH = "sec-cagr(min 3y/5y)"
+
+
+def resolve_growth(ff):
+    """The growth the engine values on must look FORWARD (Damodaran: price is a bet on
+    the future, past growth predicts it weakly). Order: Yahoo analyst long-term growth,
+    else the FMP consensus revenue path (geometric mean of its near and far years),
+    else the historical revenue CAGR, labelled as such and never above what consensus
+    forward EPS implies. Before this, all 21 holdings valued on history: NVO at 19.5%
+    while guiding sales -5% to -13% and consensus EPS below trailing."""
+    if ff.provenance.get("growth_lt") == "yahoo" and ff.growth_lt is not None:
+        return
+    near, far = ff.fwd_growth_near, ff.fwd_growth_far
+    if near is not None:
+        far = near if far is None else far
+        g = ((1 + near) * (1 + far)) ** 0.5 - 1 if (1 + near) > 0 and (1 + far) > 0 else min(near, far)
+        ff.set("growth_lt", g, "fmp/estimates (consensus revenue path)")
+        return
+    if ff.growth_lt is None:
+        return
+    ff.provenance["growth_lt"] = HISTORICAL_GROWTH
+    ff.flags.append(f"growth {ff.growth_lt*100:.1f}% is HISTORICAL revenue CAGR - no forward "
+                    f"consensus growth available")
+    eps0, fwd = ff.eps_gaap, ff.forward_eps
+    if eps0 and fwd and eps0 > 0 and fwd > 0:
+        implied = fwd / eps0 - 1
+        if implied < ff.growth_lt:
+            capped = max(0.0, implied)
+            ff.flags.append(f"growth capped {ff.growth_lt*100:.1f}% -> {capped*100:.1f}%: consensus "
+                            f"forward EPS {fwd:.2f} vs trailing {eps0:.2f} implies {implied*100:+.1f}%")
+            ff.set("growth_lt", capped, HISTORICAL_GROWTH + " capped by consensus EPS")
 
 
 def _score(ff):
