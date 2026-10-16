@@ -63,6 +63,26 @@ def test_crash_guard_vetoes_momentum():
     print("crash-guard veto OK")
 
 
+def test_overpriced_is_never_a_buy_because_revdcf_reads_plausible():
+    """MSFT -34% / AVGO -66% both printed 'buy, all three conditions met' because the
+    reverse-DCF verdict 'Plausible' counted as good value next to a real fair value."""
+    a = advice.build(row(upside_pct=-34, composite=3.2, rev_verdict="Plausible",
+                         rev_implied_cagr=12, key_metrics={"spread_pct": 16},
+                         eq_verdict="CLEAN", momentum_v2={"mom_label": "Positive"}))
+    assert "ซื้อ" not in a.split("Action:")[1] and "ทยอยสะสม" not in a, a
+    assert "ลดน้ำหนัก" in a or "ไม่เพิ่ม" in a, a
+    print("overpriced + RevDCF Plausible -> no buy OK")
+
+
+def test_unmeasured_quality_is_not_good_quality():
+    """HIMS: spread None counted as (0 >= 0) -> 'value and quality both pass, DCA'."""
+    a = advice.build(row(upside_pct=25, key_metrics={"spread_pct": None},
+                         eq_verdict="CLEAN", momentum_v2={"mom_label": "Positive"}))
+    assert "ทยอยสะสม" not in a and "ครบทั้งสามเงื่อนไข" not in a, a
+    assert "วัดคุณภาพ" in a, a
+    print("unmeasured spread -> waits for data OK")
+
+
 def test_never_raises_on_garbage():
     assert advice.build({}) == "" or isinstance(advice.build({}), str)
     assert isinstance(advice.build({"upside_pct": "x", "key_metrics": None}), str)

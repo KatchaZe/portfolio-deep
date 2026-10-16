@@ -92,7 +92,9 @@ def _timing_clause(mom, crash):
     return None
 
 
-def _action(good_value, bad_value, good_quality, good_mom, comp, has_parts):
+def _action(good_value, bad_value, good_quality, good_mom, comp, has_parts, quality_known=True):
+    if good_value and not quality_known:
+        return "ถูกแต่ยังวัดคุณภาพ (ROIC-WACC) ไม่ได้ — รอข้อมูลก่อนเพิ่มน้ำหนัก"
     if good_value and good_quality and good_mom:
         return "ซื้อ/เพิ่มน้ำหนักแบบแบ่งไม้ — ถูก×ดี×จังหวะหนุน ครบทั้งสามเงื่อนไข"
     if good_value and good_quality:
@@ -122,13 +124,23 @@ def _build(row):
 
     parts = [c for c in (_value_clause(row, up, implied), _quality_clause(spread, eq),
                          _timing_clause(mom, crash)) if c]
+    # Value is judged on the SAME basis the value clause states: the fair value when
+    # there is one, the reverse-DCF expectations only when there is not. Mixing them
+    # printed "buy, all three conditions met" right after "priced above value" (MSFT
+    # -34%, AVGO -66%, both reverse-DCF "Plausible").
+    if up is not None:
+        good_value, bad_value = up >= 15, up <= -15
+    else:
+        good_value = implied is not None and rev_verdict == "Plausible"
+        bad_value = rev_verdict in ("Aggressive", "Exceptional")
     act = _action(
-        good_value=(up is not None and up >= 15) or (implied is not None and rev_verdict == "Plausible"),
-        bad_value=(up is not None and up <= -15) or (rev_verdict in ("Aggressive", "Exceptional")),
-        good_quality=(spread or 0) >= 0 and eq != "LOW",
+        good_value=good_value,
+        bad_value=bad_value,
+        good_quality=spread is not None and spread >= 0 and eq != "LOW",
         good_mom=mom in _BULLISH and not crash,
         comp=_fnum(row.get("composite")),
-        has_parts=bool(parts))
+        has_parts=bool(parts),
+        quality_known=spread is not None)
     if act is None:
         return ""
     return " | ".join(parts + ["Action: " + act])
