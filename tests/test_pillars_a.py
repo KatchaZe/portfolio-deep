@@ -240,7 +240,7 @@ def test_growth_reconciliation():
     fv_c, _ = E.fundamental_peg_price(g_high=0.195, **kw)
     fv_r, _ = E.fundamental_peg_price(g_high=0.064, **kw)
     fv_0, _ = E.fundamental_peg_price(g_high=0.0, **kw)
-    check(round(fv_c, 2) == 116.12, "NVO's consensus FV reproduces", str(fv_c))
+    check(round(fv_c, 2) == 115.32, "NVO's consensus FV reproduces (forward P/E since 2026-10-17)", str(fv_c))
     check(fv_0 > 47.73 * 1.3,
           f"and it is still ${fv_0:.2f} at ZERO growth — the BUY is not a growth story",
           str(fv_0))

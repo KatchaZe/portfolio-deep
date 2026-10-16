@@ -222,11 +222,16 @@ def fundamental_peg_price(g_high, g_stable, ke, roic_high, roic_stable, forward_
     # one: the two-stage formula handles it with payout_h = 1.
     if forward_eps is None or forward_eps <= 0 or g_high is None or g_high < 0:
         return None, None
-    pe = two_stage_pe(g_high, years, g_stable, ke, roic_high, roic_stable, ke_st=ke_stable)
-    if pe is None or pe <= 0:
+    trailing = two_stage_pe(g_high, years, g_stable, ke, roic_high, roic_stable, ke_st=ke_stable)
+    if trailing is None or trailing <= 0:
         return None, None
+    # two_stage_pe is Damodaran's P0/E0 (each term carries the first year's (1+g)), and
+    # the EPS it multiplies is NEXT year's. P0/E1 = (P0/E0)/(1+g); without it the anchor
+    # counted one year of growth twice (+20% at g = 20%).
+    pe = trailing / (1 + g_high)
     pe_clamped = _clamp(pe, PE_FLOOR, PE_CEIL)
     detail = {"fair_pe": round(pe_clamped, 2), "fair_pe_raw": round(pe, 2),
+              "trailing_pe": round(trailing, 2),
               # PEG is undefined at zero growth — report None rather than dividing by 0
               "fundamental_peg": round(pe_clamped / (g_high * 100), 3) if g_high > 0 else None,
               "pe_clamped": pe_clamped != pe}
