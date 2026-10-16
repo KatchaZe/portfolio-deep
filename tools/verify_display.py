@@ -10,9 +10,9 @@ which is the only kind of bug that actually costs money.
 Written for the round-14 audit (2026-08-17), so it knows what those fixes were supposed
 to change and asserts they actually did on YOUR data, not on a fixture.
 
-    python -m tests.verify_display                     # the local data/portfolio.json
-    python -m tests.verify_display path/to/store.json  # e.g. one pulled from Drive
-    python -m tests.verify_display --verbose            # print every row's numbers
+    python -m tools.verify_display                     # the local data/portfolio.json
+    python -m tools.verify_display path/to/store.json  # e.g. one pulled from Drive
+    python -m tools.verify_display --verbose            # print every row's numbers
 
 Exit code 1 if anything fails.
 """
