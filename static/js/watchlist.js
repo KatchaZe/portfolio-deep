@@ -1,3 +1,4 @@
+// The Watchlist tab: names are stored, their analysis is fetched on demand and not kept.
 async function loadWatchlist(){try{const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}catch(e){document.getElementById('watchNames').innerHTML='<span class="down">&#9888; watchlist load failed: '+esc(String(e))+'</span>';}}
 function renderWatchNames(names){
   document.getElementById('watchNames').innerHTML = names.length
@@ -17,8 +18,7 @@ async function runWatch(){
 }
 function renderWatchTable(rows){
   if(!rows.length){document.getElementById('watchTable').innerHTML='<span class="muted">No results — add tickers and run.</span>';return;}
-  // P4: old <tr> builder was dead code (card layout replaced it) — removed.
-  document.getElementById('watchTable').innerHTML=`<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(330px*var(--fs)),1fr));gap:12px">${rows.map(x=>pcard(x,true)).join('')}</div>`;
+  document.getElementById('watchTable').innerHTML=`<div style="${CARD_GRID}">${rows.map(x=>pcard(x,true)).join('')}</div>`;
 }
 async function promote(t){
   const sh=prompt('Add '+t+' to My Portfolio.\n\nNumber of shares:');
