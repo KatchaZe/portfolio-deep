@@ -88,7 +88,7 @@ python -m tests.replay_snapshot --verbose  # ดูทุกค่า
    (B5 "3y ≥ 80% ของ 1y" ครอบคลุมทั้งการชะลอตัว — NVO ได้ +0.25 ป้าย "โตต่อเนื่อง" ทั้งที่ growth ตกจาก 20% เหลือ 6%)
 
 **หลังแก้**
-6. `python run_tests.py` — 57 ชุด
+6. `python run_tests.py` — ทุกชุด (`tests/test_*.py` + replay/golden/audit2)
 7. `python -m tests.replay_snapshot` — **อ่านทุกบรรทัดที่ขยับ อธิบายให้ได้ทีละบรรทัด** แล้วค่อย `--update`
 8. เทียบของจริง 2–3 ตัวกับตัวเลขที่บริษัทประกาศ (FCF · gross margin · revenue growth)
 9. **ตรวจ "การแก้" เป็นรอบแยก** — 30% ของ defect มาจาก code ที่เขียนตอน review
@@ -158,7 +158,7 @@ SEC งบเก่า > 15 เดือน
 | | วัดได้ | เหตุผล |
 |---|---|---|
 | alias ข้าม container/comprehension | อ่าน `f.<field>` 250 ครั้ง อยู่ใน comprehension **0 ครั้ง** | ช่องโหว่ทางทฤษฎี ไม่มีของจริงให้ดัก |
-| scan JavaScript ใน `index.html` | ทั้งไฟล์มี **2 นิพจน์** ที่ทำเลขกับ field (`x.upside_pct/100`, `x.eva/1e9`) และเป็นการแปลงหน่วยแสดงผล | สร้าง JS AST checker เพื่อ 2 นิพจน์ · I1–I9 คุม contract ระหว่าง backend↔frontend อยู่แล้ว |
+| scan JavaScript ใน `index.html` (ปัจจุบันย้ายไป `static/js/`) | ทั้งไฟล์มี **2 นิพจน์** ที่ทำเลขกับ field (`x.upside_pct/100`, `x.eva/1e9`) และเป็นการแปลงหน่วยแสดงผล | สร้าง JS AST checker เพื่อ 2 นิพจน์ · I1–I9 คุม contract ระหว่าง backend↔frontend อยู่แล้ว |
 | basis นอกเหนือ ROIC | margin/growth/FCF **ไม่มี** raw-vs-adjusted duality | ไม่มีอะไรให้ประกาศ |
 
 **ยังเหลือจริง:**
@@ -195,12 +195,12 @@ replay ให้คะแนนซ้ำจากไฟล์ · dataquality ต
 เพราะมันต้องการซีรีส์ ROIC ย้อนหลัง 4 ปี ซึ่งไม่มีในข้อมูลจนกว่าจะ refresh
 พอมันได้ทำงานครั้งแรก มันก็ทำให้ ROIC บนการ์ดขัดกับ spread ทันทีบน 4 จาก 21 ตัว
 
-เรื่องเดียวกับที่ `pipeline/refresh.py` วัด coverage ได้ **0%** ขณะซ่อน L1/L2/L4/L5 ไว้ครบ
+เรื่องเดียวกับที่ `pipeline/refresh.py` (ตอนนั้น ปัจจุบันแยกเป็น `pipeline/fundamentals.py` · `pipeline/watchlist.py` ฯลฯ) วัด coverage ได้ **0%** ขณะซ่อน L1/L2/L4/L5 ไว้ครบ
 
 > **ก่อนเชื่อว่า feature ใหม่ทำงาน ให้ถามว่า "โค้ดบรรทัดนี้เคยถูกรันด้วยข้อมูลจริงหรือยัง"**
 > ถ้าคำตอบคือไม่ ให้ถือว่ายังไม่ได้ทดสอบ ไม่ว่าเทสต์จะเขียวแค่ไหน
 
-`tools/live_check.py` มีไว้เพื่อข้อนี้ — เรียก `refresh.analyze()` ตัวเดียวกับที่แอปเรียก **แต่ไม่เขียนอะไรลง store**
+`tools/live_check.py` มีไว้เพื่อข้อนี้ — เรียก `fundamentals.analyze()` ตัวเดียวกับที่แอปเรียก **แต่ไม่เขียนอะไรลง store**
 
 ```bash
 python -m tools.live_check              # MSFT (ปกติ) · TSM (งบเก่า+ต่างสกุล) · NVO (DKK)
@@ -260,7 +260,7 @@ python -m tools.live_check NVO --why    # ดูอินพุตที่ fair
 
 รอบนี้ใช้ agent 4 ตัวแบ่งตาม subsystem ทั้งที่เอกสารนี้เขียนห้ามไว้ชัด ผลที่ได้ตรงกับที่ทำนาย:
 
-- **fix ที่ 3 ส่งไปแบบไม่ครบ** — agent ที่ถือ `risk.py` แก้ `align_returns` แต่ agent ที่ถือ
+- **fix ที่ 3 ส่งไปแบบไม่ครบ** — agent ที่ถือ `risk.py` (ตอนนั้น ปัจจุบันคือ `domain/risk/`) แก้ `align_returns` แต่ agent ที่ถือ
   `risk_report.py` ไม่รู้ว่ามีของใหม่ให้เรียก · `align_on_dates()` เลยถูกเรียกที่เดียว
   ส่วน historical VaR · downside lens · ตาราง benchmark ทั้งตาราง ยังจับคู่ตามตำแหน่งอยู่
 - **fix ที่ 12** กลายเป็นครึ่ง frontend ของ null ที่ครึ่ง backend ถูกแก้ไปแล้วเช้าวันเดียวกัน
@@ -285,7 +285,7 @@ python -m tools.live_check NVO --why    # ดูอินพุตที่ fair
 ## 6.4 อ้าง spec ให้ถูกฉบับ
 
 รายงานแรกตรวจโค้ดนี้ด้วยกฎของ **DEEP v7.1** ซึ่งเป็นเวอร์ชันของ *prompt template*
-แต่แอปนี้คือ **v8.2** (`config.DEEP_VERSION`) ตัวสำรองคือ **v7.3** — คนละสายเลขกันทั้งหมด
+แต่แอปนี้คือ **v8.2** (`config.DEEP_VERSION`) — คนละสายเลขกันทั้งหมด
 ผลคือ "ผ่าน" ให้ ERP ทั้งที่เทียบกับกฎ 4.75% ที่ v8.2 เลิกใช้ไปแล้ว
 
 > **checklist ข้อ 14**: เขียน spec ที่กำลังตรวจไว้บนหัวรายงาน พร้อมบรรทัดที่ยืนยันจากโค้ด
@@ -295,7 +295,7 @@ python -m tools.live_check NVO --why    # ดูอินพุตที่ fair
 ## 6.5 ของที่ต้อง "แก้" กับของที่ต้อง "ถาม"
 
 สองข้อในรอบนี้ไปแตะการตัดสินใจที่รอบก่อน**ตั้งใจ**เลือกไว้:
-auth ที่ `REVIEW.md` C3 จงใจปล่อยเป็น opt-in และ SBC ที่ REV-1 จงใจปลุกกลับมา
+auth ที่ `docs/archive/REVIEW.md` C3 จงใจปล่อยเป็น opt-in และ SBC ที่ REV-1 จงใจปลุกกลับมา
 
 > ถ้าเอกสารรอบก่อนเขียนเหตุผลไว้ = **นั่นคือการตัดสินใจ ไม่ใช่บั๊ก**
 > แก้ได้ แต่ต้องยกข้อความเดิมมาอ้าง บอกว่า revert ยังไง แล้วให้เจ้าของยืนยัน
