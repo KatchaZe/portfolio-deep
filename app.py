@@ -90,7 +90,10 @@ def auth_ok(supplied: Optional[str], expected: Optional[str] = None) -> bool:
 
 @app.middleware("http")
 async def _auth_middleware(request: Request, call_next):
-    if request.url.path != "/healthz":
+    # /static holds only code (no portfolio data). Serving it without a token keeps the
+    # dashboard able to show its own "open /?token=" message when the cookie is missing.
+    is_static = request.url.path.startswith("/static/")
+    if request.url.path != "/healthz" and not is_static:
         if AUTH_REQUIRED_BUT_MISSING:
             return JSONResponse(_NO_TOKEN_ON_PUBLIC, status_code=503)
         supplied = (request.query_params.get("token")
@@ -99,6 +102,11 @@ async def _auth_middleware(request: Request, call_next):
         if not auth_ok(supplied):
             return JSONResponse(_UNAUTHORIZED, status_code=401)
     resp = await call_next(request)
+    if is_static:
+        # revalidate every load (cheap: ETag -> 304), so a deploy never mixes the new
+        # index.html with yesterday's cached JS
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
     # Remember a valid ?token= in a cookie. secure=True keeps the token off plain
     # HTTP; on http://localhost the browser skips it and ?token= / X-App-Token still
     # work. Never on /healthz: it is unauthenticated, and minting there would hand
