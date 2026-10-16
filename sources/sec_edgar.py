@@ -321,6 +321,12 @@ INV_TAGS = ("InventoryNet", "InventoryGross", "Inventories")
 AP_TAGS = ("AccountsPayableCurrent", "AccountsPayableTradeCurrent",
            "AccountsPayableAndAccruedLiabilitiesCurrent")
 CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents")
+# Damodaran nets cash AND marketable securities out of debt and invested capital. Cash
+# equivalents alone left $186.6B of GOOGL and $55.9B of MSFT inside invested capital.
+CASH_ST_TOTAL = ("CashCashEquivalentsAndShortTermInvestments",)
+ST_INV_TAGS = ("ShortTermInvestments", "MarketableSecuritiesCurrent",
+               "AvailableForSaleSecuritiesDebtSecuritiesCurrent", "DebtSecuritiesCurrent",
+               "OtherShortTermInvestments")
 DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiability",
                "DeferredRevenueCurrent", "DeferredRevenue")
 RND_TAGS = ("ResearchAndDevelopmentExpense",
@@ -433,6 +439,39 @@ def _prior_year(x, ladder, at):
     return _freshest(x, ladder, at, prior, lambda v: v is not None)
 
 
+def _by_date(x, tags):
+    """{instant_date: value}, the first tag in ladder order winning each date."""
+    out = {}
+    for tag in tags:
+        for e in x.entries(tag):
+            d, v = e.get("end"), e.get("val")
+            if d and not e.get("start") and v is not None and d not in out:
+                out[d] = v
+    return out
+
+
+def _cash_series(x):
+    """{date: cash + short-term investments}, each date read off ONE balance sheet:
+    the filed total if there is one, else cash equivalents + the securities leg."""
+    cash, total, st = _by_date(x, CASH_TAGS), _by_date(x, CASH_ST_TOTAL), _by_date(x, ST_INV_TAGS)
+    return {d: total.get(d) if total.get(d) is not None else v + (st.get(d) or 0)
+            for d, v in cash.items()}
+
+
+def _cash(x, ladder, at):
+    s = {d: v for d, v in _cash_series(x).items() if _recent(d, at.ref_end)}
+    return s[max(s)] if s else None
+
+
+def _cash_prior(x, ladder, at):
+    """Newest balance sheet of the previous calendar year, like _prior_year."""
+    years = {}
+    for d, v in sorted(_cash_series(x).items(), reverse=True):
+        years.setdefault(d[:4], v)
+    vals = [years[y] for y in sorted(years, reverse=True)]
+    return vals[1] if len(vals) > 1 else None
+
+
 def _total_else_legs(rule):
     """Rule over (total ladder, *leg ladders): the filed total, else the sum of legs."""
     def read(x, ladders, at):
@@ -478,6 +517,8 @@ def _ic_components(x, ladders, at):
     year is a filing gap, not a debt-free year."""
     (eq, _), (cash, _), (lt, lt_tag), (st, _) = (
         x.instant_at_dates(list(tags), at.fy_ends) for tags in ladders)
+    cash_st = _cash_series(x)
+    cash = {d: cash_st.get(d, v) for d, v in cash.items()}
     out = {}
     for d in at.fy_ends:
         if d not in eq or d not in cash:
@@ -509,7 +550,7 @@ FIELD_LADDERS = {
     # FX-converted.
     "shares_diluted_annuals": (_annual, (("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES),)),
     "total_debt": (_total_debt, ((COMBINED_DEBT,), LT_DEBT, ST_DEBT)),
-    "cash": (_fresh, CASH_TAGS),
+    "cash": (_cash, CASH_TAGS),
     "equity": (_fresh, EQUITY_TAGS),
     "capex": (_ttm_present, CAPEX_TAGS),
     # Dated, not bare lists: two tags need not cover the same fiscal years, and
@@ -546,7 +587,7 @@ FIELD_LADDERS = {
     "equity_prior": (_prior_year, EQUITY_TAGS),
     "total_debt_prior": (_total_else_legs(_prior_year),
                          ((COMBINED_DEBT,), (COMBINED_DEBT, *LT_DEBT), ST_DEBT)),
-    "cash_prior": (_prior_year, CASH_TAGS),
+    "cash_prior": (_cash_prior, CASH_TAGS),
     "acquisitions_net": (_ttm, ("PaymentsToAcquireBusinessesNetOfCashAcquired",
                                 "PaymentsToAcquireBusinessesAndInterestInAffiliates",
                                 "PaymentsToAcquireBusinessesGross")),

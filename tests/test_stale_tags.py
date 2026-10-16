@@ -63,5 +63,26 @@ def test_pretax_falls_back_to_domestic_plus_foreign():
     check("income_before_tax" not in d["stale_fields"], "a field filled by its legs is not flagged stale")
 
 
+def _inst(end, val):
+    return {"end": end, "val": val, "filed": "2026-02-01", "form": "10-K"}
+
+
+def test_cash_includes_short_term_investments_from_one_balance_sheet():
+    d = se.extract(_facts(
+        CashAndCashEquivalentsAtCarryingValue=[_inst("2024-12-31", 30), _inst("2025-12-31", 20)],
+        ShortTermInvestments=[_inst("2024-12-31", 40), _inst("2025-12-31", 56)]))
+    check(d["cash"] == 76, "cash = cash equivalents + short-term investments (MSFT shape)", str(d["cash"]))
+    check(d["cash_prior"] == 70, "the prior year is built the same way", str(d["cash_prior"]))
+    d = se.extract(_facts(
+        CashAndCashEquivalentsAtCarryingValue=[_inst("2025-12-31", 56)],
+        CashCashEquivalentsAndShortTermInvestments=[_inst("2025-12-31", 242)],
+        MarketableSecuritiesCurrent=[_inst("2025-12-31", 186)]))
+    check(d["cash"] == 242, "a filed total is used as is, never added to its own legs", str(d["cash"]))
+    d = se.extract(_facts(
+        CashAndCashEquivalentsAtCarryingValue=[_inst("2025-12-31", 13)],
+        MarketableSecuritiesCurrent=[_inst("2024-12-31", 49)]))
+    check(d["cash"] == 13, "a securities leg from another date is not mixed in", str(d["cash"]))
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_stale_tags PASSED")
