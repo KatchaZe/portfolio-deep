@@ -352,6 +352,90 @@ def future_value_projection(eps0, growth, ke, exit_pe):
     return (eps0 * (1 + growth) ** 5 * pe) / (1 + ke) ** 5
 
 
+# implied CAGR / actual growth -> how hard the priced-in growth is to reach
+ACCELERATION_VERDICTS = [(5.0, "Exceptional"), (3.0, "Aggressive"), (1.5, "Ambitious"),
+                         (-1e9, "Plausible")]
+
+
+def _rdcf_verdict(base, why, a1, accel):
+    """Reverse-DCF verdict from the implied CAGR `base` and the actual growth a1."""
+    if base is None:
+        # a price no CAGR in the band can reach is its own verdict, not "Unknown"
+        return why or "Beyond model band"
+    if a1 is not None and a1 <= 0:
+        return "Cannot benchmark - shrinking"
+    if accel is None:
+        return "Unknown"
+    return _band(accel, ACCELERATION_VERDICTS)
+
+
+def _implied_cagr(pv, ev):
+    """Lowest revenue CAGR x in [-50%, +100%] with pv(x) >= ev. Returns (x, why-not).
+
+    pv is unimodal in x, not monotonic: value rises while growth earns more than it
+    costs, then falls as reinvestment outruns profit. So locate the peak, then bisect
+    the rising branch for the least growth that justifies the price. If even the peak
+    falls short of EV, no growth path does, and that is reported."""
+    lo, hi = -0.50, 1.00
+    plo = pv(lo)
+    if plo is None:
+        return None, "path not computable"
+    if plo >= ev:
+        return lo, None         # even permanent decline is worth more than the price
+    n = 40
+    vals = [(v, x) for v, x in ((pv(lo + (hi - lo) * i / n),
+                                 lo + (hi - lo) * i / n) for i in range(n + 1))
+            if v is not None]
+    if not vals:
+        return None, "path not computable"
+    peak_v, peak_x = max(vals)
+    if peak_v < ev:
+        # Peak inside the band: a thin spread means no growth rate justifies the
+        # price. Peak at the boundary: the price needs more than 100%/yr.
+        if peak_x < hi - 1e-9:
+            return None, (f"no growth rate justifies this price - value peaks at "
+                          f"{peak_x*100:.0f}%/yr and the spread is too thin to add more")
+        return None, "price implies more than 100%/yr revenue growth"
+    a, b = lo, peak_x
+    for _ in range(60):
+        mid = (a + b) / 2
+        if (pv(mid) or 0) < ev:
+            a = mid
+        else:
+            b = mid
+    return (a + b) / 2, None
+
+
+def _fcff_path_pv(x, m, *, revenue, tax, g, roic_t, wacc_val, wacc_term, margin_now):
+    """PV of the reverse-DCF FCFF path at revenue CAGR x with terminal operating
+    margin m. The margin ramps linearly from margin_now to m (flat when None)."""
+    if m <= 0:
+        return None
+    # Reinvestment is x/ROIC with x the REVENUE CAGR, uncapped. Under a constant
+    # sales-to-capital ratio dCapital = Capital * x, so reinvest = x / ROIC exactly;
+    # margin expansion costs no capital. Above x = ROIC the growth is funded with
+    # outside capital and FCFF goes negative, which keeps FCFF strictly decreasing
+    # in x (a cap would make growth above it free).
+    reinvest = max(0.0, x / roic_t) if x > 0 else 0.0
+    reinvest_t = min(0.8, g / roic_t)
+    pv = 0.0
+    rev_t = revenue
+    for t in range(1, REVERSE_HORIZON + 1):
+        rev_t *= (1 + x)
+        m_t = m if margin_now is None else margin_now + (m - margin_now) * (t / REVERSE_HORIZON)
+        # A loss year gives negative FCFF and the solver must see it. Reinvestment
+        # is a dollar outlay sized at the TERMINAL margin, never NOPAT_t * reinvest:
+        # with reinvest > 1, a negative NOPAT times (1 - reinvest) books a loss year
+        # as positive cash.
+        nopat_t = rev_t * m_t * (1 - tax if m_t > 0 else 1.0)
+        reinvest_cash = rev_t * m * (1 - tax) * reinvest
+        fcff = nopat_t - reinvest_cash
+        pv += fcff / (1 + wacc_val) ** t
+    fcff_next = rev_t * (1 + g) * m * (1 - tax) * (1 - reinvest_t)
+    tv = fcff_next / (wacc_term - g)          # perpetuity at the STABLE rate...
+    return pv + tv / (1 + wacc_val) ** REVERSE_HORIZON   # ...discounted back at the risky one
+
+
 def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin,
                 wacc_term=None, roic_term=None, market_cap=None, margin_now=None,
                 actual_growth=None):
@@ -376,78 +460,12 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
     mcap = market_cap if (market_cap and market_cap > 0) else price * shares
     ev = mcap + (total_debt or 0) - (cash or 0)
 
-    def margin_at(t, m):
-        """Operating margin in year t."""
-        if margin_now is None:
-            return m
-        return margin_now + (m - margin_now) * (t / REVERSE_HORIZON)
-
-    def pv_at(x, m):
-        """PV of the FCFF path at revenue CAGR x with terminal operating margin m."""
-        if m <= 0:
-            return None
-        # Reinvestment is x/ROIC with x the REVENUE CAGR, uncapped. Under a constant
-        # sales-to-capital ratio dCapital = Capital * x, so reinvest = x / ROIC exactly;
-        # margin expansion costs no capital. Above x = ROIC the growth is funded with
-        # outside capital and FCFF goes negative, which keeps FCFF strictly decreasing
-        # in x (a cap would make growth above it free).
-        reinvest = max(0.0, x / roic_t) if x > 0 else 0.0
-        reinvest_t = min(0.8, g / roic_t)
-        pv = 0.0
-        rev_t = revenue
-        for t in range(1, REVERSE_HORIZON + 1):
-            rev_t *= (1 + x)
-            m_t = margin_at(t, m)
-            # A loss year gives negative FCFF and the solver must see it. Reinvestment
-            # is a dollar outlay sized at the TERMINAL margin, never NOPAT_t * reinvest:
-            # with reinvest > 1, a negative NOPAT times (1 - reinvest) books a loss year
-            # as positive cash.
-            nopat_t = rev_t * m_t * (1 - tax if m_t > 0 else 1.0)
-            reinvest_cash = rev_t * m * (1 - tax) * reinvest
-            fcff = nopat_t - reinvest_cash
-            pv += fcff / (1 + wacc_val) ** t
-        fcff_next = rev_t * (1 + g) * m * (1 - tax) * (1 - reinvest_t)
-        tv = fcff_next / (wacc_term - g)          # perpetuity at the STABLE rate...
-        return pv + tv / (1 + wacc_val) ** REVERSE_HORIZON   # ...discounted back at the risky one
-
     def implied(m):
-        """Lowest revenue CAGR x in [-50%, +100%] whose FCFF path is worth EV.
-
-        pv_at is unimodal in x, not monotonic: value rises while growth earns more
-        than it costs, then falls as reinvestment outruns profit. So locate the peak,
-        then bisect the rising branch for the least growth that justifies the price.
-        If even the peak falls short of EV, no growth path does, and that is
-        reported."""
         if m <= 0 or ev <= 0:
             return None, "no margin / no enterprise value"
-        lo, hi = -0.50, 1.00
-        plo = pv_at(lo, m)
-        if plo is None:
-            return None, "path not computable"
-        if plo >= ev:
-            return lo, None         # even permanent decline is worth more than the price
-        n = 40
-        vals = [(v, x) for v, x in ((pv_at(lo + (hi - lo) * i / n, m),
-                                     lo + (hi - lo) * i / n) for i in range(n + 1))
-                if v is not None]
-        if not vals:
-            return None, "path not computable"
-        peak_v, peak_x = max(vals)
-        if peak_v < ev:
-            # Peak inside the band: a thin spread means no growth rate justifies the
-            # price. Peak at the boundary: the price needs more than 100%/yr.
-            if peak_x < hi - 1e-9:
-                return None, (f"no growth rate justifies this price - value peaks at "
-                              f"{peak_x*100:.0f}%/yr and the spread is too thin to add more")
-            return None, "price implies more than 100%/yr revenue growth"
-        a, b = lo, peak_x
-        for _ in range(60):
-            mid = (a + b) / 2
-            if (pv_at(mid, m) or 0) < ev:
-                a = mid
-            else:
-                b = mid
-        return (a + b) / 2, None
+        return _implied_cagr(lambda x: _fcff_path_pv(
+            x, m, revenue=revenue, tax=tax, g=g, roic_t=roic_t, wacc_val=wacc_val,
+            wacc_term=wacc_term, margin_now=margin_now), ev)
 
     base, why = implied(margin)
     # P3-1 clock trap: `revenue` is TTM while `rev_1y` is the fiscal year BEFORE the
@@ -457,22 +475,7 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
     a1 = actual_growth if actual_growth is not None else (
         (revenue / rev_1y - 1) if rev_1y else None)
     accel = (base / a1) if (base and a1 and a1 > 0) else None
-    if a1 is not None and a1 <= 0:
-        verdict = "Cannot benchmark - shrinking"
-    elif accel is None:
-        verdict = "Unknown"
-    elif accel < 1.5:
-        verdict = "Plausible"
-    elif accel < 3:
-        verdict = "Ambitious"
-    elif accel < 5:
-        verdict = "Aggressive"
-    else:
-        verdict = "Exceptional"
-    # A price no CAGR in the band can reach is its own verdict, not "Unknown".
     out_of_band = base is None
-    if out_of_band:
-        verdict = why or "Beyond model band"
     # How far past self-funding the price sits, as a ratio: implied CAGR slightly
     # above terminal ROIC is normal for any growth name.
     fund_ratio = None if (base is None or not roic_t) else round(base / roic_t, 2)
@@ -483,7 +486,8 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
     return {"triggered": True, "enterprise_value": round(ev, 0),
             "implied_cagr_pct": round(base * 100, 1) if base else None,
             "actual_1y_pct": round(a1 * 100, 1) if a1 is not None else None,
-            "acceleration": round(accel, 2) if accel else None, "verdict": verdict,
+            "acceleration": round(accel, 2) if accel else None,
+            "verdict": _rdcf_verdict(base, why, a1, accel),
             "out_of_band": out_of_band,
             "funding_ratio": fund_ratio, "roic_terminal_pct": round(roic_t * 100, 1),
             "sensitivity": sens}
@@ -512,13 +516,12 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
         if sbc / revenue > 0.10:
             disclosures.append(f"SBC {sbc / revenue * 100:.0f}% of revenue "
                                f"(คิดผ่าน dilution ใน forward EPS แล้ว — ไม่หักคะแนนซ้ำ)")
-    _rev_g = revenue_growth if revenue_growth is not None else (
+    # Prefer the caller's fiscal-year growth: the fallback revenue / revenue_prior is
+    # TTM over FY, overstates growth, and so suppresses the receivables flag.
+    rev_g = revenue_growth if revenue_growth is not None else (
         (revenue / revenue_prior - 1) if (revenue and revenue_prior) else None)
-    if receivables and receivables_prior and _rev_g is not None:
+    if receivables and receivables_prior and rev_g is not None:
         ar_g = receivables / receivables_prior - 1
-        # Prefer the caller's fiscal-year growth: the fallback revenue / revenue_prior
-        # is TTM over FY, overstates growth, and so suppresses this flag.
-        rev_g = _rev_g
         if ar_g > 0.10 and ar_g > rev_g + 0.15:
             flags.append(f"receivables +{ar_g*100:.0f}% vs revenue +{rev_g*100:.0f}% "
                          f"(sales not turning into cash)")
