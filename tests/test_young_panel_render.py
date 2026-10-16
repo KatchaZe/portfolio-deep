@@ -72,7 +72,7 @@ def _extract(src, name):
 
 
 def _row(**over):
-    """A display row as pipeline/refresh builds it, from a REAL engine run."""
+    """A display row as pipeline/rows builds it, from a REAL engine run."""
     kw = dict(PREPROFIT)
     kw.update(over.pop("facts", {}))
     ff = FinancialFacts(over.pop("ticker", "YOUNGCO"), **kw)

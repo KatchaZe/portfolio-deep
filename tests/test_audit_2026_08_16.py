@@ -486,17 +486,18 @@ def test_an_app_write_is_not_a_user_edit():
 # --------------------------------------------------------------------------- #
 def test_optional_fmp_spend_is_budget_gated():
     print("\n12. the stale-financials fallback cannot push the day past the FMP cap")
-    from pipeline import refresh
-    b = refresh._Budget(6)
+    from pipeline import batch, fundamentals
+    b = batch.Budget(6)
     check(b.take(4) is True, "4 optional calls fit in a budget of 6")
     check(b.take(4) is False, "a second 4 does not, and is refused")
     check(b.left() == 2, "and the refused attempt did not consume anything")
-    check(refresh._quota_take(None, 999) is True,
+    check(batch.quota_take(None, 999) is True,
           "an untracked (single-ticker) path is unaffected")
 
     import inspect
-    src = inspect.getsource(refresh.analyze)
-    check("_quota_take(quota_left, 4)" in src,
+    src = inspect.getsource(fundamentals._stale_financials_fallback)
+    check("batch.quota_take(quota_left, STALE_FALLBACK_CALLS)" in src
+          and fundamentals.STALE_FALLBACK_CALLS == 4,
           "analyze() reserves the +4 BEFORE spending it")
 
 
@@ -541,9 +542,9 @@ def test_forward_eps_spread_is_not_a_currency_artefact():
 
     # and the caller actually surfaces the reason
     import inspect
-    from pipeline import refresh
-    src = inspect.getsource(refresh)
-    check("price=ff.price" in src, "refresh passes the price into the blend")
+    from pipeline import fundamentals
+    src = inspect.getsource(fundamentals)
+    check("price=ff.price" in src, "fundamentals passes the price into the blend")
     check("dropped before the blend" in src,
           "and puts the rejection on the card as a flag")
 

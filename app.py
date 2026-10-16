@@ -37,8 +37,9 @@ from pydantic import BaseModel
 
 import config
 import store as st
-from pipeline import refresh, risk_report
+from pipeline import fundamentals, watchlist, portfolio, allocation, risk_report
 from pipeline import screen as screen_mod
+from pipeline import daily as daily_mod
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -147,13 +148,13 @@ def _fetch_and_commit(tickers):
     Returns (result_meta, fresh_store)."""
     s0 = st.load()
     used = st.fmp_used_today(s0)
-    fetched, errors, calls, rf_pct, rf_live = refresh.fetch_fundamentals(
+    fetched, errors, calls, rf_pct, rf_live = fundamentals.fetch_fundamentals(
         tickers, config.FMP_API_KEY, used, QUOTA_CAP)
-    daily = refresh.fetch_daily(tickers, config.FMP_API_KEY)
+    daily = daily_mod.fetch_daily(tickers, config.FMP_API_KEY)
     with st.LOCK:
         s = st.load()
-        refresh.commit_fundamentals(s, fetched, calls)
-        refresh.commit_daily(s, daily)
+        fundamentals.commit_fundamentals(s, fetched, calls)
+        daily_mod.commit_daily(s, daily)
         st.save(s)
     meta = {"refreshed": sorted(fetched.keys()), "errors": errors,
             "fmp_calls": calls, "fmp_used_today": st.fmp_used_today(s),
@@ -178,7 +179,7 @@ def index():
 @app.get("/api/portfolio")
 def api_portfolio():
     s = st.load()
-    view = refresh.portfolio_view(s)
+    view = portfolio.view(s)
     view["quota"] = _quota(s)
     view["version"] = config.DEEP_VERSION
     return JSONResponse(view)
@@ -256,7 +257,7 @@ def api_set_holding(ticker: str, shares: float = None, avg_cost: float = None):
         meta, s = _fetch_and_commit([t])
     else:
         s = st.load()
-    return JSONResponse({"view": refresh.portfolio_view(s),
+    return JSONResponse({"view": portfolio.view(s),
                          "quota": _quota(s), "result": meta})
 
 
@@ -266,25 +267,25 @@ def api_remove_holding(ticker: str):
         s = st.load()
         st.remove_holding(s, ticker)
         st.save(s)
-    return JSONResponse(refresh.portfolio_view(s))
+    return JSONResponse(portfolio.view(s))
 
 
 @app.post("/api/refresh")
 def api_refresh():
     tickers = list(st.load().get("holdings", {}).keys())
     meta, s = _fetch_and_commit(tickers)
-    return {"result": meta, "view": refresh.portfolio_view(s), "quota": _quota(s)}
+    return {"result": meta, "view": portfolio.view(s), "quota": _quota(s)}
 
 
 @app.post("/api/daily")
 def api_daily():
     tickers = list(st.load().get("holdings", {}).keys())
-    daily = refresh.fetch_daily(tickers, config.FMP_API_KEY)   # FMP only if Yahoo blocked
+    daily = daily_mod.fetch_daily(tickers, config.FMP_API_KEY)   # FMP only if Yahoo blocked
     with st.LOCK:
         s = st.load()
-        refresh.commit_daily(s, daily)
+        daily_mod.commit_daily(s, daily)
         st.save(s)
-    return JSONResponse(refresh.portfolio_view(s))
+    return JSONResponse(portfolio.view(s))
 
 
 @app.get("/api/watchlist")
@@ -331,7 +332,7 @@ def api_watch_run(ticker: str = None):
     s0 = st.load()
     names = [st.clean_ticker(ticker)] if ticker else list(s0.get("watchlist", []))
     names = [n for n in names if n]
-    res = refresh.fetch_watchlist(names, config.FMP_API_KEY,
+    res = watchlist.fetch_watchlist(names, config.FMP_API_KEY,
                                   st.fmp_used_today(s0), QUOTA_CAP)
     with st.LOCK:                                   # persist only the quota counter
         s = st.load()
@@ -354,14 +355,14 @@ def api_watch_promote(ticker: str, shares: float = None, avg_cost: float = None)
         st.remove_watch(s, t)
         st.save(s)
     meta, s = _fetch_and_commit([t])
-    return {"view": refresh.portfolio_view(s), "names": s.get("watchlist", []),
+    return {"view": portfolio.view(s), "names": s.get("watchlist", []),
             "quota": _quota(s), "result": meta}
 
 
 @app.get("/api/allocation")
 def api_allocation():
     s = st.load()
-    res, _ = refresh.allocation(s)
+    res, _ = allocation.build(s)
     return JSONResponse(res)
 
 
@@ -378,7 +379,7 @@ def api_whatif(items: List[WhatIfBuy]):
     # event loop waiting for the store lock and froze the ENTIRE server.
     body = [{"ticker": i.ticker, "amount": i.amount} for i in items]
     s = st.load()
-    res, calls = refresh.allocation(s, body, config.FMP_API_KEY)  # may hit FMP — no lock
+    res, calls = allocation.build(s, body, config.FMP_API_KEY)  # may hit FMP — no lock
     if calls:
         with st.LOCK:
             s = st.load()

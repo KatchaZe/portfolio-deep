@@ -331,12 +331,12 @@ def test_every_refusal_path_degrades_safely():
     check(applied is True and ff.revenue == 120e9 and ff.eps_gaap == 6.0,
           "USD in, USD out, untouched by the rate", f"{ff.revenue} / {ff.eps_gaap}")
 
-    # and refresh.py must actually route through this, not keep its own copy
-    with open(os.path.join(os.path.dirname(HERE), "pipeline", "refresh.py"),
+    # and fundamentals.py must actually route through this, not keep its own copy
+    with open(os.path.join(os.path.dirname(HERE), "pipeline", "fundamentals.py"),
               encoding="utf-8") as fh:
         src = fh.read()
     check("dataquality.apply_stale_fallback(" in src,
-          "refresh.py calls the tested policy")
+          "fundamentals.py calls the tested policy")
     check("FALLBACK_MONEY" not in src,
           "and no longer carries its own conversion loop")
 

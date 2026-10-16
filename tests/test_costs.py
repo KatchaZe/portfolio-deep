@@ -8,7 +8,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from domain import costs
-from pipeline import refresh
+from pipeline import portfolio
 
 
 def test_net_upside():
@@ -29,8 +29,8 @@ def test_weighted_trailing_return():
         {"market_value": None, "momentum_v2": {"roc_12m": 0.50}},   # ignored (no MV)
     ]
     # weighted = (100*0.20 + 300*0.00) / 400 = 0.05
-    assert abs(refresh.weighted_trailing_return(rows) - 0.05) < 1e-9
-    assert refresh.weighted_trailing_return([]) is None
+    assert abs(portfolio.weighted_trailing_return(rows) - 0.05) < 1e-9
+    assert portfolio.weighted_trailing_return([]) is None
     print("weighted_trailing_return OK")
 
 

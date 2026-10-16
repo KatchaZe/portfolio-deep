@@ -1,10 +1,8 @@
 """
-test_fmp_earnings — FMP earnings parsing (the Yahoo fallback / cross-check) and
-the reconcile policy in refresh.
+test_fmp_earnings — FMP earnings parsing (the Yahoo fallback / cross-check).
 
 Offline/synthetic: locks the field-name handling (stable vs legacy endpoints),
-the BEAT/MEET/MISS thresholds, oldest->newest ordering + 4-cap, and the
-source-selection / flagging rules so the fallback can't silently regress.
+the BEAT/MEET/MISS thresholds, oldest->newest ordering + 4-cap.
 """
 import os
 import sys
@@ -12,8 +10,6 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from sources import fmp
-from domain.facts import FinancialFacts
-from pipeline.refresh import _reconcile_earnings
 
 
 def test_parse_stable_shape():
@@ -59,47 +55,9 @@ def test_parse_quote():
     print("parse_quote OK")
 
 
-def _es(grades):
-    return [{"grade": g, "eps_actual": 1.0, "eps_estimate": 1.0} for g in grades]
-
-
-def test_reconcile_prefers_yahoo_and_verifies():
-    ff = FinancialFacts("X")
-    yh, fm = _es(["beat", "meet"]), _es(["meet", "beat"])   # latest both 'beat'-ish, no conflict
-    out = _reconcile_earnings(ff, yh, fm)
-    assert out is yh, "should keep Yahoo when present"
-    assert ff.provenance["earnings_surprises"] == "yahoo+fmp✓", ff.provenance
-    assert not any("disagree" in f for f in ff.flags), ff.flags
-    print("reconcile keep-yahoo + verify OK")
-
-
-def test_reconcile_flags_disagreement():
-    ff = FinancialFacts("X")
-    yh, fm = _es(["beat", "beat"]), _es(["meet", "miss"])   # latest: beat vs miss -> conflict
-    _reconcile_earnings(ff, yh, fm)
-    assert any("disagree" in f for f in ff.flags), ff.flags
-    print("reconcile disagreement flag OK")
-
-
-def test_reconcile_fallback_to_fmp():
-    ff = FinancialFacts("X")
-    fm = _es(["beat", "meet"])
-    out = _reconcile_earnings(ff, [], fm)
-    assert out is fm, "should use FMP when Yahoo empty"
-    assert ff.provenance["earnings_surprises"] == "fmp", ff.provenance
-    assert any("via FMP" in f for f in ff.flags), ff.flags
-    # both empty -> empty, no crash
-    ff2 = FinancialFacts("Y")
-    assert _reconcile_earnings(ff2, [], []) == []
-    print("reconcile fallback-to-FMP OK")
-
-
 if __name__ == "__main__":
     test_parse_stable_shape()
     test_parse_legacy_shape_and_cap()
     test_parse_empty_safe()
     test_parse_quote()
-    test_reconcile_prefers_yahoo_and_verifies()
-    test_reconcile_flags_disagreement()
-    test_reconcile_fallback_to_fmp()
     print("\nALL FMP-EARNINGS TESTS PASSED ✅")

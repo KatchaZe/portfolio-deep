@@ -127,7 +127,7 @@ def test_consensus_path():
 
 
 def test_peer_medians():
-    from pipeline.refresh import compute_peer_medians
+    from pipeline.fundamentals import compute_peer_medians
 
     def mk(sec, g):
         ff = FinancialFacts("x"); ff.sector = sec; ff.revenue_annuals = [100 * (1 + g), 100]

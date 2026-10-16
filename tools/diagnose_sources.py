@@ -15,7 +15,8 @@ import json
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import config
 from sources import sec_edgar, yahoo, fmp, finnhub
-from pipeline import refresh, surprise_backfill
+from pipeline import surprise_backfill
+from pipeline.cik import resolve_cik
 
 
 def peek(label, rows):
@@ -73,7 +74,7 @@ def main():
         print("\n[3b] Finnhub skipped — no key in env")
 
     # 4) SEC actuals (the free side of the backfill pairing)
-    cik, _ = refresh.resolve_cik(t)
+    cik, _ = resolve_cik(t)
     print(f"\n[4] SEC cik={cik}")
     if cik:
         cf = sec_edgar.fetch_companyfacts(cik, config.SEC_USER_AGENT,
