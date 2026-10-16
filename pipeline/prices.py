@@ -386,9 +386,10 @@ def fetch_returns(tickers, fmp_key="", quota_used=0, quota_cap=250,
     drive_merged = 0
     remote = _remote_good(key) if use_cache else None
     if remote:
-        good.update({t: remote[t] for t in todo if t in remote})
+        taken = {t: remote[t] for t in todo if t in remote}
+        good.update(taken)
         todo = [t for t in todo if t not in good]
-        drive_merged = len(remote)
+        drive_merged = len(taken)
         if not todo:
             _save(key, dict(good))
             return ({t: good[t] for t in tickers}, 0,
