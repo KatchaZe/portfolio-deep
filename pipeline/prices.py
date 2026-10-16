@@ -121,6 +121,23 @@ def fetch_daily_series(ticker, rng="3mo", interval="1d"):
 # --------------------------------------------------------------------------- #
 #  Ladder 2 — momentum LONG adjusted series: yahoo -> fmp -> stooq (+cache)    #
 # --------------------------------------------------------------------------- #
+def _bars(series):
+    return len((series or {}).get("closes") or [])
+
+
+def _first_full_else_longest(attempts, full_bars):
+    """The first payload with >= full_bars, else the first of the longest
+    non-empty ones (None when every tier failed or came back empty)."""
+    best = None
+    for _source, pay in attempts:
+        n = _bars(pay)
+        if n >= full_bars:
+            return pay
+        if n and n > _bars(best):
+            best = pay
+    return best
+
+
 def fetch_daily_adjusted(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=60):
     """Adjusted daily closes (oldest->newest) for the momentum composite.
 
@@ -129,15 +146,13 @@ def fetch_daily_adjusted(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=6
         2) FMP adjClose     (API key; spent only if Yahoo is short)
         3) Stooq            (split-only -> dividend_adjusted=False; no key)
 
-    Returns the FIRST source with >= full_bars. Otherwise the source with the MOST
-    bars, if it has >= min_bars, so a partial momentum still shows. Never
-    fabricates or back-fills. Raises only when every source is empty or too short.
-
-    Cache (R4/H3): a same-day cache short-circuits only when it already has
-    >= full_bars; every successful fetch is cached; when every live source fails, a
-    stale cache is served (flagged) before giving up."""
+    Returns the FIRST source with >= full_bars. Otherwise the longest of the live
+    answers and today's cache, if it has >= min_bars (a tie goes to live), so a
+    partial momentum still shows; then a stale cache (flagged). Never fabricates
+    or back-fills. Every live answer returned is cached. Raises only when nothing
+    reaches min_bars."""
     fresh = pricecache.read_fresh(ticker)
-    n_fresh = len((fresh or {}).get("closes") or [])
+    n_fresh = _bars(fresh)
     if fresh and n_fresh >= full_bars:
         return _served_from_cache(fresh)
     # A same-day PARTIAL cache must not block a longer fetch, but FMP quota is not
@@ -149,24 +164,18 @@ def fetch_daily_adjusted(ticker, fmp_key="", rng="2y", full_bars=250, min_bars=6
         tiers.append(("fmp history", lambda: _cleaned(_fmp_adjusted(ticker, fmp_key))))
     tiers.append(("stooq long chart", lambda: _cleaned(_stooq_split_only(ticker))))
 
-    best = None
-    for _source, pay in _attempts(ticker, tiers):
-        n = len(pay["closes"])
-        if n and (best is None or n > len(best["closes"])):
-            best = pay
-        if n >= full_bars:
-            pricecache.write(ticker, pay)
-            return pay
-
-    if best and len(best["closes"]) >= min_bars:
-        if fresh and n_fresh > len(best["closes"]):
-            return _served_from_cache(fresh)
-        pricecache.write(ticker, best)
-        return best
+    live = _first_full_else_longest(_attempts(ticker, tiers), full_bars)
+    n_live = _bars(live)
+    if live and n_live >= full_bars:
+        pricecache.write(ticker, live)
+        return live
+    if live and n_live >= min_bars and not (fresh and n_fresh > n_live):
+        pricecache.write(ticker, live)
+        return live
     if fresh and n_fresh >= min_bars:
         return _served_from_cache(fresh)
     stale = pricecache.read_any(ticker)
-    if stale and len(stale.get("closes") or []) >= min_bars:
+    if stale and _bars(stale) >= min_bars:
         return _served_from_cache(stale, stale=True)
     raise RuntimeError(f"no long price data for {ticker} (yahoo+fmp+stooq)")
 
@@ -236,6 +245,26 @@ def save_cache(c):
     return False
 
 
+def _good(entries):
+    """Only GOOD series (n>0) are served or persisted: a cached failure would be
+    served back all day and degrade the whole matrix to the proxy 0.60."""
+    return {t: v for t, v in entries.items() if (v or {}).get("n")}
+
+
+def _save(key, data):
+    save_cache({"key": key, "saved": _today(), "data": data})
+
+
+def _mirror_to_drive():
+    """Background push of the shared cache. It is rebuildable, so no push guard;
+    a no-op when Drive isn't configured."""
+    try:
+        import store_sync
+        store_sync.schedule_push_named(RISK_CACHE_PATH, REMOTE_CACHE_NAME)
+    except Exception:
+        pass
+
+
 def _remote_good(key):
     """GOOD entries (n>0) from the Drive-shared risk cache IF it is for the same
     key (same day + same holdings set); else None. Throttled; never raises."""
@@ -247,9 +276,7 @@ def _remote_good(key):
     try:
         c = gdrive_store.drive_pull_json(REMOTE_CACHE_NAME)
         if c and c.get("key") == key:
-            good = {t: v for t, v in (c.get("data") or {}).items()
-                    if (v or {}).get("n")}
-            return good or None
+            return _good(c.get("data") or {}) or None
     except Exception:
         pass
     return None
@@ -266,7 +293,7 @@ def _fetch_one(ticker, fmp_key, may_use_fmp, days):
 
     def cached(read):
         pc = read(ticker)
-        if pc and len(pc.get("closes") or []) >= RETURNS_MIN_CLOSES:
+        if _bars(pc) >= RETURNS_MIN_CLOSES:
             return {"closes": pc["closes"][-tail:],
                     "dates": (pc.get("dates") or [])[-tail:]}, False
         return None
@@ -275,7 +302,7 @@ def _fetch_one(ticker, fmp_key, may_use_fmp, days):
         """One quick try for names not in the pool yet (a new holding, the
         benchmark refs); written back so the next Run Daily reuses it for free."""
         pay = _yahoo_adjusted(ticker, "2y", retries=1, timeout=8)
-        if len(pay["closes"]) >= RETURNS_MIN_CLOSES:
+        if _bars(pay) >= RETURNS_MIN_CLOSES:
             pricecache.write(ticker, pay)
             return {"closes": pay["closes"][-tail:], "dates": pay["dates"][-tail:]}, False
         return None
@@ -302,75 +329,78 @@ def _fetch_one(ticker, fmp_key, may_use_fmp, days):
     return None, "proxy", False
 
 
-def fetch_returns(tickers, fmp_key="", quota_used=0, quota_cap=250,
-                  days=DEFAULT_DAYS, prefer_fmp=True, use_cache=True):
-    """Build {ticker: {returns, dates, vol, source, as_of, n}} plus the number of
-    FMP calls actually spent. Accuracy-first with a strict quota guard + degrade.
+def _returns_record(series, source):
+    """One risk-desk entry from a (closes, dates) series, or the empty proxy entry."""
+    rets = risk.daily_returns(series["closes"]) if series else []
+    dates = (series or {}).get("dates") or []
+    # Carry the DATE of every return: pairing series by position turns a one-bar
+    # source lag into a lag-1 cross-correlation. daily_returns() emits one return
+    # per price gap, so the return dates are the close dates minus the first.
+    rdates = list(dates[1:])
+    if len(rdates) != len(rets):                # never ship a mismatched pair
+        rdates = []
+    return {
+        "returns": rets,
+        "dates": rdates,
+        "vol": round(risk.annualized_vol(rets), 4) if rets else None,
+        "source": source,
+        "as_of": dates[-1] if dates else None,
+        "n": len(rets),
+    }
 
-    Returns (data, fmp_calls, meta).
-    """
-    tickers = list(dict.fromkeys(t for t in tickers if t))      # de-dupe, keep order
-    key = holdings_key(tickers)
-    cache = load_cache() if use_cache else {}
+
+def _local_good(key, tickers):
+    cache = load_cache()
     cached = (cache.get("data") or {}) if cache.get("key") == key else {}
-    # trust the cache only for GOOD series (n>0): a cached failure would be served
-    # back all day and degrade the whole matrix to the proxy 0.60
-    good = {t: cached[t] for t in tickers if (cached.get(t) or {}).get("n")}
-    todo = [t for t in tickers if t not in good]
-    if use_cache and not todo:                                   # full GOOD hit
-        return {t: good[t] for t in tickers}, 0, {"cache": "hit", "key": key}
+    return _good({t: cached.get(t) for t in tickers})
 
-    # before spending network/quota, merge series another machine already paid for
-    drive_merged = 0
-    if use_cache and todo:
-        rem = _remote_good(key)
-        if rem:
-            for t in list(todo):
-                if t in rem:
-                    good[t] = rem[t]
-            todo = [t for t in tickers if t not in good]
-            drive_merged = len(rem)
-            if not todo:                       # Drive supplied everything missing
-                save_cache({"key": key, "saved": _today(), "data": dict(good)})
-                return ({t: good[t] for t in tickers}, 0,
-                        {"cache": "drive-hit", "key": key, "quota_degraded": False,
-                         "drive_cache_merged": drive_merged})
 
-    data, calls = dict(good), 0
+def _fetch_missing(todo, fmp_key, quota_used, quota_cap, days, prefer_fmp):
+    """Run `_fetch_one` per name; returns ({ticker: record}, FMP calls spent).
+    Quota rule: spend an FMP call only while it keeps the day UNDER the cap."""
+    records, calls = {}, 0
     for t in todo:
-        # quota pre-check: only spend an FMP call if it stays UNDER the cap
         may_use_fmp = bool(prefer_fmp and fmp_key and (quota_used + calls + 1 < quota_cap))
         series, source, used = _fetch_one(t, fmp_key, may_use_fmp, days)
         if used:
             calls += 1
-        rets = risk.daily_returns(series["closes"]) if series else []
-        # Carry the DATE of every return: pairing series by position turns a one-bar
-        # source lag into a lag-1 cross-correlation. daily_returns() emits one return
-        # per price gap, so the return dates are the close dates minus the first.
-        rdates = list(series["dates"][1:]) if (series and series.get("dates")) else []
-        if len(rdates) != len(rets):                # never ship a mismatched pair
-            rdates = []
-        data[t] = {
-            "returns": rets,
-            "dates": rdates,
-            "vol": round(risk.annualized_vol(rets), 4) if rets else None,
-            "source": source,
-            "as_of": (series["dates"][-1] if series and series.get("dates") else None),
-            "n": len(rets),
-        }
+        records[t] = _returns_record(series, source)
+    return records, calls
 
+
+def fetch_returns(tickers, fmp_key="", quota_used=0, quota_cap=250,
+                  days=DEFAULT_DAYS, prefer_fmp=True, use_cache=True):
+    """{ticker: {returns, dates, vol, source, as_of, n}} for the risk desk.
+    Returns (data, fmp_calls, meta); never raises.
+
+    Each name comes from the first that has it: today's local risk cache, the
+    Drive-shared copy another machine paid for, then `_fetch_one`'s ladder."""
+    tickers = list(dict.fromkeys(t for t in tickers if t))      # de-dupe, keep order
+    key = holdings_key(tickers)
+    good = _local_good(key, tickers) if use_cache else {}
+    todo = [t for t in tickers if t not in good]
+    if use_cache and not todo:
+        return {t: good[t] for t in tickers}, 0, {"cache": "hit", "key": key}
+
+    drive_merged = 0
+    remote = _remote_good(key) if use_cache else None
+    if remote:
+        good.update({t: remote[t] for t in todo if t in remote})
+        todo = [t for t in todo if t not in good]
+        drive_merged = len(remote)
+        if not todo:
+            _save(key, dict(good))
+            return ({t: good[t] for t in tickers}, 0,
+                    {"cache": "drive-hit", "key": key, "quota_degraded": False,
+                     "drive_cache_merged": drive_merged})
+
+    fetched, calls = _fetch_missing(todo, fmp_key, quota_used, quota_cap, days, prefer_fmp)
+    data = {**good, **fetched}
     if use_cache:
-        # persist only GOOD series so failures are retried on the very next run
-        good_now = {t: v for t, v in data.items() if v.get("n")}
-        save_cache({"key": key, "saved": _today(), "data": good_now})
+        good_now = _good(data)
+        _save(key, good_now)
         if good_now:
-            # mirror the shared cache back to Drive (background; a rebuildable
-            # cache, so no push guard; skipped when Drive isn't configured)
-            try:
-                import store_sync
-                store_sync.schedule_push_named(RISK_CACHE_PATH, REMOTE_CACHE_NAME)
-            except Exception:
-                pass
+            _mirror_to_drive()
     degraded = any(v["source"] != "fmp" for v in data.values()) and bool(fmp_key)
     return data, calls, {"cache": ("partial" if good else "miss"), "key": key,
                          "quota_degraded": degraded, "drive_cache_merged": drive_merged}
