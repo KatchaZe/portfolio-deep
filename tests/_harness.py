@@ -5,6 +5,7 @@ A plain `assert` still stops the suite at the first failure, as it always has.
 """
 import os
 import sys
+import time
 
 FAIL = []
 
@@ -27,3 +28,15 @@ def run_suite(ns, ok_msg):
         print(suite + " FAILED:", "; ".join(FAIL))
         sys.exit(1)
     print(ok_msg)
+
+
+def age_data_files(data_dir, frozen_at):
+    """Give every file under data_dir one mtime, 90 days before frozen_at.
+
+    Each cache TTL compares a file's mtime with the clock. A snapshot runs under a
+    frozen clock, so a fresh clone or a plain `cp -r` (mtimes later than the frozen
+    instant) would flip cached reads into fetches and the snapshot would drift."""
+    stamp = time.mktime(time.strptime(frozen_at, "%Y-%m-%d %H:%M:%S")) - 90 * 86400
+    for base, _dirs, files in os.walk(data_dir):
+        for name in files:
+            os.utime(os.path.join(base, name), (stamp, stamp))

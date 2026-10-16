@@ -22,6 +22,8 @@ import subprocess
 import sys
 import tempfile
 
+from tests._harness import age_data_files
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 GOLDEN_DIR = os.path.join(HERE, "golden")
@@ -119,6 +121,7 @@ def _run_in_copy():
     tmp = tempfile.mkdtemp(prefix="golden_")
     work = os.path.join(tmp, "app")
     shutil.copytree(ROOT, work, ignore=shutil.ignore_patterns(".git", "__pycache__", "golden"))
+    age_data_files(os.path.join(work, "data"), FROZEN_AT)
     env = {k: v for k, v in os.environ.items() if k not in SECRET_ENV}
     env["PYTHONHASHSEED"] = "0"
     try:
