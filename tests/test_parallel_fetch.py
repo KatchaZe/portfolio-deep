@@ -12,8 +12,11 @@ from pipeline import batch, fundamentals, daily
 
 
 def test_partition():
+    # 10 left before the cap, 9 after the 1-call reserve: one 5-call ticker fits
     todo, errs = batch.partition_by_quota(["A", "B", "C", "D"], 5, 240, 250)
-    assert todo == ["A", "B"] and errs == ["C (quota)", "D (quota)"]
+    assert todo == ["A"] and errs == ["B (quota)", "C (quota)", "D (quota)"], (todo, errs)
+    todo, errs = batch.partition_by_quota(["A", "B", "C", "D"], 5, 239, 250)
+    assert todo == ["A", "B"], todo
     todo, errs = batch.partition_by_quota(["A", "B"], 0, 999, 250)   # no key -> no cost
     assert todo == ["A", "B"] and errs == []
     print("partition OK")

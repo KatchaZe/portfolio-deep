@@ -326,7 +326,7 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     cost = batch.guaranteed_cost(fmp_key)
     todo, errors = batch.partition_by_quota(tickers, cost, quota_used, quota_cap)
     # whatever the guaranteed spend does not claim, the optional fallback may draw on
-    spare = batch.Budget(max(0, quota_cap - quota_used - len(todo) * cost)) if fmp_key else None
+    spare = batch.Budget(max(0, batch.usable_quota(quota_used, quota_cap) - len(todo) * cost)) if fmp_key else None
     futs = batch.run_parallel(lambda t: analyze(t, rf, fmp_key, rf_live, roc, spare), todo)
     for t in todo:
         try:

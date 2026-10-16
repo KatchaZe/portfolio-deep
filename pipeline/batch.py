@@ -9,6 +9,8 @@ some tickers make is reserved at the moment of spending from what is left
 import threading
 from concurrent.futures import ThreadPoolExecutor
 
+import config
+
 MAX_WORKERS = 4                    # parallel ticker fetches (SEC throttle is global)
 # profile + quote-fallback + earnings + estimates + quarterly-est backfill
 FMP_CALLS_PER_TICKER = 5
@@ -27,10 +29,15 @@ def guaranteed_cost(fmp_key):
     return FMP_CALLS_PER_TICKER if fmp_key else 0
 
 
+def usable_quota(quota_used, quota_cap):
+    """FMP calls still spendable today, after the reserve."""
+    return max(0, quota_cap - config.QUOTA_RESERVE - quota_used)
+
+
 def partition_by_quota(tickers, cost, quota_used, quota_cap):
     """(todo, quota_errors): admit tickers while their worst-case cost fits."""
     todo, errors = [], []
-    budget = max(0, quota_cap - quota_used)
+    budget = usable_quota(quota_used, quota_cap)
     for t in tickers:
         if cost and (len(todo) + 1) * cost > budget:
             errors.append(f"{t} (quota)")

@@ -13,6 +13,9 @@ FMP_API_KEY = os.environ.get("FMP_API_KEY", "")
 FMP_BASE = "https://financialmodelingprep.com/stable"     # stable endpoints (?symbol=)
 FMP_LEGACY = "https://financialmodelingprep.com/api/v3"   # fallback path style
 QUOTA_CAP = 250            # FMP free-tier daily call budget (single source of truth)
+# Calls kept back below the cap on every FMP path: FMP also counts requests our
+# counter never records (one that failed after it reached FMP).
+QUOTA_RESERVE = 1
 
 # Optional consensus cross-check sources; without a key the source is skipped.
 #   Finnhub:        free 60 req/min  -- EPS surprise history

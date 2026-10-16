@@ -34,7 +34,7 @@ from pydantic import BaseModel
 import config
 import store as st
 import store_sync
-from pipeline import fundamentals, watchlist, portfolio, allocation, risk_report
+from pipeline import fundamentals, watchlist, portfolio, allocation, risk_report, batch
 from pipeline import screen as screen_mod
 from pipeline import daily as daily_mod
 
@@ -127,7 +127,8 @@ def _quota(s):
     return {"used": used, "cap": cap, "pct": round(used / cap * 100),
             "warn": used >= 0.9 * cap,
             "holdings": len(s.get("holdings", {})),
-            "headroom_tickers": max(0, cap - used)}
+            "reserved": config.QUOTA_RESERVE,
+            "headroom_tickers": batch.usable_quota(used, cap)}
 
 
 def _holding_tickers():

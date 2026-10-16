@@ -21,6 +21,7 @@ import time
 
 import config
 from sources import yahoo, stooq, fmp, gdrive_store
+from pipeline import batch
 from pipeline import pricecache
 from domain import momentum
 from domain import risk
@@ -357,10 +358,10 @@ def _local_good(key, tickers):
 
 def _fetch_missing(todo, fmp_key, quota_used, quota_cap, days, prefer_fmp):
     """Run `_fetch_one` per name; returns ({ticker: record}, FMP calls spent).
-    Quota rule: spend an FMP call only while it keeps the day UNDER the cap."""
+    Quota rule: spend an FMP call only while batch.usable_quota has room."""
     records, calls = {}, 0
     for t in todo:
-        may_use_fmp = bool(prefer_fmp and fmp_key and (quota_used + calls + 1 < quota_cap))
+        may_use_fmp = bool(prefer_fmp and fmp_key and calls < batch.usable_quota(quota_used, quota_cap))
         series, source, used = _fetch_one(t, fmp_key, may_use_fmp, days)
         if used:
             calls += 1
