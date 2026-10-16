@@ -15,6 +15,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
 import store
+import store_sync
+from sources import gdrive_store
 from sources import sec_edgar
 
 
@@ -35,13 +37,13 @@ def test_atomic_save_roundtrip(tmp):
     # environment: save() spawns a background 'drive-push' daemon thread that keeps the temp
     # portfolio.json open, which makes TemporaryDirectory cleanup fail on Windows
     # (WinError 32 — file in use). Force Drive OFF so the test is truly isolated + deterministic.
-    _orig_enabled = store.gdrive_store.enabled
-    store.gdrive_store.enabled = lambda: False
+    _orig_enabled = gdrive_store.enabled
+    gdrive_store.enabled = lambda: False
     try:
         s = store.load()                       # fresh defaults
         store.set_holding(s, "nvda", 10, 100.0)
         store.save(s)
-        store.wait_push(timeout=5.0)           # belt-and-suspenders: drain any pending pusher
+        store_sync.wait_push(timeout=5.0)           # belt-and-suspenders: drain any pending pusher
         # no leftover temp files, live file present
         leftovers = [f for f in os.listdir(tmp) if f.endswith(".tmp")]
         assert leftovers == [], leftovers
@@ -50,7 +52,7 @@ def test_atomic_save_roundtrip(tmp):
         assert isinstance(store.LOCK, type(threading.RLock())), "store.LOCK must be a re-entrant lock"
         print("atomic save + roundtrip + LOCK OK")
     finally:
-        store.gdrive_store.enabled = _orig_enabled
+        gdrive_store.enabled = _orig_enabled
 
 
 class _FakeResp:

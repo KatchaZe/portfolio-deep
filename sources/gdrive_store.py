@@ -1,24 +1,19 @@
 """
-Google Drive backend for the JSON store (optional, free-tier persistence).
+Google Drive I/O for the JSON store (optional, free-tier persistence).
 
-Why: Render's free tier uses an EPHEMERAL disk — data/portfolio.json is wiped on
-every redeploy / restart / cold-start. This module mirrors that single JSON file
-to a fixed file in Google Drive so the portfolio survives restarts.
+Render's free tier has an EPHEMERAL disk, so data/portfolio.json is wiped on every
+redeploy. This module copies named JSON files to and from Drive. It knows nothing
+about WHEN that is safe; the pull/push guard lives in store_sync.py.
 
-IMPORTANT (fixed June 2026): on a PERSONAL Gmail account you must authenticate as
-YOURSELF via OAuth. A *service account* has NO Drive storage quota, so it cannot
-create files in a normal Drive — push fails with 403 "storageQuotaExceeded", even
-inside a folder you shared with it. OAuth user credentials write to YOUR OWN Drive
-(using your own quota) and work on free Gmail. See GOOGLE_DRIVE_OAUTH_SETUP.md.
+On a PERSONAL Gmail account authenticate as YOURSELF via OAuth: a service account
+has no Drive storage quota, so its pushes fail with 403 "storageQuotaExceeded" even
+inside a folder shared with it. See GOOGLE_DRIVE_OAUTH_SETUP.md.
 
 Auth precedence (first one whose env vars are present wins):
   1) OAuth user creds  -> GDRIVE_OAUTH_CLIENT_ID / GDRIVE_OAUTH_CLIENT_SECRET /
-                          GDRIVE_OAUTH_REFRESH_TOKEN          <-- use this
-  2) Service account   -> GDRIVE_SA_JSON                      <-- legacy; only works
-                          with a Google Workspace Shared Drive, NOT personal Gmail
-If neither is set, every function is a no-op and the app runs exactly like the
-local-only version. The local file is ALWAYS the working copy; Drive is a remote
-mirror, so a Drive outage never crashes the app.
+                          GDRIVE_OAUTH_REFRESH_TOKEN
+  2) Service account   -> GDRIVE_SA_JSON (legacy; Workspace Shared Drive only)
+With neither set every function is a no-op. No function here ever raises.
 """
 import os
 import io
@@ -28,32 +23,31 @@ import datetime as _dt
 
 log = logging.getLogger("portfolio.gdrive")
 
-# Live status for the /api/persist endpoint + UI badge. Updated on every
-# pull/push attempt so a silent failure becomes VISIBLE on the dashboard.
+# Live status for /api/persist and the UI badge, so a silent backup failure is
+# visible. store_sync also records its guard decisions here.
 STATUS = {
     "last_pull": None,        # ISO timestamp of last pull attempt
-    "pull_result": None,      # "pulled" | "absent" | "error"
+    "pull_result": None,      # "pulled" | "absent" | "error" | "local-kept"
     "last_push": None,        # ISO timestamp of last push attempt
     "push_result": None,      # "pushed" | "skipped" | "error"
     "last_error": None,       # str(last exception) from pull or push
 }
 
+REMOTE_NAME = "portfolio.json"
+# drive.file: the app may only touch files it created or opened itself.
+_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
+
+_service = None          # cached Drive client
+_ids = {}                # remote name -> cached Drive file id (None = not found)
+_enabled = None          # None = not probed yet
+
 
 def _now():
     return _dt.datetime.now().isoformat(timespec="seconds")
 
-REMOTE_NAME = "portfolio.json"          # fixed filename inside Drive
-# drive.file = the app may only touch files it creates/opens itself (narrowest,
-# safest scope). Since the app CREATES portfolio.json, it can re-find and update it.
-_SCOPES = ["https://www.googleapis.com/auth/drive.file"]
-
-_service = None          # cached Drive client
-_file_id = None          # cached id of the remote portfolio.json
-_enabled = None          # tri-state cache: None=unknown, True/False once resolved
-
 
 def _auth_mode():
-    """Which credentials are configured? Returns 'oauth', 'sa', or None."""
+    """'oauth', 'sa', or None."""
     if (os.environ.get("GDRIVE_OAUTH_REFRESH_TOKEN")
             and os.environ.get("GDRIVE_OAUTH_CLIENT_ID")
             and os.environ.get("GDRIVE_OAUTH_CLIENT_SECRET")):
@@ -65,7 +59,7 @@ def _auth_mode():
 
 def enabled():
     """True only when credentials are configured AND the google libs import.
-    Cached so we probe once per process."""
+    Probed once per process."""
     global _enabled
     if _enabled is not None:
         return _enabled
@@ -76,23 +70,16 @@ def enabled():
         import googleapiclient            # noqa: F401
         import google.auth                # noqa: F401
         _enabled = True
-    except Exception as e:                # libs not installed -> stay local-only
+    except Exception as e:
         log.warning("Google Drive libs missing, staying local-only: %s", e)
         _enabled = False
     return _enabled
 
 
-def _client():
-    """Build (and cache) an authenticated Drive client. Prefers OAuth user
-    credentials (writes to your own Drive); falls back to a service account."""
-    global _service
-    if _service is not None:
-        return _service
-    from googleapiclient.discovery import build
-    mode = _auth_mode()
-    if mode == "oauth":
+def _credentials():
+    if _auth_mode() == "oauth":
         from google.oauth2.credentials import Credentials
-        creds = Credentials(
+        return Credentials(
             None,                                   # no access token yet -> auto-refresh
             refresh_token=os.environ["GDRIVE_OAUTH_REFRESH_TOKEN"],
             client_id=os.environ["GDRIVE_OAUTH_CLIENT_ID"],
@@ -100,51 +87,121 @@ def _client():
             token_uri="https://oauth2.googleapis.com/token",
             scopes=_SCOPES,
         )
-    else:                                           # 'sa' (legacy)
-        from google.oauth2 import service_account
-        info = json.loads(os.environ["GDRIVE_SA_JSON"])
-        creds = service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
-    # C1 fix: bound every Drive HTTP call — httplib2's default has NO timeout,
-    # so a hung socket could stall the push worker (or the first-load pull) forever.
+    from google.oauth2 import service_account
+    info = json.loads(os.environ["GDRIVE_SA_JSON"])
+    return service_account.Credentials.from_service_account_info(info, scopes=_SCOPES)
+
+
+def _client():
+    """Build (and cache) an authenticated Drive client."""
+    global _service
+    if _service is not None:
+        return _service
+    from googleapiclient.discovery import build
+    creds = _credentials()
+    # httplib2's default has NO timeout: a hung socket would stall the push worker
+    # (or the first-load pull) forever.
     try:
         import httplib2
         from google_auth_httplib2 import AuthorizedHttp
         _service = build("drive", "v3", cache_discovery=False,
                          http=AuthorizedHttp(creds, http=httplib2.Http(timeout=30)))
-    except ImportError:                     # very old client libs: keep old behaviour
+    except ImportError:                     # very old client libs
         _service = build("drive", "v3", credentials=creds, cache_discovery=False)
     return _service
 
 
-def _find_file_id(svc):
-    """Locate portfolio.json (optionally inside GDRIVE_FOLDER_ID); cache the id."""
-    global _file_id
-    if _file_id:
-        return _file_id
-    q = f"name = '{REMOTE_NAME}' and trashed = false"
-    folder = os.environ.get("GDRIVE_FOLDER_ID")
-    if folder:
-        q += f" and '{folder}' in parents"
+def _folder():
+    return os.environ.get("GDRIVE_FOLDER_ID")
+
+
+def _find_id(svc, name):
+    """Locate `name` (inside GDRIVE_FOLDER_ID when set); cache the id."""
+    if _ids.get(name):
+        return _ids[name]
+    q = f"name = '{name}' and trashed = false"
+    if _folder():
+        q += f" and '{_folder()}' in parents"
     res = svc.files().list(q=q, spaces="drive", fields="files(id, name)",
                            pageSize=1).execute()
     files = res.get("files", [])
-    _file_id = files[0]["id"] if files else None
-    return _file_id
+    _ids[name] = files[0]["id"] if files else None
+    return _ids[name]
 
 
+def _download(svc, fid):
+    from googleapiclient.http import MediaIoBaseDownload
+    buf = io.BytesIO()
+    dl = MediaIoBaseDownload(buf, svc.files().get_media(fileId=fid))
+    done = False
+    while not done:
+        _, done = dl.next_chunk()
+    return buf.getvalue()
+
+
+def _upload_media(data):
+    """A fresh upload body over an IN-MEMORY copy of the file.
+
+    A file-backed upload keeps the local file open for the whole request, and on
+    Windows an open handle makes the racing save's `os.replace` fail, losing that
+    write. A FRESH BytesIO per attempt: a consumed stream would upload zero bytes on
+    the 404 re-resolve and folder-fallback retries.
+    """
+    from googleapiclient.http import MediaIoBaseUpload
+    return MediaIoBaseUpload(io.BytesIO(data), mimetype="application/json",
+                             resumable=False)
+
+
+def _create(svc, name, data, retry_any_failure):
+    """Create `name`; returns its id. A hand-made folder may be invisible under the
+    drive.file scope, so a failed create retries in "My Drive" root. Raises."""
+    meta = {"name": name}
+    if _folder():
+        meta["parents"] = [_folder()]
+    try:
+        return svc.files().create(body=meta, media_body=_upload_media(data),
+                                  fields="id").execute()["id"]
+    except Exception as e:
+        if not (_folder() or retry_any_failure):
+            raise
+        log.warning("Drive: create of %s failed (%s); retrying in My Drive root", name, e)
+        meta.pop("parents", None)
+        return svc.files().create(body=meta, media_body=_upload_media(data),
+                                  fields="id").execute()["id"]
+
+
+def _upload(name, local_path, retry_any_failure=False):
+    """Create or update the remote `name` from local_path. Raises."""
+    with open(local_path, "rb") as fh:      # read + close before the network
+        data = fh.read()
+    svc = _client()
+    fid = _find_id(svc, name)
+    if fid:
+        try:
+            svc.files().update(fileId=fid, media_body=_upload_media(data)).execute()
+            return
+        except Exception as e:
+            # The cached id goes stale when the file is deleted/moved in Drive.
+            if "404" not in str(e):
+                raise
+            log.warning("Drive: cached file id for %s stale (%s); re-resolving", name, e)
+            _ids[name] = None
+            fid = _find_id(svc, name)
+            if fid:
+                svc.files().update(fileId=fid, media_body=_upload_media(data)).execute()
+                return
+    _ids[name] = _create(svc, name, data, retry_any_failure)
+
+
+# --- portfolio.json (status-tracked; store_sync applies the data-loss guard) --- #
 def drive_pull(local_path):
-    """Download the remote portfolio.json onto local_path.
-
-    Returns one of THREE distinct states (the caller MUST treat them differently):
-      "pulled" — remote existed and was written locally
-      "absent" — Drive reachable but no remote file yet (legit first run)
-      "error"  — Drive NOT reachable / auth failed → the caller must NOT push,
-                 or an empty local store would overwrite the good remote backup.
-    Never raises."""
+    """Download the remote portfolio.json onto local_path. Returns:
+      "pulled" -- remote existed and was written locally
+      "absent" -- Drive reachable but no remote file yet (legit first run)
+      "error"  -- Drive NOT reachable / auth failed; the caller must NOT push,
+                  or an empty local store would overwrite the good remote backup."""
     if not enabled():
         if _auth_mode():
-            # configured but libs won't import — record WHY so the badge tooltip
-            # is self-explanatory (this path used to leave last_error empty).
             STATUS["pull_result"] = "error"
             STATUS["last_error"] = ("pull: GDRIVE_* is set but Google libs are not "
                                     "importable — pip install google-api-python-client google-auth")
@@ -152,23 +209,16 @@ def drive_pull(local_path):
         return "absent"
     STATUS["last_pull"] = _now()
     try:
-        from googleapiclient.http import MediaIoBaseDownload
         svc = _client()
-        fid = _find_file_id(svc)
+        fid = _find_id(svc, REMOTE_NAME)
         if not fid:
             log.info("Drive: no remote portfolio.json yet (first run)")
             STATUS["pull_result"] = "absent"
             return "absent"
-        buf = io.BytesIO()
-        dl = MediaIoBaseDownload(buf, svc.files().get_media(fileId=fid))
-        done = False
-        while not done:
-            _, done = dl.next_chunk()
-        data = buf.getvalue()
+        data = _download(svc, fid)
         json.loads(data.decode("utf-8"))            # validate before overwriting
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
-        # C2 fix: atomic replace — readers load() lock-free, so they must never
-        # be able to see a half-written portfolio.json.
+        # Atomic replace: readers load() lock-free and must never see a half file.
         tmp = f"{local_path}.pull.{os.getpid()}.tmp"
         with open(tmp, "wb") as fh:
             fh.write(data)
@@ -187,180 +237,56 @@ def drive_pull(local_path):
         return "error"
 
 
-def _upload_media(data):
-    """A fresh upload body over an IN-MEMORY copy of the file.
-
-    2026-08-10. Both push paths used `MediaFileUpload(local_path)`, which keeps the
-    file OPEN for the whole upload. On Windows an open handle makes `os.replace`
-    onto that path fail with PermissionError, so any save racing a push lost its
-    write — silently in `prices.save_cache` (bare `except OSError: pass`, the cache
-    kept serving the older content), and as a raised error out of `store.save`.
-    Reading the bytes up front closes the handle BEFORE the network call, so the
-    race window disappears rather than being retried around. The files are small
-    (portfolio.json and risk_cache.json are both well under 1 MB).
-
-    A FRESH BytesIO per attempt, never a reused one: an already-consumed stream
-    would upload zero bytes on the 404 re-resolve and folder-fallback paths.
-    """
-    from googleapiclient.http import MediaIoBaseUpload
-    return MediaIoBaseUpload(io.BytesIO(data), mimetype="application/json",
-                             resumable=False)
-
-
 def drive_push(local_path):
-    """Upload local_path to the remote portfolio.json (create or update).
-    Returns True on success. Never raises — a Drive outage must not break save()."""
-    global _file_id
+    """Upload local_path as the remote portfolio.json. True on success."""
     if not enabled():
         return False
     STATUS["last_push"] = _now()
     try:
-        with open(local_path, "rb") as fh:      # read + close before the network
-            data = fh.read()
-        svc = _client()
-        fid = _find_file_id(svc)
-        media = _upload_media(data)
-        if fid:
-            try:
-                svc.files().update(fileId=fid, media_body=media).execute()
-            except Exception as e:
-                # H4: the cached file id can go stale (file deleted/moved in
-                # Drive). On 404, drop the cache and fall through to re-find /
-                # re-create instead of erroring until the next restart.
-                if "404" not in str(e):
-                    raise
-                log.warning("Drive: cached file id stale (%s); re-resolving", e)
-                _file_id = None
-                fid = _find_file_id(svc)
-                media = _upload_media(data)
-                if fid:
-                    svc.files().update(fileId=fid, media_body=media).execute()
-        if not fid:
-            meta = {"name": REMOTE_NAME}
-            folder = os.environ.get("GDRIVE_FOLDER_ID")
-            if folder:
-                meta["parents"] = [folder]
-            try:
-                created = svc.files().create(body=meta, media_body=media,
-                                             fields="id").execute()
-            except Exception as e:
-                # A folder you created by hand may not be visible under the narrow
-                # drive.file scope. Fall back to saving in "My Drive" root (still
-                # your own account) so the backup always succeeds.
-                if folder:
-                    log.warning("Drive: folder '%s' unusable (%s); "
-                                "saving portfolio.json to My Drive root instead",
-                                folder, e)
-                    meta.pop("parents", None)
-                    media = _upload_media(data)
-                    created = svc.files().create(body=meta, media_body=media,
-                                                 fields="id").execute()
-                else:
-                    raise
-            _file_id = created["id"]        # (global declared at function top)
-        log.info("Drive: pushed portfolio.json")
-        STATUS["push_result"] = "pushed"
-        STATUS["last_error"] = None
-        return True
+        _upload(REMOTE_NAME, local_path)
     except Exception as e:
         log.warning("Drive push failed (kept local copy only): %s", e)
         STATUS["push_result"] = "error"
         STATUS["last_error"] = f"push: {e}"
         return False
+    log.info("Drive: pushed portfolio.json")
+    STATUS["push_result"] = "pushed"
+    STATUS["last_error"] = None
+    return True
 
 
-# --------------------------------------------------------------------------- #
-#  Named auxiliary JSON files (2026-07-19) — e.g. data/risk_cache.json.        #
-#  Generic by-name pull/push so a cloud instance can REUSE a cache another     #
-#  machine already paid for (FMP quota) instead of re-fetching. Best-effort:   #
-#  never raises; no data-loss guard needed (caches are rebuildable).           #
-# --------------------------------------------------------------------------- #
-_aux_ids = {}            # remote name -> cached Drive file id
-
-
-def _find_aux_id(svc, name):
-    if _aux_ids.get(name):
-        return _aux_ids[name]
-    q = f"name = '{name}' and trashed = false"
-    folder = os.environ.get("GDRIVE_FOLDER_ID")
-    if folder:
-        q += f" and '{folder}' in parents"
-    res = svc.files().list(q=q, spaces="drive", fields="files(id, name)",
-                           pageSize=1).execute()
-    files = res.get("files", [])
-    _aux_ids[name] = files[0]["id"] if files else None
-    return _aux_ids[name]
-
-
+# --- auxiliary JSON files (e.g. risk_cache.json): rebuildable, untracked ------ #
 def drive_pull_json(name):
-    """Download the named remote JSON file and return the PARSED object, or
-    None (disabled / absent / unreachable / invalid). Never raises and never
-    touches local disk — callers merge in memory."""
+    """The parsed remote `name`, or None (disabled / absent / unreachable / invalid).
+    Never touches local disk; callers merge in memory."""
     if not enabled():
         return None
     try:
-        from googleapiclient.http import MediaIoBaseDownload
         svc = _client()
-        fid = _find_aux_id(svc, name)
+        fid = _find_id(svc, name)
         if not fid:
             return None
-        buf = io.BytesIO()
-        dl = MediaIoBaseDownload(buf, svc.files().get_media(fileId=fid))
-        done = False
-        while not done:
-            _, done = dl.next_chunk()
-        return json.loads(buf.getvalue().decode("utf-8"))
+        return json.loads(_download(svc, fid).decode("utf-8"))
     except Exception as e:
         log.warning("Drive aux pull '%s' failed (ignored): %s", name, e)
         return None
 
 
 def drive_push_json(name, local_path):
-    """Upload local_path as the named remote JSON file (create or update).
-    Returns True on success. Never raises. Mirrors drive_push's stale-id (H4)
-    and folder-fallback behavior."""
+    """Upload local_path as the remote `name`. True on success."""
     if not enabled():
         return False
     try:
-        with open(local_path, "rb") as fh:      # read + close before the network
-            data = fh.read()
-        svc = _client()
-        fid = _find_aux_id(svc, name)
-        media = _upload_media(data)
-        if fid:
-            try:
-                svc.files().update(fileId=fid, media_body=media).execute()
-            except Exception as e:
-                if "404" not in str(e):
-                    raise
-                _aux_ids[name] = None                      # stale id -> re-resolve
-                fid = _find_aux_id(svc, name)
-                media = _upload_media(data)
-                if fid:
-                    svc.files().update(fileId=fid, media_body=media).execute()
-        if not fid:
-            meta = {"name": name}
-            folder = os.environ.get("GDRIVE_FOLDER_ID")
-            if folder:
-                meta["parents"] = [folder]
-            try:
-                created = svc.files().create(body=meta, media_body=media,
-                                             fields="id").execute()
-            except Exception:
-                meta.pop("parents", None)
-                media = _upload_media(data)
-                created = svc.files().create(body=meta, media_body=media,
-                                             fields="id").execute()
-            _aux_ids[name] = created["id"]
-        log.info("Drive: pushed %s", name)
-        return True
+        _upload(name, local_path, retry_any_failure=True)
     except Exception as e:
         log.warning("Drive aux push '%s' failed (kept local only): %s", name, e)
         return False
+    log.info("Drive: pushed %s", name)
+    return True
 
 
 def status():
-    """Snapshot for the /api/persist endpoint — never raises."""
+    """Snapshot for /api/persist."""
     mode = _auth_mode()
     return {"configured": mode is not None, "auth_mode": mode,
             "enabled": enabled(), **STATUS}

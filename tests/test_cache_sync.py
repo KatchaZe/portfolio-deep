@@ -91,8 +91,9 @@ def test_disabled_env_noops():
     env_keys = ("GDRIVE_SA_JSON", "GDRIVE_FOLDER_ID", "GDRIVE_OAUTH_CLIENT_ID",
                 "GDRIVE_OAUTH_CLIENT_SECRET", "GDRIVE_OAUTH_REFRESH_TOKEN")
     saved = {k: os.environ.pop(k, None) for k in env_keys}
-    orig = (gdrive_store._enabled, gdrive_store._service, gdrive_store._file_id)
-    gdrive_store._enabled = gdrive_store._service = gdrive_store._file_id = None
+    orig = (gdrive_store._enabled, gdrive_store._service, gdrive_store._ids)
+    gdrive_store._enabled = gdrive_store._service = None
+    gdrive_store._ids = {}
     try:
         assert gdrive_store.enabled() is False
         assert gdrive_store.drive_pull_json("risk_cache.json") is None
@@ -101,7 +102,7 @@ def test_disabled_env_noops():
         for k, v in saved.items():
             if v is not None:
                 os.environ[k] = v
-        (gdrive_store._enabled, gdrive_store._service, gdrive_store._file_id) = orig
+        (gdrive_store._enabled, gdrive_store._service, gdrive_store._ids) = orig
     print("disabled-env no-ops OK")
 
 
