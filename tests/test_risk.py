@@ -117,11 +117,5 @@ def test_crisis_raises_correlation():
 
 
 if __name__ == "__main__":
-    test_weights_and_concentration()
-    test_single_holding_edges()
-    test_risk_contribution_invariants()
-    test_dr_and_score()
-    test_beta_risk_contribution()
-    test_stress_var_reverse()
-    test_crisis_raises_correlation()
-    print("\nALL RISK TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL RISK TESTS PASSED")

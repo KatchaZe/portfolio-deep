@@ -29,13 +29,9 @@ from sources import sec_edgar                     # noqa: E402
 from tests.frontend_source import frontend_source  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FAIL = []
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 def _facts(ticker):
@@ -310,23 +306,5 @@ def test_frontend_renders_the_strip():
         check(needle in html, f"the frontend has {needle}")
 
 
-def main():
-    for t in (test_alignment_is_by_date_not_index, test_partial_year_is_dropped,
-              test_gap_breaks_the_window, test_stale_rows_are_not_shown_as_current,
-              test_watchlist_and_holdings_paths_agree, test_cagr_needs_a_positive_base,
-              test_incremental_roic_needs_a_real_capital_change,
-              test_incremental_roic_needs_a_profitable_start,
-              test_summary_declares_its_own_unit, test_the_strip_states_its_own_period,
-              test_fcf_durability_leg,
-              test_engine_degrades_silently_without_the_new_series,
-              test_fixture_values_match_the_filings, test_frontend_renders_the_strip):
-        t()
-    print()
-    if FAIL:
-        print("test_trend FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_trend OK - the 5-year strip cannot lie in any of the ways checked")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_trend OK - the 5-year strip cannot lie in any of the ways checked")

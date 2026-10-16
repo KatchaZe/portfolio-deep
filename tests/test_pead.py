@@ -22,5 +22,5 @@ def test_pead():
 
 
 if __name__ == "__main__":
-    test_pead()
-    print("\nALL test_pead PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_pead PASSED")

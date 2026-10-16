@@ -29,6 +29,5 @@ def test_rate_stress():
 
 
 if __name__ == "__main__":
-    test_effective_duration()
-    test_rate_stress()
-    print("\nALL test_assetclass PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_assetclass PASSED")

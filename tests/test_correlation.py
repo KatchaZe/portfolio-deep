@@ -64,8 +64,5 @@ def test_philosophy():
 
 
 if __name__ == "__main__":
-    test_pair_corr()
-    test_sector_and_pairs()
-    test_downside_and_rolling()
-    test_philosophy()
-    print("\nALL test_correlation PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_correlation PASSED")

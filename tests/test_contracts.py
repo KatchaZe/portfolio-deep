@@ -32,13 +32,9 @@ from domain import contracts                     # noqa: E402
 from domain.facts import FinancialFacts          # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-FAIL = []
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 def _read(*parts):
@@ -351,22 +347,5 @@ def test_allowed_list_is_scoped_and_short():
           "and each carries a real reason, not a shrug")
 
 
-def main():
-    for t in (test_every_field_declares_a_clock, test_every_field_declares_a_unit,
-              test_every_fx_site_is_registered_and_complete, test_the_fx_site_check_fires,
-              test_production_code_is_clean,
-              test_the_checker_catches_p3_1, test_matrix,
-              test_a_rejected_forward_eps_is_not_swapped_for_a_worse_one,
-              test_per_share_unit_gate_closes_every_method_at_once,
-              test_trailing_eps_matches_what_the_engine_actually_uses,
-              test_allowed_list_is_scoped_and_short):
-        t()
-    print()
-    if FAIL:
-        print("test_contracts FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_contracts OK - clocks declared, enforced, and the enforcer is proven to fire")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_contracts OK - clocks declared, enforced, and the enforcer is proven to fire")

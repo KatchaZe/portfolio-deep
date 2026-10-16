@@ -36,7 +36,5 @@ def test_portfolio_returns():
 
 
 if __name__ == "__main__":
-    test_semideviation_sortino()
-    test_downside_beta()
-    test_portfolio_returns()
-    print("\nALL test_downside PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_downside PASSED")

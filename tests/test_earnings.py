@@ -93,8 +93,5 @@ def test_confidence_nudge_bounds():
 
 
 if __name__ == "__main__":
-    test_grading_and_order()
-    test_surprise_fallback_and_caps()
-    test_yahoo_surprisepercent_is_a_fraction()
-    test_confidence_nudge_bounds()
-    print("\nALL EARNINGS TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL EARNINGS TESTS PASSED ✅")

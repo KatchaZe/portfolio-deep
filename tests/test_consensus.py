@@ -68,7 +68,5 @@ def test_consensus_confidence_nudge():
 
 
 if __name__ == "__main__":
-    test_blend_median_and_dispersion()
-    test_reconcile_priority_and_agreement()
-    test_consensus_confidence_nudge()
-    print("\nALL CONSENSUS TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL CONSENSUS TESTS PASSED")

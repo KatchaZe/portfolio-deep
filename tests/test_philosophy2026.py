@@ -137,11 +137,5 @@ def test_assumptions_validation_bands():
 
 
 if __name__ == "__main__":
-    test_historical_var()
-    test_pricing_asset_cap()
-    test_regression_beta()
-    test_lease_capitalized_into_ic_and_wacc()
-    test_assumptions_override()
-    test_portfolio_returns_missing_series()
-    test_assumptions_validation_bands()
-    print("\nALL test_philosophy2026 PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_philosophy2026 PASSED")

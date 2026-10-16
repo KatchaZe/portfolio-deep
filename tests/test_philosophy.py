@@ -25,5 +25,5 @@ def test_assess():
 
 
 if __name__ == "__main__":
-    test_assess()
-    print("\nALL test_philosophy PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_philosophy PASSED")

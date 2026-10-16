@@ -45,13 +45,7 @@ ROOT = os.path.dirname(HERE)
 STORE = os.path.join(ROOT, "data", "portfolio.json")
 RF = 0.045
 EPS = 0.02          # percentage points: two figures within this are the same number
-FAIL = []
-
-
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import FAIL, check, run_suite  # noqa: E402
 
 
 def _rows():
@@ -417,26 +411,9 @@ def test_the_invariants_can_actually_fail():
           "the scanner goes red on a cross-UNIT division (G1)")
 
 
-def main():
+if __name__ == "__main__":
     if not ROWS:
         print("no stored facts — invariants need data/portfolio.json; skipping")
-        return
-    print(f"running system invariants over {len(ROWS)} stored tickers\n")
-    for t in (test_growth_agrees_across_paths, test_spread_identity,
-              test_composite_is_a_function_of_the_pillars_shown,
-              test_anchor_is_a_real_method_output, test_anchor_inside_its_range,
-              test_garp_equals_its_pillars, test_upside_identity, test_row_schema_parity,
-              test_surprise_lists_are_read_by_date, test_scores_stay_in_band,
-              test_roic_basis_is_declared_and_consistent,
-              test_contract_scanner_is_clean_and_declared,
-              test_the_invariants_can_actually_fail):
-        t()
-    print()
-    if FAIL:
-        print("test_invariants FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_invariants OK - every cross-path identity holds")
-
-
-if __name__ == "__main__":
-    main()
+    else:
+        print(f"running system invariants over {len(ROWS)} stored tickers\n")
+        run_suite(globals(), "test_invariants OK - every cross-path identity holds")

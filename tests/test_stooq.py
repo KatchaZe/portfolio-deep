@@ -39,7 +39,5 @@ def test_parse_bad_body():
 
 
 if __name__ == "__main__":
-    test_to_symbol()
-    test_parse_csv()
-    test_parse_bad_body()
-    print("\nALL STOOQ TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL STOOQ TESTS PASSED")

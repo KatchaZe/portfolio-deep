@@ -202,7 +202,7 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 ## ✅ 6. Checklist ก่อน commit / deploy ทุกครั้ง
 
-- [ ] `python run_tests.py` → เห็น `ALL TEST SUITES PASSED ✅` (35 suites)
+- [ ] `python run_tests.py` → เห็น `ALL TEST SUITES PASSED OK` (ทุก suite)
 - [ ] ถ้าแก้ `index.html`: bump **`DASH_BUILD`** (บนสุดของ script) และ **`config.BUILD`** ให้ตรงกันเสมอ (test_frontend บังคับ)
 - [ ] รันแอป `uvicorn app:app --port 8000` แล้วเปิดดูจริง ไม่มี error ใน terminal
 - [ ] ลองกดทุกปุ่ม: Add holding / Refresh / Daily / Watchlist run / Allocation → Run risk analysis / What-if

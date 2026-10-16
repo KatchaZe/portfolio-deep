@@ -207,11 +207,5 @@ def test_fetch_returns_quota_records_and_meta():
 
 
 if __name__ == "__main__":
-    test_tier0_pricecache_first()
-    test_tier1_yahoo_new_holding()
-    test_tier4_stale_cache_beats_proxy()
-    test_tier5_proxy_last()
-    test_short_cache_skipped()
-    test_short_live_answers_fall_through()
-    test_fetch_returns_quota_records_and_meta()
-    print("ALL test_prices_ladder OK")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_prices_ladder OK")

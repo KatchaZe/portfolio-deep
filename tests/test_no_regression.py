@@ -89,7 +89,5 @@ def test_risk_payload_shape():
 
 
 if __name__ == "__main__":
-    test_existing_endpoint_contracts()
-    test_risk_does_not_modify_portfolio_json()
-    test_risk_payload_shape()
-    print("\nALL NO-REGRESSION TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL NO-REGRESSION TESTS PASSED")

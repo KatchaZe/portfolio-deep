@@ -60,7 +60,5 @@ def test_history_stable_first():
 
 
 if __name__ == "__main__":
-    test_earnings_limit_capped()
-    test_estimates_limit_capped()
-    test_history_stable_first()
-    print("\nALL FMP-FREETIER TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL FMP-FREETIER TESTS PASSED ✅")

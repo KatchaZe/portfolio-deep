@@ -28,13 +28,9 @@ from domain.engine import deep_v82 as E          # noqa: E402
 from domain.facts import FinancialFacts          # noqa: E402
 from tests.frontend_source import frontend_source  # noqa: E402
 
-FAIL = []
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -230,21 +226,5 @@ def test_reinvestment_is_revenue_driven():
               f"flat {flat['implied_cagr_pct']}% vs ramp {ramp['implied_cagr_pct']}% (d {d:+.1f}pp)")
 
 
-def main():
-    test_missing_pillar_scored_neutral()
-    test_margin_trend_is_fiscal_year_over_year()
-    test_roic_trend_matches_rd_basis()
-    test_roic_trend_skipped_when_basis_cannot_match()
-    test_fv_method_disagreement_flagged()
-    test_no_false_disagreement_when_methods_agree()
-    test_frontend_shows_the_conflict()
-    test_reinvestment_is_revenue_driven()
-    print()
-    if FAIL:
-        print("test_review3d FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_review3d OK - D1-D5 decisions hold")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_review3d OK - D1-D5 decisions hold")

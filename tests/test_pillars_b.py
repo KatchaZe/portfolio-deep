@@ -28,13 +28,9 @@ from domain import pead                          # noqa: E402
 from domain.engine import deep_v82 as E          # noqa: E402
 from pipeline import consensus                   # noqa: E402
 
-FAIL = []
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 # --------------------------------------------------------------------------
@@ -195,19 +191,5 @@ def test_adjustment_budget():
           "the rubric's own worst-case D stack still scores exactly as before", str(s))
 
 
-def main():
-    for t in (test_latest_quarter_is_picked_by_date, test_source_reconciliation_uses_the_same_rule,
-              test_growth_consistency, test_beat_consistency_is_asymmetric,
-              test_beat_consistency_is_order_independent, test_sector_relative,
-              test_competitive_advantage_period, test_cap_uses_contiguous_years,
-              test_adjustment_budget):
-        t()
-    print()
-    if FAIL:
-        print("test_pillars_b FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_pillars_b OK - B5-B8 hold")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_pillars_b OK - B5-B8 hold")

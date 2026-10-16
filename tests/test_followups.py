@@ -67,7 +67,5 @@ def test_erp_in_key_metrics_and_flag():
 
 
 if __name__ == "__main__":
-    test_terminal_margin_data_anchored()
-    test_erp_centralised_and_staleness()
-    test_erp_in_key_metrics_and_flag()
-    print("\nALL FOLLOW-UP TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL FOLLOW-UP TESTS PASSED")

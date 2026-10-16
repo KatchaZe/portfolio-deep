@@ -35,6 +35,5 @@ def test_weighted_trailing_return():
 
 
 if __name__ == "__main__":
-    test_net_upside()
-    test_weighted_trailing_return()
-    print("\nALL test_costs PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_costs PASSED")

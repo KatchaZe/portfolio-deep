@@ -155,12 +155,5 @@ def test_raises_when_nothing_long_enough():
 
 
 if __name__ == "__main__":
-    test_full_cache_short_circuits()
-    test_partial_cache_no_longer_blocks_longer_fetch()
-    test_partial_cache_served_when_live_fails()
-    test_cache_kept_when_still_longest()
-    test_no_cache_spends_fmp()
-    test_best_partial_written_first_longest_wins()
-    test_stale_cache_when_live_too_short()
-    test_raises_when_nothing_long_enough()
-    print("\nALL PRICE-FULLBARS TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL PRICE-FULLBARS TESTS PASSED ✅")

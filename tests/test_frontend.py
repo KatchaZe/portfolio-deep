@@ -95,8 +95,5 @@ def test_build_stamp_is_not_older_than_the_engine():
 
 
 if __name__ == "__main__":
-    test_new_ui_present()
-    test_backend_keys_referenced()
-    test_build_stamp_matches_config()
-    test_build_stamp_is_not_older_than_the_engine()
-    print("\nALL test_frontend PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_frontend PASSED")
