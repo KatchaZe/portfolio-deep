@@ -92,6 +92,7 @@ class _Xbrl:
 
     def __init__(self, facts):
         self.ns = facts.get("us-gaap") or facts.get("ifrs-full") or {}
+        self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
 
     def entries(self, concept, prefer=USD):
         """One entry per (start, end) period, keeping the most recently filed."""
@@ -145,11 +146,23 @@ class _Xbrl:
         return [v for _, v in self.annual_series_dated(concept, prefer)]
 
     def quarters(self, concept, prefer=USD):
-        """{end_date: value} for single-quarter periods, newest first."""
+        """{end_date: value} for single-quarter periods, newest first.
+
+        Most US filers never tag a fiscal-Q4 quarter: Q4 is inside the 10-K. It is
+        derived as FY - 9M YTD (else FY - Q1..Q3) for each fiscal year that has no
+        reported Q4; a reported Q4 always wins."""
+        es = self.entries(concept, prefer)
         out = {}
-        for e in _newest_first(e for e in self.entries(concept, prefer) if _is_quarter(e)):
+        for e in _newest_first(e for e in es if _is_quarter(e)):
             out.setdefault(e["end"], e["val"])
-        return out
+        for fy in _one_per_year(_newest_first(e for e in es if _is_annual(e))):
+            if any(abs(_days(fy["end"], end)) <= 7 for end in out):
+                continue
+            q4 = _q4_from_year(es, fy)
+            if q4 is not None:
+                out[fy["end"]] = q4
+                self.q4_derived.add(fy["end"])
+        return dict(sorted(out.items(), reverse=True))
 
     def instant_series(self, concept, prefer=USD):
         """Balance-sheet values, one per calendar year, newest first."""
@@ -188,6 +201,27 @@ class _Xbrl:
             if hit and (best is None or len(hit) > len(best[0])):
                 best = (hit, tag)
         return best if best else ({}, None)
+
+
+def _q4_from_year(es, fy):
+    """FY minus the nine months before it: the 9M YTD entry if filed, else the three
+    quarters inside the year. None unless the nine months are complete."""
+    def in_year(e):
+        return e.get("start") and abs(_days(fy["start"], e["start"])) <= 7 and e["end"] < fy["end"]
+    ytd = [e for e in es if in_year(e) and 255 <= _span(e) <= 285]
+    if ytd:
+        nine = max(ytd, key=lambda e: e["end"])["val"]
+    else:
+        qs = {}
+        for e in es:
+            if (_is_quarter(e) and e["end"] < fy["end"]
+                    and _days(fy["start"], e["start"]) >= -7):
+                qs.setdefault(e["end"], e["val"])
+        if len(qs) != 3:
+            return None
+        nine = sum(qs.values())
+    q4 = fy["val"] - nine
+    return q4 if isinstance(q4, int) else round(q4, 6)
 
 
 def _year_earlier(es, latest_end, span):
@@ -591,6 +625,7 @@ def extract(companyfacts):
         **revenue,
         **operating,
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
+        "q4_derived_ends": sorted(x.q4_derived),
     }
 
 
@@ -615,6 +650,7 @@ POPULATED = (
     "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
     "ic_components_dated")
 EBIT_DERIVED = ("operating_income", "operating_income_annuals", "operating_income_quarters")
+QUARTER_FIELDS = ("revenue_quarters", "operating_income_quarters", "eps_quarters")
 
 
 def populate(ff, companyfacts):
@@ -626,6 +662,11 @@ def populate(ff, companyfacts):
         for k in EBIT_DERIVED:
             if d.get(k) is not None:
                 ff.provenance[k] = "sec-derived (EBIT = pretax + interest)"
+    for k in QUARTER_FIELDS:
+        derived = sorted(set(d.get(k) or {}) & set(d.get("q4_derived_ends") or ()))
+        if derived:
+            ff.provenance[k] = (ff.provenance.get(k, "sec") + " + derived Q4 (FY - 9M YTD) for "
+                                + ", ".join(derived))
     for c in d.get("concept_conflicts") or []:
         ff.flags.append("SEC tag conflict - " + c)
     if d.get("latest_period_end"):
