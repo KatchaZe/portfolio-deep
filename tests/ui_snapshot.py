@@ -22,10 +22,11 @@ import sys
 import tempfile
 import time
 
-from tests._harness import age_data_files
+from tests._harness import age_data_files, baseline_gate, save_pinned_inputs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
+INPUTS = os.path.join(HERE, "ui_baseline.inputs.json")
 BASELINE = os.path.join(HERE, "ui_baseline.json.gz")   # gzip: the panel markup is ~2.5 MB raw
 FROZEN_AT = "2026-10-15 05:00:00"
 BROWSER_NOW = "2026-10-15T05:00:00Z"   # same instant as the server clock
@@ -363,6 +364,11 @@ def main(argv):
         with open("ui_out.json", "w", encoding="utf-8") as fh:
             json.dump(_capture(), fh, ensure_ascii=False, indent=1, sort_keys=True)
         return 0
+    if "--update" not in argv and "--twice" not in argv:
+        gate = baseline_gate("ui_snapshot", BASELINE, INPUTS, ROOT)
+        if gate:
+            print(gate[1])
+            return gate[0]
     current = _run_in_copy()
     if "--twice" in argv:
         drift = _diff(current, _run_in_copy())
@@ -370,6 +376,7 @@ def main(argv):
               else "ui capture deterministic: %d views" % len(current))
         return 1 if drift else 0
     if "--update" in argv:
+        save_pinned_inputs(INPUTS, ROOT)
         with gzip.open(BASELINE, "wt", encoding="utf-8") as fh:
             json.dump(current, fh, ensure_ascii=False, indent=1, sort_keys=True)
         print("ui pinned: %s -> %s" % (", ".join(current), BASELINE))

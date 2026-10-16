@@ -22,11 +22,12 @@ import subprocess
 import sys
 import tempfile
 
-from tests._harness import age_data_files
+from tests._harness import age_data_files, baseline_gate, save_pinned_inputs
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 GOLDEN_DIR = os.path.join(HERE, "golden")
+INPUTS = os.path.join(GOLDEN_DIR, "_inputs.json")
 FROZEN_AT = "2026-10-15 05:00:00"
 SECRET_ENV = ("FMP_API_KEY", "FINNHUB_API_KEY", "ALPHAVANTAGE_API_KEY", "APP_TOKEN",
               "GDRIVE_TOKEN_JSON", "GDRIVE_FOLDER_ID", "GOOGLE_APPLICATION_CREDENTIALS",
@@ -161,9 +162,15 @@ def main(argv):
         with open("golden_out.json", "w", encoding="utf-8") as fh:
             json.dump(_capture(), fh, ensure_ascii=False, indent=1, sort_keys=True)
         return 0
+    if "--update" not in argv:
+        gate = baseline_gate("golden_snapshot", os.path.join(GOLDEN_DIR, "engine.json"), INPUTS, ROOT)
+        if gate:
+            print(gate[1])
+            return gate[0]
     current = _run_in_copy()
     if "--update" in argv:
         os.makedirs(GOLDEN_DIR, exist_ok=True)
+        save_pinned_inputs(INPUTS, ROOT)
         for section, payload in current.items():
             with open(os.path.join(GOLDEN_DIR, f"{section}.json"), "w", encoding="utf-8") as fh:
                 json.dump(payload, fh, ensure_ascii=False, indent=1, sort_keys=True)

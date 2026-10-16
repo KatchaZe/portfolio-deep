@@ -11,3 +11,8 @@ mockup_ui_scale.html
 # keep tests/fixtures/ committed — they are the regression safety net
 .coverage
 htmlcov/
+
+# local behaviour baselines: built from data/ (holdings), never committed
+tests/golden/
+tests/ui_baseline.json.gz
+tests/ui_baseline.inputs.json
