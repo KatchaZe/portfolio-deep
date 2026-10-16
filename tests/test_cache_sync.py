@@ -107,8 +107,5 @@ def test_disabled_env_noops():
 
 
 if __name__ == "__main__":
-    test_remote_merge_and_push()
-    test_remote_stale_key_ignored()
-    test_drive_full_hit_no_fetch()
-    test_disabled_env_noops()
-    print("ALL test_cache_sync OK")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_cache_sync OK")

@@ -29,13 +29,9 @@ from domain.facts import FinancialFacts          # noqa: E402
 from pipeline import screen                      # noqa: E402
 from tests.frontend_source import frontend_source  # noqa: E402
 
-FAIL = []
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 def _msft_like():
@@ -233,22 +229,5 @@ def test_screen_frontend_renders_the_reason():
         check(needle in html, f"the frontend reads {needle}")
 
 
-def main():
-    test_actual_1y_is_fiscal_year_over_year()
-    test_fallback_unchanged_when_no_growth_supplied()
-    test_ar_check_not_desensitised()
-    test_short_history_still_degrades_quietly()
-    test_missing_pillar_never_reads_as_buy()
-    test_renormalisation_bounded_by_neutral()
-    test_unmeasurable_roic_row_is_not_a_buy()
-    test_screen_keeps_unscreenable_names()
-    test_screen_frontend_renders_the_reason()
-    print()
-    if FAIL:
-        print("test_review3 FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_review3 OK - all round-3 defect classes closed")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_review3 OK - all round-3 defect classes closed")

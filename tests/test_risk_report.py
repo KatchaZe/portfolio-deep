@@ -78,7 +78,5 @@ def test_insufficient():
 
 
 if __name__ == "__main__":
-    test_realized_mode()
-    test_mixed_mode_regression_060()
-    test_insufficient()
-    print("ALL test_risk_report PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_risk_report PASSED")

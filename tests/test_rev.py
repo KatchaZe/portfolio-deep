@@ -60,7 +60,5 @@ def test_meet_miss_and_cap():
 
 
 if __name__ == "__main__":
-    test_parse_revenue_estimate()
-    test_snapshot_then_grade()
-    test_meet_miss_and_cap()
-    print("\nALL REV-TRACK TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL REV-TRACK TESTS PASSED")

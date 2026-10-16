@@ -66,7 +66,5 @@ def test_assumption_flags():
 
 
 if __name__ == "__main__":
-    test_revenue_surprise_stable_shape()
-    test_revenue_surprise_legacy_shape_and_empty()
-    test_assumption_flags()
-    print("\nALL FMP-REV / ASSUMPTION TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL FMP-REV / ASSUMPTION TESTS PASSED")

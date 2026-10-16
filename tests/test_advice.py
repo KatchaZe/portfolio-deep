@@ -70,10 +70,5 @@ def test_never_raises_on_garbage():
 
 
 if __name__ == "__main__":
-    test_cheap_quality_momentum()
-    test_expensive_good_business()
-    test_preprofit_aggressive()
-    test_value_trap()
-    test_crash_guard_vetoes_momentum()
-    test_never_raises_on_garbage()
-    print("\nALL ADVICE TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL ADVICE TESTS PASSED ✅")

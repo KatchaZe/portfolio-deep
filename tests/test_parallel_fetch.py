@@ -79,7 +79,5 @@ def test_parallel_daily_shape():
 
 
 if __name__ == "__main__":
-    test_partition()
-    test_parallel_fundamentals()
-    test_parallel_daily_shape()
-    print("\nALL PARALLEL-FETCH TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL PARALLEL-FETCH TESTS PASSED ✅")

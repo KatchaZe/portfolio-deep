@@ -117,8 +117,5 @@ def test_end_to_end_backfill_from_fixture():
 
 
 if __name__ == "__main__":
-    ns = dict(globals())
-    for _name in (n for n in ns if n.startswith("test_")):
-        ns[_name]()
-        print("OK", _name)
-    print("\nALL test_surprise_backfill PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_surprise_backfill PASSED")

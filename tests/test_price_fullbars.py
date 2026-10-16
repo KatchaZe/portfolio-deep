@@ -112,9 +112,5 @@ def test_no_cache_spends_fmp():
 
 
 if __name__ == "__main__":
-    test_full_cache_short_circuits()
-    test_partial_cache_no_longer_blocks_longer_fetch()
-    test_partial_cache_served_when_live_fails()
-    test_cache_kept_when_still_longest()
-    test_no_cache_spends_fmp()
-    print("\nALL PRICE-FULLBARS TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL PRICE-FULLBARS TESTS PASSED ✅")

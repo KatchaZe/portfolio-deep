@@ -56,8 +56,5 @@ def test_parse_quote():
 
 
 if __name__ == "__main__":
-    test_parse_stable_shape()
-    test_parse_legacy_shape_and_cap()
-    test_parse_empty_safe()
-    test_parse_quote()
-    print("\nALL FMP-EARNINGS TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL FMP-EARNINGS TESTS PASSED ✅")

@@ -174,9 +174,5 @@ def test_no_none_leaks_into_the_philosophy_narrative():
 
 
 if __name__ == "__main__":
-    # Runnable without pytest, the way run_tests.py invokes every other suite.
-    ns = dict(globals())
-    for _name in sorted(n for n in ns if n.startswith("test_")):
-        ns[_name]()
-        print("OK", _name)
-    print("\nALL test_qa_2026_08_16 PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_qa_2026_08_16 PASSED")

@@ -185,6 +185,5 @@ def test_panel_survives_missing_fields():
 
 
 if __name__ == "__main__":
-    test_panel_renders()
-    test_panel_survives_missing_fields()
-    print("\nALL test_young_panel_render PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_young_panel_render PASSED")

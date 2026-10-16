@@ -72,5 +72,5 @@ def test_parse_abbv():
 
 
 if __name__ == "__main__":
-    test_parse_abbv()
-    print("\nALL FMP PARSE TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL FMP PARSE TESTS PASSED")

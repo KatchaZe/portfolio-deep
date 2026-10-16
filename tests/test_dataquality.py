@@ -41,13 +41,9 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(HERE)
 STORE = os.path.join(ROOT, "data", "portfolio.json")
 TODAY = dt.date(2026, 8, 9)          # fixed so the suite does not rot with the calendar
-FAIL = []
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 def _codes(ff, today=TODAY):
@@ -352,22 +348,5 @@ def test_apply_writes_flags_once():
           "and calling apply twice does not duplicate it", str(ff.flags))
 
 
-def main():
-    for t in (test_staleness, test_low_false_positive_rate_on_the_real_portfolio,
-              test_gap_detection, test_unconverted_currency_blocks,
-              test_penalty_is_graded_and_not_multiplied, test_fallback_only_when_fresher,
-              test_fallback_clears_the_series_it_invalidates,
-              test_fallback_leaves_a_fresh_row_alone,
-              test_the_fallback_is_converted_with_its_OWN_currency,
-              test_every_refusal_path_degrades_safely,
-              test_apply_writes_flags_once):
-        t()
-    print()
-    if FAIL:
-        print("test_dataquality FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_dataquality OK - the data states its own condition before it is scored")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_dataquality OK - the data states its own condition before it is scored")

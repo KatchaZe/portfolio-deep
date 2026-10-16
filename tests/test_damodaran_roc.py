@@ -364,15 +364,5 @@ def test_shares_from_market_cap():
 
 
 if __name__ == "__main__":
-    test_parse()
-    test_parse_rejects_unknown_layout()
-    test_fallback_snapshot()
-    test_mapping()
-    test_fetch_cache_and_offline()
-    test_engine_uses_sector_cap()
-    test_terminal_beta_and_two_rate_pe()
-    test_review_regressions()
-    test_forward_eps_gate_shared()
-    test_add_flag_dedups()
-    test_shares_from_market_cap()
-    print("ALL DAMODARAN-ROC TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL DAMODARAN-ROC TESTS PASSED")

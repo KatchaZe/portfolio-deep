@@ -107,9 +107,5 @@ def test_short_cache_skipped():
 
 
 if __name__ == "__main__":
-    test_tier0_pricecache_first()
-    test_tier1_yahoo_new_holding()
-    test_tier4_stale_cache_beats_proxy()
-    test_tier5_proxy_last()
-    test_short_cache_skipped()
-    print("ALL test_prices_ladder OK")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_prices_ladder OK")

@@ -121,10 +121,5 @@ def test_treasury_fallback_shape():
 
 
 if __name__ == "__main__":
-    test_whatif_bad_amount_safe()
-    test_quota_guard_keyless()
-    test_commit_split_merges_store()
-    test_verdict_never_prints_none()
-    test_auth_ok()
-    test_treasury_fallback_shape()
-    print("\nALL APP-FIX TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL APP-FIX TESTS PASSED ✅")

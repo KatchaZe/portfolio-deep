@@ -53,7 +53,5 @@ def test_pairing_and_empty():
 
 
 if __name__ == "__main__":
-    test_yoy_trend_and_grade()
-    test_flat_and_contract_threshold()
-    test_pairing_and_empty()
-    print("\nALL MARGIN-TRACK TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL MARGIN-TRACK TESTS PASSED")

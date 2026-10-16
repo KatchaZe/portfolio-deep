@@ -161,9 +161,5 @@ def test_young_company_dcf_parity():
 
 
 if __name__ == "__main__":
-    test_erp_default_in_sync()
-    test_two_stage_pe_parity()
-    test_terminal_helpers_parity()
-    test_reverse_dcf_fullpath_parity()
-    test_young_company_dcf_parity()
-    print("\nALL test_skill_parity PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_skill_parity PASSED")

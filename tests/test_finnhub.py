@@ -59,8 +59,5 @@ def test_no_key_fetch_is_safe():
 
 
 if __name__ == "__main__":
-    test_finnhub_parse_earnings()
-    test_finnhub_parse_eps_estimate()
-    test_alphavantage_parse_earnings()
-    test_no_key_fetch_is_safe()
-    print("\nALL FINNHUB/ALPHAVANTAGE TESTS PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL FINNHUB/ALPHAVANTAGE TESTS PASSED")

@@ -233,15 +233,5 @@ def test_inputs_are_all_sourced():
 
 
 if __name__ == "__main__":
-    test_survival_from_runway()
-    test_sales_to_capital_sources_and_clamp()
-    test_failure_risk_is_separate_from_discount_rate()
-    test_terminal_reinvestment_capped()
-    test_band_gate_promotes_only_when_tight()
-    test_blocked_reason_distinguishes_causes()
-    test_equity_cannot_be_worth_less_than_zero()
-    test_underwater_equity_never_anchors()
-    test_deterministic_across_runs()
-    test_profitable_names_untouched()
-    test_inputs_are_all_sourced()
-    print("\nALL test_young_dcf PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_young_dcf PASSED")

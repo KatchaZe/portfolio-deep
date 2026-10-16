@@ -19,5 +19,5 @@ def test_overlay():
 
 
 if __name__ == "__main__":
-    test_overlay()
-    print("\nALL test_market_valuation PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_market_valuation PASSED")

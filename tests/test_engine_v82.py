@@ -413,20 +413,5 @@ def test_sbc_no_double_count():
 
 
 if __name__ == "__main__":
-    test_cost_of_equity_and_erp()
-    test_true_wacc_weights_debt()
-    test_ev_bridge_reverse_dcf()
-    test_rd_capitalization()
-    test_two_stage_pe_clamp()
-    test_earnings_quality()
-    test_engine_end_to_end()
-    test_review_2026_08_04_fixes()
-    test_heavy_capex_stays_on_earnings_path()
-    test_sbc_no_double_count()
-    test_registry()
-    test_consensus_path()
-    test_peer_medians()
-    test_demand_adjustments()
-    test_pe_percentile()
-    test_price_adjustment()
-    print("\nALL v8.2 ENGINE TESTS PASSED OK")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL v8.2 ENGINE TESTS PASSED OK")

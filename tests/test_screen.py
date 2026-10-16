@@ -34,5 +34,5 @@ def test_garp():
 
 
 if __name__ == "__main__":
-    test_garp()
-    print("\nALL test_screen PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_screen PASSED")

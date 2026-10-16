@@ -208,20 +208,5 @@ def test_market_state_and_crash_guard():
 
 
 if __name__ == "__main__":
-    test_clean_series_nonpositive()
-    test_clean_series_spike_vs_sustained()
-    test_staleness_rule()
-    test_div_warn()
-    test_roc_sma_basic()
-    test_mom_12_1()
-    test_compute_uptrend_strong()
-    test_compute_downtrend_negative()
-    test_compute_insufficient()
-    test_cross_sectional_rank()
-    test_fmp_parse_history_legacy()
-    test_fmp_parse_history_list_and_fallback()
-    test_yahoo_fetch_chart_adjclose()
-    test_yahoo_fetch_chart_no_adjclose()
-    test_reversal_flag()
-    test_market_state_and_crash_guard()
-    print("\nALL test_momentum PASSED")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_momentum PASSED")

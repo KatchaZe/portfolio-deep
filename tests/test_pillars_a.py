@@ -29,7 +29,6 @@ from domain.facts import FinancialFacts          # noqa: E402
 from pipeline import normalize                   # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-FAIL = []
 # price, beta, forward EPS, growth, market cap, fx
 MKT = {"MSFT": (393.82, 1.05, 16.80, 0.134, 2900e9, None),
        "ABBV": (254.49, 0.28, 14.05, 0.100, 453e9, None),
@@ -40,10 +39,7 @@ DATED = ("revenue_annuals_dated", "operating_income_annuals_dated", "cfo_annuals
          "capex_annuals_dated", "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated")
 
 
-def check(ok, label, detail=""):
-    print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
-    if not ok:
-        FAIL.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 def _eval(ticker, strip_series=False):
@@ -263,22 +259,5 @@ def test_growth_reconciliation():
           "a conservative consensus is cheaper on its own number, never capped for it")
 
 
-def main():
-    for t in (test_fade_needs_positive_near_term_growth, test_divestiture_is_not_an_acquisition,
-              test_growth_reconciliation,
-              test_fcf_yield_leg, test_price_pillar_exists_without_a_fair_value,
-              test_price_leg_is_bounded, test_normalisation_only_ever_lowers,
-              test_normalisation_uses_contiguous_years_only,
-              test_incremental_roic_prefers_the_capital_delta,
-              test_no_fallback_to_the_noisy_proxy_when_the_5y_measure_declines,
-              test_old_facts_are_untouched):
-        t()
-    print()
-    if FAIL:
-        print("test_pillars_a FAILED:", "; ".join(FAIL))
-        sys.exit(1)
-    print("test_pillars_a OK - A1-A4 hold")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "test_pillars_a OK - A1-A4 hold")

@@ -61,9 +61,5 @@ def test_view_rows_always_carry_status():
 
 
 if __name__ == "__main__":
-    test_filled_tracks_report_source()
-    test_empty_with_new_schema_is_unavailable()
-    test_empty_with_old_schema_is_stale()
-    test_no_fmp_key_hides_fmp_fallbacks()
-    test_view_rows_always_carry_status()
-    print("\nALL EARN-STATUS TESTS PASSED ✅")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL EARN-STATUS TESTS PASSED ✅")

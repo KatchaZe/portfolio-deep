@@ -16,14 +16,7 @@ import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from tests.frontend_source import frontend_source  # noqa: E402
-
-FAILS = []
-
-
-def check(cond, label):
-    print(("  ok   " if cond else "  FAIL ") + label)
-    if not cond:
-        FAILS.append(label)
+from tests._harness import check, run_suite  # noqa: E402
 
 
 # --------------------------------------------------------------------------- #
@@ -677,36 +670,5 @@ def test_extreme_pe_is_not_treated_as_a_unit_error():
           "and no longer claims the number was rejected")
 
 
-def main():
-    for fn in (test_tnx_percent_convention,
-               test_hybrid_cov_is_a_real_covariance_matrix,
-               test_returns_align_on_dates,
-               test_fetch_returns_carries_dates,
-               test_every_correlation_consumer_is_date_aligned,
-               test_ifrs_scalars_are_internally_consistent,
-               test_reverse_dcf_loss_years_are_negative,
-               test_sbc_is_not_double_counted,
-               test_divestiture_is_not_reinvestment,
-               test_total_debt_is_read_on_the_latest_balance_sheet,
-               test_ifrs_filers_get_their_numbers,
-               test_per_share_figures_are_currency_converted,
-               test_auth_fails_closed_on_a_public_deploy,
-               test_healthz_does_not_mint_the_session_cookie,
-               test_local_edit_survives_a_late_drive_pull,
-               test_an_app_write_is_not_a_user_edit,
-               test_optional_fmp_spend_is_budget_gated,
-               test_forward_eps_spread_is_not_a_currency_artefact,
-               test_the_reference_tab_describes_the_code_that_ships,
-               test_extreme_pe_is_not_treated_as_a_unit_error):
-        fn()
-    print("\n" + "=" * 62)
-    if FAILS:
-        print("FAILED %d check(s):" % len(FAILS))
-        for f in FAILS:
-            print("  - " + f)
-        sys.exit(1)
-    print("ALL test_audit_2026_08_16 PASSED")
-
-
 if __name__ == "__main__":
-    main()
+    run_suite(globals(), "ALL test_audit_2026_08_16 PASSED")

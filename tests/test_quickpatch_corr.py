@@ -128,8 +128,5 @@ def test_save_cache_reports_a_blocked_replace():
 
 
 if __name__ == "__main__":
-    test_hybrid_cov_mixed()
-    test_hybrid_cov_all_proxy()
-    test_cache_no_poison()
-    test_save_cache_reports_a_blocked_replace()
-    print("ALL test_quickpatch_corr OK")
+    from tests._harness import run_suite
+    run_suite(globals(), "ALL test_quickpatch_corr OK")
