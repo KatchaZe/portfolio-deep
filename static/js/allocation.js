@@ -1,3 +1,4 @@
+// The cost-basis pies, the what-if calculator and the cash stance on the Allocation tab.
 function buildWhatifInputs(){
   let h='';for(let i=0;i<5;i++)h+=`<div style="display:flex;gap:6px;margin:3px 0"><input class="wf-t" placeholder="TICKER" style="width:90px;text-transform:uppercase;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:calc(12px*var(--fs))"><input class="wf-a" type="number" step="any" placeholder="buy amount $" style="width:130px;padding:6px 8px;border:1px solid #cbd5e1;border-radius:6px;font-size:calc(12px*var(--fs))"></div>`;
   document.getElementById('whatifInputs').innerHTML=h;
@@ -26,7 +27,7 @@ async function calcWhatif(){
     document.getElementById('whatifMsg').textContent='Added: '+(d.added||[]).map(a=>a.ticker+' $'+a.amount).join(', ');
   }catch(e){document.getElementById('whatifMsg').textContent='Error: '+e}
 }
-// ---- Tier3: Cash stance (S32/33) — สะพานจาก market overlay สู่หน้า Allocation ----
+// S32/33: the market overlay turned into a light allocation tilt
 function renderCashStance(){
   const el=document.getElementById('cashStance'); if(!el)return;
   const v=((window.__last||{}).market||{}).valuation||{};

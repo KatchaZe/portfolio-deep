@@ -1,3 +1,6 @@
+// The page shell: tabs, build stamp, persistence badge, keep-alive and boot. Loaded last.
+
+// must equal config.BUILD; a browser still running cached JS shows the mismatch banner
 const DASH_BUILD="2026-08-18a";
 
 async function checkBuild(){
@@ -13,8 +16,18 @@ async function checkBuild(){
     }
   }catch(e){}
 }
-function showTab(n){for(const i of [1,2,3,4,5,6]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';} if(n===2)loadWatchlist(); if(n===3){renderCashStance();loadAllocation();loadRisk();loadScreen();} if(n===6)loadCorr();}
-// ===================== persistence badge + keepalive (data-loss guard) =====================
+// what a tab fetches each time it opens
+const TAB_OPENERS={
+  2:()=>loadWatchlist(),
+  3:()=>{renderCashStance();loadAllocation();loadRisk();loadScreen();},
+  6:()=>loadCorr(),
+};
+function showTab(n){
+  for(const i of [1,2,3,4,5,6]){document.getElementById('tab'+i).classList.toggle('active',i===n);document.getElementById('p'+i).style.display=i===n?'block':'none';}
+  if(TAB_OPENERS[n])TAB_OPENERS[n]();
+}
+// Drive backup badge: local only / healthy / failing (pushes blocked so an empty store
+// cannot overwrite the backup)
 async function loadPersist(){
   const el=document.getElementById('persist'); if(!el)return;
   try{
