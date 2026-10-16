@@ -11,9 +11,10 @@ from pipeline import fundamentals, daily, rows, batch
 log = logging.getLogger("portfolio.watchlist")
 
 
-def analyze_row(ticker, rf, fmp_key="", rf_live=True):
+def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None):
     """Full analysis for ONE ticker incl. momentum, returned as a display row.
-    Ephemeral, NETWORK ONLY. Returns (row, fmp_calls)."""
+    Ephemeral, NETWORK ONLY. Returns (row, fmp_calls). `regime` is the SPY market
+    state; it must be known before the advice is built, as on the holdings card."""
     t = ticker.upper().strip()
     # the shared ROC table here too, or a single-ticker add would use the bundled
     # snapshot while the same ticker in a batch refresh uses the live table
@@ -32,6 +33,8 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     if mom_v2:                         # split-only warning matters only for dividend payers
         mom_v2["div_warn"] = momentum.div_warn(mom_v2.get("dividend_adjusted"),
                                                getattr(ff, "dividend_ps", None))
+        if regime is not None:
+            mom_v2["crash_guard"] = momentum.crash_guard(mom_v2.get("mom_label"), regime)
     f = ff.to_dict()
     row = rows.valuation_row(t, f, val.to_dict(), mom, mom_v2,
                              rev_surprises=f.get("rev_surprises_fmp"),
@@ -40,13 +43,24 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True):
     return row, calls
 
 
+def _market_regime(fmp_key):
+    """SPY risk_on / risk_off, or None when it cannot be read (rows then carry no
+    crash_guard, as before)."""
+    try:
+        return momentum.market_state(daily.spy_series(fmp_key)["closes"]).get("regime")
+    except Exception as e:
+        log.warning("watchlist market_state failed: %s", e)
+        return None
+
+
 def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     """NETWORK PHASE, run OUTSIDE store.LOCK."""
     rf, rf_live = yahoo.fetch_treasury_10y()
+    regime = _market_regime(fmp_key)
     out_rows, calls = [], 0
     todo, errors = batch.partition_by_quota(tickers, batch.guaranteed_cost(fmp_key),
                                             quota_used, quota_cap)
-    futs = batch.run_parallel(lambda t: analyze_row(t, rf, fmp_key, rf_live), todo)
+    futs = batch.run_parallel(lambda t: analyze_row(t, rf, fmp_key, rf_live, regime), todo)
     for t in todo:                     # keep input order for the display rows
         try:
             r, c = futs[t].result()
@@ -54,15 +68,7 @@ def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
             out_rows.append(r)
         except Exception as e:
             errors.append(f"{t}: {str(e)[:50]}")
-    # cross-sectional rank and crash guard, mirroring the holdings view
+    # rank needs the whole batch, so it stays a post-pass (advice does not read it)
     momentum.cross_sectional_rank([r["momentum_v2"] for r in out_rows if r.get("momentum_v2")])
-    try:
-        regime = momentum.market_state(daily.spy_series(fmp_key)["closes"]).get("regime")
-        for r in out_rows:
-            v2 = r.get("momentum_v2")
-            if v2:
-                v2["crash_guard"] = momentum.crash_guard(v2.get("mom_label"), regime)
-    except Exception as e:
-        log.warning("watchlist market_state failed: %s", e)
     return {"rows": out_rows, "errors": errors, "fmp_calls": calls,
             "rf_pct": round(rf * 100, 2), "rf_live": rf_live}
