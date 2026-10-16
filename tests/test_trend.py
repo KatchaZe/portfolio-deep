@@ -26,6 +26,7 @@ from domain import trend                          # noqa: E402
 from domain.engine import deep_v82 as E           # noqa: E402
 from domain.facts import FinancialFacts           # noqa: E402
 from sources import sec_edgar                     # noqa: E402
+from tests.frontend_source import frontend_source  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FAIL = []
@@ -268,8 +269,8 @@ def test_summary_declares_its_own_unit():
         check(roic["summary_unit"] == want,
               f"ROIC row labelled '{roic['summary_label']}' carries '{want}'",
               str(roic["summary_unit"]))
-    html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
-    check("r.summary_unit" in html, "and index.html reads it instead of guessing")
+    html = frontend_source()
+    check("r.summary_unit" in html, "and the frontend reads it instead of guessing")
 
 
 def test_the_strip_states_its_own_period():
@@ -297,16 +298,16 @@ def test_the_strip_states_its_own_period():
     b = trend.build(_facts("MSFT"), today=dt.date(2026, 11, 11))["lag_months"]
     check(round(b - a) == 3, "and it moves with the calendar", f"{a} -> {b}")
 
-    html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
+    html = frontend_source()
     for needle in ("function trendPeriod", "t.fy_to", "t.lag_months", "trendPeriod(t)"):
-        check(needle in html, f"index.html renders it: {needle}")
+        check(needle in html, f"the frontend renders it: {needle}")
 
 
 def test_frontend_renders_the_strip():
     print("T5-J dashboard renders the strip")
-    html = open(os.path.join(os.path.dirname(HERE), "index.html"), encoding="utf-8").read()
+    html = frontend_source()
     for needle in ("function trendStrip", "function spark", "x.trend5y", "vs_average_pp"):
-        check(needle in html, f"index.html has {needle}")
+        check(needle in html, f"the frontend has {needle}")
 
 
 def main():

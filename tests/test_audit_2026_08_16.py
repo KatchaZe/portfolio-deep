@@ -15,6 +15,7 @@ import json
 import tempfile
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from tests.frontend_source import frontend_source  # noqa: E402
 
 FAILS = []
 
@@ -555,8 +556,7 @@ def test_the_reference_tab_describes_the_code_that_ships():
     exact doc-drift PASS2 treated as a defect ("DESIGN.md said 40 suites, run_tests had
     47"). A Ref table that lies is worse than no Ref table: the reader trusts it."""
     print("\n15. the in-app Ref/How-to tables match the code that ships")
-    here = os.path.dirname(os.path.abspath(__file__))
-    html = open(os.path.join(os.path.dirname(here), "index.html"), encoding="utf-8").read()
+    html = frontend_source()
 
     # #13: FCF now deducts SBC, so the Ref definition must say so
     i = html.find("FCF (Free cash flow)")

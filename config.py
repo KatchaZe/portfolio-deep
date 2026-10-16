@@ -102,5 +102,5 @@ CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
 # harder single-position weight cap than ordinary equities (position_sizing).
 PRICING_ASSET_CAP = 0.05
 
-# Build stamp — bump together with DASH_BUILD in index.html (frontend/deploy guard).
+# Build stamp — bump together with DASH_BUILD in static/js/app.js (frontend/deploy guard).
 BUILD = "2026-08-18a"
