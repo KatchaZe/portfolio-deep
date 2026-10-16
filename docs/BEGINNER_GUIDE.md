@@ -12,21 +12,21 @@
 ข้อมูลไหลทางเดียวเสมอ — จำลำดับนี้ไว้ จะแก้ตรงไหนก็หาไฟล์เจอ:
 
 ```
- sources/      pipeline/                 domain/                 store.py     app.py     index.html
+ sources/      pipeline/                 domain/                 store.py     app.py     index.html + static/
  (ดึงข้อมูล) → (รวม+ตรวจ→FinancialFacts) → (คำนวณ DEEP→Valuation) → (เซฟ JSON) → (API)  → (หน้าจอ)
   fetch          normalize/validate          engine = "สมอง"         disk        HTTP      browser
 ```
 
 | ชั้น | ไฟล์ | หน้าที่ | ภาษามนุษย์ |
 |---|---|---|---|
-| sources | `sources/sec_edgar.py` (หลัก) `yahoo.py` `fmp.py` `stooq.py` `finnhub.py` `alphavantage.py` `gdrive_store.py` | ดึงข้อมูลดิบจากเน็ต (SEC=หลัก, ที่เหลือเสริม/สำรอง) | "ไปเอาตัวเลขมา" |
-| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `market_valuation.py` `screen.py` · **`prices.py`** (บันไดดึงราคาทั้ง 3 ชุดรวมที่เดียว — momentum สั้น/ยาว + risk returns, cache ไม่จำความล้มเหลว) · **`risk_report.py`** (สร้าง payload `/api/risk` — เทสได้ด้วย fake provider) · `risk_prices.py` (shim เก่า→prices) `refresh.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate (ดึงขนานกัน 4 workers) | "ทำความสะอาด + สั่งงาน" |
-| domain | `domain/engine/deep_v82.py` (**active**) · `deep_v73.py` (rollback) · `domain/momentum.py` (สัญญาณหลัก + S9 crash guard) · `domain/engine/risk.py` (Risk Desk) · `indicators.py` (RSI/MACD เสริม) · `advice.py` (💡 คำแนะนำไทย) · `pead.py` `costs.py` `philosophy.py` · `diversification.py` (Correlation: div. philosophy ราย portfolio) | **คณิตศาสตร์ DEEP + momentum + risk + advice** | "สมองที่ให้คะแนน" |
+| sources | `sources/sec_edgar.py` (หลัก) `yahoo.py` `fmp.py` `stooq.py` `finnhub.py` `alphavantage.py` `damodaran.py` `gdrive_store.py` · `jsonapi.py` (HTTP call กลางของ FMP/Finnhub/Alpha Vantage) · `surprise.py` (กฎ beat/meet/miss เดียวทุกแหล่ง) | ดึงข้อมูลดิบจากเน็ต (SEC=หลัก, ที่เหลือเสริม/สำรอง) | "ไปเอาตัวเลขมา" |
+| pipeline | `normalize.py` `validate.py` `consensus.py` `rev_track.py` `margin_track.py` `surprise_backfill.py` `pricecache.py` `market_valuation.py` `screen.py` · **`prices.py`** (บันไดดึงราคาทั้ง 3 ชุดรวมที่เดียว — momentum สั้น/ยาว + risk returns, cache ไม่จำความล้มเหลว) · **`risk_report.py`** (สร้าง payload `/api/risk` — เทสได้ด้วย fake provider) · `dataquality.py` · orchestrate แยกตามเรื่อง: `fundamentals.py` (refresh งบ) `daily.py` (momentum รายวัน) `watchlist.py` `portfolio.py` `allocation.py` `rows.py` (แถวที่ 2 แท็บใช้ร่วม) `batch.py` (ดึงขนาน 4 workers + แบ่งโควตา) `cik.py` | รวมหลายแหล่ง + ตรวจคุณภาพ + orchestrate | "ทำความสะอาด + สั่งงาน" |
+| domain | `domain/engine/deep_v82.py` (**active**, engine เดียวที่ลงทะเบียน) · `young_dcf.py` (หุ้น pre-profit) · `domain/momentum.py` (สัญญาณหลัก + S9 crash guard) · `domain/risk/` (Risk Desk + Correlation) · `indicators.py` (RSI/MACD เสริม) · `advice.py` (💡 คำแนะนำไทย) · `pead.py` `costs.py` `philosophy.py` · `diversification.py` (Correlation: div. philosophy ราย portfolio) | **คณิตศาสตร์ DEEP + momentum + risk + advice** | "สมองที่ให้คะแนน" |
 | store | `store.py` + `store_sync.py` | `store.py` เซฟลงไฟล์ `data/portfolio.json` (local ล้วน) · `store_sync.py` = mirror ขึ้น Google Drive (แยกไฟล์ 2026-07-19: pull ตอน cold start + push บน worker — push ถูกบล็อกจนกว่า pull สำเร็จ กัน backup โดนทับ) | "ความจำ" |
 | api | `app.py` (FastAPI) | รับคำสั่งจากหน้าจอ (รวม `/api/risk` `/api/screen` `/api/persist`) | "พนักงานรับเรื่อง" |
-| ui | `index.html` | หน้าเว็บ 6 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk · Correlation · How to · Ref) + command strip 4 ไทล์ทุกแท็บ | "หน้าร้าน" |
+| ui | `index.html` (markup) + `static/dashboard.css` + `static/js/*.js` | หน้าเว็บ 6 แท็บ (Portfolio · Watchlist · Allocation=Risk Desk · Correlation · How to · Ref) + command strip 4 ไทล์ทุกแท็บ | "หน้าร้าน" |
 
-> **เวอร์ชันปัจจุบัน:** engine ที่ใช้งานคือ **DEEP v8.2** (`config.py → DEEP_VERSION="8.2"`); `deep_v73.py` เก็บไว้เพื่อ rollback. สัญญาณ momentum หลักมาจาก `domain/momentum.py` (QuantInsti: MOM_12_1/ROC/SMA200/RSI) — ส่วน `indicators.py` (RSI<30/DBBMV) เป็นแค่ตัวยืนยันรอง.
+> **เวอร์ชันปัจจุบัน:** engine ที่ใช้งานคือ **DEEP v8.2** (`config.py → DEEP_VERSION="8.2"`); v7.3 ถูกลบออกจากโค้ดแล้ว (ดูของเก่าได้ที่ tag `v7.3-engine` ใน git). สัญญาณ momentum หลักมาจาก `domain/momentum.py` (QuantInsti: MOM_12_1/ROC/SMA200/RSI) — ส่วน `indicators.py` (RSI<30/DBBMV) เป็นแค่ตัวยืนยันรอง.
 
 **กฎเหล็ก 1 ข้อ:** `domain/` ห้ามแตะเน็ตเด็ดขาด (เป็น pure math) → ทำให้ test ได้ง่ายและไม่พัง
 
@@ -66,18 +66,25 @@ python run_tests.py
 ต้องเห็น **`ALL TEST SUITES PASSED OK`** ตอนจบ ถ้าเห็น `FAILED:` แปลว่ามีบางอย่างพัง
 → อ่านบรรทัดที่ error บอก แล้วย้อนไปดูไฟล์ที่เพิ่งแก้
 
-มี **20 ชุดเทสต์** (ดูรายชื่อเต็มใน `run_tests.py`) แต่ละชุดล็อก "ตัวเลขที่ถูกต้อง" ของหุ้นจริง
+มี **ชุดเทสต์หลายสิบชุด** (`run_tests.py` หาเองจากทุกไฟล์ `tests/test_*.py` แล้วรัน replay/golden/audit2 ต่อท้าย) แต่ละชุดล็อก "ตัวเลขที่ถูกต้อง" ของหุ้นจริง
 (AVGO/ABBV/ORCL/NVO/MSFT) ไว้ ดังนั้นถ้าเผลอทำสูตรเพี้ยน เทสต์จะจับได้ก่อนที่จะ deploy
 
 | ชุดเทสต์ | ตรวจอะไร |
 |---|---|
 | `test_extract` | SEC อ่านตัวเลขถูกไหม (รายได้/กำไร) |
-| `test_engine` / `test_engine_v82` | DEEP v7.3 / **v8.2** คำนวณคะแนน/มูลค่าถูกไหม |
+| `test_engine` / `test_engine_v82` | engine ที่ active ทำตาม contract ไหม / **v8.2** คำนวณคะแนน/มูลค่าถูกไหม |
 | `test_momentum` | momentum composite (MOM_12_1/ROC/SMA200/RSI) ถูกไหม |
 | `test_risk` | Risk engine: weights→1, RC→σp, %RC→100%, DR≥1, score 0–100 |
 | `test_no_regression` | `/api/risk` ไม่ไปแก้ `portfolio.json` (feature แยกขาด) |
 | `test_app_fixes` | บั๊ก freeze/crash ที่แก้ไปแล้ว กลับมาไหม |
 | (อื่นๆ) | earnings, rev/margin track, consensus blend, FMP/SEC parse, stooq, pricecache, gdrive, hardening |
+
+> 💡 เพิ่มชุดเทสต์ใหม่: ตั้งชื่อ `tests/test_xxx.py` แล้ว **ต้องมี** บล็อก `if __name__ == "__main__":` ท้ายไฟล์
+> (ใช้ `run_suite` จาก `tests/_harness.py`) — ไม่มีบล็อกนี้ `run_tests.py` จะนับว่า FAILED
+>
+> ด่าน snapshot: `tests/golden_snapshot.py` (ทุก field ของ engine + ทุก API) · `tests/replay_snapshot.py`
+> (คะแนนหลักของทุกหุ้นใน store) · `tests/ui_snapshot.py` (หน้าเว็บที่ Chromium render จริง — รันเองด้วย
+> `python -m tests.ui_snapshot`)
 
 ---
 
@@ -94,8 +101,6 @@ ERP = 0.0423          # ← เปลี่ยนค่า ERP ตรงนี�
 ERP_AS_OF = "2026-01" # ← อัปเดตเดือน/ปีที่รีเฟรชด้วย ทุกครั้งที่เปลี่ยน ERP
 ERP_STALE_MONTHS = 3  # ← แอปจะขึ้น ⚑ เตือนเมื่อ ERP เก่ากว่า 3 เดือน
 ```
-> 💡 `deep_v73.py` (engine rollback) ยัง hard-code `ERP = 0.0475` ของมันเอง — ปกติไม่ต้องแตะ
-> ตราบใดที่ยังใช้ v8.2 อยู่ (ถ้า rollback กลับไป 7.3 ค่อยแก้ในไฟล์นั้น)
 
 ### 3.2 เพิ่มหุ้นใหม่เข้า "ตารางอ้างอิง CIK" (ทำให้ SEC เร็วขึ้น)
 ถ้าหุนที่ดูบ่อยยังต้องไปค้น CIK ทุกครั้ง ให้ pin ไว้:
@@ -148,9 +153,9 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 ## 🚀 4. อัปเกรด DEEP engine เป็นเวอร์ชันใหม่ (เช่น v8.3)
 
-> ปัจจุบัน active = **v8.2** (`deep_v82.py`) และยังเก็บ **v7.3** ไว้ rollback.
-> รายละเอียดเต็มอยู่ใน **`UPGRADE_ENGINE.md`** + บทเรียนจากการอัปจริง v7.3→v8.2 ใน
-> **`UPGRADE_ENGINE_REVIEW.md`** — สรุปสั้นๆ 4 ขั้น:
+> ปัจจุบัน active = **v8.2** (`deep_v82.py`) และเป็น engine เดียวที่ลงทะเบียนไว้ (v7.3 ถูกลบแล้ว).
+> รายละเอียดเต็มอยู่ใน **`docs/archive/UPGRADE_ENGINE.md`** + บทเรียนจากการอัปจริง v7.3→v8.2 ใน
+> **`docs/archive/UPGRADE_ENGINE_REVIEW.md`** — สรุปสั้นๆ 4 ขั้น:
 
 1. **คัดลอกไฟล์ active เป็นไฟล์ใหม่:** `domain/engine/deep_v82.py` → `deep_v83.py`
 2. **เปลี่ยนชื่อ class + version:**
@@ -174,7 +179,9 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 **กฎเหล็ก:** engine ต้อง **รับ `FinancialFacts` เข้า → คืน `Valuation` ออก** เท่านั้น
 ตราบใดที่ทำตามสัญญานี้ (ดู `domain/engine/contract.py`) **หน้าจอ/ข้อมูล/store ไม่ต้องแตะเลย**
-ของเก่ายังอยู่ → ถ้า v8.3 มีปัญหา แค่เปลี่ยน `DEEP_VERSION` กลับเป็น `"8.2"` (หรือ `"7.3"`) ก็ rollback ทันที
+ตราบที่ `deep_v82.py` ยังลงทะเบียนอยู่ → ถ้า v8.3 มีปัญหา แค่เปลี่ยน `DEEP_VERSION` กลับเป็น `"8.2"`
+ถ้า engine เก่าถูกลบไปแล้ว ให้ rollback ด้วย git: checkout tag (เช่น `v7.3-engine`) หรือ commit ก่อนหน้า
+(ใส่เวอร์ชันที่ไม่ได้ลงทะเบียน → `get_engine()` จะ raise `ValueError` ทันที ไม่แอบใช้ engine เก่าแทน)
 
 > 💡 อยากให้ DEEP skill เวอร์ชันใหม่ของคุณ (ใน Claude) ออกมาเป็น engine ไฟล์นี้:
 > เปิด skill `ifa-stock-analysis` (v8.2) ดูสคริปต์ใน `scripts/` (`wacc.py`, `roic.py`, `rd_capitalize.py`,
@@ -195,7 +202,7 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 | ⚑ "terminal margin default" | หุ้นไม่อยู่ใน `TERMINAL_MARGIN` | ใส่ค่า margin จริง (ดู 3.3) — หรือปล่อยไว้ (verdict แค่ประมาณ) |
 | ตัวเลขหุ้นดูผิดเพี้ยน | tag SEC เปลี่ยน/ข้อมูลแปลก | รัน `python -m tools.verify` ดูว่าตัวไหน CHECK! |
 | test `FAILED` หลังแก้สูตร | ค่าคาดหวังใน test ไม่ตรงสูตรใหม่ | อัปเดตตัวเลขใน `tests/test_engine.py` ให้ตรง (ตั้งใจให้สูตรใหม่ถูก) |
-| portfolio หาย หลัง redeploy บน Render | ยังไม่ได้เปิด Google Drive persistence | ตั้งค่า OAuth ตาม `GOOGLE_DRIVE_OAUTH_SETUP.md` (ฟรี — ข้อมูล sync ขึ้น Drive อัตโนมัติ ไม่หายอีก) |
+| portfolio หาย หลัง redeploy บน Render | ยังไม่ได้เปิด Google Drive persistence | ตั้งค่า OAuth ตาม `docs/GOOGLE_DRIVE_OAUTH_SETUP.md` (ฟรี — ข้อมูล sync ขึ้น Drive อัตโนมัติ ไม่หายอีก) |
 | แอปค้างตอน refresh เยอะๆ | (แก้แล้วในเวอร์ชันนี้) network ทำนอก lock | ถ้ายังค้าง = แก้โค้ดผิด ดู `app.py::_fetch_and_commit` |
 
 ---
@@ -203,7 +210,8 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 ## ✅ 6. Checklist ก่อน commit / deploy ทุกครั้ง
 
 - [ ] `python run_tests.py` → เห็น `ALL TEST SUITES PASSED OK` (ทุก suite)
-- [ ] ถ้าแก้ `index.html`: bump **`DASH_BUILD`** (บนสุดของ script) และ **`config.BUILD`** ให้ตรงกันเสมอ (test_frontend บังคับ)
+- [ ] ถ้าแก้หน้าเว็บ (`index.html` / `static/`): bump **`DASH_BUILD`** (บนสุดของ `static/js/app.js`) และ **`config.BUILD`** ให้ตรงกันเสมอ (test_frontend บังคับ)
+- [ ] ถ้า commit แบบ `fix`/`feat`/`perf` ที่แตะ `domain/` `pipeline/` `sources/`: `config.BUILD` ต้องไม่เก่ากว่าวันที่ของ commit นั้น (test_frontend อ่านจาก git)
 - [ ] รันแอป `uvicorn app:app --port 8000` แล้วเปิดดูจริง ไม่มี error ใน terminal
 - [ ] ลองกดทุกปุ่ม: Add holding / Refresh / Daily / Watchlist run / Allocation → Run risk analysis / What-if
 - [ ] เช็ค badge 💾 Drive บน header เป็น ✓ (ถ้า ✗ = push ถูกบล็อก ข้อมูลยังไม่ backup)
@@ -212,4 +220,4 @@ export APP_TOKEN=ตั้งรหัสอะไรก็ได้ที่เ
 
 ---
 
-*เอกสารเกี่ยวข้อง: `README.md` (ภาพรวม) · `DESIGN.md` (สถาปัตยกรรมเต็ม) · `UPGRADE_ENGINE.md` (อัปเกรด engine ละเอียด) · `REVIEW.md` (ประวัติการแก้บั๊ก)*
+*เอกสารเกี่ยวข้อง: `README.md` (ภาพรวม) · `DESIGN.md` (สถาปัตยกรรมเต็ม) · `docs/archive/UPGRADE_ENGINE.md` (อัปเกรด engine ละเอียด) · `docs/archive/REVIEW.md` (ประวัติการแก้บั๊ก)*

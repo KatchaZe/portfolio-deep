@@ -2,7 +2,7 @@
 
 A local web app that values your stocks with the **DEEP Framework v8.2** on
 reliable, cross-checked free data, and manages a portfolio, watchlist, and
-allocation view. (v7.3 is retained for one-line rollback — see below.)
+allocation view.
 
 - **Data (all free):** SEC EDGAR (primary financials, all US + 20-F filers — incl.
   cash flow, R&D + history, interest, assets, receivables, acquisitions, deferred
@@ -21,10 +21,10 @@ allocation view. (v7.3 is retained for one-line rollback — see below.)
   blend** (median + dispersion).
 - **Trust:** every value carries provenance + a confidence tier; inputs with no free
   source are **skipped + flagged**, never guessed (incl. beta→1.0, tax→21%, growth→8%,
-  ERP staleness, terminal-margin fallback); a 35-module regression suite locks numbers.
-  See **`DATA_AUDIT.md`** for the full real-vs-assumed provenance audit.
+  ERP staleness, terminal-margin fallback); a regression suite (every `tests/test_*.py`) locks numbers.
+  See **`docs/archive/DATA_AUDIT.md`** for the full real-vs-assumed provenance audit.
 
-See `DESIGN.md` for architecture and **`BEGINNER_GUIDE.md` for a step-by-step beginner guide** (run, modify, upgrade the engine).
+See `DESIGN.md` for architecture and **`docs/BEGINNER_GUIDE.md` for a step-by-step beginner guide** (run, modify, upgrade the engine).
 
 ---
 
@@ -108,7 +108,7 @@ abbreviations & symbols used anywhere on the dashboard.
 The Allocation tab now opens with a **Risk Desk** that answers what the cost-basis
 pies cannot: **capital weight ≠ risk weight** (a 20% position in a high-vol name can
 be 50%+ of portfolio risk). All math is computed server-side in **pure Python**
-(`domain/engine/risk.py`, no numpy) and served by **`GET /api/risk`**. The cost-basis
+(the `domain/risk/` package, no numpy) and served by **`GET /api/risk`**. The cost-basis
 pies + what-if below it are untouched.
 
 **Controls:** *Max loss รับได้ (%)* (your tolerance), *Horizon*, and *data*:
@@ -136,8 +136,8 @@ to free sources rather than erroring; beta/sector are read from stored facts `[S
 **read-only** on `portfolio.json`; risk results cache in a **separate
 `data/risk_cache.json`**; the only write to the shared store is the FMP-usage counter,
 via the same reload→commit-under-lock pattern as the what-if endpoint. The
-`test_no_regression` suite locks this. Full rationale + audit: **`RISK_FEATURE.md`**
-and `ALLOCATION_RISK_UPGRADE_PLAN.md` §10.
+`test_no_regression` suite locks this. Full rationale + audit: **`docs/archive/RISK_FEATURE.md`**
+and `docs/archive/ALLOCATION_RISK_UPGRADE_PLAN.md` §10.
 
 ---
 
@@ -187,14 +187,14 @@ Render (free) — gives a public URL:
 3. In the dashboard set env vars: **FMP_API_KEY** (optional), **APP_TOKEN**
    (recommended — protects your portfolio on the public URL; open `/?token=YOUR_TOKEN`
    once, then it is remembered via cookie), and the three **`GDRIVE_OAUTH_*`** vars
-   for Google Drive persistence (see **`GOOGLE_DRIVE_OAUTH_SETUP.md`**).
+   for Google Drive persistence (see **`docs/GOOGLE_DRIVE_OAUTH_SETUP.md`**).
 4. Deploy. Build: `pip install -r requirements.txt`; Start: `uvicorn app:app --host 0.0.0.0 --port $PORT`.
 
 > Free tier sleeps after ~15 min idle (first hit wakes it) and uses an ephemeral disk.
 > **Persistence is handled via Google Drive (OAuth):** the app pushes `portfolio.json`
 > to *your own* Drive on every save and pulls it back on startup, so holdings (and the
 > revenue-snapshot history) survive every redeploy — **no paid Render Disk needed**.
-> One-time setup: **`GOOGLE_DRIVE_OAUTH_SETUP.md`**. Without the `GDRIVE_OAUTH_*` vars the
+> One-time setup: **`docs/GOOGLE_DRIVE_OAUTH_SETUP.md`**. Without the `GDRIVE_OAUTH_*` vars the
 > app still runs, just local-only. (A *service account* can't write to a personal Gmail
 > Drive — no storage quota — so OAuth-as-yourself is the supported path.)
 
@@ -202,15 +202,19 @@ Render (free) — gives a public URL:
 
 ## 5. Upgrade / switch the framework — only touches the engine
 
-The engine is isolated behind a contract (`domain/engine/contract.py`). Both v7.3
-and v8.2 are registered; switch the active one in `config.py`:
+The engine is isolated behind a contract (`domain/engine/contract.py`). v8.2 is the
+only registered engine; `config.py` names the active one:
 ```python
-DEEP_VERSION = "8.2"   # or "7.3" to roll back instantly
+DEEP_VERSION = "8.2"
 ```
+`get_engine()` raises `ValueError` on a version that is not registered; it never falls back
+to an older engine. To roll back, use git: check out the tag `v7.3-engine` (commit `b9c2c0d`,
+the last one that still had the v7.3 engine) or any previous commit.
+
 To add a future version: add `domain/engine/deep_vNN.py` with `class DeepVNNEngine(DeepEngine)`,
 `register()` it in `domain/engine/__init__.py`, and point `DEEP_VERSION` at it. Nothing in the
 data layer, store, API, or dashboard changes — they only speak `FinancialFacts` (in) and
-`Valuation` (out). See `UPGRADE_ENGINE.md` (the how-to) and `UPGRADE_ENGINE_REVIEW.md` (lessons
+`Valuation` (out). See `docs/archive/UPGRADE_ENGINE.md` (the how-to) and `docs/archive/UPGRADE_ENGINE_REVIEW.md` (lessons
 from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output sanity guards).
 
 ---
@@ -219,11 +223,21 @@ from the real v7.3→v8.2 upgrade: signature ripple, new-data plumbing, output s
 
 ```powershell
 python -m tools.capture        # one-time: fetch real fixtures (or commit them)
-python run_tests.py      # 35 modules: FMP/SEC/engine + momentum, consensus blend,
-                         # margin trend, Stooq, revenue surprise, assumption flags,
-                         # risk engine, no-regression isolation, advice, earn-status,
-                         # gdrive push-guard, parallel fetch, frontend tokens + build stamp
+python run_tests.py      # every tests/test_*.py: FMP/SEC/engine + momentum,
+                         # consensus blend, margin trend, Stooq, revenue surprise, assumption
+                         # flags, risk engine, no-regression isolation, advice, earn-status,
+                         # gdrive push-guard, parallel fetch, frontend tokens + build stamp;
+                         # then the replay / golden / audit2 guards
+python -m tests.ui_snapshot   # rendered dashboard vs tests/ui_baseline.json.gz (needs Chromium)
 ```
+`run_tests.py` finds every `tests/test_*.py` on its own. Each suite runs as
+`python -m tests.<name>`, so it needs an `if __name__ == "__main__":` block (the runner
+fails a suite without one); use `run_suite` from `tests/_harness.py`. The snapshot gates
+are `tests/golden_snapshot.py` (every engine field and API body, offline and clock-frozen),
+`tests/replay_snapshot.py` (headline values per stored ticker) and `tests/ui_snapshot.py`
+(the page as Chromium renders it). The build-stamp test fails when `config.BUILD` is older
+than the newest `fix`/`feat`/`perf` commit under `domain/`, `pipeline/` or `sources/`;
+bump it together with `DASH_BUILD` in `static/js/app.js`.
 The fixtures freeze real numbers for AVGO/ABBV/ORCL/NVO/MSFT so a data regression
 fails the suite instead of shipping (e.g. AVGO net income must stay ≈ $25B). New
 modules: `test_margin`, `test_stooq`, `test_consensus`, `test_finnhub`, `test_fmp_rev`,
@@ -253,6 +267,6 @@ keep their JSON contract and `/api/risk` never modifies `portfolio.json`).
   **terminal margin** is now anchored to the company's own SEC operating margin (table
   fallback only for pre-profit, flagged); **ERP** lives in `config` with an as-of date and
   is flagged once stale; **beta→1.0 / tax→21% / growth→8%** fallbacks are each flagged.
-  See **`DATA_AUDIT.md`**. **Own-5y P/E percentile** needs Yahoo 5y prices, so it fills
+  See **`docs/archive/DATA_AUDIT.md`**. **Own-5y P/E percentile** needs Yahoo 5y prices, so it fills
   on localhost and skips on cloud hosts that Yahoo blocks.
 - Not investment advice — a calculator that reproduces DEEP v8.2 rules on free data.
