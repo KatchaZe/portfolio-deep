@@ -160,6 +160,17 @@ def test_young_company_dcf_parity():
     print("young-company DCF parity OK (going concern %.2f/share, failure adj, terminal cap)" % b)
 
 
+def test_synthetic_spread_table_parity():
+    """The coverage -> default-spread table lives in both places; one vintage."""
+    w = _load("wacc")
+    if w is None:
+        print("SKIP: skill scripts not found")
+        return
+    assert w.SYNTH_SPREAD == E.SYNTH_SPREAD, "synthetic spread table DRIFT between skill and app"
+    assert dict(E.SYNTH_SPREAD)[8.50] == 0.0040, "app table is not the Jan-2026 Damodaran vintage"
+    print("synthetic spread table parity OK (%s)" % E.SYNTH_SPREAD_AS_OF)
+
+
 if __name__ == "__main__":
     from tests._harness import run_suite
     run_suite(globals(), "ALL test_skill_parity PASSED")
