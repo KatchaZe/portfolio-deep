@@ -93,6 +93,7 @@ class _Xbrl:
     def __init__(self, facts):
         self.ns = facts.get("us-gaap") or facts.get("ifrs-full") or {}
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
+        self.stale_hit = None          # set by _freshest when it refuses a dead tag
 
     def entries(self, concept, prefer=USD):
         """One entry per (start, end) period, keeping the most recently filed."""
@@ -280,6 +281,8 @@ NI = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholders
 PRETAX = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
           "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
           "ProfitLossBeforeTax"]
+PRETAX_LEGS = ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
+               "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign")
 INT_EXP = ["InterestExpense", "InterestAndDebtExpense", "InterestExpenseDebt", "InterestExpenseNonoperating"]
 
 CFO_TAGS = ["NetCashProvidedByUsedInOperatingActivities",
@@ -288,7 +291,8 @@ CFO_TAGS = ["NetCashProvidedByUsedInOperatingActivities",
 CAPEX_TAGS = ["PaymentsToAcquirePropertyPlantAndEquipment",
               "PurchaseOfPropertyPlantAndEquipment",
               "PaymentsToAcquireProductiveAssets",
-              "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"]
+              "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+              "PaymentsToAcquireOtherPropertyPlantAndEquipment"]
 GROSS_PROFIT_TAGS = ["GrossProfit"]
 # ABBV and many pharma filers report no GrossProfit subtotal but do report the cost
 # line, so gross profit is derived as revenue - cost (see domain/trend.py).
@@ -299,7 +303,8 @@ COST_OF_REV_TAGS = ["CostOfGoodsAndServicesSold", "CostOfRevenue", "CostOfSales"
 SBC_TAGS = ["ShareBasedCompensation",
             "AllocatedShareBasedCompensationExpense",
             "ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost",
-            "ExpenseFromSharebasedPaymentTransactionsWithEmployees"]
+            "ExpenseFromSharebasedPaymentTransactionsWithEmployees",
+            "AdjustmentsToAdditionalPaidInCapitalSharebasedCompensationRequisiteServicePeriodRecognitionValue"]
 
 COMBINED_DEBT = "DebtLongtermAndShorttermCombinedAmount"
 LT_DEBT = ("LongTermDebtNoncurrent", "LongTermNotesAndLoans", "LongTermDebt",
@@ -337,44 +342,69 @@ class _Anchor:
         self.fy_ends = fy_ends        # income-statement fiscal-year ends, newest first
 
 
+# A flow or series whose newest period ends this long before the latest filing is not
+# today's number: the filer moved to another tag and the old one stopped. NVDA's capex
+# read $0.46B off a tag last filed for FY2020 while the live tag said $6.6B.
+STALE_DAYS = 400
+
+
+def _freshest(x, ladder, at, value_of, keep):
+    """Value of the ladder tag whose data reaches CLOSEST TO THE PRESENT; ladder order
+    breaks ties. A winner older than STALE_DAYS before the anchor is refused (None) and
+    recorded on `x.stale_hit` so the caller can flag it instead of using it silently."""
+    best = None                          # ((end, -index), value, tag)
+    for i, (t, p) in enumerate(_tag_units(ladder)):
+        v = value_of(t, p)
+        if not keep(v):
+            continue
+        key = (x.latest_end(t, p) or "", -i)
+        if best is None or key > best[0]:
+            best = (key, v, t)
+    if best is None:
+        return None
+    (end, _), v, tag = best
+    if at.ref_end and end and not _recent(end, at.ref_end, STALE_DAYS):
+        x.stale_hit = f"{tag} last filed {end}"
+        return None
+    return v
+
+
 def _ttm(x, ladder, at):
-    """First truthy TTM down the ladder (a 0 falls through to the next tag)."""
-    return _or(x.ttm(t, p) for t, p in _tag_units(ladder))
+    """Freshest truthy TTM down the ladder (a 0 falls through to the next tag)."""
+    return _freshest(x, ladder, at, x.ttm, bool)
 
 
 def _ttm_present(x, ladder, at):
-    """First TTM that exists down the ladder (a filed 0 is kept)."""
-    return next((v for v in (x.ttm(t, p) for t, p in _tag_units(ladder)) if v is not None), None)
+    """Freshest TTM that exists down the ladder (a filed 0 is kept)."""
+    return _freshest(x, ladder, at, x.ttm, lambda v: v is not None)
 
 
 def _annual(x, ladder, at):
-    return _or(x.annual_series(t, p) for t, p in _tag_units(ladder))
+    return _freshest(x, ladder, at, x.annual_series, bool) or []
 
 
 def _annual_dated(x, ladder, at):
-    return _or(x.annual_series_dated(t, p) for t, p in _tag_units(ladder))
+    return _freshest(x, ladder, at, x.annual_series_dated, bool) or []
 
 
 def _trend_series(x, ladder, at):
-    """First tag with >= 2 dated annual points, else [].
+    """Freshest tag with >= 2 dated annual points, else [].
 
     Deliberately NOT a merge across tags: MSFT reports CostOfRevenue up to 2017 and
     CostOfGoodsAndServicesSold after, and a trend drawn across that break measures
     the accounting change, not the business."""
-    for t, p in _tag_units(ladder):
-        s = x.annual_series_dated(t, p)
-        if len(s) >= 2:
-            return s
-    return []
+    return _freshest(x, ladder, at, x.annual_series_dated, lambda s: len(s or []) >= 2) or []
 
 
 def _quarters(x, ladder, at):
-    return _or(x.quarters(t, p) for t, p in _tag_units(ladder))
+    return _freshest(x, ladder, at, x.quarters, bool) or {}
 
 
 def _latest_value(x, ladder, at):
-    e = next((e for e in (x.latest(t, p) for t, p in _tag_units(ladder)) if e), None)
-    return e.get("val") if e else None
+    def val(t, p):
+        e = x.latest(t, p)
+        return e.get("val") if e else None
+    return _freshest(x, ladder, at, val, lambda v: v is not None)
 
 
 def _fresh(x, ladder, at):
@@ -396,12 +426,11 @@ def _fresh(x, ladder, at):
 
 
 def _prior_year(x, ladder, at):
-    """The previous year-end balance-sheet value of the first tag that has one."""
-    for t, p in _tag_units(ladder):
+    """The previous year-end balance-sheet value of the freshest tag that has one."""
+    def prior(t, p):
         s = x.instant_series(t, p)
-        if len(s) > 1:
-            return s[1]
-    return None
+        return s[1] if len(s) > 1 else None
+    return _freshest(x, ladder, at, prior, lambda v: v is not None)
 
 
 def _total_else_legs(rule):
@@ -497,7 +526,8 @@ FIELD_LADDERS = {
                          "DepreciationDepletionAndAmortization",
                          "DepreciationAndAmortisationExpense",
                          "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss")),
-    "income_before_tax": (_ttm, (PRETAX[0], "ProfitLossBeforeTax")),
+    # ORCL stopped tagging the total in 2018 and files the domestic + foreign legs
+    "income_before_tax": (_total_else_legs(_ttm), (tuple(PRETAX), PRETAX_LEGS[:1], PRETAX_LEGS[1:])),
     "tax_expense": (_ttm, ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations")),
     "cfo": (_ttm_present, CFO_TAGS),
     "sbc": (_ttm_present, SBC_TAGS),
@@ -510,7 +540,7 @@ FIELD_LADDERS = {
     "inventory_prior": (_prior_year, INV_TAGS),
     "accounts_payable": (_fresh, AP_TAGS),
     "accounts_payable_prior": (_prior_year, AP_TAGS),
-    "interest_expense": (_ttm, ("InterestExpense", "InterestAndDebtExpense", "InterestExpenseDebt")),
+    "interest_expense": (_ttm, tuple(INT_EXP)),
     "rnd_expense": (_ttm, RND_TAGS),
     "rnd_annuals": (_annual, RND_TAGS),
     "equity_prior": (_prior_year, EQUITY_TAGS),
@@ -615,6 +645,12 @@ def extract(companyfacts):
     fy_ends = [e for e, _ in (operating["operating_income_annuals_dated"]
                               or revenue["revenue_annuals_dated"])][:12]
     at = _Anchor(x.latest_end(rev_concept), fy_ends)
+    fields, stale = {}, {}
+    for field, (rule, ladder) in FIELD_LADDERS.items():
+        x.stale_hit = None
+        fields[field] = rule(x, ladder, at)
+        if x.stale_hit and not fields[field] and fields[field] != 0:
+            stale[field] = x.stale_hit
     return {
         "currency": x.currency(rev_concept) or "USD",
         "latest_period_end": at.ref_end,
@@ -624,7 +660,8 @@ def extract(companyfacts):
                                         ("net income", (net_income, ni_concept, ni_alts))),
         **revenue,
         **operating,
-        **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
+        **fields,
+        "stale_fields": stale,
         "q4_derived_ends": sorted(x.q4_derived),
     }
 
@@ -669,6 +706,9 @@ def populate(ff, companyfacts):
                                 + ", ".join(derived))
     for c in d.get("concept_conflicts") or []:
         ff.flags.append("SEC tag conflict - " + c)
+    for field, why in sorted((d.get("stale_fields") or {}).items()):
+        ff.flags.append(f"DATA[warn] stale tag - {field} not used: {why}, over {STALE_DAYS}d "
+                        f"before the latest filing {d.get('latest_period_end')}")
     if d.get("latest_period_end"):
         ff.set("fiscal_year", d["latest_period_end"], "sec")
     return ff, d
