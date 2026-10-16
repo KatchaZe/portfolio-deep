@@ -4,6 +4,7 @@ Free-data limits handled per skill invariant 17 (skip + flag, never fabricate).
 """
 import decimal as _decimal
 import datetime
+from typing import NamedTuple, Optional
 
 import config
 from domain import pead as pead_mod
@@ -984,499 +985,668 @@ class DeepV82Engine(DeepEngine):
     version = "8.2"
 
     def evaluate(self, facts, rf=0.045):
-        f = facts
-        notes = []
-        beta = f.beta or 1.0
-        tax = f.tax_rate
-        if erp_months_old() > config.ERP_STALE_MONTHS:
-            _erp_note = (f"ERP {config.ERP*100:.2f}% as-of {config.ERP_AS_OF} is {erp_months_old()}mo old "
-                         f"- refresh (Assumptions form / config.ERP)")
-            _add_flag(f, _erp_note)
+        """Run the valuation stages in order. Each stage appends to f.flags and to
+        `notes` (the breakdown drawer) as it goes, so the call order is the order
+        those lines appear on the card."""
+        f, notes = facts, []
+        cap = _capital(f, rf, notes)
+        acq, fcff = _reinvestment(f, cap.nopat)
+        gr = _growth(f, cap, acq, rf)
+        dil = _dilution(f, cap.mcap)
+        pv = _point_values(f, cap, gr, dil.fwd_eps)
+        pi = _priced_in(f, cap, gr, rf)
+        anc = _anchor(f, cap, fcff, gr, dil.rate, pv, pi, rf)
+        range_low, range_high, fv_disagreement = _fv_range(f, anc)
+        ex = _execution_inputs(f, cap, acq, gr, notes)
+        scores = _pillars(f, cap, gr, pv, anc.value, ex, notes)
+        comp, reco = _overall(f, scores, notes)
 
-        nopat = f.operating_income * (1 - tax) if f.operating_income is not None else None
-        # operating lease liability is debt (Damodaran): inside WACC weights, IC and EV
-        lease = getattr(f, "operating_leases", None) or 0
-        debt_eff = (f.total_debt or 0) + lease
-        ic = debt_eff + (f.equity or 0) - (f.cash or 0)
-        if lease:
-            _ln = f"operating leases ${lease/1e9:.1f}B capitalized into debt+IC (S5)"
-            _add_flag(f, _ln)
-        roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
-        rd = rd_capitalize(f.rnd_annuals, f.operating_income, ic, tax)
-        if rd:
-            _, _, roic_adj = rd
-            notes.append(f"R&D-capitalized ROIC {roic_adj*100:.1f}%")
-        roic_used = rd[2] if rd else roic
-
-        # Prefer the REPORTED market cap: for a depositary listing price x SEC share
-        # count is in the wrong unit.
-        mcap = getattr(f, "market_cap", None) or (
-            (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None)
-        w, ke, kd_pre, wacc_note = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
-                                             f.interest_expense, f.operating_income)
-        # surface every degraded-WACC path
-        if ("default spread" in wacc_note and debt_eff) or "no debt/weights" in wacc_note:
-            _n = "WACC: " + wacc_note
-            _add_flag(f, _n)
-        # terminal WACC: same capital structure and Kd, Ke at a stable-growth beta
-        beta_t = terminal_beta(beta)
-        w_term, ke_term, _, _ = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
-                                          f.interest_expense, f.operating_income,
-                                          beta_override=beta_t)
-        if abs(beta_t - beta) > 0.4:
-            _bn = (f"terminal beta {beta:.2f} -> {beta_t:.2f} (stable-phase risk fade) - "
-                   f"FV leans on this assumption")
-            _add_flag(f, _bn)
-        spread = (roic_used - w) if roic_used is not None else None
-        # `roic_scored` (median-damped) is what Economics scores AND what the card
-        # shows, so spread == displayed ROIC - WACC (invariant I2). The valuation keeps
-        # the measured `roic_used`: damping is prudence in scoring a moat, not a claim
-        # about the returns the business earns.
-        _roic_norm, _norm_note = normalized_roic(roic_used, _trend_roic_map(f, tax))
-        roic_scored = roic_used
-        if _norm_note:
-            roic_scored = _roic_norm
-            spread = roic_scored - w
-            _add_flag(f, _norm_note + " — คะแนน Economics และ ROIC บนการ์ดใช้ค่าที่ normalize แล้ว "
-                                      "(การประเมินมูลค่ายังใช้ค่าที่วัดได้จริง)")
-
-        # Reinvestment = capex + acquisitions + dWC - D&A. acquisitions_net is a
-        # PAYMENT: negative is a divestiture, floored at 0 rather than credited as
-        # negative reinvestment (which would flatter FCFF).
-        acq = max(0.0, f.acquisitions_net) if f.acquisitions_net is not None else 0.0
-        dwc, dwc_label = working_capital_change(f)
-        # Floored at 0 but no ceiling: reinvesting more than NOPAT is a real state and
-        # must show as negative FCFF.
-        reinvest = 0.0
-        if nopat and nopat > 0 and f.capex is not None and f.dep_amort is not None:
-            reinvest = max(0.0, (f.capex + acq + (dwc or 0.0) - f.dep_amort) / nopat)
-        fcff = nopat * (1 - reinvest) if nopat is not None else None
-        if reinvest > 1.0:
-            _add_flag(f, (f"reinvestment {reinvest*100:.0f}% of NOPAT (capex+M&A+dWC-D&A) - "
-                          f"consuming more cash than it earns; FCFF negative"))
-        if dwc and f.revenue and abs(dwc) / f.revenue > 0.02:
-            _add_flag(f, (f"working capital {'absorbed' if dwc > 0 else 'released'} "
-                          f"${abs(dwc)/1e9:.1f}B ({abs(dwc)/f.revenue*100:.1f}% of revenue) - "
-                          f"counted as reinvestment ({dwc_label})"))
-
-        # Terminal ROIC comes first: it is also the fallback for the growth cap and the
-        # high-growth ROIC when the firm's own ROIC is unmeasurable. Floored against
-        # the higher of today's and the terminal cost of capital.
-        _sec_cap = getattr(f, "terminal_roic_sector", None)
-        roic_term = terminal_roic(roic_used if (roic_used and roic_used > 0) else None,
-                                  max(w, w_term), _sec_cap)
-        if _sec_cap and abs(roic_term - _sec_cap) < 1e-9 and roic_term > w_term:
-            _sn = f"terminal ROIC {roic_term*100:.1f}% set by industry ceiling (Damodaran ROC)"
-            _add_flag(f, _sn)
-
-        g_cap = sustainable_growth_cap(roic_used, roic_fallback=roic_term)
-        if not (roic_used and roic_used > 0):
-            _rn = (f"ROIC unmeasurable (negative or zero invested capital) - high-growth "
-                   f"ROIC and growth cap both fall back to the terminal {roic_term*100:.1f}%, "
-                   f"not the old 15%/30% defaults")
-            _add_flag(f, _rn)
-        # a measured 0% growth is not missing (`is not None`, never `or 0.08`)
-        _g_lt = f.growth_lt if f.growth_lt is not None else 0.08
-        growth_raw = _clamp(_g_lt, 0.0, GROWTH_CAP)
-        growth = min(growth_raw, g_cap)
-        if growth_raw > growth + 1e-9:
-            _gn = (f"growth capped {growth_raw*100:.0f}% -> {growth*100:.0f}% "
-                   f"(g <= ROIC: faster needs outside capital)")
-            _add_flag(f, _gn)
-        ann = f.revenue_annuals or []
-        rev_1y = ann[1] if len(ann) > 1 else None
-        rev_3y = ann[3] if len(ann) > 3 else None
-        rev_growth_yoy = (ann[0] / rev_1y - 1) if (ann and rev_1y) else None
-        actual_3y = ((ann[0] / rev_3y) ** (1 / 3) - 1) if (ann and rev_3y) else None
-
-        eps0 = None
-        # break-even net income (0.0) is a measurement, not a gap
-        if f.net_income is not None and f.shares_diluted:
-            earn = min(f.net_income, nopat) if (nopat and f.net_income > nopat) else f.net_income
-            eps0 = earn / f.shares_diluted
-        elif f.eps_gaap is not None:
-            eps0 = f.eps_gaap
-
-        # The high-growth years keep today's Ke unfloored (risk fades only in the
-        # perpetuity, via terminal_beta). The stable-phase floor is a numerical guard
-        # on (Ke - g), since g_stable is derived from it, not a risk view.
-        ke_eff = ke
-        ke_st_eff = max(ke_term, rf + 0.035)
-        g_stable = min(rf, ke_st_eff - 0.03)
-        roic_high = roic_used if (roic_used and roic_used > 0) else roic_term
-        g_fund = fundamental_growth(f.capex, f.dep_amort, nopat, roic_used, acquisitions=acq)
-        if g_fund is not None and growth > 0.02 and growth > 2 * max(g_fund, 0.0):
-            note = (f"growth {growth*100:.0f}% vs fundamental growth {g_fund*100:.1f}% "
-                    f"(reinvest x ROIC) - unfunded by physical reinvestment"
-                    + ("; asset-light? R&D not counted" if g_fund < 0.01 else ""))
-            _add_flag(f, note)
-        # Dilution is charged only to an EPS that does not already carry SBC: the
-        # consensus forward EPS is non-GAAP (SBC added back), while eps0 (FVP) and a
-        # SEC-derived forward EPS are GAAP, already expensed. No double counting.
-        dil_rate, dil_label = dilution_rate(f, mcap)
-        _fwd_is_gaap = str((getattr(f, "provenance", None) or {}).get("forward_eps", "")).startswith("sec-derived")
-        fwd_eps_dil = f.forward_eps if _fwd_is_gaap else dilute(f.forward_eps, dil_rate, years=1)
-        if dil_rate and dil_rate >= SBC_DILUTION_FLAG_AT and not _fwd_is_gaap:
-            if f.forward_eps is None or fwd_eps_dil is None:
-                _add_flag(f, (f"share-count dilution {dil_rate*100:.1f}%/yr NOT charged — "
-                              f"ไม่มี forward EPS ให้หัก (source: {dil_label})"))
-            else:
-                _add_flag(f, (f"share-count dilution {dil_rate*100:.1f}%/yr charged to the "
-                              f"non-GAAP forward EPS ({f.forward_eps} -> "
-                              f"{round(fwd_eps_dil, 2)}); source: {dil_label}"))
-        elif _fwd_is_gaap and dil_rate:
-            _add_flag(f, "forward EPS is SEC/GAAP-derived - SBC already expensed, "
-                         "no dilution charged (would double-count)")
-        fv_peg, peg_d = fundamental_peg_price(growth, g_stable, ke_eff, roic_high, roic_term,
-                                              fwd_eps_dil, ke_stable=ke_st_eff)
-        if peg_d and peg_d.get("pe_clamped"):
-            note = (f"fundamental PE clamped to [{PE_FLOOR:.0f}, {PE_CEIL:.0f}] "
-                    f"(raw {peg_d.get('fair_pe_raw')}) - FV is a boundary, not an estimate")
-            _add_flag(f, note)
-
-        # The fair value runs on consensus growth while Demand scores realised growth,
-        # so value the PEG on both. Realised = the more conservative of the 1y and 3y
-        # rates, floored at 0 (no valuing on negative compounding).
-        _real = [g for g in (rev_growth_yoy, actual_3y) if g is not None]
-        g_realised = max(0.0, min(_real)) if _real else None
-        fv_peg_realised, growth_fv_x = None, None
-        if g_realised is not None:
-            fv_peg_realised, _ = fundamental_peg_price(g_realised, g_stable, ke_eff,
-                                                       roic_high, roic_term, fwd_eps_dil,
-                                                       ke_stable=ke_st_eff)
-        # One-sided: fires only when consensus FLATTERS the fair value. Consensus below
-        # realised growth means the row is cheap even on the conservative story.
-        if fv_peg and fv_peg_realised and fv_peg_realised > 0:
-            growth_fv_x = round(fv_peg / fv_peg_realised, 2)
-        growth_unreconciled = bool(growth_fv_x and growth_fv_x >= GROWTH_FV_DISAGREE)
-        if growth_unreconciled:
-            _add_flag(f, (
-                f"valuation ใช้ growth {growth*100:.1f}% (consensus) แต่บริษัททำได้จริง "
-                f"{g_realised*100:.1f}% → FV ${round(fv_peg, 2)} vs ${round(fv_peg_realised, 2)} "
-                f"({growth_fv_x}x) — Price pillar ถูกจำกัดไว้ที่กลาง ๆ เพราะ 'ถูกหรือแพง' "
-                f"ขึ้นกับว่าเชื่อ growth ของใคร ไม่ใช่สิ่งที่วัดได้"))
-
-        # The exit multiple is stable-phase, so built at the stable-phase Ke; the five
-        # high-growth years are discounted at ke_eff. eps0 is GAAP: not diluted.
-        exit_pe = stable_exit_pe(g_stable, ke_st_eff, roic_term)
-        fv_fvp = future_value_projection(eps0, growth, ke_eff, exit_pe)
-
-        tmargin, tm_label, tm_anchored = terminal_margin(f.ticker, f.operating_income, f.revenue)
-        # "anchored" does not mean the firm's own margin survived the clamp
-        if "CAPPED" in tm_label or "FLOORED" in tm_label:
-            _add_flag(f, tm_label)
-        if str((getattr(f, "provenance", None) or {}).get("operating_income", "")).startswith("sec-derived"):
-            note = "EBIT derived (pretax + interest) - filer tags no operating income"
-            _add_flag(f, note)
-
-        # debt_eff (leases included) and the resolved market cap, so the reverse DCF
-        # values the same firm the WACC priced; today's margin so the path ramps.
-        _m_now = (f.operating_income / f.revenue) if (f.operating_income is not None and f.revenue) else None
-        rdcf = reverse_dcf(f.price, f.shares_diluted, f.revenue, rev_1y, debt_eff or None, f.cash,
-                           w, rf, tax, tmargin, wacc_term=w_term, roic_term=roic_term,
-                           market_cap=mcap, margin_now=_m_now,
-                           # FY over FY, the rate Demand scores (not TTM over FY-2)
-                           actual_growth=rev_growth_yoy)
-        if rdcf.get("triggered") and _m_now is not None and abs(_m_now - tmargin) > 0.10:
-            _add_flag(f, (f"RevDCF margin ramps {_m_now*100:.0f}% -> {tmargin*100:.0f}% over "
-                          f"{REVERSE_HORIZON}y (was held flat at the terminal margin from year 1)"))
-        if rdcf.get("triggered") and not tm_anchored:
-            note = tm_label + " - RevDCF verdict approximate"
-            _add_flag(f, note)
-        if (rdcf.get("funding_ratio") or 0) >= 2.0:
-            _un = (f"market prices {rdcf.get('implied_cagr_pct')}%/yr growth against a terminal "
-                   f"ROIC of {rdcf.get('roic_terminal_pct')}% ({rdcf.get('funding_ratio')}x) - "
-                   f"far beyond self-funding; the gap has to come from outside capital")
-            _add_flag(f, _un)
-        if rdcf.get("out_of_band"):
-            _add_flag(f, "reverse DCF: " + (rdcf.get("verdict") or "no implied growth"))
-
-        eps_pos = eps0 is not None and eps0 > 0
-        fcf_pos = fcff is not None and fcff > 0
-        # an FVP below 10% of price is a broken input: discard the method, not the row
-        if fv_fvp and f.price and fv_fvp < 0.1 * f.price:
-            note = "FVP discarded (below 10% of price - unreliable inputs)"
-            _add_flag(f, note)
-            fv_fvp = None
-        # Route to the young-company model (domain/engine/young_dcf.py) on EARNINGS,
-        # not free cash flow: a profitable firm out-investing its NOPAT this year is an
-        # ordinary DCF case with a loud flag, not a young company.
-        pre_profit = not eps_pos
-        if not fcf_pos and eps_pos:
-            _add_flag(f, "FCFF negative on heavy reinvestment but earnings are positive - "
-                         "valued on the normal earnings paths, not the young-company model")
-        ydcf = None
-        if pre_profit:
-            try:
-                ydcf = young_dcf.evaluate(
-                    f, rf=rf, wacc=w, roic_term=roic_term, invested_capital=ic,
-                    debt_eff=debt_eff, tax=tax, target_margin=tmargin,
-                    target_margin_label=tm_label, annual_dilution=dil_rate, fcff=fcff,
-                    growth_fallback=f.growth_lt, target_margin_anchored=tm_anchored)
-            except Exception as e:          # a young-company model must never kill a row
-                _add_flag(f, f"young-company DCF unavailable ({type(e).__name__})")
-            if ydcf and ydcf.get("promote"):
-                # the band is tight enough to mean something -> it becomes the anchor
-                anchor_method = "Young-Company DCF (failure-adjusted)"
-                anchor_value = ydcf["monte_carlo"]["p50"]
-                _add_flag(f, (
-                    f"pre-profit valued forward (S20): p50 ${anchor_value} "
-                    f"[p10 ${ydcf['monte_carlo']['p10']} - p90 ${ydcf['monte_carlo']['p90']}], "
-                    f"survival {ydcf['p_survival']*100:.0f}%, distress ${ydcf['distress_per_share']}"))
-            else:
-                anchor_method, anchor_value = "Terminal-Anchored Reverse DCF", None
-                if ydcf:
-                    _add_flag(f, "young-company DCF is informational only: "
-                                 + (ydcf.get("blocked_reason") or "did not qualify"))
-        elif spread is not None and spread > 0.10 and (rev_growth_yoy or 0) > 0.15:
-            anchor_method, anchor_value = "Future Value Projection", fv_fvp
-        else:
-            anchor_method, anchor_value = "Fundamental PEG", fv_peg
-        if anchor_value is None and anchor_method != "Terminal-Anchored Reverse DCF":
-            if anchor_method == "Fundamental PEG" and fv_fvp:
-                anchor_method, anchor_value = "Future Value Projection", fv_fvp
-            elif anchor_method == "Future Value Projection" and fv_peg:
-                anchor_method, anchor_value = "Fundamental PEG", fv_peg
-            if anchor_value is None:
-                anchor_method = "Terminal-Anchored Reverse DCF"
-
-        # Per-share unit gate, placed after every valuation method has run so no
-        # method can bypass it. When filings and quote disagree on units we cannot
-        # tell which is wrong, so every per-share value is suppressed.
-        if not getattr(f, "per_share_unit_ok", True):
-            fv_peg = fv_fvp = None
-            ydcf = None
-            anchor_method, anchor_value = "No per-share valuation (unit mismatch)", None
-
-        methods = {"Fundamental PEG": fv_peg, "Future Value Projection": fv_fvp}
-        avail = {k: v for k, v in methods.items() if v and v > 0}
-        range_low = min(avail.values()) if avail else None
-        range_high = max(avail.values()) if avail else None
-        # [low, high] is two point methods, not a confidence interval. When they are
-        # far apart the gap is labelled as a method conflict, not narrowed.
-        fv_disagreement = None
-        if range_low and range_high and range_low > 0:
-            _ratio = range_high / range_low
-            if _ratio >= FV_DISAGREE_RATIO:
-                fv_disagreement = round(_ratio, 2)
-                _lo_m = min(avail, key=avail.get)
-                _hi_m = max(avail, key=avail.get)
-                _add_flag(f, (f"fair-value methods disagree {_ratio:.1f}x ({_hi_m} ${range_high:.0f} "
-                              f"vs {_lo_m} ${range_low:.0f}) - the band is a method conflict, "
-                              f"not a confidence interval; the anchor is {anchor_method}"))
-        # a young company's range is its simulated band
-        if anchor_method.startswith("Young-Company") and (ydcf or {}).get("monte_carlo"):
-            range_low = ydcf["monte_carlo"]["p10"]
-            range_high = ydcf["monte_carlo"]["p90"]
-
-        eq_verdict, eq_flags, cc = earnings_quality(
-            f.net_income, f.cfo, f.total_assets, f.sbc, f.revenue,
-            receivables=f.receivables, receivables_prior=getattr(f, "receivables_prior", None),
-            revenue_prior=rev_1y,
-            # FY over FY: a TTM-inflated growth rate would hide the AR signal
-            revenue_growth=rev_growth_yoy)
-        for fl in eq_flags:
-            _add_flag(f, "EQ: " + fl)
-        if f.deferred_revenue and f.deferred_revenue_prior and rev_growth_yoy is not None:
-            dr_g = f.deferred_revenue / f.deferred_revenue_prior - 1
-            # deferred revenue is a fiscal-year-end balance: compare FY revenue growth
-            rev_g = rev_growth_yoy
-            sig = "positive" if dr_g > rev_g else "lagging"
-            note = f"billings {sig} (deferred rev {dr_g*100:+.0f}% vs rev {rev_g*100:+.0f}%)"
-            _add_flag(f, note)
-
-        oia = f.operating_income_annuals or []
-        # Incremental ROIC: dNOPAT / dIC over up to 5 contiguous years, whose
-        # denominator is large and stable. The 1-year capex + M&A - D&A fallback has a
-        # near-zero denominator whenever capex ~ D&A, hence the [-2, 2] clamp. Both are
-        # raw (no R&D or lease capitalization).
-        inc_roic, inc_src, _inc_declined = None, None, False
-        _rmap = _trend_roic_map(f, tax)
-        if _rmap:
-            _win = trend_mod._window(_rmap, years=5)
-            _pct, _why = (trend_mod.incremental_roic_pct(_rmap, _win) if len(_win) >= 2
-                          else (None, "ปีงบไม่ต่อเนื่องพอ"))
-            if _pct is not None:
-                inc_roic = _clamp(_pct / 100.0, -2.0, 2.0)
-                inc_src = f"ΔNOPAT/ΔIC {len(_win)}y"
-            else:
-                # The multi-year measure refused (normally: no new capital to measure).
-                # The noisy 1-year proxy must not answer that question either.
-                _inc_declined = True
-                notes.append(f"E_exec incremental-ROIC adj=skipped({_why})")
-        if (inc_roic is None and not _inc_declined
-                and len(oia) > 1 and oia[1] and f.capex is not None and f.dep_amort is not None):
-            d_nopat = (oia[0] - oia[1]) * (1 - tax)
-            reinvest_1y = (f.capex + acq - f.dep_amort)
-            if reinvest_1y and reinvest_1y > 0:
-                inc_roic = _clamp(d_nopat / reinvest_1y, -2.0, 2.0)
-                inc_src = "1y capex+M&A−D&A (ประมาณ)"
-        # Margin trend FY0 vs FY1. Not TTM vs FY-2 (spans two years), nor TTM vs FY0
-        # (identical numbers until the TTM moves past the fiscal year end).
-        margin_trend = None
-        if len(oia) > 1 and oia[1] and rev_1y and ann and ann[0] and oia[0] is not None:
-            m_now, m_prior = oia[0] / ann[0], oia[1] / rev_1y
-            if m_prior:
-                margin_trend = "up" if m_now > m_prior * 1.02 else "down" if m_now < m_prior * 0.98 else "flat"
-
-        roic_delta = None
-        if f.equity_prior is not None and f.cash_prior is not None and len(oia) > 1 and oia[1]:
-            # Leases on both sides of the trend. With no filed prior-year lease, reuse
-            # today's (flagged): zero is the one answer known to be wrong.
-            lease_prior = getattr(f, "operating_leases_prior", None)
-            if lease_prior is None and lease:
-                lease_prior = lease
-                _add_flag(f, "prior-year lease liability not filed - current lease reused "
-                             "for the like-for-like ROIC trend")
-            ic_prior = (f.total_debt_prior or 0) + (lease_prior or 0) + f.equity_prior - f.cash_prior
-            if ic_prior and ic_prior > 0:
-                # Both sides on one basis: fiscal years FY0 vs FY1 (not TTM), and
-                # R&D-capitalized only when the headline is, using the R&D series
-                # shifted one year. A raw-vs-adjusted delta reads as a fake collapse.
-                def _roic_fy(op_income, invested, rnd_series):
-                    """ROIC for ONE fiscal year, on whichever basis the headline uses.
-                    Returns None when the basis cannot be matched, because a raw-vs-
-                    adjusted delta is worse than no delta at all."""
-                    if op_income is None or not invested or invested <= 0:
-                        return None
-                    if not rd:                                  # headline is raw -> stay raw
-                        return op_income * (1 - tax) / invested
-                    out = rd_capitalize(rnd_series, op_income, invested, tax)
-                    return out[2] if out else None
-
-                roic_fy0 = _roic_fy(oia[0], ic, f.rnd_annuals)
-                roic_fy1 = _roic_fy(oia[1], ic_prior, (f.rnd_annuals or [])[1:])
-                if roic_fy0 is not None and roic_fy1 is not None:
-                    roic_delta = roic_fy0 - roic_fy1
-                elif rd:
-                    _add_flag(f, "ROIC trend skipped: the headline ROIC is R&D-capitalized but "
-                                 "the prior year cannot be measured the same way (short R&D "
-                                 "history) - a raw-vs-adjusted delta reads as a collapse that "
-                                 "never happened")
-
-        acq_int, acq_label = acquisition_intensity(f.acquisitions_net, f.revenue)
-        fade, fade_why = fade_ratio(f.fwd_growth_near, f.fwd_growth_far)
-        _cons_adj, _cons_note = growth_consistency(rev_growth_yoy, actual_3y)
-        D = _r_demand(rev_growth_yoy, getattr(f, "peer_median_growth", None), acq_int, fade,
-                      notes, acq_label=acq_label, fade_why=fade_why,
-                      consistency_adj=_cons_adj, consistency_note=_cons_note)
-        try:
-            _t5 = trend_mod.build(f)
-        except Exception:                       # a display feature must never kill a row
-            _t5 = {}
-        _fcf_adj, _fcf_note = fcf_durability((_t5 or {}).get("rows"))
-        _beat_adj, _beat_note = beat_consistency(
-            f.earnings_surprises or getattr(f, "eps_surprises_backfill", None))
-        E_exec = _r_execution(eq_verdict, margin_trend, inc_roic, w, notes,
-                              fcf_adj=_fcf_adj, fcf_note=_fcf_note, inc_src=inc_src,
-                              skip_inc_note=_inc_declined,
-                              beat_adj=_beat_adj, beat_note=_beat_note)
-        _rmap_econ = _trend_roic_map(f, tax)
-        _cap_adj, _cap_note = competitive_advantage_period(_rmap_econ, w)
-        # the same ROIC the spread was built from (invariant I2)
-        _sec_adj, _sec_note = sector_relative(roic_scored, getattr(f, "terminal_roic_sector", None))
-        E_econ = _r_economics(spread, roic_delta, notes, cap_adj=_cap_adj, cap_note=_cap_note,
-                              sector_adj=_sec_adj, sector_note=_sec_note)
-        # the same EV the WACC weights and the reverse DCF were built from
-        _ev = (mcap + (debt_eff or 0) - (f.cash or 0)) if mcap else None
-        _fy_adj, _fy_note = fcf_yield_adj((_t5 or {}).get("rows"), _ev, w)
-        P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes,
-                     fcf_adj=_fy_adj, fcf_note=_fy_note)
-        # When the two growth stories disagree, "cheap" is a belief about consensus:
-        # cap (never lift) P at NEUTRAL.
-        if growth_unreconciled and P is not None and P > NEUTRAL_SCORE:
-            notes.append(f"P growth-unreconciled(consensus vs realised FV {growth_fv_x}x)"
-                         f"={NEUTRAL_SCORE - P:+.2f}")
-            P = NEUTRAL_SCORE
-        _sc = {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
-        comp = composite(_sc)
-        # Say so when composite()'s neutral bound moved the score. This float renorm
-        # mirrors composite()'s Decimal one; it only prints the flag, so it stays float.
-        _miss = [k for k in WEIGHTS if _sc.get(k) is None]
-        if _miss and comp is not None:
-            _avail = {k: v for k, v in _sc.items() if v is not None}
-            _wsum = sum(WEIGHTS[k] for k in _avail)
-            _renorm = sum(_avail[k] * WEIGHTS[k] for k in _avail) / _wsum if _wsum else None
-            if _renorm is not None and _renorm > comp + 1e-9:
-                _add_flag(f, (f"composite {_renorm:.2f} -> {comp:.2f}: {', '.join(_miss)} not "
-                              f"measurable, scored NEUTRAL ({NEUTRAL_SCORE}) instead of inheriting "
-                              f"the average of the pillars that were"))
-            # Also in the breakdown drawer, where scores are read. Must NOT end in
-            # "=<number>": the drawer colours a trailing number as an adjustment.
-            for _k in _miss:
-                notes.append(f"{_k} วัดไม่ได้=ใช้ค่ากลาง {NEUTRAL_SCORE} "
-                             f"(น้ำหนัก {WEIGHTS[_k]:.0%} · ไม่มีข้อมูลพอ ไม่ได้แปลว่าแย่)")
-        reco = recommendation(comp) if comp is not None else None
-        reco, _cap_note = cap_reco_without_price(reco, P)
-        if _cap_note:
-            _add_flag(f, _cap_note)
-        reco, _cap_note2 = cap_reco_without_quality(reco, E_econ)
-        if _cap_note2:
-            _add_flag(f, _cap_note2)
-        st = stars(comp) if comp is not None else ""
-        sig = _signal(reco)
-
-        eva = (spread * ic) if (spread is not None and ic and ic > 0) else None
-
+        eva = (cap.spread * cap.ic) if (cap.spread is not None and cap.ic and cap.ic > 0) else None
         v = Valuation(
-            version=self.version, D=D, E_exec=E_exec, E_econ=E_econ, P=P,
-            composite=round(comp, 2) if comp is not None else None, stars=st,
-            recommendation=reco, signal=sig,
-            anchor_method=anchor_method,
-            anchor_value=round(anchor_value, 2) if anchor_value else None,
-            range_low=round(range_low, 2) if range_low else None,
-            range_high=round(range_high, 2) if range_high else None,
-            fv_peg=round(fv_peg, 2) if fv_peg else None,
-            fv_fvp=round(fv_fvp, 2) if fv_fvp else None,
-            reverse_dcf=rdcf,
-            young_dcf=ydcf or {},
-            cost_of_equity=round(ke, 4),
+            version=self.version, **scores,
+            composite=round(comp, 2) if comp is not None else None,
+            stars=stars(comp) if comp is not None else "",
+            recommendation=reco, signal=_signal(reco),
+            anchor_method=anc.method, anchor_value=_round_nonzero(anc.value),
+            range_low=_round_nonzero(range_low), range_high=_round_nonzero(range_high),
+            fv_peg=_round_nonzero(anc.fv_peg), fv_fvp=_round_nonzero(anc.fv_fvp),
+            reverse_dcf=pi.rdcf, young_dcf=anc.ydcf or {},
+            cost_of_equity=round(cap.ke, 4),
             eva=round(eva, 0) if eva is not None else None,
-            eq_verdict=eq_verdict,
+            eq_verdict=ex.eq_verdict,
             subscores={"breakdown": notes},
-            key_metrics={"wacc_pct": round(w * 100, 2),
-                         "ke_pct": round(ke * 100, 2),
-                         "kd_pct": round(kd_pre * 100, 2) if kd_pre is not None else None,
-                         "roic_pct": round(roic * 100, 2) if roic is not None else None,
-                         # what the card prints beside WACC and the spread was built
-                         # from: I2 requires the same number
-                         "roic_adj_pct": round(roic_scored * 100, 2) if (rd and roic_scored is not None) else None,
-                         # before median damping, so the normalisation is inspectable
-                         "roic_measured_pct": (round(roic_used * 100, 2)
-                                               if (rd and roic_used is not None) else None),
-                         "spread_pct": round(spread * 100, 2) if spread is not None else None,
-                         # anything comparing two ROICs must first agree on this basis
-                         "roic_basis": ("rd_capitalized+leases" if rd else "raw+leases"),
-                         "incremental_roic_pct": round(inc_roic * 100, 1) if inc_roic is not None else None,
-                         "terminal_roic_pct": round(roic_term * 100, 1),
-                         "terminal_beta": round(beta_t, 2),
-                         "terminal_ke_pct": round(ke_st_eff * 100, 2),
-                         "terminal_wacc_pct": round(w_term * 100, 2),
-                         "growth_pct": round(growth * 100, 1), "beta": round(beta, 2),
-                         # consensus growth drives the FV, realised growth drives Demand:
-                         # both published so a reader sees which story the price needs
-                         "growth_realised_pct": (round(g_realised * 100, 1)
-                                                 if g_realised is not None else None),
-                         "fv_peg_realised": (round(fv_peg_realised, 2)
-                                             if fv_peg_realised else None),
-                         "growth_fv_x": growth_fv_x,
-                         "sbc_pct_of_rev": round(f.sbc / f.revenue * 100, 1) if (getattr(f, "sbc", None) and f.revenue) else None,
-                         "sbc_dilution_pct": round(dil_rate * 100, 2) if dil_rate else None,
-                         "dilution_source": dil_label,
-                         "forward_eps_diluted": round(fwd_eps_dil, 2) if fwd_eps_dil else None,
-                         "justified_pe": (peg_d or {}).get("fair_pe"),
-                         "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
-                         "operating_leases": round(lease, 0) if lease else None,
-                         "terminal_margin_pct": round(tmargin * 100, 1),
-                         "terminal_margin_anchored": tm_anchored,
-                         # set when [low, high] must not be read as a range
-                         "fv_disagreement_x": fv_disagreement},
+            key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement),
             flags=list(f.flags))
         try:
             v.verdict = _verdict(f, v)
         except Exception as e:                       # guard: never let a verdict typo/bad field crash a ticker
             v.verdict = (f"{v.recommendation or 'N/A'} {v.stars or ''} - verdict unavailable ({type(e).__name__})").strip()
         return v
+
+
+# --- evaluate() stages, in call order -----------------------------------------
+# Every stage that does arithmetic on a fact series reads it off `f` itself
+# (e.g. `ann = f.revenue_annuals or []`) rather than taking it as a parameter, so
+# domain/contracts.py can see which clock each operand is on. A value handed in as
+# an argument or read off a stage result is invisible to that scanner.
+
+class _Capital(NamedTuple):
+    beta: float
+    tax: float
+    nopat: Optional[float]
+    lease: float                    # operating lease liability, counted as debt
+    debt_eff: float                 # total debt + leases
+    ic: float                       # invested capital: debt_eff + equity - cash
+    roic: Optional[float]           # raw NOPAT / IC
+    rd: Optional[tuple]             # rd_capitalize() result when R&D is capitalized
+    roic_used: Optional[float]      # measured ROIC: what the valuation uses
+    roic_scored: Optional[float]    # median-damped ROIC: what Economics scores and the card shows
+    spread: Optional[float]         # roic_scored - wacc
+    roic_map: dict                  # raw per-year ROIC from the trend series
+    mcap: Optional[float]
+    wacc: float
+    ke: float
+    kd_pre: Optional[float]
+    beta_t: float                   # stable-phase beta
+    wacc_term: float
+    ke_term: float
+
+
+def _capital(f, rf, notes):
+    """Returns on capital (leases, and R&D where possible, capitalized) and the cost
+    of capital today and in the stable phase."""
+    beta = f.beta or 1.0
+    tax = f.tax_rate
+    erp_age = erp_months_old()
+    if erp_age > config.ERP_STALE_MONTHS:
+        _add_flag(f, (f"ERP {config.ERP*100:.2f}% as-of {config.ERP_AS_OF} is {erp_age}mo old "
+                      f"- refresh (Assumptions form / config.ERP)"))
+
+    nopat = f.operating_income * (1 - tax) if f.operating_income is not None else None
+    # operating lease liability is debt (Damodaran): inside WACC weights, IC and EV
+    lease = getattr(f, "operating_leases", None) or 0
+    debt_eff = (f.total_debt or 0) + lease
+    ic = debt_eff + (f.equity or 0) - (f.cash or 0)
+    if lease:
+        _add_flag(f, f"operating leases ${lease/1e9:.1f}B capitalized into debt+IC (S5)")
+    roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
+    rd = rd_capitalize(f.rnd_annuals, f.operating_income, ic, tax)
+    if rd:
+        notes.append(f"R&D-capitalized ROIC {rd[2]*100:.1f}%")
+    roic_used = rd[2] if rd else roic
+
+    # Prefer the REPORTED market cap: for a depositary listing price x SEC share
+    # count is in the wrong unit.
+    mcap = getattr(f, "market_cap", None) or (
+        (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None)
+    w, ke, kd_pre, wacc_note = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
+                                         f.interest_expense, f.operating_income)
+    if ("default spread" in wacc_note and debt_eff) or "no debt/weights" in wacc_note:
+        _add_flag(f, "WACC: " + wacc_note)              # every degraded-WACC path
+    # terminal WACC: same capital structure and Kd, Ke at a stable-growth beta
+    beta_t = terminal_beta(beta)
+    w_term, ke_term, _, _ = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
+                                      f.interest_expense, f.operating_income,
+                                      beta_override=beta_t)
+    if abs(beta_t - beta) > 0.4:
+        _add_flag(f, (f"terminal beta {beta:.2f} -> {beta_t:.2f} (stable-phase risk fade) - "
+                      f"FV leans on this assumption"))
+
+    # `roic_scored` (median-damped) is what Economics scores AND what the card
+    # shows, so spread == displayed ROIC - WACC (invariant I2). The valuation keeps
+    # the measured `roic_used`: damping is prudence in scoring a moat, not a claim
+    # about the returns the business earns.
+    roic_map = _trend_roic_map(f, tax)
+    roic_scored, norm_note = normalized_roic(roic_used, roic_map)
+    if norm_note:
+        _add_flag(f, norm_note + " — คะแนน Economics และ ROIC บนการ์ดใช้ค่าที่ normalize แล้ว "
+                                 "(การประเมินมูลค่ายังใช้ค่าที่วัดได้จริง)")
+    spread = (roic_scored - w) if roic_scored is not None else None
+    return _Capital(beta=beta, tax=tax, nopat=nopat, lease=lease, debt_eff=debt_eff, ic=ic,
+                    roic=roic, rd=rd, roic_used=roic_used, roic_scored=roic_scored,
+                    spread=spread, roic_map=roic_map, mcap=mcap, wacc=w, ke=ke,
+                    kd_pre=kd_pre, beta_t=beta_t, wacc_term=w_term, ke_term=ke_term)
+
+
+def _reinvestment(f, nopat):
+    """Reinvestment = capex + acquisitions + dWC - D&A, and the FCFF it leaves.
+    Returns (acquisitions counted, fcff)."""
+    # acquisitions_net is a PAYMENT: negative is a divestiture, floored at 0 rather
+    # than credited as negative reinvestment (which would flatter FCFF).
+    acq = max(0.0, f.acquisitions_net) if f.acquisitions_net is not None else 0.0
+    dwc, dwc_label = working_capital_change(f)
+    # Floored at 0 but no ceiling: reinvesting more than NOPAT is a real state and
+    # must show as negative FCFF.
+    reinvest = 0.0
+    if nopat and nopat > 0 and f.capex is not None and f.dep_amort is not None:
+        reinvest = max(0.0, (f.capex + acq + (dwc or 0.0) - f.dep_amort) / nopat)
+    fcff = nopat * (1 - reinvest) if nopat is not None else None
+    if reinvest > 1.0:
+        _add_flag(f, (f"reinvestment {reinvest*100:.0f}% of NOPAT (capex+M&A+dWC-D&A) - "
+                      f"consuming more cash than it earns; FCFF negative"))
+    if dwc and f.revenue and abs(dwc) / f.revenue > 0.02:
+        _add_flag(f, (f"working capital {'absorbed' if dwc > 0 else 'released'} "
+                      f"${abs(dwc)/1e9:.1f}B ({abs(dwc)/f.revenue*100:.1f}% of revenue) - "
+                      f"counted as reinvestment ({dwc_label})"))
+    return acq, fcff
+
+
+class _Growth(NamedTuple):
+    roic_term: float                # stable-phase ROIC
+    roic_high: float                # high-growth ROIC: the firm's own, else roic_term
+    growth: float                   # consensus growth, capped at g <= ROIC
+    rev_growth_yoy: Optional[float]  # FY0 over FY1 revenue growth
+    actual_3y: Optional[float]      # 3-year revenue CAGR ending FY0
+    eps0: Optional[float]           # trailing GAAP EPS
+    ke_stable: float
+    g_stable: float
+
+
+def _growth(f, cap, acq, rf):
+    """Terminal ROIC, the growth the valuation may assume, realised revenue growth,
+    trailing EPS, and the stable-phase Ke and growth."""
+    # Terminal ROIC comes first: it is also the fallback for the growth cap and the
+    # high-growth ROIC when the firm's own ROIC is unmeasurable. Floored against
+    # the higher of today's and the terminal cost of capital.
+    own_roic = cap.roic_used if (cap.roic_used and cap.roic_used > 0) else None
+    sector_roic = getattr(f, "terminal_roic_sector", None)
+    roic_term = terminal_roic(own_roic, max(cap.wacc, cap.wacc_term), sector_roic)
+    if sector_roic and abs(roic_term - sector_roic) < 1e-9 and roic_term > cap.wacc_term:
+        _add_flag(f, f"terminal ROIC {roic_term*100:.1f}% set by industry ceiling (Damodaran ROC)")
+
+    g_cap = sustainable_growth_cap(cap.roic_used, roic_fallback=roic_term)
+    if own_roic is None:
+        _add_flag(f, (f"ROIC unmeasurable (negative or zero invested capital) - high-growth "
+                      f"ROIC and growth cap both fall back to the terminal {roic_term*100:.1f}%, "
+                      f"not the old 15%/30% defaults"))
+    # a measured 0% growth is not missing (`is not None`, never `or 0.08`)
+    g_lt = f.growth_lt if f.growth_lt is not None else 0.08
+    growth_raw = _clamp(g_lt, 0.0, GROWTH_CAP)
+    growth = min(growth_raw, g_cap)
+    if growth_raw > growth + 1e-9:
+        _add_flag(f, (f"growth capped {growth_raw*100:.0f}% -> {growth*100:.0f}% "
+                      f"(g <= ROIC: faster needs outside capital)"))
+    ann = f.revenue_annuals or []
+    rev_1y = ann[1] if len(ann) > 1 else None
+    rev_3y = ann[3] if len(ann) > 3 else None
+    rev_growth_yoy = (ann[0] / rev_1y - 1) if (ann and rev_1y) else None
+    actual_3y = ((ann[0] / rev_3y) ** (1 / 3) - 1) if (ann and rev_3y) else None
+
+    nopat = cap.nopat
+    eps0 = None
+    # break-even net income (0.0) is a measurement, not a gap
+    if f.net_income is not None and f.shares_diluted:
+        earn = min(f.net_income, nopat) if (nopat and f.net_income > nopat) else f.net_income
+        eps0 = earn / f.shares_diluted
+    elif f.eps_gaap is not None:
+        eps0 = f.eps_gaap
+
+    # The high-growth years are discounted at today's Ke, unfloored (risk fades only
+    # in the perpetuity, via terminal_beta). The stable-phase floor is a numerical
+    # guard on (Ke - g), since g_stable is derived from it, not a risk view.
+    ke_stable = max(cap.ke_term, rf + 0.035)
+    g_stable = min(rf, ke_stable - 0.03)
+    g_fund = fundamental_growth(f.capex, f.dep_amort, nopat, cap.roic_used, acquisitions=acq)
+    if g_fund is not None and growth > 0.02 and growth > 2 * max(g_fund, 0.0):
+        _add_flag(f, (f"growth {growth*100:.0f}% vs fundamental growth {g_fund*100:.1f}% "
+                      f"(reinvest x ROIC) - unfunded by physical reinvestment"
+                      + ("; asset-light? R&D not counted" if g_fund < 0.01 else "")))
+    return _Growth(roic_term=roic_term,
+                   roic_high=own_roic if own_roic is not None else roic_term,
+                   growth=growth, rev_growth_yoy=rev_growth_yoy, actual_3y=actual_3y,
+                   eps0=eps0, ke_stable=ke_stable, g_stable=g_stable)
+
+
+class _Dilution(NamedTuple):
+    rate: Optional[float]           # annual share-count growth charged
+    label: Optional[str]
+    fwd_eps: Optional[float]        # forward EPS after dilution
+
+
+def _dilution(f, mcap):
+    """Dilution is charged only to an EPS that does not already carry SBC: the
+    consensus forward EPS is non-GAAP (SBC added back), while eps0 (FVP) and a
+    SEC-derived forward EPS are GAAP, already expensed. No double counting."""
+    rate, label = dilution_rate(f, mcap)
+    fwd_is_gaap = str((getattr(f, "provenance", None) or {}).get("forward_eps", "")).startswith("sec-derived")
+    fwd_eps = f.forward_eps if fwd_is_gaap else dilute(f.forward_eps, rate, years=1)
+    if rate and rate >= SBC_DILUTION_FLAG_AT and not fwd_is_gaap:
+        if f.forward_eps is None or fwd_eps is None:
+            _add_flag(f, (f"share-count dilution {rate*100:.1f}%/yr NOT charged — "
+                          f"ไม่มี forward EPS ให้หัก (source: {label})"))
+        else:
+            _add_flag(f, (f"share-count dilution {rate*100:.1f}%/yr charged to the "
+                          f"non-GAAP forward EPS ({f.forward_eps} -> "
+                          f"{round(fwd_eps, 2)}); source: {label}"))
+    elif fwd_is_gaap and rate:
+        _add_flag(f, "forward EPS is SEC/GAAP-derived - SBC already expensed, "
+                     "no dilution charged (would double-count)")
+    return _Dilution(rate=rate, label=label, fwd_eps=fwd_eps)
+
+
+class _PointValues(NamedTuple):
+    fv_peg: Optional[float]         # Fundamental PEG on consensus growth
+    peg_detail: Optional[dict]
+    g_realised: Optional[float]
+    fv_peg_realised: Optional[float]  # Fundamental PEG on realised growth
+    growth_fv_x: Optional[float]    # fv_peg / fv_peg_realised
+    growth_unreconciled: bool
+    fv_fvp: Optional[float]         # Future Value Projection
+
+
+def _point_values(f, cap, gr, fwd_eps):
+    """The two point fair values (Fundamental PEG, Future Value Projection), plus the
+    PEG on realised growth to show how much the value rests on consensus."""
+    fv_peg, peg_d = fundamental_peg_price(gr.growth, gr.g_stable, cap.ke, gr.roic_high, gr.roic_term,
+                                          fwd_eps, ke_stable=gr.ke_stable)
+    if peg_d and peg_d.get("pe_clamped"):
+        _add_flag(f, (f"fundamental PE clamped to [{PE_FLOOR:.0f}, {PE_CEIL:.0f}] "
+                      f"(raw {peg_d.get('fair_pe_raw')}) - FV is a boundary, not an estimate"))
+
+    # The fair value runs on consensus growth while Demand scores realised growth,
+    # so value the PEG on both. Realised = the more conservative of the 1y and 3y
+    # rates, floored at 0 (no valuing on negative compounding).
+    real = [g for g in (gr.rev_growth_yoy, gr.actual_3y) if g is not None]
+    g_realised = max(0.0, min(real)) if real else None
+    fv_peg_realised, growth_fv_x = None, None
+    if g_realised is not None:
+        fv_peg_realised, _ = fundamental_peg_price(g_realised, gr.g_stable, cap.ke,
+                                                   gr.roic_high, gr.roic_term, fwd_eps,
+                                                   ke_stable=gr.ke_stable)
+    # One-sided: fires only when consensus FLATTERS the fair value. Consensus below
+    # realised growth means the row is cheap even on the conservative story.
+    if fv_peg and fv_peg_realised and fv_peg_realised > 0:
+        growth_fv_x = round(fv_peg / fv_peg_realised, 2)
+    growth_unreconciled = bool(growth_fv_x and growth_fv_x >= GROWTH_FV_DISAGREE)
+    if growth_unreconciled:
+        _add_flag(f, (
+            f"valuation ใช้ growth {gr.growth*100:.1f}% (consensus) แต่บริษัททำได้จริง "
+            f"{g_realised*100:.1f}% → FV ${round(fv_peg, 2)} vs ${round(fv_peg_realised, 2)} "
+            f"({growth_fv_x}x) — Price pillar ถูกจำกัดไว้ที่กลาง ๆ เพราะ 'ถูกหรือแพง' "
+            f"ขึ้นกับว่าเชื่อ growth ของใคร ไม่ใช่สิ่งที่วัดได้"))
+
+    # The exit multiple is stable-phase, so built at the stable-phase Ke; the five
+    # high-growth years are discounted at today's Ke. eps0 is GAAP: not diluted.
+    exit_pe = stable_exit_pe(gr.g_stable, gr.ke_stable, gr.roic_term)
+    fv_fvp = future_value_projection(gr.eps0, gr.growth, cap.ke, exit_pe)
+    return _PointValues(fv_peg=fv_peg, peg_detail=peg_d, g_realised=g_realised,
+                        fv_peg_realised=fv_peg_realised, growth_fv_x=growth_fv_x,
+                        growth_unreconciled=growth_unreconciled, fv_fvp=fv_fvp)
+
+
+class _PricedIn(NamedTuple):
+    tmargin: float                  # terminal operating margin
+    tm_label: str
+    tm_anchored: bool               # derived from the firm's own margin
+    rdcf: dict                      # reverse_dcf() result
+
+
+def _priced_in(f, cap, gr, rf):
+    """Terminal margin and the reverse DCF: what growth the market prices in."""
+    tmargin, tm_label, tm_anchored = terminal_margin(f.ticker, f.operating_income, f.revenue)
+    # "anchored" does not mean the firm's own margin survived the clamp
+    if "CAPPED" in tm_label or "FLOORED" in tm_label:
+        _add_flag(f, tm_label)
+    if str((getattr(f, "provenance", None) or {}).get("operating_income", "")).startswith("sec-derived"):
+        _add_flag(f, "EBIT derived (pretax + interest) - filer tags no operating income")
+
+    ann = f.revenue_annuals or []
+    rev_1y = ann[1] if len(ann) > 1 else None
+    # debt_eff (leases included) and the resolved market cap, so the reverse DCF
+    # values the same firm the WACC priced; today's margin so the path ramps.
+    m_now = (f.operating_income / f.revenue) if (f.operating_income is not None and f.revenue) else None
+    rdcf = reverse_dcf(price=f.price, shares=f.shares_diluted, revenue=f.revenue, rev_1y=rev_1y,
+                       total_debt=cap.debt_eff or None, cash=f.cash, wacc_val=cap.wacc, g=rf,
+                       tax=cap.tax, margin=tmargin, wacc_term=cap.wacc_term,
+                       roic_term=gr.roic_term, market_cap=cap.mcap, margin_now=m_now,
+                       # FY over FY, the rate Demand scores (not TTM over FY-2)
+                       actual_growth=gr.rev_growth_yoy)
+    if rdcf.get("triggered") and m_now is not None and abs(m_now - tmargin) > 0.10:
+        _add_flag(f, (f"RevDCF margin ramps {m_now*100:.0f}% -> {tmargin*100:.0f}% over "
+                      f"{REVERSE_HORIZON}y (was held flat at the terminal margin from year 1)"))
+    if rdcf.get("triggered") and not tm_anchored:
+        _add_flag(f, tm_label + " - RevDCF verdict approximate")
+    if (rdcf.get("funding_ratio") or 0) >= 2.0:
+        _add_flag(f, (f"market prices {rdcf.get('implied_cagr_pct')}%/yr growth against a terminal "
+                      f"ROIC of {rdcf.get('roic_terminal_pct')}% ({rdcf.get('funding_ratio')}x) - "
+                      f"far beyond self-funding; the gap has to come from outside capital"))
+    if rdcf.get("out_of_band"):
+        _add_flag(f, "reverse DCF: " + (rdcf.get("verdict") or "no implied growth"))
+    return _PricedIn(tmargin=tmargin, tm_label=tm_label, tm_anchored=tm_anchored, rdcf=rdcf)
+
+
+class _Anchor(NamedTuple):
+    method: str
+    value: Optional[float]          # the fair value the Price pillar tests
+    fv_peg: Optional[float]         # point values after the FVP sanity check and unit gate
+    fv_fvp: Optional[float]
+    ydcf: Optional[dict]            # young_dcf.evaluate() result, pre-profit only
+
+
+def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf):
+    """Choose the fair-value method the Price pillar tests, with its fallbacks."""
+    eps_pos = gr.eps0 is not None and gr.eps0 > 0
+    fcf_pos = fcff is not None and fcff > 0
+    fv_peg, fv_fvp = pv.fv_peg, pv.fv_fvp
+    # an FVP below 10% of price is a broken input: discard the method, not the row
+    if fv_fvp and f.price and fv_fvp < 0.1 * f.price:
+        _add_flag(f, "FVP discarded (below 10% of price - unreliable inputs)")
+        fv_fvp = None
+    # Route to the young-company model (domain/engine/young_dcf.py) on EARNINGS,
+    # not free cash flow: a profitable firm out-investing its NOPAT this year is an
+    # ordinary DCF case with a loud flag, not a young company.
+    if not fcf_pos and eps_pos:
+        _add_flag(f, "FCFF negative on heavy reinvestment but earnings are positive - "
+                     "valued on the normal earnings paths, not the young-company model")
+    ydcf = None
+    if not eps_pos:
+        method, value, ydcf = _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf)
+    elif cap.spread is not None and cap.spread > 0.10 and (gr.rev_growth_yoy or 0) > 0.15:
+        method, value = "Future Value Projection", fv_fvp
+    else:
+        method, value = "Fundamental PEG", fv_peg
+    if value is None and method != "Terminal-Anchored Reverse DCF":
+        if method == "Fundamental PEG" and fv_fvp:
+            method, value = "Future Value Projection", fv_fvp
+        elif method == "Future Value Projection" and fv_peg:
+            method, value = "Fundamental PEG", fv_peg
+        if value is None:
+            method = "Terminal-Anchored Reverse DCF"
+
+    # Per-share unit gate, placed after every valuation method has run so no
+    # method can bypass it. When filings and quote disagree on units we cannot
+    # tell which is wrong, so every per-share value is suppressed.
+    if not getattr(f, "per_share_unit_ok", True):
+        fv_peg = fv_fvp = None
+        ydcf = None
+        method, value = "No per-share valuation (unit mismatch)", None
+    return _Anchor(method=method, value=value, fv_peg=fv_peg, fv_fvp=fv_fvp, ydcf=ydcf)
+
+
+def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf):
+    """Pre-profit: the young-company DCF anchors only when its band qualifies;
+    otherwise the reverse DCF stands alone. Returns (method, value, ydcf)."""
+    ydcf = None
+    try:
+        ydcf = young_dcf.evaluate(
+            f, rf=rf, wacc=cap.wacc, roic_term=gr.roic_term, invested_capital=cap.ic,
+            debt_eff=cap.debt_eff, tax=cap.tax, target_margin=pi.tmargin,
+            target_margin_label=pi.tm_label, annual_dilution=dil_rate, fcff=fcff,
+            growth_fallback=f.growth_lt, target_margin_anchored=pi.tm_anchored)
+    except Exception as e:          # a young-company model must never kill a row
+        _add_flag(f, f"young-company DCF unavailable ({type(e).__name__})")
+    if ydcf and ydcf.get("promote"):
+        mc = ydcf["monte_carlo"]
+        value = mc["p50"]
+        _add_flag(f, (
+            f"pre-profit valued forward (S20): p50 ${value} "
+            f"[p10 ${mc['p10']} - p90 ${mc['p90']}], "
+            f"survival {ydcf['p_survival']*100:.0f}%, distress ${ydcf['distress_per_share']}"))
+        return "Young-Company DCF (failure-adjusted)", value, ydcf
+    if ydcf:
+        _add_flag(f, "young-company DCF is informational only: "
+                     + (ydcf.get("blocked_reason") or "did not qualify"))
+    return "Terminal-Anchored Reverse DCF", None, ydcf
+
+
+def _fv_range(f, anc):
+    """[low, high] of the point methods, or a young company's simulated band.
+    Returns (low, high, disagreement ratio or None)."""
+    methods = {"Fundamental PEG": anc.fv_peg, "Future Value Projection": anc.fv_fvp}
+    avail = {k: v for k, v in methods.items() if v and v > 0}
+    range_low = min(avail.values()) if avail else None
+    range_high = max(avail.values()) if avail else None
+    # [low, high] is two point methods, not a confidence interval. When they are
+    # far apart the gap is labelled as a method conflict, not narrowed.
+    fv_disagreement = None
+    if range_low and range_high and range_low > 0:
+        ratio = range_high / range_low
+        if ratio >= FV_DISAGREE_RATIO:
+            fv_disagreement = round(ratio, 2)
+            lo_m = min(avail, key=avail.get)
+            hi_m = max(avail, key=avail.get)
+            _add_flag(f, (f"fair-value methods disagree {ratio:.1f}x ({hi_m} ${range_high:.0f} "
+                          f"vs {lo_m} ${range_low:.0f}) - the band is a method conflict, "
+                          f"not a confidence interval; the anchor is {anc.method}"))
+    if anc.method.startswith("Young-Company") and (anc.ydcf or {}).get("monte_carlo"):
+        range_low = anc.ydcf["monte_carlo"]["p10"]
+        range_high = anc.ydcf["monte_carlo"]["p90"]
+    return range_low, range_high, fv_disagreement
+
+
+class _ExecutionInputs(NamedTuple):
+    eq_verdict: Optional[str]
+    inc_roic: Optional[float]
+    inc_src: Optional[str]
+    inc_declined: bool              # the multi-year measure refused; no 1-year proxy
+    margin_trend: Optional[str]
+    roic_delta: Optional[float]     # like-for-like FY0 - FY1 ROIC
+
+
+def _execution_inputs(f, cap, acq, gr, notes):
+    """Earnings quality, incremental ROIC, margin trend and the ROIC trend."""
+    eq_verdict = _earnings_signals(f, gr.rev_growth_yoy)
+    inc_roic, inc_src, inc_declined = _incremental_roic(f, cap.roic_map, acq, cap.tax, notes)
+    return _ExecutionInputs(eq_verdict=eq_verdict, inc_roic=inc_roic, inc_src=inc_src,
+                            inc_declined=inc_declined, margin_trend=_margin_trend(f),
+                            roic_delta=_roic_delta(f, cap))
+
+
+def _earnings_signals(f, rev_growth_yoy):
+    """Earnings-quality verdict and the billings signal; flags both."""
+    ann = f.revenue_annuals or []
+    rev_1y = ann[1] if len(ann) > 1 else None
+    eq_verdict, eq_flags, _ = earnings_quality(
+        f.net_income, f.cfo, f.total_assets, f.sbc, f.revenue,
+        receivables=f.receivables, receivables_prior=getattr(f, "receivables_prior", None),
+        revenue_prior=rev_1y,
+        # FY over FY: a TTM-inflated growth rate would hide the AR signal
+        revenue_growth=rev_growth_yoy)
+    for fl in eq_flags:
+        _add_flag(f, "EQ: " + fl)
+    if f.deferred_revenue and f.deferred_revenue_prior and rev_growth_yoy is not None:
+        dr_g = f.deferred_revenue / f.deferred_revenue_prior - 1
+        # deferred revenue is a fiscal-year-end balance: compare FY revenue growth
+        sig = "positive" if dr_g > rev_growth_yoy else "lagging"
+        _add_flag(f, f"billings {sig} (deferred rev {dr_g*100:+.0f}% vs rev {rev_growth_yoy*100:+.0f}%)")
+    return eq_verdict
+
+
+def _incremental_roic(f, roic_map, acq, tax, notes):
+    """Incremental ROIC: dNOPAT / dIC over up to 5 contiguous years, whose
+    denominator is large and stable. The 1-year capex + M&A - D&A fallback has a
+    near-zero denominator whenever capex ~ D&A, hence the [-2, 2] clamp. Both are
+    raw (no R&D or lease capitalization). Returns (roic, source, declined)."""
+    oia = f.operating_income_annuals or []
+    inc_roic, inc_src, declined = None, None, False
+    if roic_map:
+        win = trend_mod._window(roic_map, years=5)
+        pct, why = (trend_mod.incremental_roic_pct(roic_map, win) if len(win) >= 2
+                    else (None, "ปีงบไม่ต่อเนื่องพอ"))
+        if pct is not None:
+            inc_roic = _clamp(pct / 100.0, -2.0, 2.0)
+            inc_src = f"ΔNOPAT/ΔIC {len(win)}y"
+        else:
+            # The multi-year measure refused (normally: no new capital to measure).
+            # The noisy 1-year proxy must not answer that question either.
+            declined = True
+            notes.append(f"E_exec incremental-ROIC adj=skipped({why})")
+    if (inc_roic is None and not declined
+            and len(oia) > 1 and oia[1] and f.capex is not None and f.dep_amort is not None):
+        d_nopat = (oia[0] - oia[1]) * (1 - tax)
+        reinvest_1y = (f.capex + acq - f.dep_amort)
+        if reinvest_1y and reinvest_1y > 0:
+            inc_roic = _clamp(d_nopat / reinvest_1y, -2.0, 2.0)
+            inc_src = "1y capex+M&A−D&A (ประมาณ)"
+    return inc_roic, inc_src, declined
+
+
+def _margin_trend(f):
+    """Operating margin FY0 vs FY1: "up", "down", "flat" or None. Not TTM vs FY-2
+    (spans two years), nor TTM vs FY0 (identical until the TTM passes the FY end)."""
+    oia = f.operating_income_annuals or []
+    ann = f.revenue_annuals or []
+    rev_1y = ann[1] if len(ann) > 1 else None
+    if len(oia) > 1 and oia[1] and rev_1y and ann and ann[0] and oia[0] is not None:
+        m_now, m_prior = oia[0] / ann[0], oia[1] / rev_1y
+        if m_prior:
+            return "up" if m_now > m_prior * 1.02 else "down" if m_now < m_prior * 0.98 else "flat"
+    return None
+
+
+def _roic_delta(f, cap):
+    """Like-for-like FY0 - FY1 ROIC change, or None."""
+    oia = f.operating_income_annuals or []
+    if not (f.equity_prior is not None and f.cash_prior is not None and len(oia) > 1 and oia[1]):
+        return None
+    # Leases on both sides of the trend. With no filed prior-year lease, reuse
+    # today's (flagged): zero is the one answer known to be wrong.
+    lease_prior = getattr(f, "operating_leases_prior", None)
+    if lease_prior is None and cap.lease:
+        lease_prior = cap.lease
+        _add_flag(f, "prior-year lease liability not filed - current lease reused "
+                     "for the like-for-like ROIC trend")
+    ic_prior = (f.total_debt_prior or 0) + (lease_prior or 0) + f.equity_prior - f.cash_prior
+    if not (ic_prior and ic_prior > 0):
+        return None
+    roic_fy0 = _roic_fy(op_income=oia[0], invested=cap.ic, rnd_series=f.rnd_annuals,
+                        tax=cap.tax, rd_basis=cap.rd)
+    roic_fy1 = _roic_fy(op_income=oia[1], invested=ic_prior, rnd_series=(f.rnd_annuals or [])[1:],
+                        tax=cap.tax, rd_basis=cap.rd)
+    if roic_fy0 is not None and roic_fy1 is not None:
+        return roic_fy0 - roic_fy1
+    if cap.rd:
+        _add_flag(f, "ROIC trend skipped: the headline ROIC is R&D-capitalized but "
+                     "the prior year cannot be measured the same way (short R&D "
+                     "history) - a raw-vs-adjusted delta reads as a collapse that "
+                     "never happened")
+    return None
+
+
+def _roic_fy(op_income, invested, rnd_series, tax, rd_basis):
+    """ROIC for ONE fiscal year on the headline's basis: R&D-capitalized only when
+    the headline is (`rd_basis`). None when the basis cannot be matched, because a
+    raw-vs-adjusted delta reads as a fake collapse."""
+    if op_income is None or not invested or invested <= 0:
+        return None
+    if not rd_basis:                                # headline is raw -> stay raw
+        return op_income * (1 - tax) / invested
+    out = rd_capitalize(rnd_series, op_income, invested, tax)
+    return out[2] if out else None
+
+
+def _pillars(f, cap, gr, pv, anchor_value, ex, notes):
+    """The four DEEP pillar scores, each from its rubric in _r_*."""
+    acq_int, acq_label = acquisition_intensity(f.acquisitions_net, f.revenue)
+    fade, fade_why = fade_ratio(f.fwd_growth_near, f.fwd_growth_far)
+    cons_adj, cons_note = growth_consistency(gr.rev_growth_yoy, gr.actual_3y)
+    D = _r_demand(gr.rev_growth_yoy, getattr(f, "peer_median_growth", None), acq_int, fade,
+                  notes, acq_label=acq_label, fade_why=fade_why,
+                  consistency_adj=cons_adj, consistency_note=cons_note)
+    try:
+        t5 = trend_mod.build(f)
+    except Exception:                       # a display feature must never kill a row
+        t5 = {}
+    trend_rows = (t5 or {}).get("rows")
+    fcf_adj, fcf_note = fcf_durability(trend_rows)
+    beat_adj, beat_note = beat_consistency(
+        f.earnings_surprises or getattr(f, "eps_surprises_backfill", None))
+    E_exec = _r_execution(ex.eq_verdict, ex.margin_trend, ex.inc_roic, cap.wacc, notes,
+                          fcf_adj=fcf_adj, fcf_note=fcf_note, inc_src=ex.inc_src,
+                          skip_inc_note=ex.inc_declined,
+                          beat_adj=beat_adj, beat_note=beat_note)
+    cap_adj, cap_note = competitive_advantage_period(cap.roic_map, cap.wacc)
+    # the same ROIC the spread was built from (invariant I2)
+    sec_adj, sec_note = sector_relative(cap.roic_scored, getattr(f, "terminal_roic_sector", None))
+    E_econ = _r_economics(cap.spread, ex.roic_delta, notes, cap_adj=cap_adj, cap_note=cap_note,
+                          sector_adj=sec_adj, sector_note=sec_note)
+    # the same EV the WACC weights and the reverse DCF were built from
+    ev = (cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)) if cap.mcap else None
+    fy_adj, fy_note = fcf_yield_adj(trend_rows, ev, cap.wacc)
+    P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes,
+                 fcf_adj=fy_adj, fcf_note=fy_note)
+    # When the two growth stories disagree, "cheap" is a belief about consensus:
+    # cap (never lift) P at NEUTRAL.
+    if pv.growth_unreconciled and P is not None and P > NEUTRAL_SCORE:
+        notes.append(f"P growth-unreconciled(consensus vs realised FV {pv.growth_fv_x}x)"
+                     f"={NEUTRAL_SCORE - P:+.2f}")
+        P = NEUTRAL_SCORE
+    return {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
+
+
+def _overall(f, scores, notes):
+    """Composite and recommendation, with the caps for unmeasured pillars.
+    Returns (composite, recommendation)."""
+    comp = composite(scores)
+    # Say so when composite()'s neutral bound moved the score. This float renorm
+    # mirrors composite()'s Decimal one; it only prints the flag, so it stays float.
+    missing = [k for k in WEIGHTS if scores.get(k) is None]
+    if missing and comp is not None:
+        avail = {k: v for k, v in scores.items() if v is not None}
+        wsum = sum(WEIGHTS[k] for k in avail)
+        renorm = sum(avail[k] * WEIGHTS[k] for k in avail) / wsum if wsum else None
+        if renorm is not None and renorm > comp + 1e-9:
+            _add_flag(f, (f"composite {renorm:.2f} -> {comp:.2f}: {', '.join(missing)} not "
+                          f"measurable, scored NEUTRAL ({NEUTRAL_SCORE}) instead of inheriting "
+                          f"the average of the pillars that were"))
+        # Also in the breakdown drawer, where scores are read. Must NOT end in
+        # "=<number>": the drawer colours a trailing number as an adjustment.
+        for k in missing:
+            notes.append(f"{k} วัดไม่ได้=ใช้ค่ากลาง {NEUTRAL_SCORE} "
+                         f"(น้ำหนัก {WEIGHTS[k]:.0%} · ไม่มีข้อมูลพอ ไม่ได้แปลว่าแย่)")
+    reco = recommendation(comp) if comp is not None else None
+    for cap_reco, pillar in ((cap_reco_without_price, "P"), (cap_reco_without_quality, "E_econ")):
+        reco, why = cap_reco(reco, scores[pillar])
+        if why:
+            _add_flag(f, why)
+    return comp, reco
+
+
+def _pct(x, nd):
+    """x as a rounded percentage, None-safe (0.0 stays 0.0)."""
+    return round(x * 100, nd) if x is not None else None
+
+
+def _round_nonzero(x, nd=2):
+    """round(x), or None when x is missing or zero (zero means not computed)."""
+    return round(x, nd) if x else None
+
+
+def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement):
+    return {"wacc_pct": round(cap.wacc * 100, 2),
+            "ke_pct": round(cap.ke * 100, 2),
+            "kd_pct": _pct(cap.kd_pre, 2),
+            "roic_pct": _pct(cap.roic, 2),
+            # what the card prints beside WACC and the spread was built from: I2
+            # requires the same number
+            "roic_adj_pct": _pct(cap.roic_scored, 2) if cap.rd else None,
+            # before median damping, so the normalisation is inspectable
+            "roic_measured_pct": _pct(cap.roic_used, 2) if cap.rd else None,
+            "spread_pct": _pct(cap.spread, 2),
+            # anything comparing two ROICs must first agree on this basis
+            "roic_basis": ("rd_capitalized+leases" if cap.rd else "raw+leases"),
+            "incremental_roic_pct": _pct(ex.inc_roic, 1),
+            "terminal_roic_pct": round(gr.roic_term * 100, 1),
+            "terminal_beta": round(cap.beta_t, 2),
+            "terminal_ke_pct": round(gr.ke_stable * 100, 2),
+            "terminal_wacc_pct": round(cap.wacc_term * 100, 2),
+            "growth_pct": round(gr.growth * 100, 1), "beta": round(cap.beta, 2),
+            # consensus growth drives the FV, realised growth drives Demand: both
+            # published so a reader sees which story the price needs
+            "growth_realised_pct": _pct(pv.g_realised, 1),
+            "fv_peg_realised": _round_nonzero(pv.fv_peg_realised),
+            "growth_fv_x": pv.growth_fv_x,
+            "sbc_pct_of_rev": round(f.sbc / f.revenue * 100, 1) if (getattr(f, "sbc", None) and f.revenue) else None,
+            "sbc_dilution_pct": round(dil.rate * 100, 2) if dil.rate else None,
+            "dilution_source": dil.label,
+            "forward_eps_diluted": _round_nonzero(dil.fwd_eps),
+            "justified_pe": (pv.peg_detail or {}).get("fair_pe"),
+            "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
+            "operating_leases": _round_nonzero(cap.lease, 0),
+            "terminal_margin_pct": round(pi.tmargin * 100, 1),
+            "terminal_margin_anchored": pi.tm_anchored,
+            # set when [low, high] must not be read as a range
+            "fv_disagreement_x": fv_disagreement}
 
 
 def _verdict(f, v):
