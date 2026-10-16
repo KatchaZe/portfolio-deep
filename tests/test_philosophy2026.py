@@ -13,7 +13,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 import config
 import store as st
-from domain.engine import risk as R
+from domain import risk as R
 from domain.engine import deep_v82 as E
 from domain.engine import get_engine
 from domain import momentum as M

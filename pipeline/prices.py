@@ -27,7 +27,7 @@ import config
 from sources import yahoo, stooq, fmp, gdrive_store
 from pipeline import pricecache
 from domain import momentum
-from domain.engine import risk
+from domain import risk
 
 log = logging.getLogger("portfolio.prices")
 

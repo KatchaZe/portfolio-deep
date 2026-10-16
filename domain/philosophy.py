@@ -8,6 +8,11 @@ import json
 
 DEFAULT_PROFILE = {"horizon": "long", "role": "value-first",
                    "tax_status": "taxable", "risk_aversion": "medium"}
+# (value-leaning, momentum-leaning) -> the philosophy the portfolio is running
+_RUNNING = {(True, True): "value + momentum (blended)",
+            (True, False): "value / quality (DEEP-led)",
+            (False, True): "momentum / trend-led",
+            (False, False): "mixed / unclear"}
 
 
 def load(path):
@@ -33,14 +38,7 @@ def assess(rows, profile):
 
     value_lean = avg_comp is not None and avg_comp >= 3.5
     momentum_lean = mom_pct >= 60
-    if value_lean and momentum_lean:
-        running = "value + momentum (blended)"
-    elif value_lean:
-        running = "value / quality (DEEP-led)"
-    elif momentum_lean:
-        running = "momentum / trend-led"
-    else:
-        running = "mixed / unclear"
+    running = _RUNNING[(value_lean, momentum_lean)]
 
     role = (profile.get("role") or "")
     mismatch = (("value" in role and momentum_lean and not value_lean) or

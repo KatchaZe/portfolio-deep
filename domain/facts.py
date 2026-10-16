@@ -8,6 +8,17 @@ Plain values + a provenance dict keep it JSON-serialisable for the store.
 from dataclasses import dataclass, field
 from typing import Optional
 
+DEFAULT_TAX_RATE = 0.21
+
+
+def effective_tax_rate(income_before_tax, tax_expense):
+    """tax / pretax income when it lands in 0-60%, else None (a loss year or a one-off)."""
+    if income_before_tax and tax_expense is not None and income_before_tax != 0:
+        r = tax_expense / income_before_tax
+        if 0 <= r <= 0.6:
+            return r
+    return None
+
 
 @dataclass
 class FinancialFacts:
@@ -166,11 +177,8 @@ class FinancialFacts:
 
     @property
     def tax_rate(self):
-        if self.income_before_tax and self.tax_expense is not None and self.income_before_tax != 0:
-            r = self.tax_expense / self.income_before_tax
-            if 0 <= r <= 0.6:
-                return r
-        return 0.21
+        r = effective_tax_rate(self.income_before_tax, self.tax_expense)
+        return DEFAULT_TAX_RATE if r is None else r
 
     def to_dict(self):
         d = {k: v for k, v in self.__dict__.items()}

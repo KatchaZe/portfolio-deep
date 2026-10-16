@@ -4,6 +4,8 @@ Pure functions over daily closes + volumes (Yahoo chart). Ported & verified.
 """
 import math
 
+from domain.momentum import rsi, sma
+
 # Damodaran S11 (Technical Analysis): classify each indicator by the behavioural
 # bias it exploits, so the secondary signals are not mistaken for momentum.
 #   contrarian = bets on mean-reversion (RSI<30 oversold bounce, Bollinger reversion)
@@ -22,22 +24,6 @@ def ema(a, p):
     return out
 
 
-def rsi(c, p=14):
-    if len(c) < p + 1:
-        return None
-    g = l = 0.0
-    for i in range(1, p + 1):
-        d = c[i] - c[i - 1]
-        g += d if d > 0 else 0
-        l += -d if d < 0 else 0
-    ag, al = g / p, l / p
-    for i in range(p + 1, len(c)):
-        d = c[i] - c[i - 1]
-        ag = (ag * (p - 1) + max(d, 0)) / p
-        al = (al * (p - 1) + max(-d, 0)) / p
-    return 100.0 if al == 0 else 100 - 100 / (1 + ag / al)
-
-
 def macd(c, f=12, s=26, sg=9):
     if len(c) < s + sg:
         return None
@@ -48,10 +34,6 @@ def macd(c, f=12, s=26, sg=9):
     return {"line": line[n - 1], "pd": line[n - 2] - sig[n - 2], "cd": line[n - 1] - sig[n - 1]}
 
 
-def _sma(a, p):
-    return sum(a[-p:]) / p if len(a) >= p else None
-
-
 def _std(a, p, m):
     return math.sqrt(sum((a[i] - m) ** 2 for i in range(len(a) - p, len(a))) / p)
 
@@ -59,10 +41,10 @@ def _std(a, p, m):
 def dbbmv(c, v, L=20, mult=2, ml=14, vw=0.5):
     if len(c) < L + ml:
         return None
-    b = _sma(c, L)
+    b = sma(c, L)
     d = mult * _std(c, L, b)
     r = (c[-1] / c[-1 - ml] - 1) * 100
-    vs = _sma(v, L)
+    vs = sma(v, L)
     a = d * (1 + r / 100) * (1 + (v[-1] / vs - 1) * vw)
     return {"u": b + a, "l": b - a}
 
@@ -120,18 +102,10 @@ _MOM_LABEL_TO_COLUMN = {
 def action(signal, momentum_signal, mom_label=None):
     """Combined Action = DEEP signal x momentum.
 
-    FIX 2026-08-16 — the momentum axis was fed `momentum_signal`, the SECONDARY
-    contrarian/trend vote from compute() above. That vote needs |RSI+MACD+DBBMV| >= 2
-    to leave Neutral, and those three rarely agree: across the whole committed
-    portfolio it returned "Neutral" for 21 rows out of 21. The matrix therefore never
-    left its middle column and STRONG BUY / ACCUMULATE / WAIT / WATCH / TRIM /
-    STRONG SELL — every cell documented on the Ref tab — could not occur. Worse, the
-    card was simultaneously showing "MOMENTUM Strong" from the PRIMARY readout, so
-    the two disagreed in plain sight (ABBV: card "Strong 4/4", action axis "Neutral").
-
-    Prefer the primary label; keep the old signal as a fallback so callers that have
-    not been updated still work.
-    """
+    The momentum axis prefers the PRIMARY label. The secondary RSI+MACD+DBBMV vote
+    needs two of three to agree before it leaves Neutral, which it did for 0 of 21
+    rows, so fed alone it pinned the matrix to its middle column. `momentum_signal`
+    stays as the fallback when no primary label is given."""
     if signal is None:
         return None
     col = _MOM_LABEL_TO_COLUMN.get(mom_label) if mom_label else None

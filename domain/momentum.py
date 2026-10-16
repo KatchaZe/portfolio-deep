@@ -216,20 +216,16 @@ def clean_series(closes, volumes=None, dates=None, max_jump=0.5, revert=0.33):
 # --------------------------------------------------------------------------- #
 #  Composite                                                                  #
 # --------------------------------------------------------------------------- #
+_LABELS = ((1, "Strong"), (0.75, "Positive"), (0.5, "Neutral"))   # lowest fraction for each
+
+
 def _label(score, n):
     """Map positive-component count to a label, fraction-based for partial data."""
     if not n:
         return None
     frac = score / n
-    if frac >= 1:
-        return "Strong"
-    if frac >= 0.75:
-        return "Positive"
-    if frac >= 0.5:
-        return "Neutral"
-    if frac > 0:
-        return "Weak"
-    return "Negative"
+    return next((label for lo, label in _LABELS if frac >= lo),
+                "Weak" if frac > 0 else "Negative")
 
 
 def compute(ticker, closes, dates=None, dividend_adjusted=True):

@@ -19,25 +19,26 @@ TWO RULES THIS MODULE EXISTS TO ENFORCE
 1. **Align on the fiscal-year DATE, never on list position.** SEC tags cover different
    spans of history — MSFT files GrossProfit for 18 years and revenue for 10 — so
    `gross_profit_annuals[i] / revenue_annuals[i]` would divide FY2025 profit by FY2017
-   revenue and call it a margin. That is the defect class P3-1 was about, one level
-   further down. Every series here arrives dated and is joined on the date.
+   revenue and call it a margin. Every series here arrives dated and is joined on the
+   date.
 
 2. **Show only years where BOTH legs are filed.** A ratio built from a half-filed year
-   is worse than a missing point, because a gap is visible and a wrong point is not
-   (P2-3, same reasoning). Each row therefore reports `n` — how many years it actually
-   found — and the UI prints it.
+   is worse than a missing point, because a gap is visible and a wrong point is not.
+   Each row therefore reports `n`, how many years it actually found, and the UI
+   prints it.
 
 Everything is derived from SEC 10-K figures, so the values are the audited GAAP ones,
 not the adjusted numbers a company presents on its earnings call.
 """
 import datetime as dt
 
+from domain.facts import DEFAULT_TAX_RATE, effective_tax_rate
+
 # how far apart the first and last point must be before a row is called a trend
 CAGR_FLAT_PCT = 2.0        # revenue / FCF: |CAGR| <= 2%/yr reads as flat
 MARGIN_FLAT_PP = 1.0       # margins / ROIC: |change| <= 1pp over the window reads as flat
 # ΔIC must be this fraction of the starting capital base before incremental ROIC means
-# anything. Below it the denominator is noise and the ratio explodes — the same trap
-# REV-13 hit with capex - D&A landing near zero.
+# anything. Below it the denominator is noise and the ratio explodes.
 MIN_IC_DELTA_FRAC = 0.05
 MAX_YEARS = 5
 
@@ -94,6 +95,11 @@ def _cagr_pct(points):
     return round(((last / first) ** (1.0 / n) - 1) * 100, 1)
 
 
+def _delta(points):
+    """Newest minus oldest value across the window, None below 2 points."""
+    return round(points[-1]["v"] - points[0]["v"], 1) if len(points) >= 2 else None
+
+
 def _direction(summary, flat_band):
     if summary is None:
         return None
@@ -106,14 +112,9 @@ def _direction(summary, flat_band):
 
 def _row(key, label, unit, points, summary, summary_label, flat_band, note=None,
          summary_unit="pp"):
-    """`summary_unit` is the unit of the SUMMARY, which is not the unit of the row.
-
-    B (2026-08-11): the dashboard picked the suffix from the row's own unit — money got
-    "%", everything else got "pp" — so the ROIC row printed its INCREMENTAL RETURN as a
-    delta. PFE read "ทุนใหม่ −33.0pp", which says "ROIC fell 33 points" when it means
-    "the capital added over five years earned −33%". Two different statements about a
-    company, and the wrong one was on screen. The backend knows which it computed, so
-    the backend says so rather than leaving the front end to infer it."""
+    """`summary_unit` is the unit of the SUMMARY, not of the row. The ROIC row's summary
+    is a return on added capital ("%"), not a change in ROIC ("pp"); only the backend
+    knows which it computed, so it says so."""
     return {"key": key, "label": label, "unit": unit,
             "points": points, "n": len(points),
             "summary": summary, "summary_label": summary_label,
@@ -132,8 +133,7 @@ def _margin_row(key, label, num, den, years, note=None):
     Years where either side is missing, or revenue is not positive, are dropped."""
     common = [d for d in _window(sorted(set(num) & set(den)), years) if den[d] > 0]
     pts = [{"fy": d[:4], "end": d, "v": round(num[d] / den[d] * 100, 1)} for d in common]
-    delta = round(pts[-1]["v"] - pts[0]["v"], 1) if len(pts) >= 2 else None
-    return _row(key, label, "pct", pts, delta, "Δ 5y", MARGIN_FLAT_PP, note,
+    return _row(key, label, "pct", pts, _delta(pts), "Δ 5y", MARGIN_FLAT_PP, note,
                 summary_unit="pp")         # a CHANGE in margin
 
 
@@ -144,20 +144,11 @@ def free_cash_flow(cfo_dated, capex_dated, sbc_dated=None):
     year the company did not file it, which is the direction that flatters — and the
     only reason to look at FCF at all is that it is harder to flatter than earnings.
 
-    2026-08-17 — SBC IS DEDUCTED. Damodaran is explicit that stock-based compensation
-    is a real expense and that adding it back is "an indefensible practice"; on share
-    count he writes "you cannot do both, because you are then reducing value per share
-    twice for the same phenomenon". CFO, as the filer reports it, adds SBC back as a
-    non-cash item BY CONSTRUCTION — so "CFO - capex" quietly hands the cost back to
-    the company, and this series feeds the FCF-yield leg of the P pillar (weight 0.30)
-    and the FCF-durability leg of E_exec. Measured on the stored portfolio the gap is
-    not cosmetic: AXON's reported $0.1B FCF is **-$0.5B** once SBC is charged (SBC is
-    4.8x reported FCF), GOOGL loses 53%, AVGO 27%, MSFT 18.5%, TSLA 66%.
-
-    There is no double count with the dilution charge on forward EPS: that one adjusts
-    a NON-GAAP consensus EPS which had SBC removed, this one adjusts a cash-flow
-    aggregate which had SBC added back. Each path is charged exactly once — which is
-    the rule PASS2 established for the EPS paths and this extends to the cash ones.
+    SBC is deducted because it is a real expense (Damodaran) and CFO adds it back as a
+    non-cash item by construction, so "CFO - capex" hands the cost back to the company
+    (AXON's reported $0.1B FCF is -$0.5B once SBC is charged). This is not a double
+    count with the forward-EPS dilution charge: that adjusts a non-GAAP EPS with SBC
+    removed, this adjusts a cash aggregate with SBC added back.
 
     `sbc_dated` is optional: a year the filer does not tag SBC is left unadjusted
     rather than dropped, and the caller states which basis it got."""
@@ -219,7 +210,7 @@ def incremental_roic_pct(roic_map, dates):
 
     Measured across the whole window rather than year by year on purpose: a single
     year's ΔIC can be near zero (or negative, after buybacks), and dividing by it
-    produces the four-digit nonsense REV-13 had to clamp. Returns None when the capital
+    produces four-digit nonsense. Returns None when the capital
     base barely moved, because then there is no incremental return to speak of."""
     if len(dates) < 2:
         return None, "ต้องมีอย่างน้อย 2 ปี"
@@ -229,15 +220,10 @@ def incremental_roic_pct(roic_map, dates):
     d_ic, d_nopat = b["ic"] - a["ic"], b["nopat"] - a["nopat"]
     if d_ic <= a["ic"] * MIN_IC_DELTA_FRAC:
         return None, "ฐานทุนแทบไม่เปลี่ยน — วัดผลตอบแทนของทุนใหม่ไม่ได้"
-    # C (2026-08-11): incremental ROIC assumes the EXTRA profit came from the EXTRA
-    # capital. That assumption collapses when the company started the window losing
-    # money: the numerator is then dominated by fixing the existing business, not by
-    # anything the new capital did. HIMS made this visible — NOPAT −99.9M to +91.7M
-    # against only +49.5M of capital, printed as "new capital earned 387%". The capital
-    # test above passed (capital did grow 19%); the flaw was never in the denominator.
-    #
-    # `_cagr_pct` in this same file already refuses to compound from a non-positive
-    # start, for exactly this reason. The rule simply had not been carried across.
+    # Incremental ROIC assumes the extra profit came from the extra capital. From a
+    # loss-making start the numerator is dominated by fixing the old business (HIMS:
+    # NOPAT -99.9M -> +91.7M on +49.5M capital read as "387%"), the same reason
+    # _cagr_pct refuses a non-positive start.
     if a["nopat"] <= 0:
         return None, ("NOPAT ตั้งต้นติดลบ — กำไรที่เพิ่มมาจากการพลิกขาดทุน "
                       "ไม่ใช่ผลตอบแทนของทุนที่ใส่เพิ่ม")
@@ -259,11 +245,9 @@ def _is_current(points, latest_fy, max_lag_years=1):
 
 
 def _get(f, name, default=None):
-    """Read a field from either a FinancialFacts object or the plain dict the store
-    round-trips. `portfolio_view` reads facts out of JSON while `analyze_row` holds the
-    live object, and the two must produce the SAME strip — a watchlist row and a
-    holding row differing in what they show is the parity bug this repo has already
-    shipped once (`2df2ce2 watchlist parity`)."""
+    """Read a field from a FinancialFacts object or the dict the store round-trips.
+    portfolio_view reads JSON while analyze_row holds the object, and a watchlist row
+    and a holding row must show the SAME strip."""
     if isinstance(f, dict):
         v = f.get(name, default)
     else:
@@ -275,12 +259,95 @@ def _tax_rate(f):
     """Effective tax rate from either shape, with FinancialFacts' own 0-60% guard."""
     if not isinstance(f, dict):
         return f.tax_rate
-    pre, tax = f.get("income_before_tax"), f.get("tax_expense")
-    if pre and tax is not None and pre != 0:
-        r = tax / pre
-        if 0 <= r <= 0.6:
-            return r
-    return f.get("tax_rate") if isinstance(f.get("tax_rate"), (int, float)) else 0.21
+    r = effective_tax_rate(f.get("income_before_tax"), f.get("tax_expense"))
+    if r is not None:
+        return r
+    return f.get("tax_rate") if isinstance(f.get("tax_rate"), (int, float)) else DEFAULT_TAX_RATE
+
+
+def _revenue_row(rev, years):
+    if len(rev) >= 2:
+        return _money_row("revenue", "รายได้", rev, years)
+    return None
+
+
+def _gross_margin_row(f, rev, years):
+    gp, gp_src = gross_profit(_get(f, "gross_profit_annuals_dated"),
+                              _get(f, "revenue_annuals_dated"),
+                              _get(f, "cost_of_revenue_annuals_dated"))
+    if gp and rev:
+        return _margin_row("gross_margin", "Gross margin", gp, rev, years, note=gp_src)
+    return None
+
+
+def _op_margin_row(oi, rev, years):
+    if oi and rev:
+        return _margin_row("op_margin", "Op margin", oi, rev, years,
+                           note="EBIT ตามงบ (GAAP) — บริษัทอาจประกาศเป็น adjusted")
+    return None
+
+
+def _fcf_row(f, years):
+    sbc = _get(f, "sbc_annuals_dated")
+    fcf = free_cash_flow(_get(f, "cfo_annuals_dated"), _get(f, "capex_annuals_dated"), sbc)
+    if len(fcf) < 2:
+        return None
+    note = ("CFO − capex − SBC (SBC เป็นค่าใช้จ่ายจริง — CFO บวกกลับไว้)"
+            if sbc else "CFO − capex (ยังไม่หัก SBC — filer ไม่ได้แท็กไว้)")
+    return _money_row("fcf", "Free cash flow", fcf, years, note=note)
+
+
+def _roic_row(f, years):
+    """The headline is the INCREMENTAL return when it can be measured, because that is
+    the moat signal; the sparkline still shows the level. Otherwise the change in level,
+    so the row is never blank."""
+    rmap = roic_series(_get(f, "operating_income_annuals_dated"),
+                       _get(f, "ic_components_dated", {}), _tax_rate(f))
+    if len(rmap) < 2:
+        return None
+    win = _window(rmap, years)
+    pts = [{"fy": d[:4], "end": d, "v": round(rmap[d]["roic"], 1)} for d in win]
+    inc, why = incremental_roic_pct(rmap, win)
+    if inc is None:
+        return _row("roic", "ROIC", "pct", pts, _delta(pts), "Δ 5y", MARGIN_FLAT_PP,
+                    note=f"incremental ROIC: {why}",
+                    summary_unit="pp")  # fell back to the CHANGE in level
+    row = _row("roic", "ROIC", "pct", pts, inc, "ทุนใหม่", MARGIN_FLAT_PP,
+               note=f"เส้น = ROIC รายปี · ตัวเลข = ผลตอบแทนของทุนที่ใส่เพิ่ม {len(win)} ปีนี้",
+               summary_unit="%")   # a RETURN on the capital added, not a delta
+    # new capital vs the legacy average: the comparison Damodaran cares about
+    row["vs_average_pp"] = round(inc - pts[-1]["v"], 1)
+    return row
+
+
+def _lag_months(as_of, today):
+    if not as_of:
+        return None
+    try:
+        ref = today or dt.date.today()
+        return round((ref - dt.date.fromisoformat(as_of)).days / 30.44, 1)
+    except (TypeError, ValueError):
+        return None
+
+
+def _period(rows, years, today):
+    """Which fiscal years the strip covers, and how far TTM has moved past them.
+
+    Every figure is a 10-K FISCAL YEAR while the valuation beside it runs on TTM (AVGO's
+    strip says $63.9B revenue next to a card valuing $75.5B). A TTM strip was rejected:
+    ASML, NVO and TSM file no quarters to SEC, and TTM margins would be stitched from
+    quarters, the clock-mixing fault this repo removed. The backend states the period so
+    a test can check it, instead of the dashboard deriving it."""
+    n_max = max(r["n"] for r in rows)
+    ends = sorted({p["end"] for r in rows for p in r["points"]})
+    as_of = ends[-1] if ends else None
+    return {"years": n_max,
+            "source": "SEC 10-K (GAAP)",
+            "as_of": as_of,                       # fiscal-year END of the newest point
+            "fy_from": ends[0][:4] if ends else None,
+            "fy_to": as_of[:4] if as_of else None,
+            "lag_months": _lag_months(as_of, today),
+            "partial": any(r["n"] < min(years, n_max) for r in rows)}
 
 
 def build(f, years=MAX_YEARS, today=None):
@@ -288,91 +355,12 @@ def build(f, years=MAX_YEARS, today=None):
     all could be built, so a caller can simply not render the section."""
     rev = _pairs(_get(f, "revenue_annuals_dated"))
     oi = _pairs(_get(f, "operating_income_annuals_dated"))
-    # the most recent fiscal year anywhere on the income statement — every row is
-    # measured for staleness against this
-    _latest = max((d[:4] for d in list(rev) + list(oi)), default=None)
-    rows = []
-
-    def add(row):
-        """Keep a row only if it has 2+ points AND its newest point is current."""
-        if row["n"] >= 2 and _is_current(row["points"], _latest):
-            rows.append(row)
-
-    if len(rev) >= 2:
-        add(_money_row("revenue", "รายได้", rev, years))
-
-    gp, gp_src = gross_profit(_get(f, "gross_profit_annuals_dated"),
-                              _get(f, "revenue_annuals_dated"),
-                              _get(f, "cost_of_revenue_annuals_dated"))
-    if gp and rev:
-        add(_margin_row("gross_margin", "Gross margin", gp, rev, years, note=gp_src))
-
-    if oi and rev:
-        add(_margin_row("op_margin", "Op margin", oi, rev, years,
-                        note="EBIT ตามงบ (GAAP) — บริษัทอาจประกาศเป็น adjusted"))
-
-    _sbc_ser = _get(f, "sbc_annuals_dated")
-    fcf = free_cash_flow(_get(f, "cfo_annuals_dated"), _get(f, "capex_annuals_dated"),
-                         _sbc_ser)
-    if len(fcf) >= 2:
-        _note = ("CFO − capex − SBC (SBC เป็นค่าใช้จ่ายจริง — CFO บวกกลับไว้)"
-                 if _sbc_ser else "CFO − capex (ยังไม่หัก SBC — filer ไม่ได้แท็กไว้)")
-        add(_money_row("fcf", "Free cash flow", fcf, years, note=_note))
-
-    rmap = roic_series(_get(f, "operating_income_annuals_dated"),
-                       _get(f, "ic_components_dated", {}), _tax_rate(f))
-    if len(rmap) >= 2:
-        win = _window(rmap, years)
-        pts = [{"fy": d[:4], "end": d, "v": round(rmap[d]["roic"], 1)} for d in win]
-        inc, why = incremental_roic_pct(rmap, win)
-        # The headline for this row is the INCREMENTAL return when it can be measured,
-        # because that is the moat signal; the sparkline still shows the level. When it
-        # cannot, fall back to the change in level so the row is never blank.
-        if inc is not None:
-            row = _row("roic", "ROIC", "pct", pts, inc, "ทุนใหม่", MARGIN_FLAT_PP,
-                       note=f"เส้น = ROIC รายปี · ตัวเลข = ผลตอบแทนของทุนที่ใส่เพิ่ม {len(win)} ปีนี้",
-                       summary_unit="%")   # a RETURN on the capital added, not a delta
-            # the comparison Damodaran cares about: new capital vs the legacy average
-            row["vs_average_pp"] = round(inc - pts[-1]["v"], 1)
-        else:
-            row = _row("roic", "ROIC", "pct", pts,
-                       round(pts[-1]["v"] - pts[0]["v"], 1) if len(pts) >= 2 else None,
-                       "Δ 5y", MARGIN_FLAT_PP, note=f"incremental ROIC: {why}",
-                       summary_unit="pp")  # fell back to the CHANGE in level
-        add(row)
-
+    # every row's staleness is measured against the newest income-statement year
+    latest = max((d[:4] for d in list(rev) + list(oi)), default=None)
+    candidates = (_revenue_row(rev, years), _gross_margin_row(f, rev, years),
+                  _op_margin_row(oi, rev, years), _fcf_row(f, years), _roic_row(f, years))
+    rows = [r for r in candidates
+            if r is not None and r["n"] >= 2 and _is_current(r["points"], latest)]
     if not rows:
         return {}
-    n_max = max(r["n"] for r in rows)
-    # D (2026-08-11): SAY WHICH PERIOD THIS IS. Every figure here is a FISCAL YEAR from
-    # the 10-K, while the valuation on the same card runs on TTM — and the two differ by
-    # roughly (months since the fiscal year ended) x (growth rate). AVGO's year ended
-    # 2025-11-02, so the strip says $63.9B revenue beside a card valuing $75.5B; MSFT's
-    # ended six weeks ago and the two agree exactly. Nothing is wrong, but a reader has
-    # no way to know which of those two situations they are looking at.
-    #
-    # Converting the strip to TTM was considered and rejected: ASML, NVO and TSM file no
-    # quarterly data to SEC at all (0 quarters each), so a TTM series would DELETE the
-    # strip for exactly the foreign filers this module was extended to serve — and TTM
-    # margins would have to be stitched from quarters, which is the clock-mixing fault
-    # this repo spent three review rounds removing.
-    #
-    # The period travels in the PAYLOAD rather than being recomputed by the dashboard:
-    # a label the front end derives goes quiet the moment the front end changes, and a
-    # fact the back end states can be checked by a test.
-    ends = sorted({p["end"] for r in rows for p in r["points"]})
-    as_of = ends[-1] if ends else None
-    lag = None
-    if as_of:
-        try:
-            ref = today or dt.date.today()
-            lag = round((ref - dt.date.fromisoformat(as_of)).days / 30.44, 1)
-        except (TypeError, ValueError):
-            lag = None
-    return {"rows": rows, "years": n_max,
-            "source": "SEC 10-K (GAAP)",
-            "as_of": as_of,                       # fiscal-year END of the newest point
-            "fy_from": ends[0][:4] if ends else None,
-            "fy_to": as_of[:4] if as_of else None,
-            "lag_months": lag,                    # how far TTM has moved past it
-            "partial": any(r["n"] < min(years, n_max) for r in rows)}
+    return {"rows": rows, **_period(rows, years, today)}
