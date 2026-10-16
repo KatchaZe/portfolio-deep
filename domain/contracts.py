@@ -214,6 +214,7 @@ PARAM_CLOCK = {
     "terminal_margin": {"operating_income": TTM, "revenue": TTM},
     # take a fact SERIES directly, so a scalar passed in by mistake is visible here
     "rd_capitalize": {"rnd_annuals": FY},
+    "_roic_fy": {"op_income": FY, "rnd_series": FY},
     "share_count_growth": {"shares_annuals": FY},
 }
 
