@@ -54,13 +54,15 @@ def test_date_tolerance_rejects_far():
     assert sb.build_eps(actuals, est) == []
 
 
-def test_limit_keeps_last_four_newest():
+def test_limit_keeps_last_five_newest():
     actuals = {f"2024-{m:02d}-28": 1.0 + i for i, m in enumerate([3, 6, 9, 12])}
     actuals["2025-03-28"] = 9.0
+    actuals["2025-06-28"] = 10.0
     est = {k: {"eps_est": 1.0, "rev_est": None} for k in actuals}
     out = sb.build_eps(actuals, est)
-    assert len(out) == 4
-    assert out[-1]["quarter"] == "2025-03-28"
+    assert len(out) == 5
+    assert out[0]["quarter"] == "2024-06-28"
+    assert out[-1]["quarter"] == "2025-06-28"
 
 
 def test_handles_empty_inputs():
@@ -104,8 +106,19 @@ def test_end_to_end_backfill_from_fixture():
     cf = json.load(open(os.path.join(FIX, "AVGO", "sec_companyfacts.json")))
     d = sec_edgar.extract(cf)
     eps_q = d["eps_quarters"]
-    # estimate = 95% of actual for every quarter -> all "beat"
+    # estimate = 95% of actual: a beat when the actual is positive. A negative actual
+    # (AVGO 2024-08-04, EPS -0.40) sits below its estimate, so only positive rows grade.
     est = {k: {"eps_est": round(v * 0.95, 4), "rev_est": None} for k, v in eps_q.items()}
     out = sb.build_eps(eps_q, est)
-    assert len(out) == 4
-    assert all(r["grade"] == "beat" for r in out)
+    assert [r["quarter"] for r in out] == sorted(eps_q)[-5:]
+    positive = [r for r in out if r["eps_actual"] > 0]
+    assert len(positive) >= 4
+    assert all(r["grade"] == "beat" for r in positive)
+
+
+if __name__ == "__main__":
+    ns = dict(globals())
+    for _name in (n for n in ns if n.startswith("test_")):
+        ns[_name]()
+        print("OK", _name)
+    print("\nALL test_surprise_backfill PASSED")
