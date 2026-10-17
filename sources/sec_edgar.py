@@ -319,6 +319,11 @@ INV_TAGS = ("InventoryNet", "InventoryGross", "Inventories")
 AP_TAGS = ("AccountsPayableCurrent", "AccountsPayableTradeCurrent",
            "AccountsPayableAndAccruedLiabilitiesCurrent")
 CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents")
+# Damodaran nets cash AND marketable securities out of debt and invested capital.
+# Cash-only read GOOGL at $55.9B against $242.5B, MSFT $20.9B against $76.8B.
+COMBINED_CASH = "CashCashEquivalentsAndShortTermInvestments"
+STI_TAGS = ("ShortTermInvestments", "MarketableSecuritiesCurrent", "DebtSecuritiesCurrent",
+            "AvailableForSaleSecuritiesDebtSecuritiesCurrent")
 DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiability",
                "DeferredRevenueCurrent", "DeferredRevenue")
 RND_TAGS = ("ResearchAndDevelopmentExpense",
@@ -460,6 +465,35 @@ def _total_debt(x, ladders, at):
     return None
 
 
+def _cash_and_securities(x, ladders, at, prior=False):
+    """Cash plus short-term marketable securities, read off ONE balance-sheet date.
+
+    The filed combined amount wins on its date; otherwise cash plus the first
+    securities tag filed on that SAME date. Legs from different dates are never
+    summed: NVDA's MarketableSecuritiesCurrent stops in 2025 while its cash is 2026."""
+    combined, cash_tags, sti_tags = ladders
+
+    def by_end(tags):
+        out = {}
+        for tag in tags:
+            for e in x.entries(tag):
+                d, v = e.get("end"), e.get("val")
+                if d and v is not None and not e.get("start") and d not in out and _recent(d, at.ref_end):
+                    out[d] = v
+        return out
+
+    comb, cash, sti = by_end(combined), by_end(cash_tags), by_end(sti_tags)
+    dates = sorted(set(comb) | set(cash), reverse=True)
+    if prior and dates:
+        # the same date rule as every other *_prior field (newest instant of the
+        # previous calendar year), so prior invested capital is read off one date
+        years = sorted({d[:4] for d in dates}, reverse=True)
+        dates = [d for d in dates if len(years) > 1 and d[:4] == years[1]]
+    for d in dates:
+        return comb[d] if d in comb else cash[d] + sti.get(d, 0)
+    return None
+
+
 def _ic_components(x, ladders, at):
     """{FY_end: {"equity", "debt", "cash", "lt_source"}} at the income-statement
     year-ends, for the per-year ROIC series.
@@ -469,14 +503,19 @@ def _ic_components(x, ladders, at):
     concept appears in ANY year of the window it is required in EVERY year: a missing
     year is a filing gap, not a debt-free year."""
     (eq, _), (cash, _), (lt, lt_tag), (st, _) = (
-        x.instant_at_dates(list(tags), at.fy_ends) for tags in ladders)
+        x.instant_at_dates(list(tags), at.fy_ends) for tags in ladders[:4])
+    # securities tags are alternatives for ONE line, so each date takes the first filed
+    sti = {}
+    for tag in ladders[4]:
+        for d, v in x.instant_at_dates([tag], at.fy_ends)[0].items():
+            sti.setdefault(d, v)
     out = {}
     for d in at.fy_ends:
         if d not in eq or d not in cash:
             continue
         if lt_tag and d not in lt:
             continue
-        out[d] = {"equity": eq[d], "cash": cash[d],
+        out[d] = {"equity": eq[d], "cash": cash[d] + (sti.get(d) or 0),
                   "debt": (lt.get(d) or 0) + (st.get(d) or 0),
                   "lt_source": lt_tag}
     return out
@@ -501,7 +540,7 @@ FIELD_LADDERS = {
     # FX-converted.
     "shares_diluted_annuals": (_annual, (("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES),)),
     "total_debt": (_total_debt, ((COMBINED_DEBT,), LT_DEBT, ST_DEBT)),
-    "cash": (_fresh, CASH_TAGS),
+    "cash": (_cash_and_securities, ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "equity": (_fresh, EQUITY_TAGS),
     "capex": (_ttm_present, CAPEX_TAGS),
     # Dated, not bare lists: two tags need not cover the same fiscal years, and
@@ -513,7 +552,7 @@ FIELD_LADDERS = {
     "gross_profit_annuals_dated": (_trend_series, GROSS_PROFIT_TAGS),
     "cost_of_revenue_annuals_dated": (_trend_series, COST_OF_REV_TAGS),
     "ic_components_dated": (_ic_components, (EQUITY_TAGS, CASH_TAGS,
-                                             (COMBINED_DEBT, *LT_DEBT), ST_DEBT)),
+                                             (COMBINED_DEBT, *LT_DEBT), ST_DEBT, STI_TAGS)),
     "dep_amort": (_ttm, ("DepreciationAndAmortization", "Depreciation",
                          "DepreciationDepletionAndAmortization",
                          "DepreciationAndAmortisationExpense",
@@ -538,7 +577,8 @@ FIELD_LADDERS = {
     "equity_prior": (_prior_year, EQUITY_TAGS),
     "total_debt_prior": (_total_else_legs(_prior_year),
                          ((COMBINED_DEBT,), (COMBINED_DEBT, *LT_DEBT), ST_DEBT)),
-    "cash_prior": (_prior_year, CASH_TAGS),
+    "cash_prior": (lambda x, ladders, at: _cash_and_securities(x, ladders, at, prior=True),
+                   ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "acquisitions_net": (_ttm, ("PaymentsToAcquireBusinessesNetOfCashAcquired",
                                 "PaymentsToAcquireBusinessesAndInterestInAffiliates",
                                 "PaymentsToAcquireBusinessesGross")),
