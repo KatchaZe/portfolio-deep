@@ -131,5 +131,13 @@ def test_f5_advice_never_buys_what_it_just_called_expensive():
           "with no anchor, a plausible RevDCF still decides value (pre-profit path)")
 
 
+def test_n1_spread_table_is_january_2026():
+    from domain.engine import deep_v82 as E
+    check(E._spread_from_coverage(9.0) == 0.0040, "coverage >= 8.5 -> Aaa 0.40% (Jan 2026)")
+    check(E._spread_from_coverage(3.5) == 0.0089, "coverage 3.0-4.25 -> A3 0.89%")
+    check(E._spread_from_coverage(2.7) == 0.0111, "coverage 2.5-3.0 -> Baa2 1.11%")
+    check(E._spread_from_coverage(0.1) == 0.19, "coverage < 0.2 -> D 19%")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_damodaran_fixes_2026_10 PASSED")

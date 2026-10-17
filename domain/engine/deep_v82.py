@@ -22,11 +22,16 @@ GROWTH_CAP = 0.30
 RD_LIFE = 5
 DEFAULT_KD_SPREAD = 0.013
 
+# Damodaran synthetic rating -> default spread, large non-financial firms, interest
+# coverage = EBIT / interest. Vintage: January 2026
+# (pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/ratings.html). Refresh with the
+# annual January data update; the previous table sat 30-75 bp above it.
+SYNTH_SPREAD_AS_OF = "2026-01"
 SYNTH_SPREAD = [
-    (8.50, 0.0069), (6.50, 0.0085), (5.50, 0.0103), (4.25, 0.0124),
-    (3.00, 0.0150), (2.50, 0.0185), (2.25, 0.0238), (2.00, 0.0307),
-    (1.75, 0.0400), (1.50, 0.0510), (1.25, 0.0620), (0.80, 0.0840),
-    (0.65, 0.1080), (0.20, 0.1400), (-1e9, 0.1900),
+    (8.50, 0.0040), (6.50, 0.0055), (5.50, 0.0070), (4.25, 0.0078),
+    (3.00, 0.0089), (2.50, 0.0111), (2.25, 0.0138), (2.00, 0.0184),
+    (1.75, 0.0275), (1.50, 0.0321), (1.25, 0.0509), (0.80, 0.0885),
+    (0.65, 0.1261), (0.20, 0.1600), (-1e9, 0.1900),
 ]
 
 # Fallback terminal operating margins for PRE-PROFIT names only. Profitable names

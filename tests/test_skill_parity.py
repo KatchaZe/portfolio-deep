@@ -40,6 +40,19 @@ def test_erp_default_in_sync():
     print("ERP default in sync OK (%.4f)" % config.ERP)
 
 
+def test_synthetic_spread_table_in_sync():
+    """The app and the skill price debt off one Damodaran rating table (2026-10 audit:
+    both carried a pre-2026 table, 30-75 bp above January 2026's)."""
+    from domain.engine import deep_v82 as E
+    w = _load("wacc")
+    if w is None:
+        print("SKIP: skill scripts not found at", SKILL_SCRIPTS)
+        return
+    assert w.SYNTH_SPREAD == E.SYNTH_SPREAD and w.SYNTH_SPREAD_AS_OF == E.SYNTH_SPREAD_AS_OF, (
+        "SPREAD TABLE DRIFT between skill wacc.py and the app engine")
+    print("synthetic spread table in sync OK (%s)" % E.SYNTH_SPREAD_AS_OF)
+
+
 def test_two_stage_pe_parity():
     """REV-15: the old version of this test called BOTH sides without ke_st, so it
     compared the app's LEGACY back-compat default against the skill — and passed
