@@ -1063,11 +1063,45 @@ class _Capital(NamedTuple):
     ke_term: float
 
 
+def relevered_beta(beta_unlevered, debt, equity_mktcap, marginal_tax=None):
+    """Damodaran's bottom-up beta: industry unlevered beta x (1 + (1 - t) x D/E), with
+    D/E at market value and t the marginal rate the industry beta was un-levered at."""
+    from sources.damodaran import MARGINAL_TAX_US
+    t = MARGINAL_TAX_US if marginal_tax is None else marginal_tax
+    de = (debt or 0.0) / equity_mktcap if equity_mktcap and equity_mktcap > 0 else 0.0
+    return beta_unlevered * (1 + (1 - t) * max(de, 0.0))
+
+
+def _bottom_up_beta(f, notes):
+    """The beta Ke runs on. Industry unlevered beta re-levered at the firm's market D/E
+    when the industry is known (Damodaran: a single-stock regression beta is too noisy,
+    NVO read 0.35 against a pharma industry at 0.98); the regression beta otherwise;
+    1.0 when neither exists. Debt includes capitalized operating leases, the same D
+    the WACC weights use."""
+    reg = f.beta
+    bu = f.beta_unlevered_industry
+    mcap = f.market_cap or ((f.price or 0) * (f.shares_diluted or 0)) or None
+    if bu and mcap:
+        debt = (f.total_debt or 0.0) + (f.operating_leases or 0.0)
+        b = relevered_beta(bu, debt, mcap)
+        why = (f"beta bottom-up {b:.2f} = {f.beta_industry or 'industry'} unlevered "
+               f"{bu:.2f} re-levered at D/E {debt / mcap:.0%}")
+        # A pre-profit firm is riskier than the mature industry it will grow into
+        # (Damodaran starts young firms at a high-growth beta that fades). The mature
+        # industry beta alone would discount RKLB at ~8.6%, so it keeps the higher one.
+        if (f.operating_income is None or f.operating_income <= 0) and reg and reg > b:
+            _add_flag(f, why + f" - pre-profit, so the higher regression beta {reg:.2f} is used")
+            return reg
+        _add_flag(f, why + (f" (regression beta {reg:.2f} kept as a cross-check)" if reg else ""))
+        return b
+    return reg or 1.0
+
+
 def _capital(f, rf, notes):
     """Returns on capital (leases, and R&D where possible, capitalized) and the cost
     of capital today and in the stable phase."""
-    beta = f.beta or 1.0
     tax = f.tax_rate
+    beta = _bottom_up_beta(f, notes)
     erp_age = erp_months_old()
     if erp_age > config.ERP_STALE_MONTHS:
         _add_flag(f, (f"ERP {config.ERP*100:.2f}% as-of {config.ERP_AS_OF} is {erp_age}mo old "
@@ -1642,6 +1676,9 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement):
             "terminal_ke_pct": round(gr.ke_stable * 100, 2),
             "terminal_wacc_pct": round(cap.wacc_term * 100, 2),
             "growth_pct": round(gr.growth * 100, 1), "beta": round(cap.beta, 2),
+            "beta_regression": round(f.beta, 2) if f.beta else None,
+            "beta_source": ("bottom-up: " + (f.beta_industry or "industry"))
+                           if f.beta_unlevered_industry else ("regression" if f.beta else "default 1.0"),
             # consensus growth drives the FV, realised growth drives Demand: both
             # published so a reader sees which story the price needs
             "growth_realised_pct": _pct(pv.g_realised, 1),

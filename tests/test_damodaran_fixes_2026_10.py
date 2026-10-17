@@ -139,5 +139,29 @@ def test_n1_spread_table_is_january_2026():
     check(E._spread_from_coverage(0.1) == 0.19, "coverage < 0.2 -> D 19%")
 
 
+def test_n2_bottom_up_beta():
+    from domain.engine import deep_v82 as E
+    from domain.facts import FinancialFacts
+    from sources import damodaran as D
+    check(abs(E.relevered_beta(0.92, 20e9, 200e9) - 0.92 * (1 + 0.75 * 0.10)) < 1e-12,
+          "beta_L = beta_U x (1 + (1 - 25%) x D/E)")
+    bu, ind = D.industry_beta_for("NVO", "Healthcare")
+    check(bu == 0.92 and ind == "Drugs (Pharmaceutical)", "NVO maps to pharma, unlevered (cash-corrected) 0.92")
+    check(D.parse_beta_html("<table><tr><td>Industry Name</td><td>Beta</td>"
+                            "<td>Unlevered beta corrected for cash</td></tr>"
+                            "<tr><td>Semiconductor</td><td>1.52</td><td>1.50</td></tr></table>")
+          == {"semiconductor": 1.50}, "the live page is read by header text")
+    f = FinancialFacts("NVO", beta=0.349, beta_unlevered_industry=0.92, beta_industry="Drugs (Pharmaceutical)",
+                       market_cap=196.6e9, total_debt=20.3e9, operating_income=19.8e9)
+    b = E._bottom_up_beta(f, [])
+    check(abs(b - 0.92 * (1 + 0.75 * 20.3 / 196.6)) < 1e-9 and any("bottom-up" in x for x in f.flags),
+          "a profitable firm runs on the re-levered industry beta, flagged", repr(b))
+    young = FinancialFacts("RKLB", beta=2.1, beta_unlevered_industry=0.87, market_cap=40e9,
+                           total_debt=0.4e9, operating_income=-0.2e9)
+    check(E._bottom_up_beta(young, []) == 2.1, "a pre-profit firm keeps the higher regression beta")
+    check(E._bottom_up_beta(FinancialFacts("X", beta=1.3), []) == 1.3,
+          "no industry mapping -> regression beta, unchanged")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_damodaran_fixes_2026_10 PASSED")

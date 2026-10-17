@@ -85,6 +85,10 @@ class FinancialFacts:
     n_analysts: Optional[int] = None             # consensus breadth (reliability gate)
     peer_median_growth: Optional[float] = None   # median revenue growth of the sector cohort
     terminal_roic_sector: Optional[float] = None  # Damodaran industry ROIC — perpetuity ceiling
+    # Damodaran industry unlevered beta (corrected for cash) and the industry it came
+    # from — the engine re-levers it at the firm's market D/E (bottom-up beta).
+    beta_unlevered_industry: Optional[float] = None
+    beta_industry: Optional[str] = None
     # Market cap as reported for the US-LISTED security. Quoted in the same unit as
     # `price`, so for an ADR it already embeds the depositary ratio — which is why it
     # beats price x SEC-share-count for foreign filers (TSM files 25.9B ORDINARY

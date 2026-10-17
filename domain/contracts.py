@@ -66,6 +66,7 @@ CLOCK = {
 
     # --- market, observed now ------------------------------------------------
     "price": SPOT, "market_cap": SPOT, "beta": SPOT, "own_pe_pctile": SPOT,
+    "beta_unlevered_industry": SPOT, "beta_industry": STATIC,
 
     # --- income statement, TTM (sec_edgar.ttm sums the last four quarters) ----
     "revenue": TTM, "operating_income": TTM, "net_income": TTM, "eps_gaap": TTM,
@@ -147,7 +148,7 @@ UNIT = {
     "forward_eps_high": PER_SHARE, "eps_annuals_dated": PER_SHARE,
     "eps_quarters": PER_SHARE, "forward_eps_sources": PER_SHARE,
     # dimensionless
-    "beta": RATIO, "growth_lt": RATIO, "fwd_growth_near": RATIO, "fwd_growth_far": RATIO,
+    "beta": RATIO, "beta_unlevered_industry": RATIO, "beta_industry": TEXT, "growth_lt": RATIO, "fwd_growth_near": RATIO, "fwd_growth_far": RATIO,
     "peer_median_growth": RATIO, "terminal_roic_sector": RATIO, "own_pe_pctile": RATIO,
     "forward_eps_spread_pct": RATIO, "confidence": RATIO,
     # counts

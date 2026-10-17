@@ -60,6 +60,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     _blend_forward_eps(ff, t, estimates)
     _own_pe_percentile(ff, t)
     _terminal_roic(ff, t, roc_table)
+    _industry_beta(ff, t)
 
     validate.validate(ff, rf=rf)
     normalize.resolve_growth(ff)
@@ -290,6 +291,21 @@ def _terminal_roic(ff, t, roc_table):
             ff.set("terminal_roic_sector", round(sec_roic, 4), "damodaran-roc")
     except Exception as e:
         log.warning("%s terminal ROIC lookup failed: %s", t, e)
+
+
+def _industry_beta(ff, t):
+    """Damodaran bottom-up beta input: the industry's unlevered beta (corrected for
+    cash). The engine re-levers it at the firm's market D/E; the regression beta in
+    ff.beta stays as the cross-check."""
+    try:
+        table = damodaran.fetch_beta_table(cache_dir=config.CACHE_DIR,
+                                           user_agent=config.SEC_USER_AGENT)
+        bu, industry = damodaran.industry_beta_for(t, ff.sector, table)
+        if bu:
+            ff.set("beta_unlevered_industry", round(bu, 4), "damodaran-betas")
+            ff.set("beta_industry", industry, "damodaran-betas")
+    except Exception as e:
+        log.warning("%s industry beta lookup failed: %s", t, e)
 
 
 def compute_peer_medians(fetched):

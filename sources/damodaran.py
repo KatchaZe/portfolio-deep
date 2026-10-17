@@ -286,7 +286,15 @@ def fetch_roc_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeou
 
     Never raises: a valuation refresh must not fail because a university web
     server is slow. Falls back to the January 2026 snapshot instead."""
-    path = os.path.join(cache_dir, CACHE_FILE) if cache_dir else None
+    return _fetch_table(ROC_URL, CACHE_FILE, parse_roc_html, FALLBACK, "roc",
+                        cache_dir, ttl_days, requests_mod, timeout, user_agent)
+
+
+def _fetch_table(url, cache_file, parse, fallback, label, cache_dir=None, ttl_days=TTL_DAYS,
+                 requests_mod=None, timeout=12, user_agent="PortfolioDeepApp"):
+    """{industry: value} from one Damodaran dataset page. Fresh disk cache -> network
+    -> stale cache -> bundled snapshot. Never raises."""
+    path = os.path.join(cache_dir, cache_file) if cache_dir else None
     if path and os.path.exists(path):
         try:
             if (time.time() - os.path.getmtime(path)) < ttl_days * 86400:
@@ -295,16 +303,16 @@ def fetch_roc_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeou
                 if cached.get("table"):
                     return {k: float(v) for k, v in cached["table"].items()}
         except Exception as e:
-            log.warning("damodaran roc cache read failed: %s", e)
+            log.warning("damodaran %s cache read failed: %s", label, e)
     table = {}
     try:
         import requests as _r
         rq = requests_mod or _r
-        r = rq.get(ROC_URL, headers={"User-Agent": user_agent}, timeout=timeout)
+        r = rq.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
         r.raise_for_status()
-        table = parse_roc_html(r.text)
+        table = parse(r.text)
     except Exception as e:
-        log.warning("damodaran roc fetch failed (%s) - using bundled snapshot", e)
+        log.warning("damodaran %s fetch failed (%s) - using bundled snapshot", label, e)
     if not table:
         # stale cache beats a year-old bundled snapshot
         if path and os.path.exists(path):
@@ -315,14 +323,14 @@ def fetch_roc_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeou
                     return {k: float(v) for k, v in cached["table"].items()}
             except Exception:
                 pass
-        return dict(FALLBACK)
+        return dict(fallback)
     if path:
         try:
             os.makedirs(cache_dir, exist_ok=True)
             with open(path, "w", encoding="utf-8") as fh:
-                json.dump({"fetched": time.time(), "url": ROC_URL, "table": table}, fh)
+                json.dump({"fetched": time.time(), "url": url, "table": table}, fh)
         except Exception as e:
-            log.warning("damodaran roc cache write failed: %s", e)
+            log.warning("damodaran %s cache write failed: %s", label, e)
     return table
 
 
@@ -359,3 +367,123 @@ def terminal_roic_for(ticker, sector, table=None):
         market = table.get(_norm("Total Market (without financials)")) or MARKET_DEFAULT
         return min(v, market)
     return v
+
+
+# --------------------------------------------------------------------------- #
+#  Bottom-up beta (Damodaran "Betas by Sector (US)")                           #
+# --------------------------------------------------------------------------- #
+# A regression beta on one stock is noisy (NVO 0.35 against a pharma industry 0.98);
+# Damodaran's prescription is the industry's UNLEVERED beta, corrected for cash,
+# re-levered at the firm's own market debt-to-equity. Same page family, same update
+# cycle and the same fetch/cache/fallback path as the ROC table.
+BETA_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/Betas.html"
+BETA_CACHE_FILE = "damodaran_beta.json"
+BETA_HEADER = "unlevered beta corrected for cash"
+# The page un-levers at the US marginal rate, so re-levering uses the same rate.
+MARGINAL_TAX_US = 0.25
+
+# January 2026 snapshot. Format: industry | beta | D/E | effective tax | unlevered
+# beta | cash/firm value | unlevered beta corrected for cash (the column used).
+BETA_FALLBACK_RAW = """
+Advertising|1.21|40.20|5.02|0.93|7.73|1.01
+Aerospace/Defense|0.95|15.56|11.58|0.85|2.61|0.87
+Auto & Truck|1.46|19.70|3.74|1.27|2.99|1.31
+Beverage (Soft)|0.64|20.59|6.85|0.56|3.44|0.58
+Chemical (Specialty)|0.97|29.88|13.68|0.79|3.91|0.82
+Computers/Peripherals|1.35|4.62|5.91|1.31|1.47|1.32
+Drugs (Biotechnology)|1.14|13.04|1.08|1.03|4.20|1.08
+Drugs (Pharmaceutical)|0.98|14.54|2.99|0.89|3.16|0.92
+Food Processing|0.61|43.73|10.37|0.46|2.56|0.47
+Healthcare Products|0.91|12.79|4.85|0.83|3.25|0.86
+Healthcare Support Services|0.87|35.43|9.80|0.69|7.51|0.74
+Heathcare Information and Technology|1.11|15.74|6.38|0.99|2.46|1.02
+Investments & Asset Management|0.66|32.69|3.53|0.53|9.92|0.59
+Machinery|0.96|14.69|13.37|0.87|2.91|0.89
+Oil/Gas (Production and Exploration)|0.72|37.59|6.66|0.56|2.73|0.58
+R.E.I.T.|0.64|84.46|1.58|0.39|1.91|0.40
+Retail (General)|0.81|7.94|19.10|0.76|2.68|0.78
+Semiconductor|1.52|2.59|5.11|1.49|1.02|1.50
+Semiconductor Equip|1.40|4.86|9.96|1.35|3.13|1.39
+Software (System & Application)|1.28|5.58|5.51|1.23|1.83|1.25
+Utility (General)|0.24|81.48|12.77|0.15|0.33|0.15
+Total Market|0.91|35.17|8.30|0.72|4.50|0.76
+Total Market (without financials)|0.99|17.29|7.10|0.88|2.60|0.90
+"""
+
+
+def _beta_fallback():
+    out = {}
+    for line in BETA_FALLBACK_RAW.strip().splitlines():
+        parts = line.split("|")
+        if len(parts) == 7:
+            try:
+                out[_norm(parts[0])] = float(parts[6])
+            except ValueError:
+                continue
+    return out
+
+
+BETA_FALLBACK = _beta_fallback()
+
+
+def _num(text):
+    t = (text or "").replace(",", "").strip()
+    try:
+        return float(t)
+    except ValueError:
+        return None
+
+
+def parse_beta_html(html):
+    """Betas.html -> {normalized industry: unlevered beta corrected for cash}.
+    Located by header text; {} when the header is absent (the caller keeps the
+    previous snapshot rather than guessing a column)."""
+    p = _TableParser()
+    p.feed(html)
+    i_name = i_beta = None
+    out = {}
+    for row in p.rows:
+        cells = [_norm(c) for c in row]
+        if i_beta is None:
+            if NAME_HEADER in cells and BETA_HEADER in cells:
+                i_name, i_beta = cells.index(NAME_HEADER), cells.index(BETA_HEADER)
+            continue
+        if len(row) <= max(i_beta, i_name):
+            continue
+        name, b = _norm(row[i_name]), _num(row[i_beta])
+        if name and b is not None and 0 < b < 5:
+            out[name] = b
+    return out
+
+
+_BETA_MEMO = {}
+
+
+def fetch_beta_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeout=12,
+                     user_agent="PortfolioDeepApp"):
+    """{industry: unlevered beta corrected for cash}. Memoized for an hour in-process
+    so a batch refresh reads the page (or its disk cache) once, not once per ticker."""
+    hit = _BETA_MEMO.get(cache_dir)
+    if hit and time.time() - hit[0] < 3600 and requests_mod is None:
+        return hit[1]
+    table = _fetch_table(BETA_URL, BETA_CACHE_FILE, parse_beta_html, BETA_FALLBACK, "beta",
+                         cache_dir, ttl_days, requests_mod, timeout, user_agent)
+    _BETA_MEMO[cache_dir] = (time.time(), table)
+    return table
+
+
+def industry_beta_for(ticker, sector, table=None):
+    """(unlevered beta, industry name) for a ticker, or (None, None) when unmapped.
+    Per-ticker industry first; a coarse sector hit is used as well (unlike the ROC
+    ceiling, a beta is a risk estimate, not a premium), and is labelled as such."""
+    table = table if table is not None else BETA_FALLBACK
+    key = (ticker or "").upper()
+    ind, precise = INDUSTRY_BY_TICKER.get(key), True
+    if not ind:
+        ind, precise = SECTOR_TO_INDUSTRY.get(_norm(sector)), False
+    if not ind:
+        return None, None
+    b = table.get(_norm(ind))
+    if b is None or b <= 0:
+        return None, None
+    return b, ind if precise else f"{ind} (sector-level)"
