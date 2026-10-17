@@ -76,25 +76,36 @@ def _ff(**kw):
 
 def test_f2_growth_is_forward_looking():
     from pipeline import normalize as N
-    f = _ff(fwd_growth_near=0.20, fwd_growth_far=0.10, n_analysts=30)
+    from sources import fmp
+    f = _ff(fwd_growth_y1=0.20, fwd_growth_near=0.10, fwd_growth_far=0.33, n_analysts=30, n_analysts_y2=25)
     N.resolve_growth(f)
     check(abs(f.growth_lt - 0.15) < 1e-9 and "consensus" in f.provenance["growth_lt"],
-          "a covered consensus revenue path replaces historical CAGR", repr(f.growth_lt))
-    f = _ff(fwd_growth_near=0.20, fwd_growth_far=0.10, n_analysts=2)
+          "consensus = mean of next-FY and the year after; the thin out-year is not used", repr(f.growth_lt))
+    f = _ff(fwd_growth_y1=0.20, fwd_growth_near=0.10, n_analysts=2, n_analysts_y2=2)
     N.resolve_growth(f)
     check(f.growth_lt != 0.15, "two analysts are not a consensus")
-    f = _ff()                                   # NVO: forward 3.40 < core 3.41
+    f = _ff()                                   # NVO: forward 3.40 vs core 3.41
     N.resolve_growth(f)
-    check(f.growth_lt == 0.0 and any("below core trailing EPS" in x for x in f.flags),
-          "forward EPS below core trailing EPS -> 0% growth, flagged (NVO 19.5% case)", repr(f.growth_lt))
+    check(f.growth_lt == 0.0 and any("capped" in x for x in f.flags),
+          "forward EPS below core trailing EPS caps growth at 0%, flagged (NVO 19.5% case)", repr(f.growth_lt))
+    lo, hi = _ff(forward_eps=3.48 * 4.4e9 / 4.4e9), _ff(forward_eps=3.50)
+    N.resolve_growth(lo); N.resolve_growth(hi)
+    check(abs(hi.growth_lt - lo.growth_lt) < 0.01, "a 2-cent EPS revision moves growth by < 1pt, not 0% <-> 19.5%",
+          "%r vs %r" % (lo.growth_lt, hi.growth_lt))
     f = _ff(forward_eps=15.0)                   # adjusted >> GAAP never raises growth
     N.resolve_growth(f)
     check(f.growth_lt == 0.195 and any("historical revenue CAGR" in x for x in f.flags),
           "with no forward growth, history is used and labelled historical")
-    f = _ff(fwd_growth_near=0.2, n_analysts=30)
+    f = _ff(fwd_growth_y1=0.2, n_analysts=30)
     f.set("growth_lt", 0.11, "yahoo")
     N.resolve_growth(f)
     check(f.growth_lt == 0.11, "an analyst 5y growth already set is kept")
+    rows = [{"date": d, "revenueAvg": r, "numberAnalystsEstimatedRevenue": n}
+            for d, r, n in (("2027-06-30", 360, 30), ("2028-06-30", 396, 25), ("2029-06-30", 436, 12),
+                            ("2030-06-30", 580, 2))]
+    p = fmp.parse_estimate_path(rows, "2026-06-30", latest_revenue=300)
+    check(p.get("fwd_growth_y1") == 0.2 and p.get("n_analysts_y2") == 25,
+          "the path now measures next-FY growth against the last actual year", repr(p))
 
 
 def test_f3_fundamental_peg_prices_today_not_next_year():
@@ -159,6 +170,13 @@ def test_n2_bottom_up_beta():
     young = FinancialFacts("RKLB", beta=2.1, beta_unlevered_industry=0.87, market_cap=40e9,
                            total_debt=0.4e9, operating_income=-0.2e9)
     check(E._bottom_up_beta(young, []) == 2.1, "a pre-profit firm keeps the higher regression beta")
+    tmdx = FinancialFacts("TMDX", beta=1.88, beta_unlevered_industry=0.86, market_cap=3e9, total_debt=0.5e9,
+                          operating_income=0.08e9, revenue=0.6e9,
+                          revenue_annuals=[0.605e9, 0.44e9, 0.24e9, 0.094e9])
+    check(E._bottom_up_beta(tmdx, []) == 1.88, "a small firm growing revenue >30%/yr keeps the higher beta")
+    axon = FinancialFacts("AXON", beta=1.40, beta_unlevered_industry=0.87, market_cap=45e9, total_debt=2e9,
+                          operating_income=0.02e9, revenue=2.5e9)
+    check(E._bottom_up_beta(axon, []) == 1.40, "an operating margin under 5% keeps the higher beta")
     check(E._bottom_up_beta(FinancialFacts("X", beta=1.3), []) == 1.3,
           "no industry mapping -> regression beta, unchanged")
 

@@ -306,7 +306,7 @@ def parse_quote(quote_json):
     }
 
 
-def parse_estimate_path(estimates, latest_fy=None):
+def parse_estimate_path(estimates, latest_fy=None, latest_revenue=None):
     rows = [e for e in (estimates or []) if isinstance(e, dict) and e.get("date")
             and _num(e, "revenueAvg") and _num(e, "revenueAvg") > 0]
     if len(rows) < 2:
@@ -321,6 +321,15 @@ def parse_estimate_path(estimates, latest_fy=None):
     if growths:
         out["fwd_growth_near"] = round(growths[0], 4)
         out["fwd_growth_far"] = round(growths[-1], 4)
+    # next-FY growth against the last ACTUAL year (the path above starts a year later),
+    # and the coverage of the second estimate year, which "near" rests on
+    if latest_revenue and latest_revenue > 0 and future and future[0]["date"] > (latest_fy or ""):
+        out["fwd_growth_y1"] = round(revs[0] / latest_revenue - 1, 4)
+    if len(future) > 1:
+        n2 = _num(future[1], "numberAnalystsEstimatedRevenue",
+                  "numberAnalystEstimatedRevenue", "numAnalystsRevenue")
+        if n2 is not None:
+            out["n_analysts_y2"] = int(n2)
     na = _num(future[0], "numberAnalystsEstimatedRevenue",
               "numberAnalystEstimatedRevenue", "numAnalystsRevenue")
     if na is not None:

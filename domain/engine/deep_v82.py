@@ -1072,6 +1072,26 @@ def relevered_beta(beta_unlevered, debt, equity_mktcap, marginal_tax=None):
     return beta_unlevered * (1 + (1 - t) * max(de, 0.0))
 
 
+# Below these a firm is still in its early, riskier stage, not the mature industry
+# its unlevered beta describes: an operating margin under 5% (the reverse DCF's
+# terminal-margin floor), or a small company growing revenue above 30% a year.
+EARLY_MARGIN, EARLY_GROWTH, EARLY_MAX_MCAP = 0.05, 0.30, 50e9
+
+
+def _early_stage(f, mcap):
+    oi, rev = f.operating_income, f.revenue
+    if oi is None or oi <= 0:
+        return "pre-profit"
+    if rev and oi / rev < EARLY_MARGIN:
+        return f"operating margin {oi / rev:.1%} (barely profitable)"
+    ann = f.revenue_annuals or []
+    if len(ann) > 3 and ann[3] and ann[3] > 0 and mcap and mcap < EARLY_MAX_MCAP:
+        cagr = (ann[0] / ann[3]) ** (1 / 3) - 1
+        if cagr > EARLY_GROWTH:
+            return f"small high-growth firm (3y revenue CAGR {cagr:.0%})"
+    return None
+
+
 def _bottom_up_beta(f, notes):
     """The beta Ke runs on. Industry unlevered beta re-levered at the firm's market D/E
     when the industry is known (Damodaran: a single-stock regression beta is too noisy,
@@ -1089,8 +1109,9 @@ def _bottom_up_beta(f, notes):
         # A pre-profit firm is riskier than the mature industry it will grow into
         # (Damodaran starts young firms at a high-growth beta that fades). The mature
         # industry beta alone would discount RKLB at ~8.6%, so it keeps the higher one.
-        if (f.operating_income is None or f.operating_income <= 0) and reg and reg > b:
-            _add_flag(f, why + f" - pre-profit, so the higher regression beta {reg:.2f} is used")
+        stage = _early_stage(f, mcap)
+        if stage and reg and reg > b:
+            _add_flag(f, why + f" - {stage}, so the higher regression beta {reg:.2f} is used")
             return reg
         _add_flag(f, why + (f" (regression beta {reg:.2f} kept as a cross-check)" if reg else ""))
         return b

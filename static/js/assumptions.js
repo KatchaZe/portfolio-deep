@@ -6,7 +6,7 @@ async function loadAssumptions(){
     const a=await (await fetch('/api/assumptions')).json();
     window._assume=a;   // renderAssumptions compares the Run Daily snapshot with these live values
     const src=(a.source||{});
-    el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':'default'})`+
+    el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':src.erp==='damodaran-live'?'Damodaran web':'default'})`+
       ` · PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'})`+
       (a.erp_stale?` <span style="color:#b45309;font-weight:700">⚑ ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');
     const e=document.getElementById('erpIn'), p=document.getElementById('peIn');

@@ -83,6 +83,8 @@ class FinancialFacts:
     fwd_growth_near: Optional[float] = None      # next-FY consensus revenue growth
     fwd_growth_far: Optional[float] = None       # final-FY consensus revenue growth (fade)
     n_analysts: Optional[int] = None             # consensus breadth (reliability gate)
+    fwd_growth_y1: Optional[float] = None        # next-FY consensus revenue vs last actual FY
+    n_analysts_y2: Optional[int] = None          # coverage of the second estimate year
     peer_median_growth: Optional[float] = None   # median revenue growth of the sector cohort
     terminal_roic_sector: Optional[float] = None  # Damodaran industry ROIC — perpetuity ceiling
     # Damodaran industry unlevered beta (corrected for cash) and the industry it came

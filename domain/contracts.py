@@ -62,7 +62,7 @@ CLOCK = {
     "ticker": STATIC, "company": STATIC, "sector": STATIC, "currency": STATIC,
     "fiscal_year": STATIC, "as_of": STATIC, "provenance": STATIC, "confidence": STATIC,
     "confidence_tier": STATIC, "flags": STATIC, "peers": STATIC, "n_analysts": STATIC,
-    "per_share_unit_ok": STATIC,
+    "per_share_unit_ok": STATIC, "n_analysts_y2": STATIC,
 
     # --- market, observed now ------------------------------------------------
     "price": SPOT, "market_cap": SPOT, "beta": SPOT, "own_pe_pctile": SPOT,
@@ -105,6 +105,7 @@ CLOCK = {
     "forward_eps_high": FORWARD, "forward_eps_spread_pct": FORWARD,
     "forward_eps_n": FORWARD, "forward_eps_sources": FORWARD,
     "growth_lt": FORWARD, "fwd_growth_near": FORWARD, "fwd_growth_far": FORWARD,
+    "fwd_growth_y1": FORWARD,
     "peer_median_growth": FORWARD, "terminal_roic_sector": FORWARD,
 }
 
@@ -152,7 +153,7 @@ UNIT = {
     "peer_median_growth": RATIO, "terminal_roic_sector": RATIO, "own_pe_pctile": RATIO,
     "forward_eps_spread_pct": RATIO, "confidence": RATIO,
     # counts
-    "n_analysts": COUNT, "forward_eps_n": COUNT,
+    "n_analysts": COUNT, "forward_eps_n": COUNT, "n_analysts_y2": COUNT, "fwd_growth_y1": RATIO,
     # text / structures
     "ticker": TEXT, "company": TEXT, "sector": TEXT, "currency": TEXT,
     "fiscal_year": TEXT, "as_of": TEXT, "provenance": TEXT, "confidence_tier": TEXT,

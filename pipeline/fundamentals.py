@@ -206,8 +206,11 @@ def _estimate_path(ff, t, fmp_key):
     try:
         estimates = fmp.fetch_estimates(t, fmp_key)
         calls = 1
-        path = fmp.parse_estimate_path(estimates, ff.fiscal_year)
-        for k in ("fwd_growth_near", "fwd_growth_far", "n_analysts"):
+        # FMP estimates are in the filer's reporting currency; the actual-year anchor is
+        # only comparable for a USD filer (ff money is FX-converted otherwise)
+        anchor = (ff.revenue_annuals or [None])[0] if not ff.provenance.get("fx") else None
+        path = fmp.parse_estimate_path(estimates, ff.fiscal_year, latest_revenue=anchor)
+        for k in ("fwd_growth_near", "fwd_growth_far", "n_analysts", "fwd_growth_y1", "n_analysts_y2"):
             if path.get(k) is not None:
                 ff.set(k, path[k], "fmp/estimates")
     except Exception as e:

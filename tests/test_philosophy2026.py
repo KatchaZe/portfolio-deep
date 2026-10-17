@@ -94,7 +94,11 @@ def test_lease_capitalized_into_ic_and_wacc():
 
 
 def test_assumptions_override():
-    orig = (config.ERP, config.ERP_AS_OF, config.MARKET_PE, config.MARKET_PE_AS_OF)
+    import tempfile
+    orig = (config.ERP, config.ERP_AS_OF, config.MARKET_PE, config.MARKET_PE_AS_OF,
+            config.ERP_SOURCE, config.CACHE_DIR)
+    # no cached live ERP may outrank the manual values this test sets
+    config.CACHE_DIR = tempfile.mkdtemp(prefix="no_live_erp_")
     try:
         s = {"assumptions": {}}
         a = st.set_assumptions(s, erp_pct=5.10, market_pe=30.5)
@@ -112,7 +116,8 @@ def test_assumptions_override():
         st._apply_assumptions({"assumptions": {"market_pe": "bad"}})
         print("assumptions store->config override OK")
     finally:
-        config.ERP, config.ERP_AS_OF, config.MARKET_PE, config.MARKET_PE_AS_OF = orig
+        (config.ERP, config.ERP_AS_OF, config.MARKET_PE, config.MARKET_PE_AS_OF,
+         config.ERP_SOURCE, config.CACHE_DIR) = orig
 
 
 def test_portfolio_returns_missing_series():

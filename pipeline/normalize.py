@@ -218,31 +218,34 @@ def resolve_growth(ff):
     were valued on historical revenue CAGR, NVO on 19.5% while its 2026 guidance was a
     5-13% sales decline. Ladder:
       1. Yahoo +5y analyst growth (already set by normalize), or FMP's own estimate.
-      2. FMP consensus revenue path: mean of next-FY and final-FY growth, when at least
-         MIN_ANALYSTS_FOR_PATH analysts cover the first year.
-      3. No forward growth: if consensus forward EPS sits BELOW core trailing EPS
-         (min(NI, NOPAT) per share) analysts expect earnings to fall, so 0%. The pair
-         mixes adjusted and GAAP bases, so it may only pull growth down, never up.
-      4. Otherwise historical revenue CAGR, flagged as such."""
+      2. FMP consensus revenue: the mean of next-FY growth (vs the last actual year) and
+         the year after, each used only with >= MIN_ANALYSTS_FOR_PATH analysts. The
+         final, thinly covered out-year is not used.
+      3. Otherwise historical revenue CAGR, CAPPED by the one-year EPS growth analysts
+         expect (forward EPS / core trailing EPS - 1, floored at 0). Continuous: a
+         few cents of consensus revision moves growth a little, never 0% <-> 19.5%.
+         The pair mixes adjusted and GAAP bases, so it may only pull growth down."""
     if ff.provenance.get("growth_lt") not in (None, HISTORICAL_GROWTH):
         return
-    near, far, n = ff.fwd_growth_near, ff.fwd_growth_far, ff.n_analysts
-    if near is not None and (n or 0) >= MIN_ANALYSTS_FOR_PATH:
-        g = near if far is None else (near + far) / 2
+    path = [g for g, n in ((ff.fwd_growth_y1, ff.n_analysts), (ff.fwd_growth_near, ff.n_analysts_y2))
+            if g is not None and (n or 0) >= MIN_ANALYSTS_FOR_PATH]
+    if path:
+        g = sum(path) / len(path)
         ff.set("growth_lt", round(g, 4),
-               f"consensus revenue path (fmp, next FY {near:+.1%}, final FY {(far if far is not None else near):+.1%}, "
-               f"{n} analysts)")
+               "consensus revenue path (fmp, " + " / ".join(f"{x:+.1%}" for x in path)
+               + f", {ff.n_analysts} analysts)")
         return
     hist = ff.growth_lt
-    fwd = ff.forward_eps
-    core = _core_eps(ff)
-    if (fwd is not None and core and core > 0 and fwd < core
+    fwd, core = ff.forward_eps, _core_eps(ff)
+    cap = None
+    if (fwd is not None and core and core > 0
             and not str(ff.provenance.get("forward_eps", "")).startswith("sec-derived")):
-        ff.set("growth_lt", 0.0, f"forward EPS {fwd:.2f} below core trailing EPS {core:.2f}")
-        ff.flags.append(f"growth set to 0%: analysts' forward EPS ({fwd:.2f}) is below core trailing "
-                        f"EPS ({core:.2f}); historical revenue CAGR {hist:.1%} not used"
-                        if hist is not None else
-                        f"growth set to 0%: analysts' forward EPS ({fwd:.2f}) is below core trailing EPS ({core:.2f})")
+        cap = max(0.0, fwd / core - 1)
+    if hist is not None and cap is not None and cap < hist:
+        ff.set("growth_lt", round(cap, 4),
+               f"historical CAGR capped by forward/core EPS ({fwd:.2f}/{core:.2f})")
+        ff.flags.append(f"growth {cap:.1%}: historical revenue CAGR {hist:.1%} capped by the one-year "
+                        f"EPS growth analysts expect (forward {fwd:.2f} vs core trailing {core:.2f})")
         return
     if hist is not None:
         ff.flags.append(f"growth = historical revenue CAGR {hist:.1%} (no forward estimate found)")
