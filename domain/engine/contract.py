@@ -48,6 +48,13 @@ class Valuation:
     eq_verdict: Optional[str] = None                   # earnings-quality: CLEAN / REVIEW / LOW
     subscores: dict = field(default_factory=dict)      # per-pillar rubric breakdown (audit trail)
 
+    # --- model router (domain/company_type.py) --------------------------------
+    company_type: Optional[str] = None                 # financial / young / cyclical / standard
+    fv_dcf: Optional[float] = None                     # FCFF DCF per share (operating companies)
+    fv_excess_return: Optional[float] = None           # excess-return value per share (financials)
+    dcf: dict = field(default_factory=dict)            # fcff_dcf.value() result: inputs, path, sources
+    excess_return: dict = field(default_factory=dict)  # financial.value() result
+
     verdict: str = ""                                  # short ifa-style summary line
     flags: list = field(default_factory=list)
 

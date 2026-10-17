@@ -69,8 +69,11 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     fmp_calls += _surprise_backfill(ff, t, fmp_key)
     _blend_forward_eps(ff, t, estimates)
     _own_pe_percentile(ff, t)
+    _industry(ff, t)
     _terminal_roic(ff, t, roc_table)
     _industry_beta(ff, t)
+    _industry_operating(ff)
+    _country_risk(ff, t)
 
     validate.validate(ff, rf=rf)
     normalize.resolve_growth(ff)
@@ -295,11 +298,26 @@ def _own_pe_percentile(ff, t):
         log.warning("%s own-PE percentile failed: %s", t, e)
 
 
+def _industry(ff, t):
+    """Resolve the Damodaran industry once; every industry-level input reads it."""
+    from sources.industries import industry_for
+    ind, basis = industry_for(t, ff.industry, ff.sector)
+    if ind:
+        ff.set("damodaran_industry", ind, "industries:" + basis)
+        ff.set("industry_basis", basis, "industries")
+        if basis in ("keyword", "sector"):
+            ff.flags.append(f"industry '{ind}' inferred from the {basis} "
+                            f"({ff.industry or ff.sector}) - add {t} to INDUSTRY_BY_TICKER if wrong")
+    else:
+        ff.flags.append("industry unknown (no FMP profile) - industry beta, margin and "
+                        "terminal ROIC fall back to firm-level or market values")
+
+
 def _terminal_roic(ff, t, roc_table):
     """Excess returns fade toward what the INDUSTRY sustains (Damodaran), not a
     flat ceiling."""
     try:
-        sec_roic = damodaran.terminal_roic_for(t, ff.sector, roc_table)
+        sec_roic = damodaran.terminal_roic_for(t, ff.sector, roc_table, fmp_industry=ff.industry)
         if sec_roic:
             ff.set("terminal_roic_sector", round(sec_roic, 4), "damodaran-roc")
     except Exception as e:
@@ -313,12 +331,51 @@ def _industry_beta(ff, t):
     try:
         table = damodaran.fetch_beta_table(cache_dir=config.CACHE_DIR,
                                            user_agent=config.SEC_USER_AGENT)
-        bu, industry = damodaran.industry_beta_for(t, ff.sector, table)
+        bu, industry = damodaran.industry_beta_for(t, ff.sector, table, fmp_industry=ff.industry)
         if bu:
             ff.set("beta_unlevered_industry", round(bu, 4), "damodaran-betas")
             ff.set("beta_industry", industry, "damodaran-betas")
     except Exception as e:
         log.warning("%s industry beta lookup failed: %s", t, e)
+
+
+def _industry_operating(ff):
+    """Industry operating margin and sales-to-capital (Damodaran), for the young DCF's
+    target margin and the FCFF DCF's reinvestment band."""
+    if not ff.damodaran_industry:
+        return
+    from sources.industries import industry_mix
+    mix = industry_mix(ff.ticker)
+    try:
+        m = damodaran.industry_value(damodaran.fetch_margin_table(cache_dir=config.CACHE_DIR,
+                                                                  user_agent=config.SEC_USER_AGENT),
+                                     ff.damodaran_industry, mix)
+        if m is not None:
+            ff.set("industry_margin", round(m, 4), "damodaran-margins")
+        s2c = damodaran.industry_value(damodaran.fetch_s2c_table(cache_dir=config.CACHE_DIR,
+                                                                 user_agent=config.SEC_USER_AGENT),
+                                       ff.damodaran_industry, mix, skip_financial=True)
+        if s2c is not None:
+            ff.set("industry_sales_to_capital", round(s2c, 3), "damodaran-capex")
+    except Exception as e:
+        log.warning("%s industry margin / sales-to-capital lookup failed: %s", ff.ticker, e)
+
+
+def _country_risk(ff, t):
+    """Country risk premium over the US, weighted by where the revenue is earned
+    (config.REVENUE_MIX), else by the FMP domicile."""
+    from sources import country_risk
+    try:
+        table = country_risk.fetch_crp_table(cache_dir=config.CACHE_DIR,
+                                            user_agent=config.SEC_USER_AGENT)
+        crp, basis = country_risk.crp_for(t, ff.country, table)
+        if crp is not None:
+            ff.set("crp", round(crp, 5), "damodaran-ctryprem")
+            ff.set("crp_basis", basis, "damodaran-ctryprem")
+        if crp is None or "holding jurisdiction" in basis:
+            ff.flags.append(f"country risk: {basis}")
+    except Exception as e:
+        log.warning("%s country risk lookup failed: %s", t, e)
 
 
 def compute_peer_medians(fetched):

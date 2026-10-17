@@ -1,7 +1,18 @@
 // Value blocks on a holding card: anchor fair value, upside, the price-vs-value gauge,
 // the pre-profit (S20) panel and the reverse-DCF "priced-in" line.
 
-function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Young-Company DCF (failure-adjusted)','YoungDCF').replace('Future Value Projection','FVP').replace('Justified PEG','PEG')}
+function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','RevDCF').replace('Young-Company DCF (failure-adjusted)','YoungDCF').replace('Future Value Projection','FVP').replace('Fundamental PEG','PEG').replace('Justified PEG','PEG').replace('Excess Return Model','ExRet').replace('FCFF DCF','DCF')}
+// what the FCFF DCF assumed, for the hover on its value
+function dcfTip(x){
+  const k=x.key_metrics||{}, s=(x.dcf||{}).sources||{};
+  const parts=['FCFF DCF (Damodaran): revenue growth '+(k.dcf_growth_pct??'?')+'%/y 5y แล้วค่อยลดสู่ระยะยาว'+(s.growth?' ('+s.growth+')':''),
+    'operating margin เป้าหมาย '+(k.dcf_margin_target_pct??'?')+'%',
+    'sales-to-capital '+(k.dcf_sales_to_capital??'?')+(s.sales_to_capital?' ('+s.sales_to_capital+')':''),
+    'terminal value = '+(k.dcf_terminal_share_pct??'?')+'% ของมูลค่า'];
+  if(k.crp_pct!=null)parts.push('country risk +'+k.crp_pct+'% ('+(k.crp_basis||'')+')');
+  if(k.company_type&&k.company_type!=='standard')parts.push('model: '+k.company_type);
+  return parts.join(' · ');
+}
 // "Ambitious — needs 31%/y ..." -> "Ambitious"
 function verdictHead(v){return (v||'').split('—')[0].trim();}
 
@@ -22,17 +33,21 @@ function anchorCell(x){
   if(x.rev_implied_cagr!=null)return `<span style="font-size:calc(11px*var(--fs));color:#7c3aed;font-weight:700">RevDCF</span>${consensusBadge(x)}<div style="font-size:calc(9px*var(--fs));color:#7c3aed">implies ${x.rev_implied_cagr}% CAGR</div>${altLine}`;
   return MUTED_DASH+altLine;
 }
-// Every computed method (FVP, PEG); ★ marks the anchor behind Upside. When the two are
+// Every computed method (DCF / ExRet, FVP, PEG); ★ marks the anchor behind Upside. When the two are
 // far apart the low–high span is a method conflict, not a confidence band, so say so.
 function fairValueAlternatives(x,anchor){
   const alts=[];
+  if(x.fv_dcf!=null){const bad=(x.dcf||{}).discarded;
+    alts.push([bad?'DCF✗':'DCF',x.fv_dcf,bad?'ตัดทิ้ง: '+bad+' — น่าจะมาจาก input ที่ผิดปกติ (เช่น EBIT ที่มีรายการพิเศษ) ไม่ได้ใช้คิด upside และไม่อยู่ในช่วง low–high · '+dcfTip(x):dcfTip(x)]);}
+  if(x.fv_excess_return!=null)alts.push(['ExRet',x.fv_excess_return,'Excess-return model (ธนาคาร/ประกัน): book equity + PV ของ (ROE − Ke) × book equity']);
   if(x.fv_fvp!=null)alts.push(['FVP',x.fv_fvp]);
   if(x.fv_peg!=null)alts.push(['PEG',x.fv_peg]);
   if(!alts.length)return '';
   const dx=(x.key_metrics||{}).fv_disagreement_x;
   const clash=dx?` <span style="color:#b45309;font-weight:700;cursor:help" title="${esc('สองวิธีให้คำตอบห่างกัน '+dx+' เท่า — ช่วง low–high นี้คือ "วิธีไม่ตรงกัน" ไม่ใช่ "ช่วงความมั่นใจ" ให้ยึดวิธีหลัก (★) และอ่าน flag ประกอบ')}">&#9888; ต่างกัน ${dx}&times;</span>`:'';
   return `<div class="muted" style="font-size:calc(9px*var(--fs));margin-top:1px" title="Fair Value จากทุกวิธีที่คำนวณได้ — ★ = วิธีหลักที่เลือกใช้คิด Upside (ตาม methodology verdict)">`
-    + alts.map(a=>`${a[0]===anchor?'&#9733;':''}${a[0]} $${Number(a[1]).toFixed(2)}`).join(' · ')+clash+`</div>`;
+    + alts.map(a=>{const t=`${a[0]===anchor?'&#9733;':''}${a[0]} $${Number(a[1]).toFixed(2)}`;
+        return a[2]?`<span title="${esc(a[2])}" style="cursor:help">${t}</span>`:t;}).join(' · ')+clash+`</div>`;
 }
 function upsideCell(x){
   if(x.upside_pct!=null){

@@ -250,6 +250,8 @@ def parse_profile(profile_json):
         "price": _num(p, "price"),
         "company": _num(p, "companyName"),
         "currency": _num(p, "currency"),
+        "industry": _num(p, "industry"),
+        "country": _num(p, "country"),
     }
 
 
@@ -376,6 +378,8 @@ def parse(bundle, facts):
 
     facts.set("company", _num(prof, "companyName"), SRC)
     facts.set("sector", _num(prof, "sector"), SRC)
+    facts.set("industry", _num(prof, "industry"), SRC)
+    facts.set("country", _num(prof, "country"), SRC)
     facts.set("beta", _num(prof, "beta"), SRC)
     facts.set("dividend_ps", _num(prof, "lastDiv"), SRC)   # dividend-aware split-only warning
     facts.set("price", _num(quote, "price") or _num(prof, "price"), SRC)

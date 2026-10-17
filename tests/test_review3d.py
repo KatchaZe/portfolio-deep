@@ -176,8 +176,9 @@ def test_no_false_disagreement_when_methods_agree():
     f = _facts(revenue=100e9, operating_income=25e9,
                revenue_annuals=[100e9, 90e9], operating_income_annuals=[25e9, 22e9])
     v = E.DeepV82Engine().evaluate(f, rf=0.045)
-    if v.fv_peg and v.fv_fvp:
-        ratio = max(v.fv_peg, v.fv_fvp) / min(v.fv_peg, v.fv_fvp)
+    pts = [x for x in (v.fv_dcf, v.fv_excess_return, v.fv_peg, v.fv_fvp) if x and x > 0]
+    if len(pts) >= 2:
+        ratio = max(pts) / min(pts)
         if ratio < E.FV_DISAGREE_RATIO:
             check(v.key_metrics.get("fv_disagreement_x") is None,
                   "no flag when the two methods are close", f"ratio {ratio:.2f}")

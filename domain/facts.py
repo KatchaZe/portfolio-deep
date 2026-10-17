@@ -91,6 +91,25 @@ class FinancialFacts:
     # from — the engine re-levers it at the firm's market D/E (bottom-up beta).
     beta_unlevered_industry: Optional[float] = None
     beta_industry: Optional[str] = None
+    # Where the company sits, for every industry- and country-level input. `industry`
+    # and `country` are the FMP profile's own labels; `damodaran_industry` is the
+    # resolved Damodaran industry and `industry_basis` how it was resolved
+    # (override / industry / keyword / sector, see sources/industries.py).
+    industry: Optional[str] = None
+    country: Optional[str] = None
+    damodaran_industry: Optional[str] = None
+    industry_basis: Optional[str] = None
+    # Industry operating margin and sales-to-capital (Damodaran datasets): the young
+    # DCF's target margin and the FCFF DCF's reinvestment band for any new name.
+    industry_margin: Optional[float] = None
+    industry_sales_to_capital: Optional[float] = None
+    # Country risk premium over the US, weighted by where revenue is earned, and how
+    # the weights were set (revenue-mix override, or the domicile alone).
+    crp: Optional[float] = None
+    crp_basis: Optional[str] = None
+    # "us-gaap" or "ifrs" (SEC companyfacts namespace). Under US GAAP the whole
+    # operating-lease cost sits in EBIT; under IFRS 16 its interest is below EBIT.
+    accounting_standard: Optional[str] = None
     # Market cap as reported for the US-LISTED security. Quoted in the same unit as
     # `price`, so for an ADR it already embeds the depositary ratio — which is why it
     # beats price x SEC-share-count for foreign filers (TSM files 25.9B ORDINARY

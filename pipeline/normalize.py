@@ -103,6 +103,8 @@ def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rat
 def _apply_fmp_profile(ff, fmp_profile):
     p = fmp.parse_profile(fmp_profile)
     ff.set("sector", p.get("sector"), "fmp")
+    ff.set("industry", p.get("industry"), "fmp")
+    ff.set("country", p.get("country"), "fmp")
     ff.set("beta", p.get("beta"), "fmp")
     ff.set("price", p.get("price"), "fmp")
     if not ff.company:

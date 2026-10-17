@@ -150,45 +150,10 @@ Utility (Water)|7.25|7.04
 Total Market (without financials)|15.07|14.92
 """
 
-# Damodaran classifies companies into the industries above; FMP's 11 GICS-style
-# sectors are far too coarse (one "Healthcare" bucket holds LLY at 17.0% and
-# REGN at 3.5%). Explicit per-ticker mapping wins; the sector map is the fallback
-# for anything not listed. Keys must match FALLBACK_RAW names exactly.
-INDUSTRY_BY_TICKER = {
-    "MSFT": "Software (System & Application)", "ORCL": "Software (System & Application)",
-    "GOOGL": "Advertising", "GOOG": "Advertising", "META": "Advertising",
-    "NVDA": "Semiconductor", "AVGO": "Semiconductor", "TSM": "Semiconductor",
-    "AMD": "Semiconductor", "MU": "Semiconductor", "INTC": "Semiconductor",
-    "ASML": "Semiconductor Equip", "AMAT": "Semiconductor Equip", "LRCX": "Semiconductor Equip",
-    "LLY": "Drugs (Pharmaceutical)", "PFE": "Drugs (Pharmaceutical)",
-    "ABBV": "Drugs (Pharmaceutical)", "NVO": "Drugs (Pharmaceutical)",
-    "MRK": "Drugs (Pharmaceutical)", "JNJ": "Drugs (Pharmaceutical)",
-    "REGN": "Drugs (Biotechnology)", "VRTX": "Drugs (Biotechnology)",
-    "AMGN": "Drugs (Biotechnology)", "MRNA": "Drugs (Biotechnology)",
-    "UNH": "Healthcare Support Services", "ELV": "Healthcare Support Services",
-    "CI": "Healthcare Support Services", "CVS": "Healthcare Support Services",
-    "HIMS": "Heathcare Information and Technology",   # sic — his spelling
-    "TMDX": "Healthcare Products", "ISRG": "Healthcare Products",
-    "AXON": "Aerospace/Defense", "RKLB": "Aerospace/Defense", "LMT": "Aerospace/Defense",
-    "TSLA": "Auto & Truck", "GM": "Auto & Truck", "F": "Auto & Truck",
-    "CELH": "Beverage (Soft)", "KO": "Beverage (Soft)", "PEP": "Beverage (Soft)",
-    "MELI": "Retail (General)", "AMZN": "Retail (General)",
-    "AAPL": "Computers/Peripherals",
-}
-
-SECTOR_TO_INDUSTRY = {
-    "technology": "Software (System & Application)",
-    "healthcare": "Drugs (Pharmaceutical)",
-    "communication services": "Advertising",
-    "consumer cyclical": "Retail (General)",
-    "consumer defensive": "Food Processing",
-    "industrials": "Machinery",
-    "energy": "Oil/Gas (Production and Exploration)",
-    "basic materials": "Chemical (Specialty)",
-    "utilities": "Utility (General)",
-    "real estate": "R.E.I.T.",
-    "financial services": "Investments & Asset Management",
-}
+# Which industry a ticker belongs to is decided in sources/industries.py (per-ticker
+# override, then the FMP industry, then keywords, then the sector) for every caller.
+from sources.industries import FINANCIAL_INDUSTRIES, industry_for, industry_mix   # noqa: E402
+from sources import damodaran_snapshot as _snap  # noqa: E402
 
 
 def _norm(name):
@@ -339,31 +304,29 @@ def _fetch_table(url, cache_file, parse, fallback, label, cache_dir=None, ttl_da
 MARKET_DEFAULT = 0.1492
 
 
-def terminal_roic_for(ticker, sector, table=None):
+def terminal_roic_for(ticker, sector, table=None, fmp_industry=None):
     """Industry terminal-ROIC ceiling for a ticker, or None when unmapped.
 
     None means 'no industry view' — the engine then keeps its global default
     rather than inventing a number.
 
-    A hit on SECTOR_TO_INDUSTRY is NOT an industry view. FMP's eleven
-    GICS-style sectors are far coarser than Damodaran's ninety-odd industries, so
-    mapping the whole "healthcare" bucket onto Drugs (Pharmaceutical) at 23.52%
-    hands every unmapped healthcare name the ceiling of one of its most profitable
-    corners — the exact "constant applied to everyone" shape this codebase keeps
-    paying for. A coarse hit is now capped at the market-average normalized ROIC, so
-    it can still pull a company DOWN but can never gift it a premium it has not been
-    shown to earn. An explicit per-ticker mapping is unaffected."""
+    Only a company-level mapping (per-ticker override or the FMP industry) is an
+    industry view. A keyword guess or the eleven-bucket sector is coarse: mapping the
+    whole "healthcare" bucket onto Drugs (Pharmaceutical) at 23.52% would hand every
+    unmapped healthcare name the ceiling of one of its most profitable corners. A
+    coarse hit is capped at the market-average normalized ROIC, so it can pull a
+    company DOWN but never gift it a premium it has not been shown to earn."""
     table = table if table is not None else FALLBACK
-    key = (ticker or "").upper()
-    ind, precise = INDUSTRY_BY_TICKER.get(key), True
-    if not ind:
-        ind, precise = SECTOR_TO_INDUSTRY.get(_norm(sector)), False
+    mix = industry_mix(ticker)
+    if mix:
+        return mixed_value(table, mix)
+    ind, basis = industry_for(ticker, fmp_industry, sector)
     if not ind:
         return None
     v = table.get(_norm(ind))
     if v is None or v <= 0:
         return None
-    if not precise:
+    if basis in ("sector", "keyword"):
         market = table.get(_norm("Total Market (without financials)")) or MARKET_DEFAULT
         return min(v, market)
     return v
@@ -382,78 +345,62 @@ BETA_HEADER = "unlevered beta corrected for cash"
 # The page un-levers at the US marginal rate, so re-levering uses the same rate.
 MARGINAL_TAX_US = 0.25
 
-# January 2026 snapshot. Format: industry | beta | D/E | effective tax | unlevered
-# beta | cash/firm value | unlevered beta corrected for cash (the column used).
-BETA_FALLBACK_RAW = """
-Advertising|1.21|40.20|5.02|0.93|7.73|1.01
-Aerospace/Defense|0.95|15.56|11.58|0.85|2.61|0.87
-Auto & Truck|1.46|19.70|3.74|1.27|2.99|1.31
-Beverage (Soft)|0.64|20.59|6.85|0.56|3.44|0.58
-Chemical (Specialty)|0.97|29.88|13.68|0.79|3.91|0.82
-Computers/Peripherals|1.35|4.62|5.91|1.31|1.47|1.32
-Drugs (Biotechnology)|1.14|13.04|1.08|1.03|4.20|1.08
-Drugs (Pharmaceutical)|0.98|14.54|2.99|0.89|3.16|0.92
-Food Processing|0.61|43.73|10.37|0.46|2.56|0.47
-Healthcare Products|0.91|12.79|4.85|0.83|3.25|0.86
-Healthcare Support Services|0.87|35.43|9.80|0.69|7.51|0.74
-Heathcare Information and Technology|1.11|15.74|6.38|0.99|2.46|1.02
-Investments & Asset Management|0.66|32.69|3.53|0.53|9.92|0.59
-Machinery|0.96|14.69|13.37|0.87|2.91|0.89
-Oil/Gas (Production and Exploration)|0.72|37.59|6.66|0.56|2.73|0.58
-R.E.I.T.|0.64|84.46|1.58|0.39|1.91|0.40
-Retail (General)|0.81|7.94|19.10|0.76|2.68|0.78
-Semiconductor|1.52|2.59|5.11|1.49|1.02|1.50
-Semiconductor Equip|1.40|4.86|9.96|1.35|3.13|1.39
-Software (System & Application)|1.28|5.58|5.51|1.23|1.83|1.25
-Utility (General)|0.24|81.48|12.77|0.15|0.33|0.15
-Total Market|0.91|35.17|8.30|0.72|4.50|0.76
-Total Market (without financials)|0.99|17.29|7.10|0.88|2.60|0.90
-"""
-
-
-def _beta_fallback():
-    out = {}
-    for line in BETA_FALLBACK_RAW.strip().splitlines():
-        parts = line.split("|")
-        if len(parts) == 7:
-            try:
-                out[_norm(parts[0])] = float(parts[6])
-            except ValueError:
-                continue
-    return out
-
-
-BETA_FALLBACK = _beta_fallback()
-
-
 def _num(text):
-    t = (text or "").replace(",", "").strip()
+    t = (text or "").replace(",", "").replace("$", "").strip()
     try:
         return float(t)
     except ValueError:
         return None
 
 
-def parse_beta_html(html):
-    """Betas.html -> {normalized industry: unlevered beta corrected for cash}.
-    Located by header text; {} when the header is absent (the caller keeps the
-    previous snapshot rather than guessing a column)."""
+def _snapshot_column(raw, header, match, conv):
+    """{normalized industry: value} from one column of a bundled snapshot
+    (sources/damodaran_snapshot.py), the column found by `match(header cell)`."""
+    i = next(k for k, h in enumerate(header) if match(_norm(h)))
+    out = {}
+    for line in raw.strip().splitlines():
+        cells = line.split("|")
+        if len(cells) == len(header):
+            v = conv(cells[i])
+            if v is not None:
+                out[_norm(cells[0])] = v
+    return out
+
+
+def _parse_by_header(html, match, conv, valid=lambda v: True):
+    """{normalized industry: value} from a dataset page, the value column located by
+    `match(normalized header cell)`. {} when the header is absent, so the caller keeps
+    the previous snapshot rather than guessing a column."""
     p = _TableParser()
     p.feed(html)
-    i_name = i_beta = None
+    i_name = i_val = None
     out = {}
     for row in p.rows:
         cells = [_norm(c) for c in row]
-        if i_beta is None:
-            if NAME_HEADER in cells and BETA_HEADER in cells:
-                i_name, i_beta = cells.index(NAME_HEADER), cells.index(BETA_HEADER)
+        if i_val is None:
+            hit = [k for k, c in enumerate(cells) if match(c)]
+            if NAME_HEADER in cells and hit:
+                i_name, i_val = cells.index(NAME_HEADER), hit[0]
             continue
-        if len(row) <= max(i_beta, i_name):
+        if len(row) <= max(i_val, i_name):
             continue
-        name, b = _norm(row[i_name]), _num(row[i_beta])
-        if name and b is not None and 0 < b < 5:
-            out[name] = b
+        name, v = _norm(row[i_name]), conv(row[i_val])
+        if name and v is not None and valid(v):
+            out[name] = v
     return out
+
+
+def _beta_fallback():
+    return _snapshot_column(_snap.BETAS, _snap.BETAS_HEADER, lambda h: h == BETA_HEADER,
+                            lambda t: _num(t))
+
+
+BETA_FALLBACK = _beta_fallback()
+
+
+def parse_beta_html(html):
+    """Betas.html -> {normalized industry: unlevered beta corrected for cash}."""
+    return _parse_by_header(html, lambda h: h == BETA_HEADER, _num, lambda b: 0 < b < 5)
 
 
 _BETA_MEMO = {}
@@ -472,21 +419,126 @@ def fetch_beta_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeo
     return table
 
 
-def industry_beta_for(ticker, sector, table=None):
-    """(unlevered beta, industry name) for a ticker, or (None, None) when unmapped.
-    Per-ticker industry first; a coarse sector hit is used as well (unlike the ROC
-    ceiling, a beta is a risk estimate, not a premium), and is labelled as such."""
+def industry_beta_for(ticker, sector, table=None, fmp_industry=None):
+    """(unlevered beta, industry label) for a ticker, or (None, None) when unmapped.
+    A coarse (sector/keyword) hit is used as well, since a beta is a risk estimate,
+    not a premium, and is labelled as such."""
     table = table if table is not None else BETA_FALLBACK
-    key = (ticker or "").upper()
-    ind, precise = INDUSTRY_BY_TICKER.get(key), True
-    if not ind:
-        ind, precise = SECTOR_TO_INDUSTRY.get(_norm(sector)), False
+    mix = industry_mix(ticker)
+    if mix:
+        # a lender's unlevered beta is un-levered over its funding debt (0.33 for
+        # Financial Svcs): averaged in, it would understate an operating firm's risk
+        op = {k: w for k, w in mix.items() if k not in FINANCIAL_INDUSTRIES} or mix
+        b = mixed_value(table, op)
+        lbl = mix_label(op) + (" (financial business excluded: its beta is a lender's)"
+                               if len(op) < len(mix) else "")
+        return (b, lbl) if b else (None, None)
+    ind, basis = industry_for(ticker, fmp_industry, sector)
     if not ind:
         return None, None
     b = table.get(_norm(ind))
     if b is None or b <= 0:
         return None, None
-    return b, ind if precise else f"{ind} (sector-level)"
+    return b, ind if basis in ("override", "industry") else f"{ind} ({basis}-level)"
+
+
+# --------------------------------------------------------------------------- #
+#  Industry operating margin and sales-to-capital (margin.html, capex.html)     #
+# --------------------------------------------------------------------------- #
+# The FCFF DCF needs two industry anchors: the operating margin a pre-profit firm
+# converges on, and the sales-to-capital ratio that turns revenue growth into
+# reinvestment. The margin is the PRE-TAX UNADJUSTED operating margin, the same
+# EBIT / revenue the engine measures for the firm itself. margin.html scrambles some
+# column labels in its source, so the column is found by keywords, not exact text.
+MARGIN_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/margin.html"
+MARGIN_CACHE_FILE = "damodaran_margin.json"
+S2C_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/capex.html"
+S2C_CACHE_FILE = "damodaran_s2c.json"
+
+
+def _is_margin_col(h):
+    return "pre-tax" in h and "unadjusted" in h and "margin" in h
+
+
+def _is_s2c_col(h):
+    return "sales/" in h.replace(" ", "") and "invested capital" in h
+
+
+def _pct_signed(text):
+    v = _pct(text)
+    return v if v is not None and -1.0 < v < 1.0 else None
+
+
+MARGIN_FALLBACK = _snapshot_column(_snap.MARGINS, _snap.MARGINS_HEADER, _is_margin_col, _pct_signed)
+S2C_FALLBACK = _snapshot_column(_snap.CAPEX, _snap.CAPEX_HEADER, _is_s2c_col, _num)
+
+
+def parse_margin_html(html):
+    return _parse_by_header(html, _is_margin_col, _pct_signed)
+
+
+def parse_s2c_html(html):
+    return _parse_by_header(html, _is_s2c_col, _num, lambda v: 0 < v < 50)
+
+
+_TABLE_MEMO = {}
+
+
+def _memo_fetch(key, cache_dir, fetch):
+    hit = _TABLE_MEMO.get((key, cache_dir))
+    if hit and time.time() - hit[0] < 3600:
+        return hit[1]
+    table = fetch()
+    _TABLE_MEMO[(key, cache_dir)] = (time.time(), table)
+    return table
+
+
+def fetch_margin_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeout=12,
+                       user_agent="PortfolioDeepApp"):
+    """{industry: pre-tax unadjusted operating margin}. Never raises."""
+    go = lambda: _fetch_table(MARGIN_URL, MARGIN_CACHE_FILE, parse_margin_html,  # noqa: E731
+                              MARGIN_FALLBACK, "margin", cache_dir, ttl_days, requests_mod,
+                              timeout, user_agent)
+    return go() if requests_mod is not None else _memo_fetch("margin", cache_dir, go)
+
+
+def fetch_s2c_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeout=12,
+                    user_agent="PortfolioDeepApp"):
+    """{industry: sales / invested capital (LTM)}. Never raises."""
+    go = lambda: _fetch_table(S2C_URL, S2C_CACHE_FILE, parse_s2c_html,  # noqa: E731
+                              S2C_FALLBACK, "s2c", cache_dir, ttl_days, requests_mod,
+                              timeout, user_agent)
+    return go() if requests_mod is not None else _memo_fetch("s2c", cache_dir, go)
+
+
+def industry_value(table, industry, mix=None, skip_financial=False):
+    """The table's value for a Damodaran industry name, or the business-mix weighted
+    value when the company runs several (config.INDUSTRY_MIX). None when unknown.
+    `skip_financial` leaves lending businesses out of a balance-sheet ratio (sales to
+    capital 0.07 is a loan book, not the capital an operating business needs)."""
+    if mix:
+        if skip_financial:
+            mix = {k: w for k, w in mix.items() if k not in FINANCIAL_INDUSTRIES} or mix
+        return mixed_value(table, mix)
+    if not table or not industry:
+        return None
+    return table.get(_norm(industry))
+
+
+def mixed_value(table, mix):
+    """Weighted average over a {industry: weight} business mix (Damodaran's bottom-up
+    beta for a multi-business firm), re-weighted over the industries the table has."""
+    if not table:
+        return None
+    vals = [(w, table.get(_norm(ind))) for ind, w in mix.items()]
+    vals = [(w, v) for w, v in vals if v is not None and w > 0]
+    wsum = sum(w for w, _ in vals)
+    return sum(w * v for w, v in vals) / wsum if wsum else None
+
+
+def mix_label(mix):
+    tot = sum(mix.values()) or 1.0
+    return " + ".join(f"{ind} {w / tot:.0%}" for ind, w in sorted(mix.items(), key=lambda kv: -kv[1]))
 
 
 # --------------------------------------------------------------------------- #

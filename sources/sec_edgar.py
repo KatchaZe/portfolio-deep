@@ -92,6 +92,8 @@ class _Xbrl:
 
     def __init__(self, facts):
         self.ns = facts.get("us-gaap") or facts.get("ifrs-full") or {}
+        self.standard = ("us-gaap" if facts.get("us-gaap") else
+                         "ifrs" if facts.get("ifrs-full") else None)
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
 
     def entries(self, concept, prefer=USD):
@@ -679,6 +681,7 @@ def extract(companyfacts):
     at = _Anchor(x.latest_end(rev_concept), fy_ends)
     return {
         "currency": x.currency(rev_concept) or "USD",
+        "accounting_standard": x.standard,
         "latest_period_end": at.ref_end,
         "revenue": rev,
         "net_income": net_income,
@@ -693,7 +696,7 @@ def extract(companyfacts):
 
 # Fields copied onto FinancialFacts, in provenance order.
 POPULATED = (
-    "currency", "revenue", "net_income", "operating_income", "eps_gaap",
+    "currency", "accounting_standard", "revenue", "net_income", "operating_income", "eps_gaap",
     "shares_diluted", "total_debt", "cash", "equity", "capex", "dep_amort",
     "income_before_tax", "tax_expense", "revenue_annuals", "revenue_quarters",
     "operating_income_quarters", "eps_quarters",

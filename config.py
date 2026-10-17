@@ -108,5 +108,32 @@ CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
 # harder single-position weight cap than ordinary equities (position_sizing).
 PRICING_ASSET_CAP = 0.05
 
+# Where a company earns its revenue, for its country risk premium (sources/
+# country_risk.py). Markets are country names, ISO-2 codes or a region from
+# country_risk.REGIONS; weights need not sum to 1. A company missing here is priced
+# on its FMP domicile instead, so add one only when its revenue sits mostly OUTSIDE
+# its home country. Edit freely: each line cites the filing it came from.
+REVENUE_MIX = {
+    # MercadoLibre FY2025 10-K, net revenues by country ($m): Brazil 15,201,
+    # Mexico 6,475, Argentina 5,962, other countries 1,255 (total 28,893)
+    "MELI": {"Brazil": 15201, "Mexico": 6475, "Argentina": 5962, "Latin America": 1255},
+    # Novo Nordisk Annual Report 2025, sales by region (DKKm): US 173,166, EUCAN 66,091,
+    # Emerging Markets 30,436, APAC 20,713, Region China 18,658 (total 309,064)
+    "NVO": {"United States": 173166, "Western Europe": 66091, "Emerging Markets": 30436,
+            "Asia Pacific": 20713, "China": 18658},
+    # TSMC: ~70% of revenue is billed to North American customers, but the risk that
+    # matters is where the fabs are. Judgment call (Damodaran allows an operations-
+    # based weighting): Taiwan 100%. Replace with a revenue mix to price it the other way.
+    "TSM": {"Taiwan": 1.0},
+}
+# A company running several businesses gets Damodaran's bottom-up treatment: its
+# industry beta, margin, sales-to-capital and terminal ROIC are the revenue-weighted
+# average of its businesses' industries (names exactly as in Damodaran's tables).
+# Its largest business is its industry for everything else (e.g. the model choice).
+INDUSTRY_MIX = {
+    # MercadoLibre FY2025 release (2026-02-24): commerce $16.3B, fintech $12.6B
+    "MELI": {"Retail (General)": 16.3, "Financial Svcs. (Non-bank & Insurance)": 12.6},
+}
+
 # Build stamp — bump together with DASH_BUILD in static/js/app.js (frontend/deploy guard).
-BUILD = "2026-10-17a"
+BUILD = "2026-10-17b"

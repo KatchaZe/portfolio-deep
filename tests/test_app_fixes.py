@@ -95,7 +95,7 @@ def test_verdict_never_prints_none():
     ff.revenue_annuals = [5e9, 4e9, 3e9, 2.5e9]
     v2 = eng.evaluate(ff, rf=0.045)
     assert "None" not in (v2.verdict or ""), v2.verdict
-    # generic-margin flag should appear for a ticker outside TERMINAL_MARGIN
+    # generic-margin flag should appear for a pre-profit ticker with no known industry
     assert any("terminal margin" in f and "generic" in f for f in v2.flags), v2.flags
     print("verdict no-None OK:", v2.verdict[:70], "…")
 

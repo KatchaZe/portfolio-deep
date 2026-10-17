@@ -116,10 +116,10 @@ def test_anchor_is_a_real_method_output():
         if v.anchor_value is None or v.anchor_method == "Terminal-Anchored Reverse DCF":
             continue
         mc = (v.young_dcf or {}).get("monte_carlo") or {}
-        cands = [x for x in (v.fv_peg, v.fv_fvp, mc.get("p50")) if x]
+        cands = [x for x in (v.fv_dcf, v.fv_excess_return, v.fv_peg, v.fv_fvp, mc.get("p50")) if x]
         if not any(abs(v.anchor_value - c) < 0.01 for c in cands):
             bad.append(f"{t}: anchor {v.anchor_value} not in {cands}")
-    check(not bad, "every anchor traces to PEG / FVP / young-DCF p50", "; ".join(bad))
+    check(not bad, "every anchor traces to DCF / excess return / PEG / FVP / young-DCF p50", "; ".join(bad))
 
 
 def test_anchor_inside_its_range():

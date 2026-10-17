@@ -9,7 +9,9 @@ from typing import NamedTuple, Optional
 import config
 from domain import pead as pead_mod
 from domain import trend as trend_mod
-from . import young_dcf
+from domain.company_type import CompanyType, classify, normalized_margin
+from . import fcff_dcf, young_dcf
+from . import financial as financial_mod
 from .contract import DeepEngine, Valuation
 
 # Functions read config.ERP / config.ERP_AS_OF at call time so the dashboard's
@@ -34,27 +36,29 @@ SYNTH_SPREAD = [
     (0.65, 0.1261), (0.20, 0.1600), (-1e9, 0.1900),
 ]
 
-# Fallback terminal operating margins for PRE-PROFIT names only. Profitable names
-# derive it from their own current op margin (terminal_margin()).
-TERMINAL_MARGIN = {
-    "NVDA": 0.35, "MSFT": 0.40, "AVGO": 0.35, "TSM": 0.40, "GOOGL": 0.35,
-    "ORCL": 0.35, "MELI": 0.20, "ABBV": 0.30, "TMDX": 0.20, "LLY": 0.30,
-    "TSLA": 0.15, "NVO": 0.35,
-}
 TERMINAL_MARGIN_CAP = 0.40
 TERMINAL_MARGIN_FLOOR = 0.05
 
 
-def terminal_margin(ticker, operating_income, revenue):
+def terminal_margin(ticker, operating_income, revenue, industry_margin=None, industry=None):
     """Terminal operating margin for the reverse DCF: the company's own current
-    operating margin clamped to [5%, 40%]; the table, then a generic 25%, only when
-    there is no positive current margin (pre-profit).
+    operating margin clamped to [5%, 40%]. Pre-profit, where there is no margin of its
+    own, it is the Damodaran industry pre-tax operating margin (a young firm converges
+    on its industry's economics), then a generic 25% when the industry is unknown.
     Returns (margin, source_label, anchored_bool).
 
     A clamp that changes the answer says so in the label: the ceiling makes the
     reverse DCF demand more growth, the floor flatters a thin-margin business."""
     if operating_income is not None and revenue:
         cur = operating_income / revenue
+        if 0 < cur < TERMINAL_MARGIN_FLOOR and industry_margin and industry_margin > cur:
+            # barely profitable: today's sliver of a margin is a stage, not the
+            # steady state, so it converges on its industry like a pre-profit firm.
+            # Not floored: the floor would lift it above both itself and its industry.
+            tm = min(TERMINAL_MARGIN_CAP, industry_margin)
+            return tm, (f"terminal margin {tm*100:.0f}% (industry margin, Damodaran "
+                        f"{industry or 'industry'} - today's {cur*100:.1f}% is below the "
+                        f"{TERMINAL_MARGIN_FLOOR*100:.0f}% floor)"), False
         if cur > 0:
             tm = max(TERMINAL_MARGIN_FLOOR, min(TERMINAL_MARGIN_CAP, cur))
             if tm < cur - 1e-9:
@@ -66,9 +70,10 @@ def terminal_margin(ticker, operating_income, revenue):
                             f"(floor {TERMINAL_MARGIN_FLOOR*100:.0f}%) - a thin-margin business "
                             f"is credited with more than it earns"), True
             return tm, f"terminal margin {tm*100:.0f}% (from current op margin {cur*100:.0f}%)", True
-    tm = TERMINAL_MARGIN.get(ticker)
-    if tm is not None:
-        return tm, f"terminal margin {tm*100:.0f}% (assumed table - pre-profit)", False
+    if industry_margin is not None and industry_margin > 0:
+        tm = max(TERMINAL_MARGIN_FLOOR, min(TERMINAL_MARGIN_CAP, industry_margin))
+        return tm, (f"terminal margin {tm*100:.0f}% (industry margin, Damodaran "
+                    f"{industry or 'industry'} - pre-profit)"), False
     return 0.25, "terminal margin 25% (generic assumption - pre-profit, no table)", False
 
 
@@ -125,8 +130,11 @@ def _band(x, bands):
     return bands[-1][1]
 
 
-def cost_of_equity(rf, beta):
-    return rf + beta * config.ERP        # call-time read (assumptions override aware)
+def cost_of_equity(rf, beta, crp=0.0):
+    """Ke = Rf + beta x (ERP + CRP). `crp` is the firm's revenue-weighted country risk
+    premium over the US (sources/country_risk.py); scaling it by beta is Damodaran's
+    simplest exposure measure. config.ERP is read at call time (override aware)."""
+    return rf + beta * (config.ERP + (crp or 0.0))
 
 
 def _spread_from_coverage(cov):
@@ -149,11 +157,11 @@ def terminal_beta(beta):
 
 
 def wacc_true(rf, beta, equity_mktcap, total_debt, cash, tax, interest_expense, operating_income,
-              beta_override=None):
+              beta_override=None, crp=0.0):
     """True WACC. Returns (wacc, ke, kd_pretax, note).
     `beta_override` recomputes Ke at a different beta while holding the capital
     structure and cost of debt fixed — used for the terminal-phase WACC."""
-    ke = cost_of_equity(rf, beta_override if beta_override is not None else beta)
+    ke = cost_of_equity(rf, beta_override if beta_override is not None else beta, crp)
     if not total_debt or not equity_mktcap:
         return ke, ke, None, "no debt/weights -> WACC=Ke"
     if interest_expense and interest_expense > 0 and operating_income:
@@ -1000,16 +1008,17 @@ class DeepV82Engine(DeepEngine):
         `notes` (the breakdown drawer) as it goes, so the call order is the order
         those lines appear on the card."""
         f, notes = facts, []
-        cap = _capital(f, rf, notes)
-        acq, fcff = _reinvestment(f, cap.nopat)
-        gr = _growth(f, cap, acq, rf)
+        ctype = _company_type(f)
+        cap = _capital(f, rf, notes, ctype)
+        acq, fcff = _reinvestment(f, cap.nopat, ctype)
+        gr = _growth(f, cap, acq, rf, ctype)
         dil = _dilution(f, cap.mcap)
         pv = _point_values(f, cap, gr, dil.fwd_eps)
-        pi = _priced_in(f, cap, gr, rf)
-        anc = _anchor(f, cap, fcff, gr, dil.rate, pv, pi, rf)
+        pi = _priced_in(f, cap, gr, rf, ctype)
+        anc = _anchor(f, cap, fcff, gr, dil.rate, pv, pi, rf, ctype)
         range_low, range_high, fv_disagreement = _fv_range(f, anc)
-        ex = _execution_inputs(f, cap, acq, gr, notes)
-        scores = _pillars(f, cap, gr, pv, anc.value, ex, notes)
+        ex = _execution_inputs(f, cap, acq, gr, notes, ctype)
+        scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype)
         comp, reco = _overall(f, scores, notes)
 
         eva = (cap.spread * cap.ic) if (cap.spread is not None and cap.ic and cap.ic > 0) else None
@@ -1021,12 +1030,15 @@ class DeepV82Engine(DeepEngine):
             anchor_method=anc.method, anchor_value=_round_nonzero(anc.value),
             range_low=_round_nonzero(range_low), range_high=_round_nonzero(range_high),
             fv_peg=_round_nonzero(anc.fv_peg), fv_fvp=_round_nonzero(anc.fv_fvp),
+            fv_dcf=_round_nonzero((anc.dcf or {}).get("per_share")),
+            fv_excess_return=_round_nonzero((anc.exret or {}).get("per_share")),
+            company_type=ctype.value, dcf=anc.dcf or {}, excess_return=anc.exret or {},
             reverse_dcf=pi.rdcf, young_dcf=anc.ydcf or {},
             cost_of_equity=round(cap.ke, 4),
             eva=round(eva, 0) if eva is not None else None,
             eq_verdict=ex.eq_verdict,
             subscores={"breakdown": notes},
-            key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement),
+            key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype, anc),
             flags=list(f.flags))
         try:
             v.verdict = _verdict(f, v)
@@ -1040,6 +1052,22 @@ class DeepV82Engine(DeepEngine):
 # (e.g. `ann = f.revenue_annuals or []`) rather than taking it as a parameter, so
 # domain/contracts.py can see which clock each operand is on. A value handed in as
 # an argument or read off a stage result is invisible to that scanner.
+
+def _margin_history(f):
+    """Operating margin by fiscal year, newest first (None where a year is missing)."""
+    oia = f.operating_income_annuals or []
+    ann = f.revenue_annuals or []
+    return [(o / r) if (o is not None and r) else None for o, r in zip(oia, ann)]
+
+
+def _company_type(f):
+    """Which model values this firm (domain/company_type.py), decided once."""
+    ctype, why = classify(getattr(f, "damodaran_industry", None), f.operating_income,
+                          f.revenue, _margin_history(f))
+    if ctype is not CompanyType.STANDARD:
+        _add_flag(f, f"model: {ctype.value} - {why}")
+    return ctype
+
 
 class _Capital(NamedTuple):
     beta: float
@@ -1092,6 +1120,25 @@ def _early_stage(f, mcap):
     return None
 
 
+FIN_BETA_LO, FIN_BETA_HI = 0.6, 1.6
+
+
+def _financial_beta(f):
+    """A bank's or insurer's equity beta. The industry unlevered beta cannot be
+    re-levered here: deposits and policy reserves would count as debt, the very thing
+    that makes D/E meaningless for a financial firm. The regression beta, bounded to a
+    plausible range, else the market's 1.0."""
+    reg = f.beta
+    if reg:
+        b = max(FIN_BETA_LO, min(FIN_BETA_HI, reg))
+        _add_flag(f, (f"financial firm: regression beta {reg:.2f}"
+                      + (f" bounded to {b:.2f}" if abs(b - reg) > 1e-9 else "")
+                      + " (industry beta not re-levered: deposits are not capital)"))
+        return b
+    _add_flag(f, "financial firm: no regression beta - market beta 1.0 used")
+    return 1.0
+
+
 def _bottom_up_beta(f, notes):
     """The beta Ke runs on. Industry unlevered beta re-levered at the firm's market D/E
     when the industry is known (Damodaran: a single-stock regression beta is too noisy,
@@ -1118,15 +1165,22 @@ def _bottom_up_beta(f, notes):
     return reg or 1.0
 
 
-def _capital(f, rf, notes):
+def _capital(f, rf, notes, ctype=CompanyType.STANDARD):
     """Returns on capital (leases, and R&D where possible, capitalized) and the cost
     of capital today and in the stable phase."""
     tax = f.tax_rate
-    beta = _bottom_up_beta(f, notes)
+    fin = ctype is CompanyType.FINANCIAL
+    beta = _financial_beta(f) if fin else _bottom_up_beta(f, notes)
     erp_age = erp_months_old()
     if erp_age > config.ERP_STALE_MONTHS:
         _add_flag(f, (f"ERP {config.ERP*100:.2f}% as-of {config.ERP_AS_OF} is {erp_age}mo old "
                       f"- refresh (Assumptions form / config.ERP)"))
+    crp = getattr(f, "crp", None) or 0.0
+    if crp > 0:
+        _add_flag(f, (f"country risk premium +{crp*100:.2f}% ({getattr(f, 'crp_basis', None) or 'country'}) "
+                      f"- Ke = Rf + beta x (ERP + CRP)"))
+    if fin:
+        return _financial_capital(f, rf, beta, tax, crp)
 
     nopat = f.operating_income * (1 - tax) if f.operating_income is not None else None
     # operating lease liability is debt (Damodaran): inside WACC weights, IC and EV
@@ -1146,14 +1200,14 @@ def _capital(f, rf, notes):
     mcap = getattr(f, "market_cap", None) or (
         (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None)
     w, ke, kd_pre, wacc_note = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
-                                         f.interest_expense, f.operating_income)
+                                         f.interest_expense, f.operating_income, crp=crp)
     if ("default spread" in wacc_note and debt_eff) or "no debt/weights" in wacc_note:
         _add_flag(f, "WACC: " + wacc_note)              # every degraded-WACC path
     # terminal WACC: same capital structure and Kd, Ke at a stable-growth beta
     beta_t = terminal_beta(beta)
     w_term, ke_term, _, _ = wacc_true(rf, beta, mcap, debt_eff or None, f.cash, tax,
                                       f.interest_expense, f.operating_income,
-                                      beta_override=beta_t)
+                                      beta_override=beta_t, crp=crp)
     if abs(beta_t - beta) > 0.4:
         _add_flag(f, (f"terminal beta {beta:.2f} -> {beta_t:.2f} (stable-phase risk fade) - "
                       f"FV leans on this assumption"))
@@ -1174,9 +1228,32 @@ def _capital(f, rf, notes):
                     kd_pre=kd_pre, beta_t=beta_t, wacc_term=w_term, ke_term=ke_term)
 
 
-def _reinvestment(f, nopat):
+def _financial_capital(f, rf, beta, tax, crp):
+    """A financial firm's "capital" is its book equity and its cost of capital is Ke:
+    debt is raw material (deposits, float), so WACC, invested capital and leases do not
+    apply. The return measured is ROE on beginning-of-year equity."""
+    eq = f.equity
+    base = f.equity_prior if (f.equity_prior and f.equity_prior > 0) else eq
+    roe = (f.net_income / base) if (f.net_income is not None and base and base > 0) else None
+    ke = cost_of_equity(rf, beta, crp)
+    beta_t = terminal_beta(beta)
+    ke_term = cost_of_equity(rf, beta_t, crp)
+    mcap = getattr(f, "market_cap", None) or (
+        (f.price * f.shares_diluted) if (f.price and f.shares_diluted) else None)
+    _add_flag(f, "financial firm: ROE vs cost of equity replaces ROIC vs WACC "
+                 "(debt is raw material, not capital)")
+    return _Capital(beta=beta, tax=tax, nopat=f.net_income, lease=0.0, debt_eff=0.0,
+                    ic=eq or 0.0, roic=roe, rd=None, roic_used=roe, roic_scored=roe,
+                    spread=(roe - ke) if roe is not None else None, roic_map={}, mcap=mcap,
+                    wacc=ke, ke=ke, kd_pre=None, beta_t=beta_t, wacc_term=ke_term,
+                    ke_term=ke_term)
+
+
+def _reinvestment(f, nopat, ctype=CompanyType.STANDARD):
     """Reinvestment = capex + acquisitions + dWC - D&A, and the FCFF it leaves.
-    Returns (acquisitions counted, fcff)."""
+    Returns (acquisitions counted, fcff). A financial firm has no FCFF."""
+    if ctype is CompanyType.FINANCIAL:
+        return 0.0, None
     # acquisitions_net is a PAYMENT: negative is a divestiture, floored at 0 rather
     # than credited as negative reinvestment (which would flatter FCFF).
     acq = max(0.0, f.acquisitions_net) if f.acquisitions_net is not None else 0.0
@@ -1208,14 +1285,16 @@ class _Growth(NamedTuple):
     g_stable: float
 
 
-def _growth(f, cap, acq, rf):
+def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
     """Terminal ROIC, the growth the valuation may assume, realised revenue growth,
     trailing EPS, and the stable-phase Ke and growth."""
     # Terminal ROIC comes first: it is also the fallback for the growth cap and the
     # high-growth ROIC when the firm's own ROIC is unmeasurable. Floored against
     # the higher of today's and the terminal cost of capital.
     own_roic = cap.roic_used if (cap.roic_used and cap.roic_used > 0) else None
-    sector_roic = getattr(f, "terminal_roic_sector", None)
+    # an industry return on capital is no ceiling for a bank's return on equity
+    sector_roic = (None if ctype is CompanyType.FINANCIAL
+                   else getattr(f, "terminal_roic_sector", None))
     roic_term = terminal_roic(own_roic, max(cap.wacc, cap.wacc_term), sector_roic)
     if sector_roic and abs(roic_term - sector_roic) < 1e-9 and roic_term > cap.wacc_term:
         _add_flag(f, f"terminal ROIC {roic_term*100:.1f}% set by industry ceiling (Damodaran ROC)")
@@ -1253,7 +1332,8 @@ def _growth(f, cap, acq, rf):
     ke_stable = max(cap.ke_term, rf + 0.035)
     g_stable = min(rf, ke_stable - 0.03)
     g_fund = fundamental_growth(f.capex, f.dep_amort, nopat, cap.roic_used, acquisitions=acq)
-    if g_fund is not None and growth > 0.02 and growth > 2 * max(g_fund, 0.0):
+    if (ctype is not CompanyType.FINANCIAL and g_fund is not None and growth > 0.02
+            and growth > 2 * max(g_fund, 0.0)):
         _add_flag(f, (f"growth {growth*100:.0f}% vs fundamental growth {g_fund*100:.1f}% "
                       f"(reinvest x ROIC) - unfunded by physical reinvestment"
                       + ("; asset-light? R&D not counted" if g_fund < 0.01 else "")))
@@ -1341,15 +1421,21 @@ def _point_values(f, cap, gr, fwd_eps):
 
 
 class _PricedIn(NamedTuple):
-    tmargin: float                  # terminal operating margin
+    tmargin: Optional[float]        # terminal operating margin (None: financial firm)
     tm_label: str
     tm_anchored: bool               # derived from the firm's own margin
     rdcf: dict                      # reverse_dcf() result
 
 
-def _priced_in(f, cap, gr, rf):
-    """Terminal margin and the reverse DCF: what growth the market prices in."""
-    tmargin, tm_label, tm_anchored = terminal_margin(f.ticker, f.operating_income, f.revenue)
+def _priced_in(f, cap, gr, rf, ctype=CompanyType.STANDARD):
+    """Terminal margin and the reverse DCF: what growth the market prices in. Not run
+    for a financial firm, which has no operating margin or FCFF to reverse."""
+    if ctype is CompanyType.FINANCIAL:
+        return _PricedIn(tmargin=None, tm_label="n/a (financial firm)", tm_anchored=False, rdcf={})
+    tmargin, tm_label, tm_anchored = terminal_margin(
+        f.ticker, f.operating_income, f.revenue,
+        industry_margin=getattr(f, "industry_margin", None),
+        industry=getattr(f, "damodaran_industry", None))
     # "anchored" does not mean the firm's own margin survived the clamp
     if "CAPPED" in tm_label or "FLOORED" in tm_label:
         _add_flag(f, tm_label)
@@ -1387,10 +1473,151 @@ class _Anchor(NamedTuple):
     fv_peg: Optional[float]         # point values after the FVP sanity check and unit gate
     fv_fvp: Optional[float]
     ydcf: Optional[dict]            # young_dcf.evaluate() result, pre-profit only
+    dcf: Optional[dict] = None      # fcff_dcf.value() result, operating companies
+    exret: Optional[dict] = None    # financial.value() result, banks and insurers
 
 
-def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf):
-    """Choose the fair-value method the Price pillar tests, with its fallbacks."""
+# Damodaran's marginal tax rate for the stable phase (the US federal + state rate his
+# industry betas are un-levered at).
+from sources.damodaran import MARGINAL_TAX_US as _MARGINAL_TAX  # noqa: E402
+CYCLICAL_MARGIN_YEARS = 3       # years for a cyclical's margin to revert to its median
+DCF_TERMINAL_HEAVY = 85.0       # % of firm value in the terminal value worth a flag
+S2C_DEFAULT = 1.5               # sales-to-capital when neither the firm nor industry has one
+S2C_BAND = (0.4, 6.0)           # plausible range for a firm's own sales-to-capital
+QUOTE_SHARES_TOLERANCE = 0.15   # filing vs quote share count before we trust the quote
+
+
+def _quote_shares(f, cap):
+    """The share count per-share values are divided by, in the QUOTE's unit. A
+    depositary listing (one ADR = several ordinary shares) files ordinary shares while
+    the price is per ADR; market cap / price recovers the ADR count."""
+    sh = f.shares_diluted
+    if cap.mcap and f.price:
+        implied = cap.mcap / f.price
+        if not sh or abs(sh / implied - 1) > QUOTE_SHARES_TOLERANCE:
+            _add_flag(f, (f"intrinsic value per share uses market cap / price "
+                          f"({implied/1e6:,.0f}M shares) - the filed count "
+                          f"{(sh or 0)/1e6:,.0f}M is in a different unit"))
+            return implied
+    return sh
+
+
+def _dcf_sales_to_capital(f, cap):
+    """Marginal sales-to-capital: the firm's own revenue / invested capital, held
+    inside [0.5x, 2x] of its Damodaran industry's (else a plausible band). Returns
+    (ratio, label)."""
+    ind = getattr(f, "industry_sales_to_capital", None)
+    own = (f.revenue / cap.ic) if (f.revenue and cap.ic and cap.ic > 0) else None
+    if own is not None:
+        lo, hi = (0.5 * ind, 2.0 * ind) if ind else S2C_BAND
+        s2c = _clamp(own, lo, hi)
+        if abs(s2c - own) > 1e-9:
+            return s2c, (f"own {own:.2f} held to {s2c:.2f} "
+                         f"({'industry ' + format(ind, '.2f') + ' x0.5-2' if ind else 'band'})")
+        return s2c, f"own {own:.2f}"
+    if ind:
+        return ind, f"industry {ind:.2f}"
+    return S2C_DEFAULT, f"default {S2C_DEFAULT}"
+
+
+def _dcf_revenue_growth(f, gr):
+    """Revenue growth for the five high-growth years: consensus revenue growth (the
+    average of the near and far years), else the more conservative of realised 1y/3y
+    growth, else the capped EPS growth. Returns (g, source)."""
+    cons = [g for g in (f.fwd_growth_near, f.fwd_growth_far) if g is not None]
+    if cons:
+        g, src = sum(cons) / len(cons), "consensus revenue growth"
+    else:
+        real = [g for g in (gr.rev_growth_yoy, gr.actual_3y) if g is not None]
+        if real:
+            g, src = max(0.0, min(real)), "realised revenue growth"
+        else:
+            g, src = gr.growth, "EPS growth (no revenue history)"
+    return _clamp(g, -0.05, GROWTH_CAP), src
+
+
+def _lease_ebit_addback(f, cap, rf):
+    """Interest on operating leases to add back to EBIT. The lease liability is debt
+    in the DCF (cap.debt_eff) and capital in sales-to-capital, so EBIT must stop
+    charging its financing cost (Damodaran). Under US GAAP the whole lease cost sits
+    in EBIT; under IFRS 16 the interest is already below EBIT, so nothing to add."""
+    if not cap.lease or getattr(f, "accounting_standard", None) == "ifrs":
+        return 0.0
+    return cap.lease * (cap.kd_pre if cap.kd_pre else rf + DEFAULT_KD_SPREAD)
+
+
+def _dcf_target_margin(f, m_now):
+    """Where today's margin goes in the FCFF DCF. A barely profitable firm (under 5%)
+    converges on its industry's margin; any other keeps its own, limited only at twice
+    its industry's (a 64% NVDA is not forced down to the reverse DCF's 40% ceiling,
+    which is a forecast of competition, not a normalization). Returns (margin, label)."""
+    ind = getattr(f, "industry_margin", None)
+    if m_now < TERMINAL_MARGIN_FLOOR and ind and ind > m_now:
+        return ind, f"industry margin {ind*100:.1f}% (today's {m_now*100:.1f}% is a stage)"
+    hi = max(TERMINAL_MARGIN_CAP, 2 * ind) if ind and ind > 0 else None
+    if hi is not None and m_now > hi:
+        return hi, f"own {m_now*100:.1f}% held to 2x industry {hi*100:.1f}%"
+    return m_now, f"own margin {m_now*100:.1f}%"
+
+
+def _fcff_dcf(f, cap, gr, pi, ctype, rf):
+    """Damodaran's FCFF DCF for an operating company, on lease-adjusted EBIT. A
+    cyclical's margin reverts to its own multi-year median; any other firm keeps its
+    own (_dcf_target_margin). Returns the fcff_dcf result with its sources, or None."""
+    if not f.revenue or f.operating_income is None:
+        return None
+    addback = _lease_ebit_addback(f, cap, rf)
+    m_adj = addback / f.revenue
+    m_now = f.operating_income / f.revenue + m_adj
+    years = 5
+    if ctype is CompanyType.CYCLICAL:
+        norm = normalized_margin(_margin_history(f))
+        if norm is None or norm <= 0:
+            return None
+        target, t_label = norm + m_adj, f"normalized median {norm*100:.1f}%"
+        years = CYCLICAL_MARGIN_YEARS
+        _add_flag(f, (f"cyclical: operating margin {m_now*100:.1f}% reverts to its "
+                      f"normalized {target*100:.1f}% over {years}y"))
+    else:
+        if m_now <= 0:
+            return None
+        target, t_label = _dcf_target_margin(f, m_now)
+    g_high, g_src = _dcf_revenue_growth(f, gr)
+    s2c, s2c_src = _dcf_sales_to_capital(f, cap)
+    shares = _quote_shares(f, cap)
+    out = fcff_dcf.value(
+        revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_high,
+        g_stable=gr.g_stable, sales_to_capital=s2c, tax_now=cap.tax,
+        tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
+        wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
+        cash=f.cash, debt=cap.debt_eff, shares=shares, margin_years=years)
+    if not out:
+        return None
+    out["sources"] = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
+                      "lease_interest_added": round(addback, 0) if addback else None}
+    if (out.get("terminal_share_pct") or 0) > DCF_TERMINAL_HEAVY:
+        _add_flag(f, (f"FCFF DCF: {out['terminal_share_pct']}% of value is terminal - "
+                      f"the fair value rests on the stable-phase assumptions"))
+    return out
+
+
+def _excess_return(f, cap, gr):
+    """Excess-return value of a bank or insurer (domain/engine/financial.py)."""
+    out = financial_mod.value(book_equity=f.equity, roe=cap.roic_used, ke=cap.ke,
+                              g_high=gr.growth, g_stable=gr.g_stable,
+                              shares=_quote_shares(f, cap))
+    if out:
+        _add_flag(f, (f"excess-return model: ROE {out['roe']*100:.1f}% fades to "
+                      f"{out['roe_stable']*100:.1f}% vs Ke {out['ke']*100:.1f}% on book "
+                      f"equity ${out['book_equity']/1e9:,.1f}B"))
+    return out
+
+
+def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf, ctype=CompanyType.STANDARD):
+    """Choose the fair-value method the Price pillar tests, with its fallbacks:
+    FINANCIAL -> excess-return model; STANDARD / CYCLICAL -> FCFF DCF; YOUNG, or when
+    the primary model cannot run -> the earnings paths (FVP / Fundamental PEG), and
+    pre-profit -> the young-company model."""
     eps_pos = gr.eps0 is not None and gr.eps0 > 0
     fcf_pos = fcff is not None and fcff > 0
     fv_peg, fv_fvp = pv.fv_peg, pv.fv_fvp
@@ -1401,32 +1628,67 @@ def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf):
     # Route to the young-company model (domain/engine/young_dcf.py) on EARNINGS,
     # not free cash flow: a profitable firm out-investing its NOPAT this year is an
     # ordinary DCF case with a loud flag, not a young company.
-    if not fcf_pos and eps_pos:
+    if not fcf_pos and eps_pos and ctype is not CompanyType.FINANCIAL:
         _add_flag(f, "FCFF negative on heavy reinvestment but earnings are positive - "
                      "valued on the normal earnings paths, not the young-company model")
-    ydcf = None
-    if not eps_pos:
-        method, value, ydcf = _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf)
-    elif cap.spread is not None and cap.spread > 0.10 and (gr.rev_growth_yoy or 0) > 0.15:
-        method, value = "Future Value Projection", fv_fvp
-    else:
-        method, value = "Fundamental PEG", fv_peg
-    if value is None and method != "Terminal-Anchored Reverse DCF":
+    ydcf = dcf = exret = None
+    method = value = None
+    try:
+        if ctype is CompanyType.FINANCIAL:
+            exret = _excess_return(f, cap, gr)
+            if exret and exret.get("per_share"):
+                method, value = "Excess Return Model", exret["per_share"]
+        elif ctype in (CompanyType.STANDARD, CompanyType.CYCLICAL):
+            dcf = _fcff_dcf(f, cap, gr, pi, ctype, rf)
+            if dcf and dcf.get("per_share"):
+                method, value = "FCFF DCF", dcf["per_share"]
+    except Exception as e:          # a primary model must never kill a row
+        _add_flag(f, f"{ctype.value} model unavailable ({type(e).__name__}) - earnings paths used")
+    # the same broken-input guard the FVP gets: a value under 10% of the price says
+    # more about one distorted input (a charge-laden EBIT) than about the business
+    if value is not None and f.price and value < 0.1 * f.price:
+        _add_flag(f, (f"{method} ${value} is below 10% of the price - treated as a broken "
+                      f"input, not a verdict; anchored on the earnings paths and left out "
+                      f"of the fair-value range"))
+        for d in (dcf, exret):
+            if d:
+                d["discarded"] = "below 10% of the price"
+        method = value = None
+    elif value is None and ctype is not CompanyType.YOUNG:
+        primary = (exret if ctype is CompanyType.FINANCIAL else dcf)
+        model = "excess-return model" if ctype is CompanyType.FINANCIAL else "FCFF DCF"
+        why = ("equity value <= 0 (reinvestment for the assumed growth exceeds what the "
+               "margin earns)" if primary else "inputs missing")
+        _add_flag(f, f"{model}: {why} - anchored on the earnings paths")
+    if value is None:
+        if ctype is CompanyType.FINANCIAL and not eps_pos:
+            # a loss-making bank has no FCFF and no young-company story to tell
+            method = "No point valuation (loss-making financial)"
+        elif not eps_pos:
+            method, value, ydcf = _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf)
+        elif cap.spread is not None and cap.spread > 0.10 and (gr.rev_growth_yoy or 0) > 0.15:
+            method, value = "Future Value Projection", fv_fvp
+        else:
+            method, value = "Fundamental PEG", fv_peg
+    if value is None and method not in ("Terminal-Anchored Reverse DCF",
+                                        "No point valuation (loss-making financial)"):
         if method == "Fundamental PEG" and fv_fvp:
             method, value = "Future Value Projection", fv_fvp
         elif method == "Future Value Projection" and fv_peg:
             method, value = "Fundamental PEG", fv_peg
         if value is None:
-            method = "Terminal-Anchored Reverse DCF"
+            method = ("No point valuation (financial)" if ctype is CompanyType.FINANCIAL
+                      else "Terminal-Anchored Reverse DCF")
 
     # Per-share unit gate, placed after every valuation method has run so no
     # method can bypass it. When filings and quote disagree on units we cannot
     # tell which is wrong, so every per-share value is suppressed.
     if not getattr(f, "per_share_unit_ok", True):
         fv_peg = fv_fvp = None
-        ydcf = None
+        ydcf = dcf = exret = None
         method, value = "No per-share valuation (unit mismatch)", None
-    return _Anchor(method=method, value=value, fv_peg=fv_peg, fv_fvp=fv_fvp, ydcf=ydcf)
+    return _Anchor(method=method, value=value, fv_peg=fv_peg, fv_fvp=fv_fvp, ydcf=ydcf,
+                   dcf=dcf, exret=exret)
 
 
 def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf):
@@ -1458,7 +1720,10 @@ def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf):
 def _fv_range(f, anc):
     """[low, high] of the point methods, or a young company's simulated band.
     Returns (low, high, disagreement ratio or None)."""
-    methods = {"Fundamental PEG": anc.fv_peg, "Future Value Projection": anc.fv_fvp}
+    def kept(d):
+        return None if (d or {}).get("discarded") else (d or {}).get("per_share")
+    methods = {"FCFF DCF": kept(anc.dcf), "Excess Return Model": kept(anc.exret),
+               "Fundamental PEG": anc.fv_peg, "Future Value Projection": anc.fv_fvp}
     avail = {k: v for k, v in methods.items() if v and v > 0}
     range_low = min(avail.values()) if avail else None
     range_high = max(avail.values()) if avail else None
@@ -1489,8 +1754,14 @@ class _ExecutionInputs(NamedTuple):
     roic_delta: Optional[float]     # like-for-like FY0 - FY1 ROIC
 
 
-def _execution_inputs(f, cap, acq, gr, notes):
-    """Earnings quality, incremental ROIC, margin trend and the ROIC trend."""
+def _execution_inputs(f, cap, acq, gr, notes, ctype=CompanyType.STANDARD):
+    """Earnings quality, incremental ROIC, margin trend and the ROIC trend. A financial
+    firm's accruals, invested capital and operating margin are not comparable to an
+    operating company's, so those signals are skipped rather than mis-scored."""
+    if ctype is CompanyType.FINANCIAL:
+        notes.append("E_exec EQ/incremental-ROIC adj=skipped(financial firm)")
+        return _ExecutionInputs(eq_verdict=None, inc_roic=None, inc_src=None,
+                                inc_declined=True, margin_trend=None, roic_delta=None)
     eq_verdict = _earnings_signals(f, gr.rev_growth_yoy)
     inc_roic, inc_src, inc_declined = _incremental_roic(f, cap.roic_map, acq, cap.tax, notes)
     return _ExecutionInputs(eq_verdict=eq_verdict, inc_roic=inc_roic, inc_src=inc_src,
@@ -1601,7 +1872,7 @@ def _roic_fy(op_income, invested, rnd_series, tax, rd_basis):
     return out[2] if out else None
 
 
-def _pillars(f, cap, gr, pv, anchor_value, ex, notes):
+def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(f.acquisitions_net, f.revenue)
     fade, fade_why = fade_ratio(f.fwd_growth_near, f.fwd_growth_far)
@@ -1614,7 +1885,9 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes):
     except Exception:                       # a display feature must never kill a row
         t5 = {}
     trend_rows = (t5 or {}).get("rows")
-    fcf_adj, fcf_note = fcf_durability(trend_rows)
+    # a bank's "free cash flow" swings with its loan book, not its execution
+    fcf_adj, fcf_note = ((0.0, None) if ctype is CompanyType.FINANCIAL
+                         else fcf_durability(trend_rows))
     beat_adj, beat_note = beat_consistency(
         f.earnings_surprises or getattr(f, "eps_surprises_backfill", None))
     E_exec = _r_execution(ex.eq_verdict, ex.margin_trend, ex.inc_roic, cap.wacc, notes,
@@ -1623,12 +1896,15 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes):
                           beat_adj=beat_adj, beat_note=beat_note)
     cap_adj, cap_note = competitive_advantage_period(cap.roic_map, cap.wacc)
     # the same ROIC the spread was built from (invariant I2)
-    sec_adj, sec_note = sector_relative(cap.roic_scored, getattr(f, "terminal_roic_sector", None))
+    fin = ctype is CompanyType.FINANCIAL
+    # a bank's ROE is not comparable to its industry's return on capital
+    sec_adj, sec_note = sector_relative(cap.roic_scored,
+                                        None if fin else getattr(f, "terminal_roic_sector", None))
     E_econ = _r_economics(cap.spread, ex.roic_delta, notes, cap_adj=cap_adj, cap_note=cap_note,
                           sector_adj=sec_adj, sector_note=sec_note)
     # the same EV the WACC weights and the reverse DCF were built from
     ev = (cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)) if cap.mcap else None
-    fy_adj, fy_note = fcf_yield_adj(trend_rows, ev, cap.wacc)
+    fy_adj, fy_note = (0.0, None) if fin else fcf_yield_adj(trend_rows, ev, cap.wacc)
     P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes,
                  fcf_adj=fy_adj, fcf_note=fy_note)
     # When the two growth stories disagree, "cheap" is a belief about consensus:
@@ -1678,8 +1954,21 @@ def _round_nonzero(x, nd=2):
     return round(x, nd) if x else None
 
 
-def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement):
+def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType.STANDARD,
+                 anc=None):
+    dcf = (anc.dcf if anc else None) or {}
+    di = dcf.get("inputs") or {}
+    crp = getattr(f, "crp", None)
     return {"wacc_pct": round(cap.wacc * 100, 2),
+            "company_type": ctype.value,
+            "damodaran_industry": getattr(f, "damodaran_industry", None),
+            "industry_basis": getattr(f, "industry_basis", None),
+            "crp_pct": _pct(crp, 2) if crp else None,
+            "crp_basis": getattr(f, "crp_basis", None) if crp else None,
+            "dcf_growth_pct": _pct(di.get("g_high"), 1),
+            "dcf_margin_target_pct": _pct(di.get("margin_target"), 1),
+            "dcf_sales_to_capital": di.get("sales_to_capital"),
+            "dcf_terminal_share_pct": dcf.get("terminal_share_pct"),
             "ke_pct": round(cap.ke * 100, 2),
             "kd_pct": _pct(cap.kd_pre, 2),
             "roic_pct": _pct(cap.roic, 2),
@@ -1690,7 +1979,8 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement):
             "roic_measured_pct": _pct(cap.roic_used, 2) if cap.rd else None,
             "spread_pct": _pct(cap.spread, 2),
             # anything comparing two ROICs must first agree on this basis
-            "roic_basis": ("rd_capitalized+leases" if cap.rd else "raw+leases"),
+            "roic_basis": ("roe_book_equity" if ctype is CompanyType.FINANCIAL
+                           else "rd_capitalized+leases" if cap.rd else "raw+leases"),
             "incremental_roic_pct": _pct(ex.inc_roic, 1),
             "terminal_roic_pct": round(gr.roic_term * 100, 1),
             "terminal_beta": round(cap.beta_t, 2),
@@ -1712,7 +2002,7 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement):
             "justified_pe": (pv.peg_detail or {}).get("fair_pe"),
             "erp_pct": round(config.ERP * 100, 2), "erp_as_of": config.ERP_AS_OF,
             "operating_leases": _round_nonzero(cap.lease, 0),
-            "terminal_margin_pct": round(pi.tmargin * 100, 1),
+            "terminal_margin_pct": _pct(pi.tmargin, 1),
             "terminal_margin_anchored": pi.tm_anchored,
             # set when [low, high] must not be read as a range
             "fv_disagreement_x": fv_disagreement}
@@ -1752,5 +2042,8 @@ def _verdict(f, v):
     band = f"range ${v.range_low}-${v.range_high}" if v.range_low else ""
     eq = f", EQ {v.eq_verdict}" if v.eq_verdict else ""
     return (f"{v.recommendation} {v.stars} - {v.anchor_method} ${fv} ({up}); {band}. "
-            f"ROIC {km.get('roic_adj_pct') or km.get('roic_pct')}% vs WACC {km.get('wacc_pct')}% "
+            + (f"ROE {km.get('roic_pct')}% vs Ke {km.get('ke_pct')}% "
+               if km.get("roic_basis") == "roe_book_equity" else
+               f"ROIC {km.get('roic_adj_pct') or km.get('roic_pct')}% vs WACC {km.get('wacc_pct')}% ")
+            + 
             f"(Ke {km.get('ke_pct')}%), growth {km.get('growth_pct')}%{eq}. conf {f.confidence}").strip()

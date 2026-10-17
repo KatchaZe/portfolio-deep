@@ -28,9 +28,10 @@ def test_terminal_margin_data_anchored():
     assert approx(tm, 0.40) and anchored, tm
     tm, _, anchored = E.terminal_margin("X", 2e9, 100e9)              # 2% -> floored 5%
     assert approx(tm, 0.05) and anchored, tm
-    # pre-profit (negative margin) in the table -> table value, NOT anchored, flagged
-    tm, label, anchored = E.terminal_margin("TSLA", -1e9, 100e9)
-    assert approx(tm, 0.15) and not anchored and "table" in label, (tm, label)
+    # pre-profit with a known industry -> the industry margin, NOT anchored, flagged
+    tm, label, anchored = E.terminal_margin("TSLA", -1e9, 100e9, industry_margin=0.15,
+                                            industry="Auto & Truck")
+    assert approx(tm, 0.15) and not anchored and "industry margin" in label, (tm, label)
     # pre-profit, unknown ticker -> generic 25%, flagged
     tm, label, anchored = E.terminal_margin("ZZZZ", None, None)
     assert approx(tm, 0.25) and not anchored and "generic" in label, (tm, label)

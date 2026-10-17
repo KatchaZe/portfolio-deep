@@ -86,6 +86,10 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "margin_trend": mgn_trend,
         "trend5y": trend.build(f) or None,           # 5-year SEC performance strip
         "fv_peg": v.get("fv_peg"), "fv_fvp": v.get("fv_fvp"),
+        # model router: FCFF DCF (operating companies) / excess return (financials)
+        "fv_dcf": v.get("fv_dcf"), "fv_excess_return": v.get("fv_excess_return"),
+        "company_type": v.get("company_type"),
+        "dcf": v.get("dcf") or None, "excess_return": v.get("excess_return") or None,
         # pre-profit forward valuation; {} for profitable names
         "young_dcf": v.get("young_dcf") or None,
         "earn_status": earn_status(eps_surprises, rev_surprises, mgn_trend,
