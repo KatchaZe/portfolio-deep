@@ -280,6 +280,8 @@ NI = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholders
 PRETAX = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
           "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments",
           "ProfitLossBeforeTax"]
+PRETAX_LEGS = ("IncomeLossFromContinuingOperationsBeforeIncomeTaxesDomestic",
+               "IncomeLossFromContinuingOperationsBeforeIncomeTaxesForeign")
 INT_EXP = ["InterestExpense", "InterestAndDebtExpense", "InterestExpenseDebt", "InterestExpenseNonoperating"]
 
 CFO_TAGS = ["NetCashProvidedByUsedInOperatingActivities",
@@ -288,7 +290,8 @@ CFO_TAGS = ["NetCashProvidedByUsedInOperatingActivities",
 CAPEX_TAGS = ["PaymentsToAcquirePropertyPlantAndEquipment",
               "PurchaseOfPropertyPlantAndEquipment",
               "PaymentsToAcquireProductiveAssets",
-              "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities"]
+              "PurchaseOfPropertyPlantAndEquipmentClassifiedAsInvestingActivities",
+              "PaymentsToAcquireOtherPropertyPlantAndEquipment"]      # LLY since 2025
 GROSS_PROFIT_TAGS = ["GrossProfit"]
 # ABBV and many pharma filers report no GrossProfit subtotal but do report the cost
 # line, so gross profit is derived as revenue - cost (see domain/trend.py).
@@ -337,22 +340,40 @@ class _Anchor:
         self.fy_ends = fy_ends        # income-statement fiscal-year ends, newest first
 
 
+def _live_tags(x, ladder, at):
+    """The ladder's (tag, unit) pairs that are still being filed, freshest first.
+
+    Ladder order alone is not enough: a filer that moves to a new concept leaves the old
+    one in companyfacts with its last value, forever. NVDA's capex resolved to a 2020
+    figure ($0.46B against $6.6B now), LLY's R&D to 2023 and 12 of 24 filers' interest
+    expense to 2024. A tag whose newest period ends more than 540 days before the
+    revenue anchor is dead and is skipped; among live tags the newest period wins and
+    ladder order breaks ties."""
+    live = []
+    for i, (t, p) in enumerate(_tag_units(ladder)):
+        end = x.latest_end(t, p)
+        if end and _recent(end, at.ref_end):
+            live.append((end, -i, t, p))
+    return [(t, p) for _, _, t, p in sorted(live, reverse=True)]
+
+
 def _ttm(x, ladder, at):
-    """First truthy TTM down the ladder (a 0 falls through to the next tag)."""
-    return _or(x.ttm(t, p) for t, p in _tag_units(ladder))
+    """First truthy TTM among the live tags (a 0 falls through to the next tag)."""
+    return _or(x.ttm(t, p) for t, p in _live_tags(x, ladder, at))
 
 
 def _ttm_present(x, ladder, at):
-    """First TTM that exists down the ladder (a filed 0 is kept)."""
-    return next((v for v in (x.ttm(t, p) for t, p in _tag_units(ladder)) if v is not None), None)
+    """First TTM that exists among the live tags (a filed 0 is kept)."""
+    return next((v for v in (x.ttm(t, p) for t, p in _live_tags(x, ladder, at))
+                 if v is not None), None)
 
 
 def _annual(x, ladder, at):
-    return _or(x.annual_series(t, p) for t, p in _tag_units(ladder))
+    return _or(x.annual_series(t, p) for t, p in _live_tags(x, ladder, at))
 
 
 def _annual_dated(x, ladder, at):
-    return _or(x.annual_series_dated(t, p) for t, p in _tag_units(ladder))
+    return _or(x.annual_series_dated(t, p) for t, p in _live_tags(x, ladder, at))
 
 
 def _trend_series(x, ladder, at):
@@ -361,7 +382,7 @@ def _trend_series(x, ladder, at):
     Deliberately NOT a merge across tags: MSFT reports CostOfRevenue up to 2017 and
     CostOfGoodsAndServicesSold after, and a trend drawn across that break measures
     the accounting change, not the business."""
-    for t, p in _tag_units(ladder):
+    for t, p in _live_tags(x, ladder, at):
         s = x.annual_series_dated(t, p)
         if len(s) >= 2:
             return s
@@ -369,11 +390,11 @@ def _trend_series(x, ladder, at):
 
 
 def _quarters(x, ladder, at):
-    return _or(x.quarters(t, p) for t, p in _tag_units(ladder))
+    return _or(x.quarters(t, p) for t, p in _live_tags(x, ladder, at))
 
 
 def _latest_value(x, ladder, at):
-    e = next((e for e in (x.latest(t, p) for t, p in _tag_units(ladder)) if e), None)
+    e = next((e for e in (x.latest(t, p) for t, p in _live_tags(x, ladder, at)) if e), None)
     return e.get("val") if e else None
 
 
@@ -396,8 +417,8 @@ def _fresh(x, ladder, at):
 
 
 def _prior_year(x, ladder, at):
-    """The previous year-end balance-sheet value of the first tag that has one."""
-    for t, p in _tag_units(ladder):
+    """The previous year-end balance-sheet value of the first live tag that has one."""
+    for t, p in _live_tags(x, ladder, at):
         s = x.instant_series(t, p)
         if len(s) > 1:
             return s[1]
@@ -497,7 +518,8 @@ FIELD_LADDERS = {
                          "DepreciationDepletionAndAmortization",
                          "DepreciationAndAmortisationExpense",
                          "DepreciationAmortisationAndImpairmentLossReversalOfImpairmentLossRecognisedInProfitOrLoss")),
-    "income_before_tax": (_ttm, (PRETAX[0], "ProfitLossBeforeTax")),
+    # ORCL stopped filing the total in 2018 and tags only the domestic and foreign legs
+    "income_before_tax": (_total_else_legs(_ttm), (tuple(PRETAX), PRETAX_LEGS[:1], PRETAX_LEGS[1:])),
     "tax_expense": (_ttm, ("IncomeTaxExpenseBenefit", "IncomeTaxExpenseContinuingOperations")),
     "cfo": (_ttm_present, CFO_TAGS),
     "sbc": (_ttm_present, SBC_TAGS),
@@ -510,7 +532,7 @@ FIELD_LADDERS = {
     "inventory_prior": (_prior_year, INV_TAGS),
     "accounts_payable": (_fresh, AP_TAGS),
     "accounts_payable_prior": (_prior_year, AP_TAGS),
-    "interest_expense": (_ttm, ("InterestExpense", "InterestAndDebtExpense", "InterestExpenseDebt")),
+    "interest_expense": (_ttm, tuple(INT_EXP)),
     "rnd_expense": (_ttm, RND_TAGS),
     "rnd_annuals": (_annual, RND_TAGS),
     "equity_prior": (_prior_year, EQUITY_TAGS),
