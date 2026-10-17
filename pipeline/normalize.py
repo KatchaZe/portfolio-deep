@@ -204,6 +204,60 @@ def _annual_cagr(annuals):
     return max(0.0, min(cands))
 
 
+# A consensus revenue path needs this many analysts behind its first year before it
+# replaces history as the valuation growth; one or two estimates is an opinion.
+MIN_ANALYSTS_FOR_PATH = 3
+HISTORICAL_GROWTH = "sec-cagr(min 3y/5y)"
+
+
+def resolve_growth(ff):
+    """The growth the valuation runs on: forward-looking first, history last.
+
+    Damodaran ranks analysts' forecasts and fundamentals ahead of history, and the
+    framework's own rule is forward over backward. Measured 2026-08-18: all 21 names
+    were valued on historical revenue CAGR, NVO on 19.5% while its 2026 guidance was a
+    5-13% sales decline. Ladder:
+      1. Yahoo +5y analyst growth (already set by normalize), or FMP's own estimate.
+      2. FMP consensus revenue path: mean of next-FY and final-FY growth, when at least
+         MIN_ANALYSTS_FOR_PATH analysts cover the first year.
+      3. No forward growth: if consensus forward EPS sits BELOW core trailing EPS
+         (min(NI, NOPAT) per share) analysts expect earnings to fall, so 0%. The pair
+         mixes adjusted and GAAP bases, so it may only pull growth down, never up.
+      4. Otherwise historical revenue CAGR, flagged as such."""
+    if ff.provenance.get("growth_lt") not in (None, HISTORICAL_GROWTH):
+        return
+    near, far, n = ff.fwd_growth_near, ff.fwd_growth_far, ff.n_analysts
+    if near is not None and (n or 0) >= MIN_ANALYSTS_FOR_PATH:
+        g = near if far is None else (near + far) / 2
+        ff.set("growth_lt", round(g, 4),
+               f"consensus revenue path (fmp, next FY {near:+.1%}, final FY {(far if far is not None else near):+.1%}, "
+               f"{n} analysts)")
+        return
+    hist = ff.growth_lt
+    fwd = ff.forward_eps
+    core = _core_eps(ff)
+    if (fwd is not None and core and core > 0 and fwd < core
+            and not str(ff.provenance.get("forward_eps", "")).startswith("sec-derived")):
+        ff.set("growth_lt", 0.0, f"forward EPS {fwd:.2f} below core trailing EPS {core:.2f}")
+        ff.flags.append(f"growth set to 0%: analysts' forward EPS ({fwd:.2f}) is below core trailing "
+                        f"EPS ({core:.2f}); historical revenue CAGR {hist:.1%} not used"
+                        if hist is not None else
+                        f"growth set to 0%: analysts' forward EPS ({fwd:.2f}) is below core trailing EPS ({core:.2f})")
+        return
+    if hist is not None:
+        ff.flags.append(f"growth = historical revenue CAGR {hist:.1%} (no forward estimate found)")
+
+
+def _core_eps(ff):
+    """min(net income, NOPAT) per diluted share: trailing EPS without one-off gains."""
+    if not ff.shares_diluted or ff.net_income is None:
+        return None
+    ni = ff.net_income
+    if ff.operating_income is not None:
+        ni = min(ni, ff.operating_income * (1 - ff.tax_rate))
+    return ni / ff.shares_diluted
+
+
 def _score(ff):
     """Basic confidence 0-100 + flags (deeper checks in validate.py)."""
     score = 100

@@ -62,6 +62,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     _terminal_roic(ff, t, roc_table)
 
     validate.validate(ff, rf=rf)
+    normalize.resolve_growth(ff)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
 

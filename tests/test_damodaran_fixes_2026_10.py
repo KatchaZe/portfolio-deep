@@ -63,5 +63,39 @@ def test_f4_cash_includes_marketable_securities_on_one_date():
           "got %r" % d["cash"])
 
 
+def _ff(**kw):
+    from domain.facts import FinancialFacts
+    f = FinancialFacts("T")
+    base = dict(revenue=50e9, net_income=15e9, operating_income=20e9, shares_diluted=4.4e9,
+                income_before_tax=20e9, tax_expense=4e9, forward_eps=3.4)
+    for k, v in {**base, **kw}.items():
+        f.set(k, v, "test")
+    f.set("growth_lt", kw.get("growth_lt", 0.195), "sec-cagr(min 3y/5y)")
+    return f
+
+
+def test_f2_growth_is_forward_looking():
+    from pipeline import normalize as N
+    f = _ff(fwd_growth_near=0.20, fwd_growth_far=0.10, n_analysts=30)
+    N.resolve_growth(f)
+    check(abs(f.growth_lt - 0.15) < 1e-9 and "consensus" in f.provenance["growth_lt"],
+          "a covered consensus revenue path replaces historical CAGR", repr(f.growth_lt))
+    f = _ff(fwd_growth_near=0.20, fwd_growth_far=0.10, n_analysts=2)
+    N.resolve_growth(f)
+    check(f.growth_lt != 0.15, "two analysts are not a consensus")
+    f = _ff()                                   # NVO: forward 3.40 < core 3.41
+    N.resolve_growth(f)
+    check(f.growth_lt == 0.0 and any("below core trailing EPS" in x for x in f.flags),
+          "forward EPS below core trailing EPS -> 0% growth, flagged (NVO 19.5% case)", repr(f.growth_lt))
+    f = _ff(forward_eps=15.0)                   # adjusted >> GAAP never raises growth
+    N.resolve_growth(f)
+    check(f.growth_lt == 0.195 and any("historical revenue CAGR" in x for x in f.flags),
+          "with no forward growth, history is used and labelled historical")
+    f = _ff(fwd_growth_near=0.2, n_analysts=30)
+    f.set("growth_lt", 0.11, "yahoo")
+    N.resolve_growth(f)
+    check(f.growth_lt == 0.11, "an analyst 5y growth already set is kept")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_damodaran_fixes_2026_10 PASSED")
