@@ -47,6 +47,10 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
     anchor = v.get("anchor_value")
     upside = ((anchor - price) / price * 100) if (anchor and price) else None
     upside = round(upside, 1) if upside is not None else None
+    # Margin of safety (V - P) / V: the ONE definition the P-score, the gauge, the
+    # advice line and the Risk Desk all use. Upside (V - P) / P is the return if price
+    # converges and stays on the card as the secondary number.
+    mos = round((anchor - price) / anchor * 100, 1) if (anchor and anchor > 0 and price) else None
     rd = v.get("reverse_dcf") or {}
     eps_surprises = f.get("earnings_surprises") or f.get("eps_surprises_backfill")
     mgn_trend = margin_track.build(f.get("operating_income_quarters"), f.get("revenue_quarters"))
@@ -57,7 +61,7 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "recommendation": v.get("recommendation"),
         "anchor_method": v.get("anchor_method"), "anchor_value": anchor,
         "range_low": v.get("range_low"), "range_high": v.get("range_high"),
-        "upside_pct": upside,
+        "upside_pct": upside, "mos_pct": mos,
         "net_upside_pct": costs.net_upside(upside, config.CAPGAINS_TAX_RATE,
                                            config.TRADING_COST_BPS),
         "momentum_signal": mom.get("momentum_signal"), "rsi": mom.get("rsi"),

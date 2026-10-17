@@ -9,7 +9,10 @@ function riskSection(title,inner,note){return `<div style="margin:14px 0"><div s
 let __riskCache=null;
 async function fetchRiskPayload(en,force){
   const tol=(document.getElementById('riskTol')||{}).value||20, hz=(document.getElementById('riskHorizon')||{}).value||1;
-  const key=`${tol}|${hz}|${en}`;
+  // the holdings are part of the key: adding, removing or resizing a position (any
+  // path, including the watchlist promote) must not serve the old portfolio's desk
+  const hold=((window.__last||{}).rows||[]).map(r=>r.ticker+':'+(r.shares??'')).sort().join(',');
+  const key=`${tol}|${hz}|${en}|${hold}`;
   if(!force&&__riskCache&&__riskCache.key===key)return __riskCache.data;
   const r=await fetch(`/api/risk?risk_tolerance_pct=${encodeURIComponent(tol)}&horizon_years=${encodeURIComponent(hz)}&enrich=${en}`);
   const txt=await r.text(); let d;
@@ -37,12 +40,13 @@ function capRiskRows(cv){
   if(cov.length && cov[0].signed_risk_pct!=null) return cov.map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.signed_risk_pct,diff:x.diff_pp,abs:x.abs_risk_share_pct}));
   return (cv.beta_based||[]).map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.risk_pct,diff:x.diff_pp,abs:x.risk_pct}));
 }
-// S4 portfolio margin of safety: market-value-weighted upside of the holdings that have a fair value
+// S4 portfolio margin of safety: market-value-weighted MoS (V − P)/V of the holdings
+// that have a fair value — the same definition each card shows
 function portMoS(){
   const rows=(window.__last&&window.__last.rows)||[];
   let ws=0,g=0,n=0,wn=0,nets=0;
   for(const r of rows){
-    const mv=r.market_value,u=r.upside_pct;
+    const mv=r.market_value,u=mosOf(r);
     if(mv&&u!=null){ws+=mv;g+=mv*u;n++;if(r.net_upside_pct!=null){nets+=mv*r.net_upside_pct;wn+=mv;}}
   }
   if(!ws||!n)return null;
@@ -52,10 +56,10 @@ function portMoSCard(){
   const m=portMoS();
   if(!m)return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:calc(160px*var(--fs));flex:1 1 160px"><div style="${TILE_LABEL}">Portfolio MoS (S4)</div><div style="font-size:calc(15px*var(--fs));font-weight:800" class="muted">&mdash;</div><div class="muted" style="font-size:calc(10px*var(--fs))">ต้องมี Fair Value ต่อหุ้นก่อน (Run Fundamental Refresh)</div></div>`;
   const col=m.gross>=15?'#166534':m.gross>=0?'#475569':'#991b1b';
-  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:calc(160px*var(--fs));flex:1 1 160px" title="margin of safety ระดับพอร์ต = ค่าเฉลี่ยถ่วงน้ำหนัก MV ของ upside รายตัว (${m.n}/${m.of} ตัวที่มี FV) — ส่วนเผื่อรวมของพอร์ตต่อความผิดพลาดในการประเมิน (S4)">
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:calc(160px*var(--fs));flex:1 1 160px" title="margin of safety ระดับพอร์ต = ค่าเฉลี่ยถ่วงน้ำหนัก MV ของ MoS (FV − ราคา)/FV รายตัว (${m.n}/${m.of} ตัวที่มี FV) · net = upside หลังค่าเทรด/ภาษี — ส่วนเผื่อรวมของพอร์ตต่อความผิดพลาดในการประเมิน (S4)">
     <div style="${TILE_LABEL}">Portfolio MoS (S4)</div>
     <div style="font-size:calc(17px*var(--fs));font-weight:800;color:${col}">${signed(m.gross)}%</div>
-    <div class="muted" style="font-size:calc(10px*var(--fs))">${m.net!=null?`net หลัง cost/tax ${signed(m.net)}% · `:''}${m.n}/${m.of} ตัวมี FV</div></div>`;
+    <div class="muted" style="font-size:calc(10px*var(--fs))">${m.net!=null?`net upside หลัง cost/tax ${signed(m.net)}% · `:''}${m.n}/${m.of} ตัวมี FV</div></div>`;
 }
 // Portfolio Story: the seven Risk Desk sections read through Damodaran's five principles,
 // headline finding first

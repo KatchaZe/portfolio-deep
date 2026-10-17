@@ -33,10 +33,19 @@ def parse_consensus(qs_json):
     # quoted for the US-listed security, so already ADR-ratio consistent
     out["market_cap"] = _raw(price.get("marketCap"))
     out["revenue_growth"] = _raw(fin.get("revenueGrowth"))
+    annual = []
     for tr in res.get("earningsTrend", {}).get("trend", []):
         if tr.get("period") == "+5y":
             out["growth_lt"] = _raw(tr.get("growth"))
-            break
+        elif tr.get("period") in ("0y", "+1y") and tr.get("endDate"):
+            avg = _raw((tr.get("earningsEstimate") or {}).get("avg"))
+            if avg is not None:
+                annual.append((tr["endDate"], avg))
+    # NTM from this year's and next year's consensus, the clock every source is put
+    # on (pipeline/consensus.ntm_eps); forwardEps (next fiscal year) when absent
+    if len(annual) == 2:
+        from pipeline.consensus import ntm_eps
+        out["forward_eps"] = ntm_eps(annual) or out["forward_eps"]
     return out
 
 

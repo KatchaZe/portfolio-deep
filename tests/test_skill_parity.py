@@ -173,6 +173,25 @@ def test_young_company_dcf_parity():
     print("young-company DCF parity OK (going concern %.2f/share, failure adj, terminal cap)" % b)
 
 
+def test_router_models_and_mos_parity():
+    """v8.4: the skill ships the app's own FCFF DCF and excess-return modules, and
+    scores margin of safety on value, (FV - P) / FV, as the engine does."""
+    dcf, er, sub = _load("fcff_dcf"), _load("excess_return"), _load("deep_subscores")
+    if not (dcf and er and sub):
+        print("skill v8.4 scripts not present - skipped")
+        return
+    from domain.engine import fcff_dcf as D, financial as F
+    kw = dict(revenue=50e9, margin_now=0.2, margin_target=0.22, g_high=0.12, g_stable=0.04,
+              sales_to_capital=1.5, tax_now=0.18, tax_marginal=0.25, wacc=0.09,
+              wacc_stable=0.085, roic_stable=0.15, cash=5e9, debt=10e9, shares=1e9)
+    assert dcf.value(**kw)["per_share"] == D.value(**kw)["per_share"], "FCFF DCF drift"
+    kb = dict(book_equity=300e9, roe=0.15, ke=0.10, g_high=0.06, g_stable=0.04, shares=2.8e9)
+    assert er.value(**kb)["per_share"] == F.value(**kb)["per_share"], "excess-return drift"
+    score, notes = sub.price({"fair_value_anchor": 60.0, "price": 100.0})
+    assert "MoS -67%" in notes[0], notes      # (60-100)/60, not (60-100)/100 = -40%
+    print("router models + MoS parity OK")
+
+
 if __name__ == "__main__":
     from tests._harness import run_suite
     run_suite(globals(), "ALL test_skill_parity PASSED")

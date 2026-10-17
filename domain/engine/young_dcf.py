@@ -264,7 +264,10 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
          "current_margin": cur_margin, "target_margin": target_margin,
          "sales_to_capital": s2c, "tax": tax, "wacc": wacc, "roic_stable": roic_term,
          "net_debt": (debt_eff or 0) - (f.cash or 0), "shares": f.shares_diluted,
-         "annual_dilution": annual_dilution or 0.0, "p_survival": p_surv,
+         # The margins are GAAP, so stock-based pay is already an expense in every
+         # projected year. Growing the share count as well charged it twice (-39% at
+         # 5%/yr over 10 years); the rate stays in `inputs` as a disclosure only.
+         "annual_dilution": 0.0, "p_survival": p_surv,
          "distress_value_per_share": distress}
 
     gc = going_concern(d)
@@ -329,6 +332,7 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
             "sales_to_capital": round(s2c, 2), "sales_to_capital_src": s2c_label,
             "p_survival_src": p_why,
             "annual_dilution_pct": round((annual_dilution or 0) * 100, 2),
+            "dilution_charged": False,     # SBC is in the GAAP margin (no double count)
             "wacc_pct": round(wacc * 100, 2), "roic_stable_pct": round(roic_term * 100, 1),
         },
     }

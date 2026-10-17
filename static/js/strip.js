@@ -31,7 +31,8 @@ function renderMarket(mk){
   if(v.regime){
     const col={cheap:'#166534',fair:'#475569',expensive:'#991b1b'}[v.regime]||'#475569';
     t2=stripTile('Market value (S32/33)',v.regime.toUpperCase(),
-      `implied ERP ${v.implied_erp_pct}% · E/P ${v.earnings_yield_pct}% · Fed spread ${v.fed_spread_pct}% &rarr; ${esc(v.tilt||'')} <span style="color:#cbd5e1">(tilt ไม่ใช่สวิตช์เข้าออก)</span>`,
+      `implied ERP ${v.implied_erp_pct}% · E/P ${v.earnings_yield_pct}% · Fed spread ${v.fed_spread_pct}% &rarr; ${esc(v.tilt||'')} <span style="color:#cbd5e1">(tilt ไม่ใช่สวิตช์เข้าออก)</span>`
+      +(v.rf_live===false?` <span style="color:#b45309;font-weight:700" title="ดึงอัตรา 10Y ไม่ได้ จึงใช้ค่าสำรอง ${v.rf_pct}% — Fed spread อาจคลาดจากวันนี้">&#9888; Rf สำรอง ${v.rf_pct}%</span>`:''),
       '#f8fafc','#e2e8f0',col);
   }else t2=stripTile('Market value (S32/33)','&mdash;','ERP/PE ยังคำนวณไม่ได้ — เช็ค config');
   el.innerHTML=t1+t2;

@@ -320,8 +320,9 @@ def test_total_debt_is_read_on_the_latest_balance_sheet():
     with open(p, encoding="utf-8") as fh:
         d = S.extract(json.load(fh))
     # ORCL at 2026-02-28: LongTermNotesAndLoans 124.718B + NotesPayableCurrent 9.887B
-    check(d["total_debt"] == 134_605_000_000,
-          "ORCL total debt is 134.605B at 2026-02-28, not the 92.568B annual tag "
+    # + FinanceLeaseLiability 6.250B (finance leases are debt; round 3)
+    check(d["total_debt"] == 140_855_000_000,
+          "ORCL total debt is 134.605B + 6.25B finance leases at 2026-02-28, not the 92.568B annual tag "
           "from 2025-05-31 (got %r)" % d["total_debt"])
     # and the ROIC that rides on it
     ic = d["total_debt"] + d["equity"] - d["cash"]

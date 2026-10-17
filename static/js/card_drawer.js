@@ -3,12 +3,14 @@
 
 // Every metric card carries a tooltip, and a missing value says why it is missing.
 const KM_TIP={
-  'Ke':'Cost of equity = Rf + beta x ERP',
+  'Ke':'Cost of equity = Rf + beta x (ERP + country risk premium)',
   'WACC':'Ke x (E/V) + Kd-after-tax x (D/V) — the bar ROIC has to clear',
   'Kd a-t':'Cost of debt after tax = (Rf + default spread) x (1 - tax)',
+  'ROE':'ธนาคาร/ประกัน: ROE = กำไรสุทธิ / equity ต้นปี (เงินฝากคือวัตถุดิบ ไม่ใช่ทุน)',
+  'Ke (bar)':'ธนาคาร/ประกัน: ใช้ Ke เป็นต้นทุนเงินทุน (WACC ไม่มีความหมาย)',
   'ROIC*':'ROIC ที่ปรับแล้ว (normalized) — อาจต่างจาก "R&D-capitalized ROIC" บรรทัดแรกของ audit trail ด้านล่าง ซึ่งเป็นค่าก่อน normalize',
-  'Spread':'ROIC* - WACC. บวก = สร้างมูลค่า · ลบ = ทำลายมูลค่า',
-  'EVA':'Economic Value Added = Spread x Invested Capital ($ ต่อปี)',
+  'EVA':'Economic Value Added = (ROIC − WACC) x invested capital บนฐานเดียวกัน (R&D-capitalized ทั้งคู่ถ้ามี) — $ ต่อปี · ธนาคาร: (ROE − Ke) x equity',
+  'Spread':'ROIC* − WACC (ธนาคาร: ROE − Ke). บวก = สร้างมูลค่า · ลบ = ทำลายมูลค่า',
 };
 const KM_MISSING={
   'ROIC*':'วัดไม่ได้ — ขาดข้อมูล invested capital หรือ NOPAT',
@@ -23,8 +25,13 @@ function deepDrawer(x){
   const km=x.key_metrics||{};
   // a small-cap EVA needs M / k, and the minus goes before the currency
   const evaTxt=(x.eva==null)?'&mdash;':compactNumber(x.eva,'$',true);
-  const cards=[['Ke',signedPct(km.ke_pct)],['WACC',signedPct(km.wacc_pct)],['Kd a-t',signedPct(km.kd_pct)],
-    ['ROIC*',signedPct(km.roic_adj_pct!=null?km.roic_adj_pct:km.roic_pct)],['Spread',signedPct(km.spread_pct)],['EVA',evaTxt]]
+  const fin=km.roic_basis==='roe_book_equity';
+  // kd_pct is PRE-tax; the after-tax figure is what the WACC uses
+  const kdAt=km.kd_after_pct!=null?km.kd_after_pct:null;
+  const cards=(fin
+    ?[['Ke',signedPct(km.ke_pct)],['ROE',signedPct(km.roic_pct)],['Spread',signedPct(km.spread_pct)],['EVA',evaTxt]]
+    :[['Ke',signedPct(km.ke_pct)],['WACC',signedPct(km.wacc_pct)],['Kd a-t',signedPct(kdAt)],
+      ['ROIC*',signedPct(km.roic_adj_pct!=null?km.roic_adj_pct:km.roic_pct)],['Spread',signedPct(km.spread_pct)],['EVA',evaTxt]])
     .map(c=>metricCard(c[0],c[1])).join('');
   return `<div style="padding:10px 12px;background:#f8fafc">
     <div style="display:flex;flex-wrap:wrap;gap:8px">${cards}

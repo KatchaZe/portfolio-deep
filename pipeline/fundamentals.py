@@ -258,7 +258,7 @@ def _blend_forward_eps(ff, t, fmp_estimates):
     if ff.forward_eps and ff.forward_eps > 0:
         candidates["yahoo"] = ff.forward_eps          # Yahoo value set by normalize
     if fmp_estimates:
-        fe = fmp.parse_forward_eps(fmp_estimates, ff.fiscal_year)
+        fe = fmp.parse_ntm_eps(fmp_estimates)          # NTM, the basis the others are put on
         if fe:
             candidates["fmp"] = fe
     if config.FINNHUB_API_KEY:
@@ -289,7 +289,9 @@ def _own_pe_percentile(ff, t):
     if not (ff.currency == "USD" and ff.price and ff.eps_annuals_dated):
         return
     try:
-        cur_eps = (ff.net_income / ff.shares_diluted) if (ff.net_income and ff.shares_diluted) else ff.eps_gaap
+        from domain.engine.deep_v82 import core_net_income
+        core, _ = core_net_income(ff)       # a one-off gain is not a cheaper multiple
+        cur_eps = (core / ff.shares_diluted) if (core and ff.shares_diluted) else ff.eps_gaap
         ch = yahoo.fetch_chart(t, rng="5y", interval="1mo")
         pct = yahoo.pe_percentile_5y(ff.eps_annuals_dated, ch["closes"], ch["dates"], ff.price, cur_eps)
         if pct is not None:

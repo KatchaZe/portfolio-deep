@@ -29,14 +29,22 @@ def build(row):
         return ""
 
 
-# (matches upside %, headline, verdict, show margin of safety) — first match wins
+# Bands on the margin of safety (V - P) / V, the same cut-offs the engine's P-score
+# uses (40 / 15 / -15 / -40), so the advice line and the score cannot disagree.
+# (matches MoS %, headline, verdict) — first match wins
+MOS_GOOD, MOS_BAD = 15.0, -15.0
 _VALUE_BANDS = (
-    (lambda u: u >= 40, "ราคาต่ำกว่า Fair Value มาก", "ส่วนเผื่อกว้าง", True),
-    (lambda u: u >= 15, "ต่ำกว่า Fair Value", "มีส่วนเผื่อความปลอดภัย", True),
-    (lambda u: u > -15, "ใกล้ Fair Value", "ราคาสมเหตุสมผล", False),
-    (lambda u: u > -40, "สูงกว่า Fair Value", "จ่ายแพงกว่ามูลค่า", False),
-    (lambda u: True, "แพงกว่า Fair Value มาก", "เสี่ยง de-rating", False),
+    (lambda m: m >= 40, "ราคาต่ำกว่า Fair Value มาก", "ส่วนเผื่อกว้าง"),
+    (lambda m: m >= MOS_GOOD, "ต่ำกว่า Fair Value", "มีส่วนเผื่อความปลอดภัย"),
+    (lambda m: m > MOS_BAD, "ใกล้ Fair Value", "ราคาสมเหตุสมผล"),
+    (lambda m: m > -40, "สูงกว่า Fair Value", "จ่ายแพงกว่ามูลค่า"),
+    (lambda m: True, "แพงกว่า Fair Value มาก", "เสี่ยง de-rating"),
 )
+
+
+def mos_from_upside(up):
+    """(V - P) / V from (V - P) / P, both in percent."""
+    return up / (100.0 + up) * 100.0 if up is not None and up > -100 else None
 _REV_EASE = {"Plausible": "อยู่ในวิสัยที่ทำได้", "Ambitious": "ท้าทาย",
              "Aggressive": "ตึงมาก", "Exceptional": "แทบเป็นไปไม่ได้"}
 _EQ_TEXT = {"CLEAN": "งบไว้ใจได้ (EQ CLEAN)",
@@ -47,15 +55,12 @@ _BEARISH = ("Weak", "Negative")
 
 
 def _value_clause(row, up, implied):
-    if up is not None:
+    mos = _row_mos(row, up)
+    if mos is not None:
         net_up = _fnum(row.get("net_upside_pct"))
-        basis = f" (net หลังภาษี/ค่าเทรด {net_up:+.0f}%)" if net_up is not None else ""
-        _, head, verdict, show_mos = next(b for b in _VALUE_BANDS if b[0](up))
-        # `upside_pct` is (V-P)/PRICE, the return if price converges. Damodaran's margin
-        # of safety is (V-P)/VALUE, a smaller number, so it is stated separately.
-        mos = (up / (100.0 + up) * 100.0) if up > -100 else None
-        mos_txt = f", MoS {mos:+.0f}% ของมูลค่า" if (show_mos and mos is not None) else ""
-        return f"มูลค่า: {head} ({up:+.0f}%{basis}{mos_txt}) — {verdict}"
+        basis = f", net หลังภาษี/ค่าเทรด {net_up:+.0f}%" if net_up is not None else ""
+        _, head, verdict = next(b for b in _VALUE_BANDS if b[0](mos))
+        return f"มูลค่า: {head} (MoS {mos:+.0f}% ของมูลค่า · upside {up:+.0f}%{basis}) — {verdict}"
     if implied is not None:
         actual = _fnum(row.get("rev_actual_1y"))
         cmp_txt = f" เทียบที่ทำได้จริงล่าสุด {actual:+.0f}%/ปี" if actual is not None else ""
@@ -110,6 +115,11 @@ def _action(good_value, bad_value, good_quality, good_mom, comp, has_parts):
     return None
 
 
+def _row_mos(row, up):
+    m = _fnum(row.get("mos_pct"))
+    return m if m is not None else mos_from_upside(up)
+
+
 def _build(row):
     up = _fnum(row.get("upside_pct"))
     implied = _fnum(row.get("rev_implied_cagr"))
@@ -126,8 +136,9 @@ def _build(row):
     # anchor when there is one, the reverse-DCF verdict ONLY when there is not. Reading
     # both let a "Plausible" RevDCF turn MSFT (-34%) and AVGO (-66%) into a buy right
     # after the clause said they were expensive.
-    if up is not None:
-        good_value, bad_value = up >= 15, up <= -15
+    mos = _row_mos(row, up)
+    if mos is not None:
+        good_value, bad_value = mos >= MOS_GOOD, mos <= MOS_BAD
     else:
         good_value = implied is not None and rev_verdict == "Plausible"
         bad_value = rev_verdict in ("Aggressive", "Exceptional")

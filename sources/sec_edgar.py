@@ -306,11 +306,26 @@ SBC_TAGS = ["ShareBasedCompensation",
             "ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost",
             "ExpenseFromSharebasedPaymentTransactionsWithEmployees"]
 
-COMBINED_DEBT = "DebtLongtermAndShorttermCombinedAmount"
+# Debt: a filed total wins on its date, else long-term + current legs off that date.
+# Ladders run most-specific-first; the convertible and capital-lease variants come
+# last, so they only answer for a filer that tags nothing else (HIMS files only
+# ConvertibleDebtNoncurrent; KO only the ...AndCapitalLeaseObligations family).
+COMBINED_DEBT = ("DebtLongtermAndShorttermCombinedAmount",
+                 "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities")
 LT_DEBT = ("LongTermDebtNoncurrent", "LongTermNotesAndLoans", "LongTermDebt",
-           "LongTermNotesPayable", "Borrowings")
+           "LongTermNotesPayable", "Borrowings", "LongTermDebtAndCapitalLeaseObligations",
+           "ConvertibleDebtNoncurrent", "ConvertibleNotesPayable", "ConvertibleDebt",
+           "SeniorNotes")
 ST_DEBT = ("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings",
-           "NotesPayableCurrent", "NotesAndLoansPayableCurrent")
+           "NotesPayableCurrent", "NotesAndLoansPayableCurrent",
+           "LongTermDebtAndCapitalLeaseObligationsCurrent", "ConvertibleDebtCurrent",
+           "ConvertibleNotesPayableCurrent")
+# Finance (capital) leases are debt too and sit outside LongTermDebt*: MSFT carries
+# $66.6B of them. Added on the debt's own date unless the debt tag already includes
+# them (the ...CapitalLeaseObligations family).
+FIN_LEASE_TOTAL = ("FinanceLeaseLiability",)
+FIN_LEASE_LEGS = ("FinanceLeaseLiabilityNoncurrent", "FinanceLeaseLiabilityCurrent")
+LEASE_INCLUSIVE = ("CapitalLeaseObligations",)
 EQUITY_TAGS = ("StockholdersEquity", "Equity",
                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
 # The current-year and prior-year lookups share one ladder each, so the two can never
@@ -320,7 +335,9 @@ AR_TAGS = ("AccountsReceivableNetCurrent", "ReceivablesNetCurrent",
 INV_TAGS = ("InventoryNet", "InventoryGross", "Inventories")
 AP_TAGS = ("AccountsPayableCurrent", "AccountsPayableTradeCurrent",
            "AccountsPayableAndAccruedLiabilitiesCurrent")
-CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents")
+CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents",
+             # TMDX tags only the restricted-cash-inclusive total since 2024-09
+             "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents")
 # Damodaran nets cash AND marketable securities out of debt and invested capital.
 # Cash-only read GOOGL at $55.9B against $242.5B, MSFT $20.9B against $76.8B.
 COMBINED_CASH = "CashCashEquivalentsAndShortTermInvestments"
@@ -330,8 +347,10 @@ DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiab
                "DeferredRevenueCurrent", "DeferredRevenue")
 RND_TAGS = ("ResearchAndDevelopmentExpense",
             "ResearchAndDevelopmentExpenseExcludingAcquiredInProcessCost")
-LEASE_TOTAL = "OperatingLeaseLiability"
-LEASE_LEGS = ("OperatingLeaseLiabilityNoncurrent", "OperatingLeaseLiabilityCurrent")
+# Operating leases (US GAAP) or the IFRS 16 lease liability, which covers every lease.
+LEASE_TOTAL = ("OperatingLeaseLiability", "LeaseLiabilities")
+LEASE_LEGS = (("OperatingLeaseLiabilityNoncurrent", "NoncurrentLeaseLiabilities"),
+              ("OperatingLeaseLiabilityCurrent", "CurrentLeaseLiabilities"))
 # Per-share units: an IFRS filer reports EPS in its own currency.
 EPS_DILUTED = ("EarningsPerShareDiluted", ("USD/shares",))
 
@@ -423,12 +442,42 @@ def _fresh(x, ladder, at):
     return best["val"] if best else None
 
 
+PRIOR_TOLERANCE_DAYS = 45
+
+
+def _year_before(dates, current):
+    """The date in `dates` nearest one year before `current`, within 45 days, or None.
+
+    "Prior year" means the same balance-sheet date a year earlier, so a change sits
+    beside the year-over-year growth it is compared with. The newest instant of the
+    previous calendar year was 3 to 6 months back for a quarterly filer, and for UNH
+    an equity figure from 2014."""
+    if not current:
+        return None
+    target = _date(current) - dt.timedelta(days=365)
+    best = None
+    for d in dates:
+        gap = abs((_date(d) - target).days)
+        if gap <= PRIOR_TOLERANCE_DAYS and (best is None or gap < best[0]):
+            best = (gap, d)
+    return best[1] if best else None
+
+
+def _instants(x, t, p):
+    return {e["end"]: e["val"] for e in x.entries(t, p)
+            if not e.get("start") and e.get("val") is not None}
+
+
 def _prior_year(x, ladder, at):
-    """The previous year-end balance-sheet value of the first live tag that has one."""
-    for t, p in _live_tags(x, ladder, at):
-        s = x.instant_series(t, p)
-        if len(s) > 1:
-            return s[1]
+    """The balance-sheet value one year before the current one (_fresh's date), from
+    the first live tag that filed it."""
+    live = _live_tags(x, ladder, at)
+    current = max((x.latest_end(t, p) for t, p in live), default=None)
+    for t, p in live:
+        series = _instants(x, t, p)
+        d = _year_before(series, current)
+        if d:
+            return series[d]
     return None
 
 
@@ -440,8 +489,9 @@ def _total_else_legs(rule):
     return read
 
 
-def _total_debt(x, ladders, at):
-    """Total debt read off ONE balance-sheet date: the latest that yields a figure.
+def _total_debt(x, ladders, at, prior=False):
+    """Total debt read off ONE balance-sheet date: the latest that yields a figure
+    (with `prior`, the date a year before it), plus finance leases on that date.
 
     The combined tag must not short-circuit on `or`, and the two legs must not be
     summed across dates. ORCL files the combined amount annually (92.6B @ 2025-05-31)
@@ -452,18 +502,29 @@ def _total_debt(x, ladders, at):
         for tag in tags:            # first tag in ladder order wins each date
             for e in x.entries(tag):
                 d, v = e.get("end"), e.get("val")
-                if d and v is not None and d not in out and _recent(d, at.ref_end):
-                    out[d] = v
+                if (d and v is not None and not e.get("start") and d not in out
+                        and _recent(d, at.ref_end, days=540 + (400 if prior else 0))):
+                    out[d] = (v, tag)
         return out
 
-    comb, lt, st = (by_end(tags) for tags in ladders)
-    for d in sorted(set(comb) | set(lt), reverse=True):
+    comb, lt, st, fl_total, fl_legs = (by_end(tags) for tags in ladders)
+    dates = sorted(set(comb) | set(lt), reverse=True)
+    if prior and dates:
+        d0 = _year_before(dates, dates[0])
+        dates = [d0] if d0 else []
+    for d in dates:
         if d in comb:
-            return comb[d]
-        if d in lt:
+            debt, tag = comb[d]
+        else:
             # no current-debt tag on that date means none split out; a leg from
             # another date would be worse
-            return _sum(lt[d], st.get(d))
+            debt, tag = _sum(lt[d][0], (st.get(d) or (None,))[0]), lt[d][1]
+        if not any(k in tag for k in LEASE_INCLUSIVE):
+            fin = (fl_total.get(d) or (None,))[0]
+            if fin is None:
+                fin = (fl_legs.get(d) or (None,))[0]
+            debt = _sum(debt, fin)
+        return debt
     return None
 
 
@@ -487,10 +548,10 @@ def _cash_and_securities(x, ladders, at, prior=False):
     comb, cash, sti = by_end(combined), by_end(cash_tags), by_end(sti_tags)
     dates = sorted(set(comb) | set(cash), reverse=True)
     if prior and dates:
-        # the same date rule as every other *_prior field (newest instant of the
-        # previous calendar year), so prior invested capital is read off one date
-        years = sorted({d[:4] for d in dates}, reverse=True)
-        dates = [d for d in dates if len(years) > 1 and d[:4] == years[1]]
+        # the same date rule as every other *_prior field (one year before the
+        # current balance sheet), so prior invested capital is read off one date
+        d0 = _year_before(dates, dates[0])
+        dates = [d0] if d0 else []
     for d in dates:
         return comb[d] if d in comb else cash[d] + sti.get(d, 0)
     return None
@@ -523,7 +584,7 @@ def _ic_components(x, ladders, at):
     return out
 
 
-LEASE_LADDERS = ((LEASE_TOTAL,), *((leg,) for leg in LEASE_LEGS))
+LEASE_LADDERS = (LEASE_TOTAL, *LEASE_LEGS)
 
 # field -> (period rule, tag ladder), in evaluation order. Reported currency;
 # normalize converts to USD.
@@ -541,7 +602,7 @@ FIELD_LADDERS = {
     # measures GROSS grants and disagrees in SIGN for MSFT and ABBV. A count, never
     # FX-converted.
     "shares_diluted_annuals": (_annual, (("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES),)),
-    "total_debt": (_total_debt, ((COMBINED_DEBT,), LT_DEBT, ST_DEBT)),
+    "total_debt": (_total_debt, (COMBINED_DEBT, LT_DEBT, ST_DEBT, FIN_LEASE_TOTAL, FIN_LEASE_LEGS)),
     "cash": (_cash_and_securities, ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "equity": (_fresh, EQUITY_TAGS),
     "capex": (_ttm_present, CAPEX_TAGS),
@@ -554,7 +615,7 @@ FIELD_LADDERS = {
     "gross_profit_annuals_dated": (_trend_series, GROSS_PROFIT_TAGS),
     "cost_of_revenue_annuals_dated": (_trend_series, COST_OF_REV_TAGS),
     "ic_components_dated": (_ic_components, (EQUITY_TAGS, CASH_TAGS,
-                                             (COMBINED_DEBT, *LT_DEBT), ST_DEBT, STI_TAGS)),
+                                             (*COMBINED_DEBT, *LT_DEBT), ST_DEBT, STI_TAGS)),
     "dep_amort": (_ttm, ("DepreciationAndAmortization", "Depreciation",
                          "DepreciationDepletionAndAmortization",
                          "DepreciationAndAmortisationExpense",
@@ -577,8 +638,8 @@ FIELD_LADDERS = {
     "rnd_expense": (_ttm, RND_TAGS),
     "rnd_annuals": (_annual, RND_TAGS),
     "equity_prior": (_prior_year, EQUITY_TAGS),
-    "total_debt_prior": (_total_else_legs(_prior_year),
-                         ((COMBINED_DEBT,), (COMBINED_DEBT, *LT_DEBT), ST_DEBT)),
+    "total_debt_prior": (lambda x, ladders, at: _total_debt(x, ladders, at, prior=True),
+                         (COMBINED_DEBT, LT_DEBT, ST_DEBT, FIN_LEASE_TOTAL, FIN_LEASE_LEGS)),
     "cash_prior": (lambda x, ladders, at: _cash_and_securities(x, ladders, at, prior=True),
                    ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "acquisitions_net": (_ttm, ("PaymentsToAcquireBusinessesNetOfCashAcquired",
@@ -679,7 +740,7 @@ def extract(companyfacts):
     fy_ends = [e for e, _ in (operating["operating_income_annuals_dated"]
                               or revenue["revenue_annuals_dated"])][:12]
     at = _Anchor(x.latest_end(rev_concept), fy_ends)
-    return {
+    out = {
         "currency": x.currency(rev_concept) or "USD",
         "accounting_standard": x.standard,
         "latest_period_end": at.ref_end,
@@ -692,6 +753,93 @@ def extract(companyfacts):
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
         "q4_derived_ends": sorted(x.q4_derived),
     }
+    out["split_boundaries"] = _split_adjust(x, out, ni_concept)
+    return out
+
+
+# --------------------------------------------------------------------------- #
+#  Stock splits                                                                #
+# --------------------------------------------------------------------------- #
+# A 10-K restates the years it presents for a split; years before them keep the old
+# per-share basis forever. NVDA's diluted share series reads 24,514M ... 25,070M then
+# 2,535M (10-for-1, 2024), its EPS 0.17 then 3.85. The filer's own split-ratio tag says
+# WHICH factors exist; the series says WHERE each one falls. Requiring both keeps
+# ordinary share growth (TSLA issued +30% in 2020) from being read as a split.
+SPLIT_TAGS = ("StockholdersEquityNoteStockSplitConversionRatio1",
+              "StockholdersEquityNoteStockSplitConversionRatio")
+SPLIT_MATCH = 0.12              # a year-over-year share ratio within 12% of a filed factor
+
+
+def _split_factors(x):
+    """The split ratios the filer has tagged (forward splits only, > 1.5)."""
+    out = set()
+    for t in SPLIT_TAGS:
+        for unit in ("pure", "shares"):
+            for e in x.entries(t, (unit,)):
+                v = e.get("val")
+                if isinstance(v, (int, float)) and v > 1.5:
+                    out.add(float(v))
+    return out
+
+
+def split_boundaries(dated_counts, factors):
+    """[(date, cumulative factor)] for a newest-first [[date, share count]] series:
+    every entry ON OR BEFORE `date` must be multiplied by the factor to be on today's
+    basis. A boundary needs the year-over-year ratio to sit within 12% of a filed
+    factor (or of the product of two)."""
+    if not factors or len(dated_counts) < 2:
+        return []
+    cands = set(factors) | {a * b for a in factors for b in factors}
+    out, cum = [], 1.0
+    for (d0, v0), (d1, v1) in zip(dated_counts, dated_counts[1:]):
+        if not v0 or not v1 or v1 <= 0:
+            continue
+        r = v0 / v1
+        hit = min(cands, key=lambda f: abs(r / f - 1))
+        if abs(r / hit - 1) <= SPLIT_MATCH:
+            cum *= hit
+            out.append((d1, cum))
+    return out
+
+
+def _factor_at(boundaries, date):
+    """Cumulative factor that applies to a value dated `date`."""
+    f = 1.0
+    for d, cum in boundaries:
+        if date <= d:
+            f = cum
+    return f
+
+
+def _split_adjust(x, d, ni_concept):
+    """Put the share and per-share series on today's basis. Returns the factors found."""
+    factors = _split_factors(x)
+    if not factors:
+        return []
+    shares = x.annual_series_dated("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES)
+    bounds = split_boundaries(shares, factors)
+    # where the share series stops early (GOOGL), net income / EPS stands in for it
+    eps = d.get("eps_annuals_dated") or []
+    if ni_concept and eps:
+        ni = dict(x.annual_series_dated(ni_concept))
+        implied = [[e, ni[e] / v] for e, v in eps if v and e in ni and ni[e] and ni[e] / v > 0]
+        known = {b for b, _ in bounds}
+        last = shares[-1][0] if shares else None
+        extra = [(b, f) for b, f in split_boundaries(implied, factors)
+                 if b not in known and (last is None or b < last)]
+        if extra:
+            base = bounds[-1][1] if bounds else 1.0
+            bounds += [(b, f * base) for b, f in extra]
+    if not bounds:
+        return []
+    if shares:
+        d["shares_diluted_annuals"] = [v * _factor_at(bounds, e) for e, v in shares]
+    if eps:
+        d["eps_annuals_dated"] = [[e, round(v / _factor_at(bounds, e), 4)] for e, v in eps]
+    q = d.get("eps_quarters")
+    if q:
+        d["eps_quarters"] = {e: round(v / _factor_at(bounds, e), 4) for e, v in q.items()}
+    return bounds
 
 
 # Fields copied onto FinancialFacts, in provenance order.
@@ -734,6 +882,18 @@ def populate(ff, companyfacts):
                                 + ", ".join(derived))
     for c in d.get("concept_conflicts") or []:
         ff.flags.append("SEC tag conflict - " + c)
+    if d.get("split_boundaries"):
+        ff.flags.append("stock split: share and EPS history before "
+                        + ", ".join(f"{b} (x{f:g})" for b, f in d["split_boundaries"])
+                        + " restated to today's share basis")
+    # A TTM EPS that straddles a split mixes the two bases (NVDA read 12.87 against
+    # 2.13). Net income / diluted shares cannot: use it when they disagree 1.8x+.
+    if ff.eps_gaap and ff.net_income and ff.shares_diluted:
+        implied = ff.net_income / ff.shares_diluted
+        if implied and (ff.eps_gaap / implied > 1.8 or implied / ff.eps_gaap > 1.8):
+            ff.flags.append(f"TTM EPS {ff.eps_gaap:.2f} disagrees with net income / shares "
+                            f"{implied:.2f} (split inside the TTM window?) - the latter used")
+            ff.set("eps_gaap", round(implied, 4), "sec-derived (NI / diluted shares)")
     if d.get("latest_period_end"):
         ff.set("fiscal_year", d["latest_period_end"], "sec")
     return ff, d

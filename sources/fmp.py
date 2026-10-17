@@ -342,6 +342,14 @@ def parse_estimate_path(estimates, latest_fy=None, latest_revenue=None):
     return out
 
 
+def parse_ntm_eps(estimates, today=None):
+    """FMP analyst-estimates (annual) -> next-twelve-months epsAvg, or None."""
+    from pipeline.consensus import ntm_eps
+    rows = [(e["date"], _num(e, "epsAvg", "epsAvgEstimate", "estimatedEpsAvg"))
+            for e in (estimates or []) if isinstance(e, dict) and e.get("date")]
+    return ntm_eps([(d, v) for d, v in rows if v is not None], today)
+
+
 def parse_forward_eps(estimates, latest_fy=None):
     """FMP analyst-estimates -> nearest future-year epsAvg, or None."""
     rows = [e for e in (estimates or []) if isinstance(e, dict) and e.get("date")]
@@ -400,16 +408,21 @@ def parse(bundle, facts):
     facts.set("income_before_tax", _num(src_inc, "incomeBeforeTax"), tag)
     facts.set("tax_expense", _num(src_inc, "incomeTaxExpense"), tag)
     facts.set("dep_amort", _num(src_inc, "depreciationAndAmortization") or _num(cf, "depreciationAndAmortization"), tag)
+    facts.set("interest_expense", _num(src_inc, "interestExpense"), tag)
+    facts.set("rnd_expense", _num(src_inc, "researchAndDevelopmentExpenses"), tag)
 
     facts.set("revenue_annuals", [_num(x, "revenue") for x in inc_list if _num(x, "revenue")], SRC + "/annual")
 
     facts.set("total_debt", _num(bal, "totalDebt"), SRC)
-    facts.set("cash", _num(bal, "cashAndCashEquivalents", "cashAndShortTermInvestments"), SRC)
+    # cash AND short-term investments, as the SEC path reads it (Damodaran nets both)
+    facts.set("cash", _num(bal, "cashAndShortTermInvestments", "cashAndCashEquivalents"), SRC)
+    facts.set("total_assets", _num(bal, "totalAssets"), SRC)
     facts.set("equity", _num(bal, "totalStockholdersEquity", "totalEquity"), SRC)
 
     capex = _num(cf, "capitalExpenditure")
     facts.set("capex", abs(capex) if capex is not None else None, SRC)
     facts.set("sbc", _num(cf, "stockBasedCompensation"), SRC)
+    facts.set("cfo", _num(cf, "operatingCashFlow", "netCashProvidedByOperatingActivities"), SRC)
 
     fwd_eps, growth = _consensus(bundle.get("estimates"), facts.fiscal_year)
     facts.set("forward_eps", fwd_eps, SRC + "/estimates")

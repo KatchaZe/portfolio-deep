@@ -45,7 +45,7 @@ function pcard(x,watch){
   const deep=`<div style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;margin:8px 0 4px"><b style="font-size:calc(16px*var(--fs))">${fixed(x.composite,2)}</b><span style="font-size:calc(11px*var(--fs))">${x.stars||''}</span>${reco}${moatChip(x)}${eqBadge(x)}${garpBadge(x)}</div>`;
   const valueCells=vg?'':`
     ${cardCell('Anchor FV',anchorCell(x))}
-    ${cardCell('Upside',upsideCell(x))}`;
+    ${cardCell('MoS',upsideCell(x))}`;
   // earnings dots answer "beat the estimate?", the trend strip below them "improving?"
   const earn=`<div style="margin:6px 0"><div style="${CAPS_LABEL}">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px;padding-left:8px">${earnCircles(x)}</div></div>`;
   const verdict=`<div class="muted" style="font-size:calc(12px*var(--fs));border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`+adviceLine(x);

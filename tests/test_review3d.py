@@ -156,7 +156,7 @@ def test_fv_method_disagreement_flagged():
                total_debt=67e9, cash=5.5e9, equity=3.3e9,
                revenue_annuals=[61.2e9, 56.3e9], operating_income_annuals=[15.1e9, 9.1e9],
                capex=1.0e9, dep_amort=8.0e9, cfo=22e9, total_assets=135e9,
-               forward_eps=14.05, growth_lt=0.10, beta=0.28,
+               forward_eps=25.0, growth_lt=0.10, beta=0.28,
                income_before_tax=5.0e9, tax_expense=0.7e9)
     v = E.DeepV82Engine().evaluate(f, rf=0.045)
     if v.fv_peg and v.fv_fvp and max(v.fv_peg, v.fv_fvp) / min(v.fv_peg, v.fv_fvp) >= E.FV_DISAGREE_RATIO:

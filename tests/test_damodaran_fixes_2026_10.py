@@ -42,8 +42,11 @@ def _inst(end, val):
 
 def test_f4_cash_includes_marketable_securities_on_one_date():
     from sources import sec_edgar as S
-    cash = {"units": {"USD": [_inst("2026-06-30", 55.9e9), _inst("2025-12-31", 30.7e9)]}}
-    secs = {"units": {"USD": [_inst("2026-06-30", 186.6e9), _inst("2025-12-31", 64.4e9)]}}
+    # prior = the same date a year earlier (2025-06-30), never the nearer 2025-12-31
+    cash = {"units": {"USD": [_inst("2026-06-30", 55.9e9), _inst("2025-12-31", 99e9),
+                              _inst("2025-06-30", 30.7e9)]}}
+    secs = {"units": {"USD": [_inst("2026-06-30", 186.6e9), _inst("2025-12-31", 99e9),
+                              _inst("2025-06-30", 64.4e9)]}}
     d = S.extract(_companyfacts({"CashAndCashEquivalentsAtCarryingValue": cash,
                                  "MarketableSecuritiesCurrent": secs}))
     check(abs(d["cash"] - 242.5e9) < 1, "cash = cash & equivalents + marketable securities (GOOGL 242.5B)",

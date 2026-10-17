@@ -49,10 +49,14 @@ function fairValueAlternatives(x,anchor){
     + alts.map(a=>{const t=`${a[0]===anchor?'&#9733;':''}${a[0]} $${Number(a[1]).toFixed(2)}`;
         return a[2]?`<span title="${esc(a[2])}" style="cursor:help">${t}</span>`:t;}).join(' · ')+clash+`</div>`;
 }
+// Margin of safety (V − P)/V, the one definition the score, gauge, advice and Risk Desk
+// share; upside (V − P)/P is the return if price converges, shown underneath.
+function mosOf(x){return x.mos_pct!=null?x.mos_pct:(x.upside_pct!=null&&x.upside_pct>-100?Math.round(x.upside_pct/(100+x.upside_pct)*1000)/10:null);}
 function upsideCell(x){
   if(x.upside_pct!=null){
-    const net=(x.net_upside_pct!=null)?`<div class="muted" style="font-size:calc(9px*var(--fs))" title="after ~trading cost + capital-gains tax (Damodaran S6)">net ${signed(x.net_upside_pct)}%</div>`:'';
-    return upDownPct(x.upside_pct)+net;
+    const net=(x.net_upside_pct!=null)?` · net ${signed(x.net_upside_pct)}%`:'';
+    return `<span title="Margin of safety = (Fair value − ราคา) / Fair value · เขียว ≥ +15% · แดง ≤ −15%">${upDownPct(mosOf(x))}</span>`
+      +`<div class="muted" style="font-size:calc(9px*var(--fs))" title="upside = (FV − ราคา)/ราคา = ผลตอบแทนถ้าราคาวิ่งถึง FV · net = หลังค่าเทรด + ภาษี (Damodaran S6)">upside ${signed(x.upside_pct)}%${net}</div>`;
   }
   // "no upside" and "we cannot value this" are different answers: a pre-profit name
   // whose S20 DCF was not promoted to the anchor says why
@@ -86,7 +90,7 @@ function youngHeader(y,surv){
     `• margin ${inp.current_margin_pct}% → ${inp.target_margin_pct}% — ${inp.target_margin_src||''}`,
     `• sales-to-capital ${inp.sales_to_capital} — ${inp.sales_to_capital_src||''}`,
     `• survival ${surv}% — ${inp.p_survival_src||''}`,
-    `• SBC dilution ${inp.annual_dilution_pct}%/ปี · WACC ${inp.wacc_pct}% · ROIC ปลายทาง ${inp.roic_stable_pct}%`,
+    `• SBC dilution ${inp.annual_dilution_pct}%/ปี (อยู่ใน margin GAAP แล้ว ไม่หักซ้ำ) · WACC ${inp.wacc_pct}% · ROIC ปลายทาง ${inp.roic_stable_pct}%`,
     `• terminal = ${y.terminal_share_of_value_pct}% ของมูลค่า`].join('\n');
   return `<div style="display:flex;align-items:center;gap:6px;margin:9px 0 1px">
     <span style="${CAPS_LABEL}">Pre-profit forward value (S20)</span>
@@ -157,11 +161,11 @@ function priceVsValueGauge(x){
   const pos=Math.max(2,Math.min(98,(ratio-0.5)*100));     // scale: 0.5x -> 1.5x of FV
   const net=x.net_upside_pct, meth=methodShort(x.anchor_method);
   return `<div style="margin:9px 0 2px;${CAPS_LABEL}">Price vs Value &middot; FV ${fixed(x.anchor_value)} (${meth})</div>
-      <div style="position:relative;height:12px;border-radius:6px;overflow:hidden;display:flex" title="เขียว = ราคาต่ำกว่า FV เกิน 15% (โซน margin of safety) · เทา = fair ±15% · แดง = แพงกว่า FV เกิน 15% — ขีดดำ = ราคาปัจจุบัน">
+      <div style="position:relative;height:12px;border-radius:6px;overflow:hidden;display:flex" title="เขียว = MoS ≥ +15% (ราคา ≤ 0.85×FV) · เทา = MoS ±15% · แดง = MoS ≤ −15% (ราคา ≥ 1.15×FV) — ขีดดำ = ราคาปัจจุบัน">
         <div style="flex:35;background:#bbf7d0"></div><div style="flex:30;background:#e2e8f0"></div><div style="flex:35;background:#fecaca"></div>
         <div style="position:absolute;left:${pos.toFixed(1)}%;top:0;width:3px;height:12px;background:#0f172a;border-radius:2px"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:calc(11px*var(--fs));margin-top:2px">
-        <b class="${x.upside_pct>=0?'up':'down'}">upside ${signed(x.upside_pct)}%${net!=null?` &rarr; net <span style="font-size:calc(12.5px*var(--fs))">${signed(net)}%</span>`:''}</b>
+        <b class="${x.upside_pct>=0?'up':'down'}">MoS ${signed(mosOf(x))}% · upside ${signed(x.upside_pct)}%${net!=null?` &rarr; net <span style="font-size:calc(12.5px*var(--fs))">${signed(net)}%</span>`:''}</b>
         <span class="muted" style="font-size:calc(9px*var(--fs))" title="net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">net หลัง cost/tax (S6)</span></div>`;
 }
 const VERDICT_COLORS={Plausible:['#dcfce7','#166534'],Ambitious:['#ffedd5','#9a3412'],Aggressive:['#fee2e2','#991b1b'],Exceptional:['#fee2e2','#991b1b']};

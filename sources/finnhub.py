@@ -38,20 +38,17 @@ def parse_earnings(raw):
     return out[-4:]
 
 
-def parse_eps_estimate(raw):
-    """Finnhub /stock/eps-estimate -> nearest future-period epsAvg (forward EPS), or
-    None. Premium on many plans -> raw is {} / has no 'data' -> returns None safely."""
+def parse_eps_estimate(raw, today=None):
+    """Finnhub /stock/eps-estimate (annual) -> next-twelve-months EPS, or None.
+    Premium on many plans -> raw is {} / has no 'data' -> returns None safely.
+    The oldest row used to win, which is usually a year already reported."""
+    from pipeline.consensus import ntm_eps
     data = (raw or {}).get("data") if isinstance(raw, dict) else None
     if not isinstance(data, list) or not data:
         return None
-    rows = [d for d in data if isinstance(d, dict) and d.get("period") and d.get("epsAvg")]
-    if not rows:
-        return None
-    rows.sort(key=lambda d: d["period"])
-    try:
-        return float(rows[0]["epsAvg"])
-    except (TypeError, ValueError):
-        return None
+    rows = [(d["period"], d["epsAvg"]) for d in data
+            if isinstance(d, dict) and d.get("period") and d.get("epsAvg") is not None]
+    return ntm_eps(rows, today)
 
 
 # --------------------------------------------------------------------------- #

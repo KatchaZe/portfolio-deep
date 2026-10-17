@@ -171,7 +171,16 @@ def total_penalty(findings):
 # gave it — see refresh_from_fallback for why that is the dangerous part.
 FALLBACK_SCALARS = ("revenue", "operating_income", "net_income", "eps_gaap",
                     "shares_diluted", "income_before_tax", "tax_expense",
-                    "total_debt", "cash", "equity", "capex", "dep_amort", "sbc")
+                    "total_debt", "cash", "equity", "capex", "dep_amort", "sbc",
+                    "cfo", "total_assets", "interest_expense", "rnd_expense")
+# SEC scalars the fallback has no figure for. Left in place they pair an old fiscal
+# year with the new one (TSM: FY2025 revenue beside FY2024 CFO and FY2023 balances),
+# so they are cleared and the engine reads them as missing, which it handles.
+FALLBACK_CLEARS = ("cfo", "total_assets", "interest_expense", "rnd_expense",
+                   "receivables", "receivables_prior", "inventory", "inventory_prior",
+                   "accounts_payable", "accounts_payable_prior", "deferred_revenue",
+                   "deferred_revenue_prior", "equity_prior", "cash_prior", "total_debt_prior",
+                   "operating_leases", "operating_leases_prior", "acquisitions_net")
 # The fields above that carry a CURRENCY, derived from the unit contract so the two
 # lists cannot drift (a hand-typed list once omitted eps_gaap and left TSM's EPS in
 # TWD beside a USD ADR price). `shares_diluted` is excluded by construction: a COUNT.
@@ -222,16 +231,20 @@ def apply_stale_fallback(ff, alt, sec_currency, sec_fx, fetch_rate):
         notes.append(f"งบสำรองรายงานเป็น {ccy} แต่หาอัตราแลกเปลี่ยนไม่ได้ — ไม่ใช้แหล่งสำรอง "
                      "คงงบเดิมไว้และหัก confidence (ตัวเลขคนละสกุลปนกันอันตรายกว่างบเก่า)")
         return False, notes
-    applied, note = refresh_from_fallback(ff, alt)
-    if not applied:
+    if not fallback_is_fresher(getattr(ff, "fiscal_year", None), getattr(alt, "fiscal_year", None)):
         notes.append("แหล่งสำรองไม่ได้ใหม่กว่า SEC — คงตัวเลขเดิมไว้และหัก confidence")
         return False, notes
-    notes.append(note)
+    # Convert the FALLBACK's own figures before they move. Converting ff afterwards
+    # also multiplied the SEC values the fallback did not replace (already USD), and
+    # TSM's capex came out 32x too small.
     if fx_rate != 1.0:
         for k in FALLBACK_MONEY:
-            v = getattr(ff, k, None)
+            v = getattr(alt, k, None)
             if isinstance(v, (int, float)):
-                setattr(ff, k, v * fx_rate)
+                setattr(alt, k, v * fx_rate)
+    applied, note = refresh_from_fallback(ff, alt)
+    notes.append(note)
+    if fx_rate != 1.0:
         notes.append(f"converted {ccy}->USD @ {round(fx_rate, 4)} "
                      "(แหล่งสำรอง — คนละสกุลกับที่ SEC รายงาน)")
     return True, notes
@@ -267,6 +280,15 @@ def refresh_from_fallback(ff, alt_facts):
             ff.set(name, v, (alt_facts.provenance or {}).get(name, "fallback"))
             moved.append(name)
     ff.set("fiscal_year", alt_facts.fiscal_year, "fallback")
+    cleared = []
+    # every old-period figure the fallback did not replace (a share COUNT excepted: it
+    # barely moves in a year and every per-share figure divides by it)
+    stale = [n for n in (*FALLBACK_SCALARS, *FALLBACK_CLEARS) if n != "shares_diluted"]
+    for name in dict.fromkeys(stale):
+        if name not in moved and getattr(ff, name, None) is not None:
+            setattr(ff, name, None)
+            (ff.provenance or {}).pop(name, None)
+            cleared.append(name)
     dropped = []
     for name in FALLBACK_INVALIDATES:
         if getattr(ff, name, None):
@@ -277,6 +299,7 @@ def refresh_from_fallback(ff, alt_facts):
         dropped.append("ic_components_dated")
     note = (f"งบจาก SEC เก่า ({old_fy}) — ใช้ตัวเลขจากแหล่งสำรองงวด {alt_facts.fiscal_year} แทน "
             f"{len(moved)} รายการ · ซีรีส์ย้อนหลังของ SEC ถูกล้าง {len(dropped)} ชุด "
+            f"และค่างวดเก่าที่ไม่มีตัวแทน {len(cleared)} รายการ "
             f"เพราะคนละงวดกับตัวเลขใหม่ (เทรนด์/ROIC รายปีจะว่างจนกว่า SEC จะอัปเดต)")
     return True, note
 

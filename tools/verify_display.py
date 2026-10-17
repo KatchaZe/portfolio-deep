@@ -414,6 +414,57 @@ def check_foreign_filers(store):
             fail(f"{t} currency is {f.get('currency')} — conversion did not complete")
 
 
+# --------------------------------------------------------------------------- #
+#  10. the browser code agrees with the engine (audit F30)                     #
+# --------------------------------------------------------------------------- #
+# Every check above reads the stored JSON; the card itself is drawn by JavaScript, and
+# the round-14 audit found four display defects this script passed over (the star
+# lost on 14 of 21 cards, "Kd a-t" showing a pre-tax rate, three margin-of-safety
+# definitions). These read the JS source and hold it to the engine.
+ANCHOR_METHODS = {"FCFF DCF": "DCF", "Excess Return Model": "ExRet",
+                  "Fundamental PEG": "PEG", "Future Value Projection": "FVP"}
+
+
+def _js(name):
+    p = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                     "static", "js", name)
+    with open(p, encoding="utf-8") as fh:
+        return fh.read()
+
+
+def check_frontend():
+    import re
+    section("10. the dashboard's JavaScript agrees with the engine")
+    card = _js("card_value.js")
+    pairs = re.findall(r"\.replace\('([^']+)','([^']+)'\)", card.split("function methodShort", 1)[1].split("}", 1)[0])
+    labels = set(re.findall(r"alts\.push\(\[(?:bad\?'DCF✗':)?'(\w+)'", card))
+
+    def short(m):
+        for a, b in pairs:
+            m = m.replace(a, b)
+        return m
+    src = open(os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "domain", "engine", "deep_v82.py"), encoding="utf-8").read()
+    for method, want in ANCHOR_METHODS.items():
+        check(f'"{method}"' in src, f"engine still emits anchor method '{method}'")
+        check(short(method) == want and want in labels,
+              f"card marks '{method}' with the star on its '{want}' value",
+              f"methodShort -> {short(method)!r}, alternatives {sorted(labels)}")
+    drawer = _js("card_drawer.js")
+    check("kd_after_pct" in drawer and "['Kd a-t',signedPct(km.kd_pct)]" not in drawer,
+          "drawer 'Kd a-t' shows the AFTER-tax cost of debt (kd_pct is pre-tax)")
+    risk = _js("risk.js")
+    check("mosOf(" in risk and "mosOf(" in card,
+          "card and Risk Desk read one margin of safety, (FV - P) / FV")
+    from domain import advice
+    from domain.engine import deep_v82 as E
+    import inspect
+    band = inspect.getsource(E._r_price)
+    check(advice.MOS_GOOD == 15.0 and advice.MOS_BAD == -15.0
+          and "(0.15, 4.0), (-0.15, 3.0)" in band,
+          "advice and the P-score cut margin of safety at the same +/-15%")
+
+
 def main():
     args = [a for a in sys.argv[1:] if not a.startswith("-")]
     path = args[0] if args else os.path.join(config.DATA_DIR, "portfolio.json")
@@ -436,6 +487,7 @@ def main():
     check_balance_sheet(store)
     check_risk(store, risk_path)
     check_foreign_filers(store)
+    check_frontend()
 
     print("\n" + "=" * 74)
     if FAILS:

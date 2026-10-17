@@ -135,9 +135,9 @@
       <h3 class="ht2">0) &#128200; Assumptions รายเดือน — ERP % และ S&amp;P PE (ฟอร์มใต้ช่อง Add holding)</h3>
       <table class="httab">
         <tr><th style="width:170px">หัวข้อ</th><th>รายละเอียด</th></tr>
-        <tr><td><b>คืออะไร</b></td><td>ค่า "สมมติฐานตลาด" 2 ตัวที่ไม่มี feed สดฟรี ต้องอัพเดตมือเดือนละครั้ง: <b>ERP</b> (implied equity risk premium ของสหรัฐ — ใช้คิด Ke = Rf + &beta;&times;ERP &rarr; WACC &rarr; fair value <u>ทุกตัว</u>) และ <b>S&amp;P PE</b> (trailing P/E ของตลาด — ใช้ตัดสิน market overlay ถูก/แพง S32&ndash;33)</td></tr>
+        <tr><td><b>คืออะไร</b></td><td>ค่า "สมมติฐานตลาด" 2 ตัวที่ไม่มี feed สดฟรี ต้องอัพเดตมือเดือนละครั้ง: <b>ERP</b> (implied equity risk premium ของสหรัฐ — ใช้คิด Ke = Rf + &beta;&times;(ERP + CRP) &rarr; WACC &rarr; fair value <u>ทุกตัว</u>) และ <b>S&amp;P PE</b> (trailing P/E ของตลาด — ใช้ตัดสิน market overlay ถูก/แพง S32&ndash;33)</td></tr>
         <tr><td><b>เอาค่าจากไหน</b></td><td>ERP: หน้า Damodaran — <span style="word-break:break-all">pages.stern.nyu.edu/~adamodar</span> (Implied ERP, อัพเดตต้นเดือน; 1 ต.ค. 2026 = 4.20% US) &mdash; <b>ระบบอ่านให้อัตโนมัติ</b>ทุกครั้งที่ Refresh (cache 7 วัน) ค่าที่กรอกมือจะใช้เมื่อใหม่กว่าค่าจากหน้าเว็บ &middot; S&amp;P PE: <span style="word-break:break-all">multpl.com/s-p-500-pe-ratio</span></td></tr>
-        <tr><td><b>ทำอย่างไร</b></td><td>กรอกตัวเลข (ERP เป็น <b>เปอร์เซ็นต์</b> เช่น 4.45 ไม่ใช่ 0.0445) &rarr; กด Save &rarr; ระบบ validate (ERP 1&ndash;10% · PE 5&ndash;60) &rarr; บันทึกลง store แล้ว <b>mirror ขึ้น Google Drive อัตโนมัติ</b> — redeploy/restart ค่าไม่หาย</td></tr>
+        <tr><td><b>ทำอย่างไร</b></td><td>กรอกตัวเลข (ERP เป็น <b>เปอร์เซ็นต์</b> เช่น 4.20 ไม่ใช่ 0.042) &rarr; กด Save &rarr; ระบบ validate (ERP 1&ndash;10% · PE 5&ndash;60) &rarr; บันทึกลง store แล้ว <b>mirror ขึ้น Google Drive อัตโนมัติ</b> — redeploy/restart ค่าไม่หาย</td></tr>
         <tr><td><b>มีผลเมื่อไร</b></td><td>Ke/WACC และ market overlay ใช้ค่าใหม่ทันที แต่ตัวเลขที่ "แสดงอยู่" มาจากการคำนวณครั้งก่อน &rarr; กด <b>Run Daily</b> (อัพเดตแผง market/แบนเนอร์) + <b>Run Fundamental Refresh</b> (คำนวณ fair value ใหม่)</td></tr>
         <tr><td><b>แถบ "ปัจจุบัน"</b></td><td>ข้างปุ่ม Save: ค่า live ที่ระบบใช้จริง + ที่มา (<b>manual</b> = คุณกรอกเอง · <b>default</b> = ค่าตั้งต้นใน config) — ถ้าเห็นธง ⚑ ERP เก่าเกิน 3 เดือน = ถึงเวลาอัพเดต</td></tr>
         <tr><td><b>แบนเนอร์ส้ม "หมดอายุ"</b></td><td>อ่านจาก <b>snapshot ของ Run Daily ครั้งก่อน</b> (คนละแหล่งกับแถบ "ปัจจุบัน") — ถ้าเพิ่งกรอกค่าใหม่แล้วยังเห็นแบนเนอร์ = แค่ยังไม่ได้กด Run Daily</td></tr>
@@ -157,11 +157,11 @@
         <text x="640" y="46" font-size="11.5" font-weight="600" fill="#475569" text-anchor="end">$175.20 <tspan fill="#16a34a">+1.2%</tspan></text>
         <text x="640" y="60" font-size="9" fill="#94a3b8" text-anchor="end">P/L +$12,400 (+38.2%)</text>
         <!-- 3 value gauge -->
-        <text x="320" y="84" font-size="8" fill="#94a3b8">PRICE VS VALUE &#183; FV $210.50 (FVP)</text>
+        <text x="320" y="84" font-size="8" fill="#94a3b8">PRICE VS VALUE &#183; FV $210.50 (DCF)</text>
         <rect x="320" y="90" width="122" height="12" fill="#bbf7d0"/><rect x="442" y="90" width="105" height="12" fill="#e2e8f0"/><rect x="547" y="90" width="123" height="12" fill="#fecaca"/>
         <rect x="428" y="88" width="3" height="16" rx="1" fill="#0f172a"/>
         <!-- 4 upside gross -> net -->
-        <text x="320" y="118" font-size="11" font-weight="700" fill="#16a34a">upside +20.2% &#8594; net +16.9%</text>
+        <text x="320" y="118" font-size="11" font-weight="700" fill="#16a34a">MoS +16.8% &#183; upside +20.2% &#8594; net +16.9%</text>
         <text x="670" y="118" font-size="8.5" fill="#94a3b8" text-anchor="end">net &#3627;&#3621;&#3633;&#3591; cost/tax (S6)</text>
         <!-- 5 DEEP composite + stars + reco -->
         <text x="320" y="147" font-size="16" font-weight="800" fill="#0f172a">4.25</text>
@@ -188,7 +188,7 @@
         <rect x="320" y="212" width="170" height="54" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
         <text x="328" y="224" font-size="7.5" fill="#94a3b8">ANCHOR FV</text>
         <text x="328" y="240" font-size="13" font-weight="800" fill="#0f172a">210.50 <tspan font-size="8" fill="#16a34a" font-weight="700">EPS&#215;3</tspan></text>
-        <text x="328" y="256" font-size="8" fill="#94a3b8">&#9733;FVP $210.50 &#183; PEG $188.40</text>
+        <text x="328" y="256" font-size="8" fill="#94a3b8">&#9733;DCF $210.50 &#183; FVP $196.10 &#183; PEG $188.40</text>
         <rect x="496" y="212" width="172" height="54" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
         <text x="504" y="224" font-size="7.5" fill="#94a3b8">UPSIDE</text>
         <text x="504" y="240" font-size="13" font-weight="800" fill="#16a34a">+20.2%</text>
@@ -209,7 +209,7 @@
         <rect x="356" y="380" width="96" height="14" rx="4" fill="#dcfce7"/><text x="404" y="390" font-size="8.5" font-weight="700" fill="#166534" text-anchor="middle">drift &#8593; strong &#183; Q1</text>
         <!-- 12 verdict + advice -->
         <line x1="320" y1="404" x2="668" y2="404" stroke="#e2e8f0"/>
-        <text x="320" y="420" font-size="9" fill="#64748b">BUY &#9733;&#9733;&#9733;&#9733;&#189; - FVP $210.50 (+20% upside); range $188-$210. ROIC 42% vs WACC 9.8%...</text>
+        <text x="320" y="420" font-size="9" fill="#64748b">BUY &#9733;&#9733;&#9733;&#9733;&#189; - FCFF DCF $210.50 (+20% upside); range $188-$210. ROIC 42% vs WACC 9.8%...</text>
         <rect x="320" y="428" width="348" height="44" rx="6" fill="#f8fafc" stroke="#e2e8f0"/>
         <text x="328" y="444" font-size="8.5" fill="#334155">&#128161; &#3617;&#3641;&#3621;&#3588;&#3656;&#3634;: &#3605;&#3656;&#3635;&#3585;&#3623;&#3656;&#3634; FV (+20%) | &#3588;&#3640;&#3603;&#3616;&#3634;&#3614;: moat &#3649;&#3586;&#3655;&#3591;&#3649;&#3619;&#3591; (+32pp) &#183; EQ CLEAN</text>
         <text x="328" y="460" font-size="8.5" fill="#334155">| &#3592;&#3633;&#3591;&#3627;&#3623;&#3632;: momentum &#3626;&#3609;&#3633;&#3610;&#3626;&#3609;&#3640;&#3609; | Action: &#3595;&#3639;&#3657;&#3629;/&#3648;&#3614;&#3636;&#3656;&#3617;&#3649;&#3610;&#3610;&#3649;&#3610;&#3656;&#3591;&#3652;&#3617;&#3657;</text>
@@ -237,11 +237,11 @@
           <line x1="672" y1="52" x2="708" y2="52" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="52" r="9" fill="#0f172a"/><text x="718" y="55.5" fill="#fff" text-anchor="middle">2</text>
           <text x="732" y="55.5" font-size="9" font-weight="600" fill="#334155">&#3619;&#3634;&#3588;&#3634; + P/L (&#3610;&#3619;&#3636;&#3610;&#3607;&#3617;&#3640;&#3617;&#3586;&#3623;&#3634;)</text>
           <line x1="672" y1="112" x2="708" y2="112" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="112" r="9" fill="#0f172a"/><text x="718" y="115.5" fill="#fff" text-anchor="middle">4</text>
-          <text x="732" y="115.5" font-size="9" font-weight="600" fill="#334155">upside gross &#8594; net (S6)</text>
+          <text x="732" y="115.5" font-size="9" font-weight="600" fill="#334155">MoS + upside &#8594; net (S6)</text>
           <line x1="638" y1="142" x2="708" y2="142" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="142" r="9" fill="#0f172a"/><text x="718" y="145.5" fill="#fff" text-anchor="middle">6</text>
           <text x="732" y="145.5" font-size="9" font-weight="600" fill="#334155">Moat / EQ / GARP badges</text>
           <line x1="672" y1="239" x2="708" y2="239" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="239" r="9" fill="#0f172a"/><text x="718" y="242.5" fill="#fff" text-anchor="middle">9</text>
-          <text x="732" y="242.5" font-size="9" font-weight="600" fill="#334155">&#3594;&#3656;&#3629;&#3591; Upside / implied CAGR</text>
+          <text x="732" y="242.5" font-size="9" font-weight="600" fill="#334155">&#3594;&#3656;&#3629;&#3591; MoS / implied CAGR</text>
           <line x1="672" y1="288" x2="708" y2="288" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="288" r="9" fill="#0f172a"/><text x="718" y="291.5" fill="#fff" text-anchor="middle">10</text>
           <text x="732" y="291.5" font-size="9" font-weight="600" fill="#334155">S9 guard badges (crash / reversal)</text>
           <line x1="672" y1="450" x2="708" y2="450" stroke="#94a3b8" stroke-dasharray="3 2"/><circle cx="718" cy="450" r="9" fill="#0f172a"/><text x="718" y="453.5" fill="#fff" text-anchor="middle">12</text>
@@ -253,17 +253,17 @@
         <tr><td><b>1</b></td><td><b>จุดสี หน้า ticker + &#9873;</b></td><td>Confidence tier ของข้อมูล (เขียว &ge;80 / เหลือง &ge;50 / แดง &lt;50) + จำนวน data flags</td><td>แดง = ข้อมูลขาดหลายช่อง อย่าเพิ่งเชื่อ Fair Value มาก · ⚑ = จำนวน data flags (ชี้ดูรายละเอียด) · ปุ่ม &times; = ลบออกจากพอร์ต</td></tr>
         <tr><td><b>2</b></td><td><b>ราคา + P/L</b></td><td>ราคาล่าสุด + %เปลี่ยน และกำไร/ขาดทุนของ position (มุมขวา ตัวจาง)</td><td>ตั้งใจให้เป็น "บริบท" ไม่ใช่พระเอก — มูลค่า (เกจ #3) ต้องมาก่อนราคาเสมอ (S5) · <b>Watchlist ต่างจาก My Portfolio:</b> ไม่มี P/L · <b>ไม่มี Drawer (#13)</b> จึงตรวจย้อนคะแนนไม่ได้ · ข้อมูลดึงสดตอนกด Run ไม่ถูกเก็บ · forward EPS มักดึงไม่ได้ &rarr; ดูธง &#9873; ก่อนเชื่อ Fair Value · มีปุ่ม + Portfolio</td></tr>
         <tr><td><b>3</b></td><td><b>เกจ Price vs Value</b></td><td>ขีดดำ = ราคาปัจจุบันบนสเกล FV (เขียว = โซน margin of safety / เทา = fair &plusmn;15% / แดง = แพง) + FV และวิธีที่ใช้</td><td>คำถามแรกของ Damodaran ตอบใน 1 วินาที · หุ้น pre-profit แสดงเป็น 2 แท่ง implied vs actual แทน (Reverse DCF) · bond/gold/crypto ไม่มีเกจ เพราะเป็นเกม pricing (S40-41)</td></tr>
-        <tr><td><b>4</b></td><td><b>Upside gross &rarr; net</b></td><td>(FV−ราคา)/ราคา แล้วหักค่าเทรด ~0.2% + ภาษี capital gains ~15%</td><td>ตัดสินใจด้วย <b>net</b> เสมอ (S6) — ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
+        <tr><td><b>4</b></td><td><b>MoS · upside &rarr; net</b></td><td><b>MoS</b> = (FV−ราคา)/FV — นิยามเดียวที่คะแนน P, เกจ, advice และ Risk Desk ใช้ · <b>upside</b> = (FV−ราคา)/ราคา = ผลตอบแทนถ้าราคาวิ่งถึง FV · net = upside หลังค่าเทรด ~0.2% + ภาษี capital gains ~15%</td><td>MoS &ge;+15% = มีส่วนเผื่อความปลอดภัย · MoS &le;−15% = แพง (เท่ากับราคา &ge;1.15&times;FV) · ตัดสินใจเรื่องผลตอบแทนด้วย <b>net</b> (S6)</td></tr>
         <tr><td><b>5</b></td><td><b>คะแนน DEEP + ดาว</b></td><td>คะแนนรวม 0–5 จาก D-E-E-P (ถ่วงน้ำหนัก D 20% / E_exec 20% / E_econ 30% / P 30%)</td><td>&ge;4 = BUY, 3–4 = HOLD/Accumulate, 2–3 = HOLD, &lt;2 = SELL/AVOID — เทียบ "ระหว่างหุ้น" ได้เพราะ rubric เดียวกัน</td></tr>
         <tr><td>&#8211;</td><td><b>แถบเทรนด์ 5 ปี</b> (ใต้ Earnings)</td><td>5 เส้น: รายได้ &middot; gross margin &middot; op margin &middot; FCF &middot; ROIC จากงบ 10-K &middot; ตัวเลขท้ายแถว = ค่าปีล่าสุด + CAGR (เงิน) หรือ &Delta;pp (อัตราส่วน)</td><td>วงกลม Earnings ด้านบนเทียบกับ <b>ที่นักวิเคราะห์คาด</b> (beat/miss) &middot; แถบนี้เทียบกับ <b>ตัวเองปีก่อน ๆ</b> &mdash; หุ้นดีคือเส้นชันขึ้นทั้งแถบ ไม่ใช่ปีเดียวเด้ง &middot; เส้นประ = ศูนย์ (เห็น FCF ติดลบได้ทันที)</td></tr>
-        <tr><td><b>6</b></td><td><b>Moat / EQ / GARP badges</b></td><td>Moat = ROIC−WACC spread (pp) · EQ = earnings quality CLEAN/REVIEW/LOW · GARP = ถูก&times;ดี (Economics + Price, /10)</td><td>Moat &ge;+10pp = แข็งแรง, ติดลบ = ทำลายมูลค่า · EQ วัดว่ากำไรกลายเป็นเงินสดจริงไหม &mdash; <b>ให้คะแนนจาก 2 ข้อ</b>: cash conversion &ge;0.8 และ accruals &le;5% ของ assets &middot; <b>SBC &gt;10% ของรายได้แสดงเป็นข้อมูลประกอบ ไม่หักคะแนน</b> (2026-08-17) เพราะต้นทุน SBC ถูกคิดไปแล้วผ่าน dilution ใน forward EPS &mdash; หักซ้ำที่คะแนนอีกจะเป็นการนับสองรอบ · GARP candidate = ทั้งสองด้าน &ge;3 (S13/S19)</td></tr>
+        <tr><td><b>6</b></td><td><b>Moat / EQ / GARP badges</b></td><td>Moat = ROIC−WACC spread (pp) · EQ = earnings quality CLEAN/REVIEW/LOW · GARP = ถูก&times;ดี (Economics + Price, /10)</td><td>Moat &ge;+10pp = แข็งแรง, ติดลบ = ทำลายมูลค่า · EQ วัดว่ากำไรกลายเป็นเงินสดจริงไหม &mdash; <b>ให้คะแนนจาก 3 ข้อ</b>: cash conversion &ge;0.8, accruals &le;5% ของ assets, ลูกหนี้ไม่โตเร็วกว่ารายได้เกิน 15pp &middot; ใช้<b>กำไรสุทธิหลักตัดรายการนอกธุรกิจ</b> (เช่น gain จากเงินลงทุน) &middot; ถ้าไม่มีข้อไหนทดสอบได้ = ไม่แสดง EQ (ไม่ใช่ CLEAN) &middot; <b>SBC &gt;10% ของรายได้แสดงเป็นข้อมูลประกอบ ไม่หักคะแนน</b> (2026-08-17) เพราะต้นทุน SBC ถูกคิดไปแล้วผ่าน dilution ใน forward EPS &mdash; หักซ้ำที่คะแนนอีกจะเป็นการนับสองรอบ · GARP candidate = ทั้งสองด้าน &ge;3 (S13/S19)</td></tr>
         <tr><td><b>7</b></td><td><b>Momentum / Rank / Action</b></td><td>Momentum = composite 4 เงื่อนไข (12-1 &gt;0 · 6M &gt;0 · เหนือ SMA200 · RSI&gt;50) · Rank = percentile 12-1 เทียบตัวอื่นในพอร์ต/ลิสต์ · Action = value &times; momentum</td><td>Strong/Positive = จังหวะหนุน · ⏳ = ข้อมูลเก่า กด Run Daily · Rank Top = ใช้เลือก "ตัวไหนก่อน" เมื่อ value ใกล้กัน · Action: BUY/ACCUMULATE เมื่อทั้งคู่หนุน · WAIT/WATCH เมื่อขัดกัน · TRIM/SELL เมื่อแพงและ momentum เสีย · ตลาด RISK-OFF จะแสดง <b>WAIT · crash guard</b> ทับสัญญาณฝั่งซื้อชั่วคราว (S9)</td></tr>
-        <tr><td><b>8</b></td><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" — ★ คือวิธีหลักที่ใช้คิด Upside · EPS&times;n = forward EPS blend จาก n แหล่ง</td><td><b>ลำดับการเลือกวิธี:</b> &#9312; <b>FVP</b> (Future Value Projection) เมื่อ spread&gt;10pp <b>และ</b> growth&gt;15% <b>และ</b>มี forward EPS ที่ผ่านเกณฑ์ &middot; &#9313; <b>PEG</b> (Fundamental PEG) กรณีทั่วไปที่มี forward EPS &middot; &#9314; <b>RevDCF</b> (Terminal-Anchored Reverse DCF) = <b>fallback เมื่อออกราคาเป้าจุดเดียวไม่ได้</b> ไม่ว่าจะเพราะยังไม่มีกำไร หรือ forward EPS หาย/ไม่ผ่าน revenue-capacity ceiling — แสดงเป็น %CAGR ที่ตลาด price-in แทนราคาเป้า &middot; สองวิธีต่างกันมาก = FV sensitive ต่อสมมติฐาน ลดความมั่นใจ</td></tr>
-        <tr><td><b>9</b></td><td><b>ช่อง Upside</b></td><td>ตัวเลข upside + net ซ้ำในตาราง grid · หุ้น pre-profit: actual %/y เทียบ implied CAGR</td><td>&gt;+15% = มี margin of safety · &lt;−15% = จ่ายแพงกว่ามูลค่า · pre-profit: actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
+        <tr><td><b>8</b></td><td><b>Anchor FV</b></td><td>Fair Value ต่อหุ้นจาก "ทุกวิธีที่คำนวณได้" (DCF / ExRet / FVP / PEG) — ★ คือวิธีหลักที่ใช้คิด MoS · ชี้ที่ DCF เห็นสมมติฐาน (growth, margin, sales-to-capital, % terminal, CRP) · <b>DCF✗</b> = DCF ต่ำกว่า 10% ของราคา ถูกตัดทิ้งเป็น input ผิดปกติ · EPS&times;n = forward EPS blend จาก n แหล่ง (ทุกแหล่งปรับเป็น NTM)</td><td><b>วิธีหลักตามประเภทบริษัท:</b> &#9312; บริษัททั่วไป/หุ้นวัฏจักร = <b>FCFF DCF</b> (หุ้นวัฏจักรใช้ margin มัธยฐานหลายปี) &middot; &#9313; ธนาคาร/ประกัน/สินเชื่อ = <b>ExRet</b> (excess-return: book equity + PV ของ (ROE−Ke)&times;equity) &middot; &#9314; ถ้าวิธีหลักใช้ไม่ได้ = <b>FVP</b> (spread&gt;10pp และโต&gt;15%) หรือ <b>PEG</b> &middot; &#9315; ยังไม่มีกำไร = Young-company DCF หรือ <b>RevDCF</b> (%CAGR ที่ตลาด price-in) &middot; วิธีต่างกัน &ge;2 เท่า = ป้าย "ต่างกัน n&times;" ให้ยึด ★</td></tr>
+        <tr><td><b>9</b></td><td><b>ช่อง MoS</b></td><td>MoS (FV−ราคา)/FV ตัวใหญ่ + upside และ net ตัวเล็กด้านล่าง · หุ้น pre-profit: actual %/y เทียบ implied CAGR</td><td>MoS &ge;+15% = มี margin of safety · &le;−15% = จ่ายแพงกว่ามูลค่า · pre-profit: actual &ge; implied = ทำได้ตามที่ตลาดคาด</td></tr>
         <tr><td><b>10</b></td><td><b>S9 guard badges</b></td><td>แถบเตือนแดง = crash guard (ตลาดใต้ 200-DMA) · แถบเหลือง = reversal (วิ่งสะสม ~3 ปี &ge;+150% และใกล้ยอด)</td><td>แสดงเฉพาะเมื่อเกิดจริง — เป็น "veto จังหวะเข้า" ชั่วคราว ไม่ใช่สัญญาณขายพื้นฐาน (S9: momentum พังแรงสุดตอนตลาดกลับทิศ / 3–5 ปี = โซน mean reversion)</td></tr>
         <tr><td><b>11</b></td><td><b>Earnings &middot; EPS/Rev/Mgn &middot; 5q</b></td><td>ผล 5 ไตรมาสล่าสุด (เก่า&rarr;ใหม่): EPS และ Revenue = beat/meet/miss เทียบ estimate นักวิเคราะห์ · Mgn = แนวโน้ม operating margin YoY (expand/flat/contract) · PEAD = ทิศ drift หลังงบ (S25)</td><td>เขียวต่อเนื่อง = execution ดี · แดงซ้ำ = ประมาณการโลกสวย/ธุรกิจแผ่ว · ชี้จุดสีดู Act vs Est · "&times; n/a" = ดึงไม่ได้ทั้งแหล่งหลักและสำรอง · "&#10227; refresh" = ข้อมูลชุดเก่า กด Run Fundamental Refresh</td></tr>
         <tr><td><b>12</b></td><td><b>Verdict + &#128161; advice</b></td><td>สรุป 1 บรรทัด + คำแนะนำ action สังเคราะห์จากทุกค่าบน card</td><td>เรียงตาม มูลค่า &rarr; คุณภาพ &rarr; จังหวะ &rarr; Action ตามลำดับ Damodaran — momentum ไม่มีวัน override value</td></tr>
-        <tr><td><b>13</b></td><td><b>Drawer</b></td><td>กดกางดู WACC / Ke / Kd / ROIC* / Spread / EVA + sub-score breakdown (audit trail) — <b>มีเฉพาะ card ใน My Portfolio</b></td><td>ทุกคะแนนตรวจย้อนได้ว่ามาจากตัวเลขไหน — ฐาน + adjustment ทีละรายการ (เขียว = บวก, แดง = ลบ, เทา = ข้ามเพราะไม่มีข้อมูล) · รวมบรรทัด <code>skipped(เหตุผล)</code> และ <code>&lt;เสา&gt; ไม่มีข้อมูลพอจะวัด — ใช้ค่ากลาง 2.5</code> เมื่อทั้งเสาวัดไม่ได้ · <b>ROIC*</b> คือ ROIC ที่ปรับแล้ว (normalized) ซึ่งอาจต่างจาก &quot;R&amp;D-capitalized ROIC&quot; บรรทัดแรกของ audit trail ได้ถึง ~10pp</td></tr>
+        <tr><td><b>13</b></td><td><b>Drawer</b></td><td>กดกางดู Ke / WACC / Kd a-t (หลังภาษี) / ROIC* / Spread / EVA + sub-score breakdown (audit trail) — ธนาคาร/ประกันแสดง Ke / ROE / Spread / EVA แทน — <b>มีเฉพาะ card ใน My Portfolio</b></td><td>ทุกคะแนนตรวจย้อนได้ว่ามาจากตัวเลขไหน — ฐาน + adjustment ทีละรายการ (เขียว = บวก, แดง = ลบ, เทา = ข้ามเพราะไม่มีข้อมูล) · รวมบรรทัด <code>skipped(เหตุผล)</code> และ <code>&lt;เสา&gt; ไม่มีข้อมูลพอจะวัด — ใช้ค่ากลาง 2.5</code> เมื่อทั้งเสาวัดไม่ได้ · <b>ROIC*</b> คือ ROIC ที่ปรับแล้ว (normalized) ซึ่งอาจต่างจาก &quot;R&amp;D-capitalized ROIC&quot; บรรทัดแรกของ audit trail ได้ถึง ~10pp</td></tr>
         <tr><td>&#8211;</td><td><b>Card แบบ bond/gold/crypto</b></td><td>ถ้า ticker อยู่ใน asset-class map (TLT, GLD, BTC-USD, …) card จะไม่แสดง FV/GARP/EQ แต่ติดป้าย <b>BOND · rate risk (S3)</b> หรือ <b>PRICING ASSET (S40-41)</b></td><td>สินทรัพย์ไม่มีกระแสเงินสด ตีมูลค่าไม่ได้ ได้แต่ตีราคา — จำกัดน้ำหนัก อย่าปนกับส่วน valuation · bond ดูผลอัตราดอกเบี้ยที่ Allocation &rarr; Bond rate risk</td></tr>
       </table>
 
@@ -1291,11 +1291,12 @@
       <table class="httab">
         <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์ / เทียบกับอะไร</th></tr>
         <tr><td><b>Rf</b></td><td>Risk-free rate = yield พันธบัตรสหรัฐ 10 ปี (ดึงสด ณ วัน refresh)</td><td>ฐานของทุกอย่าง — Rf ขึ้น &rarr; FV ทุกตัวลดลงโดยกลไก</td></tr>
-        <tr><td><b>ERP</b></td><td>Equity Risk Premium (implied, US) — ผลตอบแทนส่วนเพิ่มที่ตลาดหุ้นต้องจ่ายเหนือ Rf</td><td>ตั้งมือ (config) — แอปจะ flag เมื่อเก่ากว่า 3 เดือน · ERP สูง = ตลาดกลัว = หุ้นถูกลงทั้งกระดาน</td></tr>
-        <tr><td><b>Beta (β)</b></td><td>ความไวของหุ้นต่อตลาด</td><td>ใช้ใน Ke — β&gt;1 ผันผวนกว่าตลาด · ของพอร์ต = ถ่วงน้ำหนักรายตัว</td></tr>
-        <tr><td><b>Ke</b></td><td>Cost of equity = Rf + β&times;ERP — ผลตอบแทนขั้นต่ำที่ "ผู้ถือหุ้น" ควรได้</td><td>ใช้คิดลดกระแสเงินสดของผู้ถือหุ้น (FCFE) และเป็นเพดานเทียบ growth</td></tr>
-        <tr><td><b>Kd a-t</b></td><td>Cost of debt หลังภาษี = (Rf + default spread)&times;(1−tax) — spread ประเมินจาก interest coverage</td><td>ถูกกว่า Ke เสมอ (เจ้าหนี้เสี่ยงน้อยกว่า) · "a-t" = after-tax เพราะดอกเบี้ยหักภาษีได้</td></tr>
-        <tr><td><b>WACC</b></td><td>ต้นทุนเงินทุนถ่วงน้ำหนัก = Ke&times;(E/V) + Kd a-t&times;(D/V)</td><td>ไม้บรรทัดวัด ROIC — บริษัท "สร้างมูลค่า" ก็ต่อเมื่อ ROIC &gt; WACC</td></tr>
+        <tr><td><b>ERP</b></td><td>Equity Risk Premium (implied, US) — ผลตอบแทนส่วนเพิ่มที่ตลาดหุ้นต้องจ่ายเหนือ Rf</td><td>อ่านจากหน้า Damodaran อัตโนมัติ (cache 7 วัน) ค่าที่กรอกมือชนะเมื่อใหม่กว่า · flag เมื่อเก่ากว่า 3 เดือน · ERP สูง = ตลาดกลัว = หุ้นถูกลงทั้งกระดาน</td></tr>
+        <tr><td><b>CRP</b></td><td>Country risk premium เหนือสหรัฐ = ค่าเฉลี่ยถ่วงตาม<b>รายได้</b>ของ CRP แต่ละประเทศ (ตาราง Damodaran ม.ค. 2026, 178 ประเทศ) − CRP ของสหรัฐ 0.23%</td><td>สัดส่วนรายได้จาก <code>config.REVENUE_MIX</code> (MELI, NVO, TSM) ถ้าไม่มีใช้ประเทศจดทะเบียนจาก FMP · บริษัทจดทะเบียนใน Cayman/Bermuda/Ireland ฯลฯ มี flag ให้เพิ่มสัดส่วนรายได้</td></tr>
+        <tr><td><b>Beta (β)</b></td><td>Bottom-up: unlevered beta ของอุตสาหกรรม (Damodaran, ปรับเงินสด) &times; (1 + (1−25%)&times;D/E ตามราคาตลาด) · ไม่รู้อุตสาหกรรม = regression beta · บริษัทยังไม่มีกำไร/กำไรบาง = ใช้ค่าที่สูงกว่า · ธนาคาร = regression beta (กรอบ 0.6–1.6)</td><td>ใช้ใน Ke — β&gt;1 ผันผวนกว่าตลาด · ของพอร์ต = ถ่วงน้ำหนักรายตัว</td></tr>
+        <tr><td><b>Ke</b></td><td>Cost of equity = Rf + β&times;(ERP + CRP) — ผลตอบแทนขั้นต่ำที่ "ผู้ถือหุ้น" ควรได้</td><td>ใช้คิดลดกระแสเงินสดของผู้ถือหุ้น (FCFE) และเป็นเพดานเทียบ growth · ธนาคาร/ประกันใช้ Ke เป็นต้นทุนเงินทุน</td></tr>
+        <tr><td><b>Kd a-t</b></td><td>Cost of debt หลังภาษี = (Rf + default spread)&times;(1−tax) — spread จาก interest coverage (ตาราง synthetic rating ม.ค. 2026)</td><td>มักต่ำกว่า Ke (เจ้าหนี้เสี่ยงน้อยกว่า และดอกเบี้ยหักภาษีได้) · drawer แสดงค่า<b>หลังภาษี</b></td></tr>
+        <tr><td><b>WACC</b></td><td>ต้นทุนเงินทุนถ่วงน้ำหนัก = Ke&times;(E/V) + Kd a-t&times;(D/V) · D = หนี้ (รวม convertible และ finance lease) + operating lease</td><td>ไม้บรรทัดวัด ROIC — บริษัท "สร้างมูลค่า" ก็ต่อเมื่อ ROIC &gt; WACC · ระยะยาว WACC ค่อย ๆ ลดสู่ระดับ stable (beta 0.8–1.2)</td></tr>
       </table>
 
       <h3 class="ht2">คุณภาพธุรกิจ</h3>
@@ -1303,20 +1304,24 @@
         <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์</th></tr>
         <tr><td><b>ROIC*</b></td><td>NOPAT / Invested Capital — * คือปรับ R&amp;D เป็นสินทรัพย์ (capitalize อายุ 5 ปี) ตามวิธี Damodaran เพื่อไม่ลงโทษบริษัทที่ลงทุนอนาคตผ่าน R&amp;D</td><td>เทียบ WACC เท่านั้น (ตัวเลขเดี่ยว ๆ ไม่มีความหมาย)</td></tr>
         <tr><td><b>Spread</b></td><td>ROIC − WACC = ส่วนเกินมูลค่าที่สร้างต่อเงินลงทุน 1 หน่วย</td><td>&ge;+10pp = moat แข็งแรง · 0 ถึง +10pp = ปกติ · ติดลบ = ทำลายมูลค่า (โตแค่ไหนก็ไม่ช่วย)</td></tr>
-        <tr><td><b>EVA</b></td><td>Economic Value Added = Spread &times; Invested Capital ($ ต่อปี)</td><td>แปลง spread เป็น "เม็ดเงินมูลค่าที่สร้างจริงต่อปี" — โตพร้อม EVA บวก = โตแบบมีคุณค่า</td></tr>
+        <tr><td><b>EVA</b></td><td>Economic Value Added = (ROIC − WACC) &times; invested capital บน<b>ฐานเดียวกัน</b> (ถ้า capitalize R&amp;D ก็ใช้ทั้ง ROIC และทุนที่ปรับ R&amp;D) — $ ต่อปี · ธนาคาร: (ROE − Ke) &times; equity</td><td>แปลง spread เป็น "เม็ดเงินมูลค่าที่สร้างจริงต่อปี" — โตพร้อม EVA บวก = โตแบบมีคุณค่า</td></tr>
         <tr><td><b>Incremental ROIC</b></td><td>&Delta;NOPAT / เงินลงทุนใหม่ปีล่าสุด</td><td>บอกว่า "เงินก้อนใหม่" ยังได้ผลตอบแทนดีไหม — ดีกว่าดู ROIC เฉลี่ยอย่างเดียว</td></tr>
-        <tr><td><b>Earnings quality (EQ)</b></td><td>3 เช็ค: cash conversion (CFO/NI), accruals/assets, SBC/revenue</td><td>CLEAN = ผ่านหมด · REVIEW = ติด 1–2 ข้อ · LOW = กำไรบนกระดาษ อย่าใช้ EPS ตรง ๆ · SBC คิดผ่าน dilution ไม่หักคะแนนซ้ำ (no double counting)</td></tr>
+        <tr><td><b>Earnings quality (EQ)</b></td><td>3 เช็คบน<b>กำไรสุทธิหลัก</b> (ตัดรายได้นอกธุรกิจที่เกิน 10% ของ EBIT): cash conversion (CFO/NI), accruals/assets, ลูกหนี้โตเร็วกว่ารายได้ · SBC เป็นข้อมูลประกอบ</td><td>CLEAN = ผ่านทุกข้อที่ทดสอบได้ · REVIEW = ติด 1–2 ข้อ · LOW = กำไรบนกระดาษ · ไม่มีข้อไหนทดสอบได้ = ไม่ให้ verdict (Execution ใช้ฐาน 3.0) · SBC คิดผ่าน dilution ไม่หักคะแนนซ้ำ</td></tr>
       </table>
 
       <h3 class="ht2">มูลค่า (Fair Value methods)</h3>
       <table class="httab">
         <tr><th>ค่า</th><th>นิยาม</th><th>ใช้เมื่อไร</th></tr>
-        <tr><td><b>Fundamental PEG</b></td><td>Fair P/E จากโมเดล 2-stage (growth, ROIC, Ke) &times; forward EPS — ไม่ใช่ PEG ตลาดที่ใช้ค่าคงที่ 1.0</td><td>วิธีหลักกรณีทั่วไป (หุ้นมีกำไร โตปกติ)</td></tr>
-        <tr><td><b>FVP</b></td><td>Future Value Projection: EPS โต 5 ปี &times; exit P/E (คุมเพดาน 12–25x) คิดลดกลับด้วย Ke</td><td>วิธีหลักเมื่อ moat กว้าง (spread&gt;10pp) และโตแรง (&gt;15%) — เพราะ PEG จะกดหุ้นคุณภาพสูงเกินจริง</td></tr>
+        <tr><td><b>FCFF DCF (DCF)</b></td><td>รายได้โตตาม consensus 5 ปีแล้วลดสู่ g ระยะยาวในปีที่ 10 &rarr; operating margin ของบริษัทเอง (US GAAP บวกดอกเบี้ย lease กลับ; ไม่เกิน 2&times; ของอุตสาหกรรม; ต่ำกว่า 5% ใช้ margin อุตสาหกรรม) &rarr; reinvestment = &Delta;รายได้ ÷ sales-to-capital &rarr; WACC ลดสู่ระยะยาว &rarr; terminal = NOPAT(1−g/ROIC)/(WACC−g) &rarr; + เงินสด − หนี้ ÷ จำนวนหุ้น</td><td><b>วิธีหลัก</b>ของบริษัททั่วไปและหุ้นวัฏจักร (ใช้ margin มัธยฐานหลายปี) · ต่ำกว่า 10% ของราคา = ตัดทิ้งเป็น input ผิดปกติ (DCF✗)</td></tr>
+        <tr><td><b>Excess return (ExRet)</b></td><td>Book equity + PV ของ (ROE − Ke) &times; book equity 5 ปี + terminal · ROE ค่อย ๆ เข้าหา Ke ครึ่งทาง (ไม่ต่ำกว่า Ke − 3%) · g ระยะยาว &le; ROE</td><td>วิธีหลักของธนาคาร ประกัน และบริษัทสินเชื่อ (เงินฝาก/หนี้คือวัตถุดิบ ไม่ใช่ทุน จึงใช้ FCFF/WACC ไม่ได้)</td></tr>
+        <tr><td><b>ประเภทบริษัท</b></td><td>FINANCIAL (อุตสาหกรรมการเงิน) · CYCLICAL (น้ำมัน เหมือง เหล็ก เคมีพื้นฐาน รถยนต์ สายการบิน ขนส่ง ฯลฯ ที่มีประวัติ &ge;5 ปีและ margin มัธยฐาน &gt;0) · YOUNG (EBIT &le;0) · STANDARD (อื่น ๆ)</td><td>อุตสาหกรรมมาจาก FMP map เป็นกลุ่มของ Damodaran อัตโนมัติ (override ได้ที่ <code>sources/industries.py</code> / <code>config.INDUSTRY_MIX</code>)</td></tr>
+        <tr><td><b>Fundamental PEG</b></td><td>Fair forward P/E จากโมเดล 2-stage (growth, ROIC, Ke) &times; forward EPS — ไม่ใช่ PEG ตลาดที่ใช้ค่าคงที่ 1.0</td><td>ตัวเทียบ · เป็นวิธีหลักเมื่อ DCF/ExRet ใช้ไม่ได้ (หุ้นมีกำไร โตปกติ)</td></tr>
+        <tr><td><b>FVP</b></td><td>Future Value Projection: PV ของเงินปันผลปีที่ 1–5 (payout = 1 − g/ROIC) + EPS ปีที่ 5 &times; exit P/E (จากพื้นฐานระยะยาว คุม 5–35x) คิดลดด้วย Ke</td><td>ตัวเทียบ · เป็นวิธีหลักเมื่อ DCF ใช้ไม่ได้และ moat กว้าง (spread&gt;10pp) + โตแรง (&gt;15%)</td></tr>
         <tr><td><b>RevDCF (implied CAGR)</b></td><td>Reverse DCF: ราคาปัจจุบัน &rarr; ตลาดกำลัง price-in การเติบโตรายได้กี่ %/ปี 10 ปี (terminal margin ยึดจาก op margin จริง)</td><td>หุ้นยังไม่มีกำไร — เทียบ implied กับ actual: Plausible (&lt;1.5&times; ของที่ทำได้) / Ambitious / Aggressive / Exceptional (&gt;5&times; = priced for perfection)</td></tr>
-        <tr><td><b>Anchor FV / ★</b></td><td>วิธีที่ methodology verdict เลือกเป็นหลักในการคิด Upside</td><td>card แสดงทุกวิธีเสมอ — ถ้าสองวิธีต่างกันมาก แปลว่ามูลค่า "sensitive ต่อสมมติฐาน" ให้ลดความมั่นใจ</td></tr>
-        <tr><td><b>Upside / net</b></td><td>(FV−P)/P · net = หลังหักภาษี capital gains ~15% + ค่าเทรด ~0.2% (S6)</td><td>ตัดสินใจด้วย net เสมอ — S6: ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
-        <tr><td><b>EPS&times;n badge</b></td><td>forward EPS ใช้ค่า blend จาก n แหล่ง (Yahoo/FMP/Finnhub) + ช่วง min–max</td><td>spread ระหว่างแหล่ง &gt;25% = ประมาณการไม่นิ่ง ลดความเชื่อมั่น FV</td></tr>
+        <tr><td><b>Anchor FV / ★</b></td><td>วิธีที่เลือกตามประเภทบริษัทเป็นหลักในการคิด MoS</td><td>card แสดงทุกวิธีเสมอ — ถ้าสองวิธีต่างกันมาก แปลว่ามูลค่า "sensitive ต่อสมมติฐาน" ให้ลดความมั่นใจ</td></tr>
+        <tr><td><b>MoS</b></td><td>Margin of safety = (FV−P)/FV — นิยามเดียวทั้งแอป (คะแนน P, เกจ, advice, Risk Desk)</td><td>&ge;+40% ถูกมาก · &ge;+15% ถูก · ±15% ใกล้ FV · &le;−15% แพง · &le;−40% แพงมาก</td></tr>
+        <tr><td><b>Upside / net</b></td><td>(FV−P)/P = ผลตอบแทนถ้าราคาวิ่งถึง FV · net = หลังหักภาษี capital gains ~15% + ค่าเทรด ~0.2% (S6)</td><td>ใช้ดูผลตอบแทนที่เหลือจริง — S6: ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
+        <tr><td><b>EPS&times;n badge</b></td><td>forward EPS ใช้ค่า blend (median) จาก n แหล่ง (Yahoo/FMP/Finnhub) ทุกแหล่งปรับเป็น <b>NTM</b> (ถ่วงปีนี้กับปีหน้าตามเวลาที่เหลือ) + ช่วง min–max</td><td>spread ระหว่างแหล่ง &gt;25% = ประมาณการไม่นิ่ง ลดความเชื่อมั่น FV</td></tr>
       </table>
 
       <h3 class="ht2">คะแนน DEEP &amp; สัญญาณ</h3>
@@ -1415,7 +1420,11 @@
       <h3 class="ht2">ตัวย่อ &amp; สัญลักษณ์ทั้งหมดบน dashboard</h3>
       <table class="httab">
         <tr><th>ตัวย่อ / สัญลักษณ์</th><th>ความหมาย</th></tr>
-        <tr><td><b>FV / Anchor FV</b></td><td>Fair Value (มูลค่ายุติธรรมต่อหุ้น) — Anchor = วิธีหลักที่เลือกใช้คิด Upside (★)</td></tr>
+        <tr><td><b>FV / Anchor FV</b></td><td>Fair Value (มูลค่ายุติธรรมต่อหุ้น) — Anchor = วิธีหลักที่เลือกใช้คิด MoS (★)</td></tr>
+        <tr><td><b>DCF · ExRet · DCF✗</b></td><td>DCF = FCFF DCF (วิธีหลักบริษัททั่วไป) · ExRet = excess-return model (ธนาคาร/ประกัน) · DCF✗ = DCF ที่ตัดทิ้งเพราะต่ำกว่า 10% ของราคา</td></tr>
+        <tr><td><b>MoS</b></td><td>Margin of safety = (FV − ราคา)/FV</td></tr>
+        <tr><td><b>CRP</b></td><td>Country risk premium เหนือสหรัฐ (ถ่วงตามรายได้)</td></tr>
+        <tr><td><b>NTM</b></td><td>Next twelve months — forward EPS ทุกแหล่งปรับมาเป็นฐานนี้</td></tr>
         <tr><td><b>MoS</b></td><td>Margin of Safety = ส่วนเผื่อความผิดพลาด (FV−ราคา)/ราคา — ระดับพอร์ตคือ Portfolio MoS</td></tr>
         <tr><td><b>P/L · MV · cost basis</b></td><td>กำไร/ขาดทุนของ position · Market Value (shares&times;ราคา) · ต้นทุน (shares&times;avg cost)</td></tr>
         <tr><td><b>EPS · fwd EPS · EPS&times;n</b></td><td>กำไรต่อหุ้น · forward EPS = ประมาณการ 12 เดือนข้างหน้า (NTM) · &times;n = blend จาก n แหล่ง (Yahoo/FMP/Finnhub) — เขียว = แหล่งเห็นตรงกัน, แดง = spread &gt;25%</td></tr>
@@ -1432,7 +1441,7 @@
         <tr><td><b>policy band · turnover</b></td><td>กรอบน้ำหนักที่ยอมให้ position วิ่งได้ก่อนต้อง rebalance · สัดส่วนพอร์ตที่ซื้อขายต่อปี (ยิ่งสูงยิ่งโดน cost/tax กัด — S6)</td></tr>
         <tr><td><b>จุดสี ● (เขียว/เหลือง/แดง)</b></td><td>Confidence tier ของข้อมูลหุ้นตัวนั้น (ดูเกณฑ์ในตารางบน)</td></tr>
         <tr><td><b>&#9873;n</b></td><td>จำนวน data flags — เรื่องที่ระบบอยากให้รู้เกี่ยวกับคุณภาพ/ที่มาของข้อมูล (ชี้ดูรายการเต็ม)</td></tr>
-        <tr><td><b>★</b></td><td>วิธี FV ที่ถูกเลือกเป็น anchor (ใช้คิด Upside จริง)</td></tr>
+        <tr><td><b>★</b></td><td>วิธี FV ที่ถูกเลือกเป็น anchor (ใช้คิด MoS จริง)</td></tr>
         <tr><td><b>&#9203;</b></td><td>ข้อมูล momentum เก่าเกิน 4 วัน — กด Run Daily</td></tr>
         <tr><td><b>&#9888; (ส้ม/แดง)</b></td><td>ส้ม = ราคา split-only อาจตีค่า 12M ต่ำไปสำหรับหุ้นปันผล · แดง = S9 crash guard (ตลาด RISK-OFF)</td></tr>
         <tr><td><b>&#8635; (ม่วง)</b></td><td>S9 reversal risk — วิ่งสะสม ~3 ปี &ge;+150% และใกล้ยอดของช่วง = โซนกลับตัวระยะยาว</td></tr>
@@ -1442,6 +1451,18 @@
         <tr><td><b>drift ↑ / ↓</b></td><td>ทิศ PEAD หลังงบล่าสุด (strong/mild)</td></tr>
         <tr><td><b>SEC · FMP · Finnhub · AV · Stooq</b></td><td>แหล่งข้อมูล: SEC EDGAR (งบ, ฟรี, ทางการ) · Financial Modeling Prep (โควตา 250/วัน) · Finnhub / Alpha Vantage (EPS cross-check, optional) · Stooq (ราคา fallback ฟรี)</td></tr>
         <tr><td><b>quota / headroom</b></td><td>โควตา FMP ฟรีของวันนี้ และจำนวน ticker ที่ยัง refresh ได้ (~5 calls/ตัว)</td></tr>
+      </table>
+
+      <h3 class="ht2">ค่าใหม่ (Damodaran rounds 1–3 · build 2026-10-18)</h3>
+      <table class="httab">
+        <tr><th style="width:190px">เรื่อง</th><th>เปลี่ยนอะไร</th><th>เห็นบน dashboard ที่ไหน</th></tr>
+        <tr><td><b>วิธีหลักตามประเภทบริษัท</b></td><td>FCFF DCF สำหรับบริษัททั่วไป/หุ้นวัฏจักร · excess return สำหรับธนาคาร/ประกัน · PEG/FVP เป็นตัวเทียบ</td><td>★ บนช่อง Anchor FV · ชี้ที่ DCF ดูสมมติฐาน · flag "model: cyclical/financial"</td></tr>
+        <tr><td><b>Country risk + อุตสาหกรรม</b></td><td>Ke = Rf + β(ERP+CRP) · β bottom-up จากอุตสาหกรรมของ Damodaran (map จาก FMP อัตโนมัติ)</td><td>tooltip DCF · flag "country risk premium …" · drawer Ke</td></tr>
+        <tr><td><b>ข้อมูล SEC</b></td><td>tag ที่ยังรายงานอยู่ · cash รวม ST investments · หนี้รวม convertible + finance lease · ค่า "ปีก่อน" = วันเดียวกันปีก่อน · split ปรับ EPS/จำนวนหุ้นย้อนหลัง · งบสำรอง (TSM) ไม่ปนงวด</td><td>flag "stock split …", "debt not found …" · แถบเทรนด์ 5 ปี</td></tr>
+        <tr><td><b>กำไรหลัก</b></td><td>ตัดรายได้นอกธุรกิจ (&gt;10% ของ EBIT) ก่อนคิด EPS, earnings quality และ P/E ย้อนหลัง</td><td>flag "non-operating income … stripped"</td></tr>
+        <tr><td><b>MoS นิยามเดียว</b></td><td>(FV−P)/FV ทั้งคะแนน P, เกจ, advice, Risk Desk · upside/net เป็นตัวรอง</td><td>ช่อง MoS บนการ์ด · Portfolio MoS ที่ Risk Desk</td></tr>
+        <tr><td><b>อื่น ๆ</b></td><td>Kd ใน drawer เป็นหลังภาษี · EVA ฐานเดียวกัน · FVP รวมเงินปันผล · reverse DCF ใช้ ROIC ที่ค่อย ๆ ลดจากของบริษัท · young DCF ไม่หัก SBC ซ้ำ · forward EPS เป็น NTM · Risk Desk รีเฟรชเมื่อพอร์ตเปลี่ยน · แถบ Market value เตือนเมื่อ Rf เป็นค่าสำรอง</td><td>drawer · Risk Desk · Command strip</td></tr>
+        <tr><td><b>น้ำหนักคะแนน</b></td><td>D 20% / E_exec 20% / E_econ 30% / P 30% (มาตรฐานเดียวกับ skill v8.4 — template 30/25/25/20 ใน Project ไม่ใช้แล้ว)</td><td>Ref &rarr; สูตรรวมคะแนน</td></tr>
       </table>
 
       <h3 class="ht2">ค่าใหม่ (Philosophy-2026 alignment · build 2026-07-11)</h3>

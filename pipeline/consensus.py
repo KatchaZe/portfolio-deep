@@ -79,6 +79,33 @@ def blend_forward_eps(candidates, price=None):
             "rejected": rejected}
 
 
+def ntm_eps(rows, today=None):
+    """Next-twelve-months EPS from annual consensus rows [(fiscal-year end, eps)].
+
+    Each source used to hand over a different year: FMP the first year after the
+    latest quarter (often the CURRENT fiscal year), Finnhub its oldest row, Yahoo the
+    next fiscal year; NVDA's sources sat 35% apart for that reason alone. Weighting the
+    current and next fiscal year by the time left in the current one puts every source
+    on one clock (NTM, the basis a forward P/E is quoted on)."""
+    import datetime as _dt
+    today = today or _dt.date.today()
+    pts = []
+    for d, v in rows or []:
+        try:
+            pts.append((_dt.date.fromisoformat(str(d)[:10]), float(v)))
+        except (TypeError, ValueError):
+            continue
+    pts.sort()
+    future = [(d, v) for d, v in pts if d >= today]
+    if not future:
+        return None
+    (d0, v0), nxt = future[0], future[1:]
+    left = min(1.0, max(0.0, (d0 - today).days / 365.0))
+    if not nxt:
+        return round(v0, 4)
+    return round(left * v0 + (1 - left) * nxt[0][1], 4)
+
+
 def _primary_order(present):
     """present: iterable of source names that actually returned data. Yield in
     priority order, then any extras (stable)."""

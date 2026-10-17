@@ -28,7 +28,15 @@ def test_finnhub_parse_earnings():
 def test_finnhub_parse_eps_estimate():
     raw = {"data": [{"period": "2027-12-31", "epsAvg": 9.5},
                     {"period": "2026-12-31", "epsAvg": 8.0}], "freq": "annual"}
-    assert finnhub.parse_eps_estimate(raw) == 8.0          # nearest future period
+    import datetime as dt
+    # on 2026-12-31 the current FY has no time left: NTM = next FY
+    assert finnhub.parse_eps_estimate(raw, today=dt.date(2026, 12, 31)) == 9.5
+    # mid-year: half current FY, half next
+    v = finnhub.parse_eps_estimate(raw, today=dt.date(2026, 7, 2))
+    assert abs(v - (0.5 * 8.0 + 0.5 * 9.5)) < 0.02, v
+    # a past period never wins (the oldest row used to)
+    past = {"data": [{"period": "2024-12-31", "epsAvg": 3.0}] + raw["data"]}
+    assert finnhub.parse_eps_estimate(past, today=dt.date(2026, 12, 31)) == 9.5
     # premium / empty -> None (blend just uses the other sources)
     assert finnhub.parse_eps_estimate({}) is None
     assert finnhub.parse_eps_estimate({"data": []}) is None

@@ -132,12 +132,23 @@ def _sanity_bands(ff, rf):
         opm = ff.operating_income / ff.revenue
         if not (-0.50 <= opm <= 0.90):
             ff.flags.append(f"op margin {opm:.0%} out of band")
+    # a missing debt figure is read as zero below; say so when the firm pays interest
+    if ff.total_debt is None and (ff.interest_expense or 0) > 0:
+        ff.flags.append(f"debt not found in the filing although interest expense is "
+                        f"${ff.interest_expense/1e6:,.0f}M - treated as 0 (check the debt tags)")
     ic = (ff.total_debt or 0) + (ff.equity or 0) - (ff.cash or 0)
     roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
     if roic is not None and not (-1.0 <= roic <= 3.0):
         ff.flags.append(f"ROIC {roic:.0%} out of band")
-    if ff.beta is not None:
-        wacc = rf + ff.beta * config.ERP     # call-time read (assumptions override aware)
+    # the beta the engine prices on: industry unlevered (re-levered roughly at 1 + D/E)
+    # when known, the regression beta only as a fallback
+    beta = ff.beta
+    if getattr(ff, "beta_unlevered_industry", None):
+        mcap = ff.market_cap or ((ff.price or 0) * (ff.shares_diluted or 0))
+        de = (ff.total_debt or 0) / mcap if mcap else 0.0
+        beta = ff.beta_unlevered_industry * (1 + 0.75 * max(de, 0.0))
+    if beta is not None:
+        wacc = rf + beta * config.ERP     # call-time read (assumptions override aware)
         if not (0.03 <= wacc <= 0.25):
             ff.flags.append(f"WACC {wacc:.0%} out of band")
 

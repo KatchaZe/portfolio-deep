@@ -77,6 +77,30 @@ def terminal_margin(ticker, operating_income, revenue, industry_margin=None, ind
     return 0.25, "terminal margin 25% (generic assumption - pre-profit, no table)", False
 
 
+NONOP_MATERIAL = 0.10          # non-operating income above 10% of EBIT is stripped
+
+
+def core_net_income(f):
+    """Net income without the non-operating line, and that line. (net income, None)
+    when it is immaterial or cannot be measured.
+
+    non-operating = pretax income - (EBIT - interest expense): investment gains, equity
+    -method results, one-off disposals. GOOGL's TTM net income ($244B) sat far above its
+    operating income ($148B) on $136B of other income; valued, scored for accruals and
+    used for its own P/E history as if it were recurring, it read as cheap with
+    low-quality earnings at the same time. Cash and investments are valued on the
+    balance sheet, so their income is not counted a second time in earnings."""
+    ni, oi, pt = f.net_income, f.operating_income, f.income_before_tax
+    if ni is None or oi is None or pt is None or not oi:
+        return ni, None
+    if str((getattr(f, "provenance", None) or {}).get("operating_income", "")).startswith("sec-derived"):
+        return ni, None                    # EBIT derived from pretax: nothing to strip
+    nonop = pt - oi + (f.interest_expense or 0.0)
+    if abs(nonop) <= NONOP_MATERIAL * abs(oi):
+        return ni, None
+    return ni - nonop * (1 - f.tax_rate), nonop
+
+
 def working_capital_change(f):
     """dWC = (AR + inventory - AP)_now - (AR + inventory - AP)_prior, the dWC leg of
     reinvestment (capex + acquisitions + dWC - D&A).
@@ -365,11 +389,16 @@ def stable_exit_pe(g_st, ke, roic_st):
     return payout * (1 + g_st) / (ke - g_st)
 
 
-def future_value_projection(eps0, growth, ke, exit_pe):
+def future_value_projection(eps0, growth, ke, exit_pe, payout=0.0):
+    """PV of the dividends paid in years 1-5 plus the year-5 price (EPS_5 x exit P/E).
+    `payout` is the high-growth payout 1 - g/ROIC; leaving the dividends out undervalued
+    the projection by ~10% at g = 20% against the full DDM."""
     if eps0 is None or eps0 <= 0 or exit_pe is None:
         return None
     pe = _clamp(exit_pe, PE_FLOOR, PE_CEIL)     # same band as the PEG path
-    return (eps0 * (1 + growth) ** 5 * pe) / (1 + ke) ** 5
+    div = sum(eps0 * (1 + growth) ** t * max(0.0, payout or 0.0) / (1 + ke) ** t
+              for t in range(1, 6))
+    return div + (eps0 * (1 + growth) ** 5 * pe) / (1 + ke) ** 5
 
 
 # implied CAGR / actual growth -> how hard the priced-in growth is to reach
@@ -426,9 +455,13 @@ def _implied_cagr(pv, ev):
     return (a + b) / 2, None
 
 
-def _fcff_path_pv(x, m, *, revenue, tax, g, roic_t, wacc_val, wacc_term, margin_now):
+def _fcff_path_pv(x, m, *, revenue, tax, g, roic_t, wacc_val, wacc_term, margin_now,
+                  roic_now=None):
     """PV of the reverse-DCF FCFF path at revenue CAGR x with terminal operating
-    margin m. The margin ramps linearly from margin_now to m (flat when None)."""
+    margin m. The margin ramps linearly from margin_now to m (flat when None), and the
+    return on new capital from the firm's own ROIC to the terminal one (Damodaran
+    fades excess returns; charging a 34%-ROIC firm a 15% ROIC's reinvestment for all
+    ten years read its implied growth as harsher than the market's)."""
     if m <= 0:
         return None
     # Reinvestment is x/ROIC with x the REVENUE CAGR, uncapped. Under a constant
@@ -436,11 +469,13 @@ def _fcff_path_pv(x, m, *, revenue, tax, g, roic_t, wacc_val, wacc_term, margin_
     # margin expansion costs no capital. Above x = ROIC the growth is funded with
     # outside capital and FCFF goes negative, which keeps FCFF strictly decreasing
     # in x (a cap would make growth above it free).
-    reinvest = max(0.0, x / roic_t) if x > 0 else 0.0
+    r0 = roic_now if (roic_now and roic_now > roic_t) else roic_t
     reinvest_t = min(0.8, g / roic_t)
     pv = 0.0
     rev_t = revenue
     for t in range(1, REVERSE_HORIZON + 1):
+        roic_y = r0 + (roic_t - r0) * (t / REVERSE_HORIZON)
+        reinvest = max(0.0, x / roic_y) if x > 0 else 0.0
         rev_t *= (1 + x)
         m_t = m if margin_now is None else margin_now + (m - margin_now) * (t / REVERSE_HORIZON)
         # A loss year gives negative FCFF and the solver must see it. Reinvestment
@@ -458,7 +493,7 @@ def _fcff_path_pv(x, m, *, revenue, tax, g, roic_t, wacc_val, wacc_term, margin_
 
 def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin,
                 wacc_term=None, roic_term=None, market_cap=None, margin_now=None,
-                actual_growth=None):
+                actual_growth=None, roic_now=None):
     """Full-path reverse DCF: solve the revenue CAGR x such that PV(FCFF years 1..H)
     + PV(terminal value) = enterprise value, i.e. what growth the market prices in.
 
@@ -485,7 +520,7 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
             return None, "no margin / no enterprise value"
         return _implied_cagr(lambda x: _fcff_path_pv(
             x, m, revenue=revenue, tax=tax, g=g, roic_t=roic_t, wacc_val=wacc_val,
-            wacc_term=wacc_term, margin_now=margin_now), ev)
+            wacc_term=wacc_term, margin_now=margin_now, roic_now=roic_now), ev)
 
     base, why = implied(margin)
     # P3-1 clock trap: `revenue` is TTM while `rev_1y` is the fiscal year BEFORE the
@@ -521,11 +556,14 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
     Returns (verdict, flags + disclosures, cash_conversion)."""
     if cfo is None or net_income is None:
         return None, [], None
-    flags = []
+    flags, tested = [], 0
     cc = (cfo / net_income) if net_income > 0 else None
-    if cc is not None and cc < 0.8:
-        flags.append("low cash conversion <0.8")
+    if cc is not None:
+        tested += 1
+        if cc < 0.8:
+            flags.append("low cash conversion <0.8")
     if total_assets:
+        tested += 1
         acc = (net_income - cfo) / total_assets
         if acc > 0.05:
             flags.append("high accruals >5% of assets")
@@ -541,10 +579,15 @@ def earnings_quality(net_income, cfo, total_assets, sbc, revenue,
     rev_g = revenue_growth if revenue_growth is not None else (
         (revenue / revenue_prior - 1) if (revenue and revenue_prior) else None)
     if receivables and receivables_prior and rev_g is not None:
+        tested += 1
         ar_g = receivables / receivables_prior - 1
         if ar_g > 0.10 and ar_g > rev_g + 0.15:
             flags.append(f"receivables +{ar_g*100:.0f}% vs revenue +{rev_g*100:.0f}% "
                          f"(sales not turning into cash)")
+    # CLEAN is a finding: a firm none of the tests could run on (a loss-maker with no
+    # total assets) is UNTESTED, which Execution scores as missing data (3.0, not 4.0)
+    if not tested:
+        return None, disclosures + ["earnings quality untested (no test applicable)"], cc
     verdict = "CLEAN" if not flags else "REVIEW" if len(flags) <= 2 else "LOW"
     return verdict, flags + disclosures, cc
 
@@ -1021,7 +1064,12 @@ class DeepV82Engine(DeepEngine):
         scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype)
         comp, reco = _overall(f, scores, notes)
 
-        eva = (cap.spread * cap.ic) if (cap.spread is not None and cap.ic and cap.ic > 0) else None
+        # EVA on ONE basis: the measured return on the capital it was measured on
+        # (R&D-capitalized ROIC x R&D-capitalized capital). The median-damped scoring
+        # spread x raw capital mixed two bases and read ~43% low for R&D-heavy names.
+        ic_basis = cap.rd[1] if cap.rd else cap.ic
+        eva = ((cap.roic_used - cap.wacc) * ic_basis
+               if (cap.roic_used is not None and ic_basis and ic_basis > 0) else None)
         v = Valuation(
             version=self.version, **scores,
             composite=round(comp, 2) if comp is not None else None,
@@ -1319,9 +1367,17 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
 
     nopat = cap.nopat
     eps0 = None
+    ni = f.net_income
+    if ctype is not CompanyType.FINANCIAL:
+        ni, nonop = core_net_income(f)
+        if nonop is not None:
+            _add_flag(f, (f"non-operating income ${nonop/1e9:+.1f}B "
+                          f"({nonop / abs(f.operating_income) * 100:+.0f}% of EBIT) stripped "
+                          f"from net income for EPS and earnings quality "
+                          f"(core ${ni/1e9:.1f}B vs reported ${f.net_income/1e9:.1f}B)"))
     # break-even net income (0.0) is a measurement, not a gap
-    if f.net_income is not None and f.shares_diluted:
-        earn = min(f.net_income, nopat) if (nopat and f.net_income > nopat) else f.net_income
+    if ni is not None and f.shares_diluted:
+        earn = min(ni, nopat) if (nopat and ni > nopat) else ni
         eps0 = earn / f.shares_diluted
     elif f.eps_gaap is not None:
         eps0 = f.eps_gaap
@@ -1414,7 +1470,8 @@ def _point_values(f, cap, gr, fwd_eps):
     # The exit multiple is stable-phase, so built at the stable-phase Ke; the five
     # high-growth years are discounted at today's Ke. eps0 is GAAP: not diluted.
     exit_pe = stable_exit_pe(gr.g_stable, gr.ke_stable, gr.roic_term)
-    fv_fvp = future_value_projection(gr.eps0, gr.growth, cap.ke, exit_pe)
+    payout_h = max(0.0, 1 - gr.growth / gr.roic_high) if gr.roic_high else 0.0
+    fv_fvp = future_value_projection(gr.eps0, gr.growth, cap.ke, exit_pe, payout=payout_h)
     return _PointValues(fv_peg=fv_peg, peg_detail=peg_d, g_realised=g_realised,
                         fv_peg_realised=fv_peg_realised, growth_fv_x=growth_fv_x,
                         growth_unreconciled=growth_unreconciled, fv_fvp=fv_fvp)
@@ -1452,7 +1509,7 @@ def _priced_in(f, cap, gr, rf, ctype=CompanyType.STANDARD):
                        tax=cap.tax, margin=tmargin, wacc_term=cap.wacc_term,
                        roic_term=gr.roic_term, market_cap=cap.mcap, margin_now=m_now,
                        # FY over FY, the rate Demand scores (not TTM over FY-2)
-                       actual_growth=gr.rev_growth_yoy)
+                       actual_growth=gr.rev_growth_yoy, roic_now=gr.roic_high)
     if rdcf.get("triggered") and m_now is not None and abs(m_now - tmargin) > 0.10:
         _add_flag(f, (f"RevDCF margin ramps {m_now*100:.0f}% -> {tmargin*100:.0f}% over "
                       f"{REVERSE_HORIZON}y (was held flat at the terminal margin from year 1)"))
@@ -1770,11 +1827,13 @@ def _execution_inputs(f, cap, acq, gr, notes, ctype=CompanyType.STANDARD):
 
 
 def _earnings_signals(f, rev_growth_yoy):
-    """Earnings-quality verdict and the billings signal; flags both."""
+    """Earnings-quality verdict and the billings signal; flags both. Tested on core
+    net income: a one-off gain is not an accrual problem of the operating business."""
     ann = f.revenue_annuals or []
     rev_1y = ann[1] if len(ann) > 1 else None
+    core_ni, _ = core_net_income(f)
     eq_verdict, eq_flags, _ = earnings_quality(
-        f.net_income, f.cfo, f.total_assets, f.sbc, f.revenue,
+        core_ni, f.cfo, f.total_assets, f.sbc, f.revenue,
         receivables=f.receivables, receivables_prior=getattr(f, "receivables_prior", None),
         revenue_prior=rev_1y,
         # FY over FY: a TTM-inflated growth rate would hide the AR signal
@@ -1970,7 +2029,8 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "dcf_sales_to_capital": di.get("sales_to_capital"),
             "dcf_terminal_share_pct": dcf.get("terminal_share_pct"),
             "ke_pct": round(cap.ke * 100, 2),
-            "kd_pct": _pct(cap.kd_pre, 2),
+            "kd_pct": _pct(cap.kd_pre, 2),                       # pre-tax
+            "kd_after_pct": _pct(cap.kd_pre * (1 - cap.tax), 2) if cap.kd_pre else None,
             "roic_pct": _pct(cap.roic, 2),
             # what the card prints beside WACC and the spread was built from: I2
             # requires the same number

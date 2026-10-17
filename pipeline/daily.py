@@ -76,10 +76,13 @@ def _market_overview(sp):
     mkt["ret_12m"] = momentum.roc(sp["closes"], 252)
     mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
     try:
-        rf, _ = yahoo.fetch_treasury_10y()
+        rf, rf_live = yahoo.fetch_treasury_10y()
         from pipeline.fundamentals import refresh_implied_erp
         refresh_implied_erp()
         mkt["valuation"] = market_valuation.overlay(rf, config.ERP, config.MARKET_PE)
+        # a fallback Rf moves the Fed-model spread; the strip says so instead of
+        # presenting 4.3% as today's yield
+        mkt["valuation"]["rf_live"] = bool(rf_live)
         # assumption freshness, so the UI can flag a stale ERP/PE
         mkt["valuation"]["erp_as_of"] = config.ERP_AS_OF
         mkt["valuation"]["market_pe_as_of"] = config.MARKET_PE_AS_OF
