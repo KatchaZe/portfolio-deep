@@ -133,9 +133,10 @@ def _sanity_bands(ff, rf):
         if not (-0.50 <= opm <= 0.90):
             ff.flags.append(f"op margin {opm:.0%} out of band")
     # a missing debt figure is read as zero below; say so when the firm pays interest
-    if ff.total_debt is None and (ff.interest_expense or 0) > 0:
+    if ff.total_debt is None and ((ff.interest_expense or 0) > 0
+                                  or getattr(ff, "accounting_standard", None) == "ifrs"):
         ff.flags.append(f"debt not found in the filing although interest expense is "
-                        f"${ff.interest_expense/1e6:,.0f}M - treated as 0 (check the debt tags)")
+                        f"${(ff.interest_expense or 0)/1e6:,.0f}M (or an IFRS filer) - treated as 0 (check the debt tags)")
     ic = (ff.total_debt or 0) + (ff.equity or 0) - (ff.cash or 0)
     roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
     if roic is not None and not (-1.0 <= roic <= 3.0):

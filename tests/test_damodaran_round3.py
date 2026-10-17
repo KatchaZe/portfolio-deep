@@ -81,6 +81,26 @@ def test_f9_debt_families():
           str(d["operating_leases"]))
 
 
+def test_f9b_debt_buckets_do_not_overlap():
+    print("F9b debt buckets: LongTermDebt holds maturities; a filed 0 hides nothing")
+    from sources import sec_edgar as S
+    d = S.extract(_cf({"LongTermDebt": _u(_inst("2026-06-30", 9.193e9)),
+                       "LongTermDebtAndCapitalLeaseObligations": _u(_inst("2026-06-30", 4.57e9)),
+                       "LongTermDebtAndCapitalLeaseObligationsCurrent": _u(_inst("2026-06-30", 4.623e9))}))
+    check(abs(d["total_debt"] - 9.193e9) < 1, "noncurrent + maturities = 9.193B, not 17.2B (MELI)",
+          str(d["total_debt"]))
+    d = S.extract(_cf({"LongTermDebtAndCapitalLeaseObligations": _u(_inst("2026-06-30", 62.481e9)),
+                       "LongTermDebtAndCapitalLeaseObligationsCurrent": _u(_inst("2026-06-30", 8.341e9)),
+                       "ShortTermBorrowings": _u(_inst("2026-06-30", 0.0))}))
+    check(abs(d["total_debt"] - 70.822e9) < 1, "a 0 short-term figure keeps the 8.3B maturities (ABBV)",
+          str(d["total_debt"]))
+    d = S.extract(_cf({"LongTermDebtNoncurrent": _u(_inst("2026-06-30", 10e9)),
+                       "LongTermDebtCurrent": _u(_inst("2026-06-30", 1e9)),
+                       "FinanceLeaseLiabilityNoncurrent": _u(_inst("2026-06-30", 2e9)),
+                       "FinanceLeaseLiabilityCurrent": _u(_inst("2026-06-30", 0.5e9))}))
+    check(abs(d["total_debt"] - 13.5e9) < 1, "both finance-lease legs are added", str(d["total_debt"]))
+
+
 def test_f10_prior_year_is_one_year_earlier():
     print("F10 prior year = the same balance-sheet date a year earlier")
     from sources import sec_edgar as S
@@ -89,9 +109,11 @@ def test_f10_prior_year_is_one_year_earlier():
     d = S.extract(_cf({"StockholdersEquity": eq}))
     check(d["equity_prior"] == 340e9, "2025-06-30, not 2025-12-31 (6 months) or 2014",
           str(d["equity_prior"]))
-    d = S.extract(_cf({"StockholdersEquity": _u(_inst("2026-06-30", 400e9), _inst("2025-12-31", 380e9))}))
-    check(d["equity_prior"] is None, "no balance a year earlier: missing, not a nearer one",
-          str(d["equity_prior"]))
+    d = S.extract(_cf({"StockholdersEquity": _u(_inst("2026-06-30", 400e9), _inst("2025-12-31", 380e9),
+                                                  _inst("2025-09-30", 370e9))}))
+    check(d["equity_prior"] == 380e9 and d["prior_fallbacks"] == ["StockholdersEquity"],
+          "no balance a year earlier: the previous fiscal year end, and it says so",
+          f"{d['equity_prior']} {d['prior_fallbacks']}")
 
 
 def test_f20_split_restates_history():
@@ -164,11 +186,17 @@ def test_f8_core_net_income():
     f = _facts(net_income=60e9, income_before_tax=75e9, tax_expense=15e9,
                operating_income=40e9, interest_expense=1e9, cfo=45e9, total_assets=400e9)
     core, nonop = E.core_net_income(f)
-    check(abs(nonop - 36e9) < 1 and abs(core - (60e9 - 36e9 * 0.8)) < 1,
-          "a $36B gain is removed after tax", f"{nonop} {core}")
+    gains = 75e9 - 40e9 + 1e9 - 5e9 * E.CASH_YIELD        # less a normal yield on cash
+    check(abs(nonop - gains) < 1 and abs(core - (60e9 - gains * 0.8)) < 1,
+          "the gain above a normal cash yield is removed after tax", f"{nonop} {core}")
+    loan = _facts(interest_expense=0.0, total_debt=1e9, income_before_tax=12e9)
+    check(E.core_net_income(loan)[1] is None,
+          "debt but no interest figure: nothing stripped (it may be missed interest)")
+    loss = _facts(income_before_tax=5e9)
+    check(E.core_net_income(loss)[1] is None, "a non-operating loss is never added back")
     v = E.DeepV82Engine().evaluate(f, rf=RF)
     check(v.eq_verdict == "CLEAN", "the gain no longer reads as an accrual problem", str(v.eq_verdict))
-    check(any("non-operating income" in x for x in v.flags), "and the card says so")
+    check(any("non-operating gains" in x for x in v.flags), "and the card says so")
     plain = _facts()
     check(E.core_net_income(plain)[1] is None, "immaterial non-operating income is left alone")
 
@@ -245,6 +273,8 @@ def test_f14_one_margin_of_safety():
     row = {"upside_pct": 17.0, "composite": 3.5, "key_metrics": {"spread_pct": 5}}
     a = advice.build(row)
     check("MoS +15%" in a, "upside +17% is a 15% margin of safety", a[:90])
+    edge = {"mos_pct": -15.0, "upside_pct": -13.04, "composite": 3.5, "key_metrics": {"spread_pct": 5}}
+    check("ใกล้ Fair Value" in advice.build(edge), "exactly -15% is fair, as the P-score bands it")
     row2 = {"upside_pct": 15.0, "composite": 3.5, "key_metrics": {"spread_pct": 5}}
     check("ใกล้ Fair Value" in advice.build(row2),
           "upside +15% (MoS 13%) is 'near fair value', as the P-score reads it")

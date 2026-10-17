@@ -77,28 +77,35 @@ def terminal_margin(ticker, operating_income, revenue, industry_margin=None, ind
     return 0.25, "terminal margin 25% (generic assumption - pre-profit, no table)", False
 
 
-NONOP_MATERIAL = 0.10          # non-operating income above 10% of EBIT is stripped
+NONOP_MATERIAL = 0.10          # non-operating gains above 10% of EBIT are stripped
+CASH_YIELD = 0.045             # a normal yield on cash: interest income, not a gain
 
 
 def core_net_income(f):
-    """Net income without the non-operating line, and that line. (net income, None)
-    when it is immaterial or cannot be measured.
+    """Net income without non-operating GAINS, and the amount stripped. (net income,
+    None) when there is nothing material to strip or it cannot be measured.
 
-    non-operating = pretax income - (EBIT - interest expense): investment gains, equity
-    -method results, one-off disposals. GOOGL's TTM net income ($244B) sat far above its
-    operating income ($148B) on $136B of other income; valued, scored for accruals and
-    used for its own P/E history as if it were recurring, it read as cheap with
-    low-quality earnings at the same time. Cash and investments are valued on the
-    balance sheet, so their income is not counted a second time in earnings."""
+    non-operating = pretax income - (EBIT - interest expense), less a normal yield on
+    the cash the firm holds (interest on cash is equity earnings an EPS-based value
+    should keep). GOOGL's TTM net income ($244B) sat far above its operating income
+    ($148B) on $136B of investment gains; valued, scored for accruals and used for its
+    own P/E history as if it were recurring, it read as cheap and low-quality at once.
+
+    Only gains are stripped: adding back a "loss" here would mostly be interest the
+    filing's tags missed (CELH's term loan reads 0 interest). And with debt on the
+    books but no interest figure, the difference cannot be told apart from interest,
+    so nothing is stripped."""
     ni, oi, pt = f.net_income, f.operating_income, f.income_before_tax
     if ni is None or oi is None or pt is None or not oi:
         return ni, None
     if str((getattr(f, "provenance", None) or {}).get("operating_income", "")).startswith("sec-derived"):
         return ni, None                    # EBIT derived from pretax: nothing to strip
-    nonop = pt - oi + (f.interest_expense or 0.0)
-    if abs(nonop) <= NONOP_MATERIAL * abs(oi):
+    if not f.interest_expense and (f.total_debt or 0) > 0:
         return ni, None
-    return ni - nonop * (1 - f.tax_rate), nonop
+    gains = pt - oi + (f.interest_expense or 0.0) - (f.cash or 0.0) * CASH_YIELD
+    if gains <= NONOP_MATERIAL * abs(oi):
+        return ni, None
+    return ni - gains * (1 - f.tax_rate), gains
 
 
 def working_capital_change(f):
@@ -1371,7 +1378,7 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
     if ctype is not CompanyType.FINANCIAL:
         ni, nonop = core_net_income(f)
         if nonop is not None:
-            _add_flag(f, (f"non-operating income ${nonop/1e9:+.1f}B "
+            _add_flag(f, (f"non-operating gains ${nonop/1e9:+.1f}B "
                           f"({nonop / abs(f.operating_income) * 100:+.0f}% of EBIT) stripped "
                           f"from net income for EPS and earnings quality "
                           f"(core ${ni/1e9:.1f}B vs reported ${f.net_income/1e9:.1f}B)"))

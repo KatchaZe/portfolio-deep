@@ -165,7 +165,7 @@ function priceVsValueGauge(x){
         <div style="flex:35;background:#bbf7d0"></div><div style="flex:30;background:#e2e8f0"></div><div style="flex:35;background:#fecaca"></div>
         <div style="position:absolute;left:${pos.toFixed(1)}%;top:0;width:3px;height:12px;background:#0f172a;border-radius:2px"></div></div>
       <div style="display:flex;justify-content:space-between;font-size:calc(11px*var(--fs));margin-top:2px">
-        <b class="${x.upside_pct>=0?'up':'down'}">MoS ${signed(mosOf(x))}% · upside ${signed(x.upside_pct)}%${net!=null?` &rarr; net <span style="font-size:calc(12.5px*var(--fs))">${signed(net)}%</span>`:''}</b>
+        <b class="${x.upside_pct>=0?'up':'down'}">${mosOf(x)!=null?`MoS ${signed(mosOf(x))}% · `:''}upside ${signed(x.upside_pct)}%${net!=null?` &rarr; net <span style="font-size:calc(12.5px*var(--fs))">${signed(net)}%</span>`:''}</b>
         <span class="muted" style="font-size:calc(9px*var(--fs))" title="net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">net หลัง cost/tax (S6)</span></div>`;
 }
 const VERDICT_COLORS={Plausible:['#dcfce7','#166534'],Ambitious:['#ffedd5','#9a3412'],Aggressive:['#fee2e2','#991b1b'],Exceptional:['#fee2e2','#991b1b']};

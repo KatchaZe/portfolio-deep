@@ -320,12 +320,32 @@ ST_DEBT = ("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings",
            "NotesPayableCurrent", "NotesAndLoansPayableCurrent",
            "LongTermDebtAndCapitalLeaseObligationsCurrent", "ConvertibleDebtCurrent",
            "ConvertibleNotesPayableCurrent")
+# total_debt reads ONE date as buckets, because the tags overlap: LongTermDebt already
+# holds the current maturities that LongTermDebtCurrent repeats (MELI 4.57 + 4.623 =
+# 9.193), and a filed 0 (ABBV's ShortTermBorrowings) must not hide the 8.3B of current
+# maturities beside it.
+#   combined total                                  -> as filed
+#   else NONCURRENT + (DebtCurrent | maturities + short-term borrowings)
+#   else TOTAL long-term + (DebtCurrent | short-term borrowings)
+# plus finance leases unless a ...CapitalLeaseObligations tag already carries them.
+DEBT_COMBINED = ("DebtLongtermAndShorttermCombinedAmount",
+                 "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+                 "Borrowings")
+DEBT_NONCURRENT = ("LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations",
+                   "LongTermNotesAndLoans", "LongTermNotesPayable", "ConvertibleDebtNoncurrent")
+DEBT_TOTAL_LT = ("LongTermDebt", "ConvertibleNotesPayable", "ConvertibleDebt")
+DEBT_CURRENT_TOTAL = ("DebtCurrent",)
+DEBT_MATURITIES = ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent",
+                   "ConvertibleDebtCurrent", "ConvertibleNotesPayableCurrent")
+DEBT_SHORT = ("ShortTermBorrowings", "CommercialPaper", "NotesPayableCurrent",
+              "NotesAndLoansPayableCurrent", "OtherShortTermBorrowings")
 # Finance (capital) leases are debt too and sit outside LongTermDebt*: MSFT carries
-# $66.6B of them. Added on the debt's own date unless the debt tag already includes
-# them (the ...CapitalLeaseObligations family).
+# $66.6B of them.
 FIN_LEASE_TOTAL = ("FinanceLeaseLiability",)
 FIN_LEASE_LEGS = ("FinanceLeaseLiabilityNoncurrent", "FinanceLeaseLiabilityCurrent")
-LEASE_INCLUSIVE = ("CapitalLeaseObligations",)
+LEASE_INCLUSIVE = "CapitalLeaseObligations"
+DEBT_LADDERS = (DEBT_COMBINED, DEBT_NONCURRENT, DEBT_TOTAL_LT, DEBT_CURRENT_TOTAL,
+                DEBT_MATURITIES, DEBT_SHORT, FIN_LEASE_TOTAL, FIN_LEASE_LEGS)
 EQUITY_TAGS = ("StockholdersEquity", "Equity",
                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
 # The current-year and prior-year lookups share one ladder each, so the two can never
@@ -364,6 +384,7 @@ class _Anchor:
     def __init__(self, ref_end, fy_ends):
         self.ref_end = ref_end        # latest revenue period end
         self.fy_ends = fy_ends        # income-statement fiscal-year ends, newest first
+        self.prior_fallbacks = set()  # tags whose prior-year value is the prior FY end
 
 
 def _live_tags(x, ladder, at):
@@ -478,6 +499,16 @@ def _prior_year(x, ladder, at):
         d = _year_before(series, current)
         if d:
             return series[d]
+    # not filed a year back (quarter-end instants are optional): the previous fiscal
+    # year-end balance, which every 10-K carries, rather than nothing
+    fy = next((e for e in at.fy_ends if current and _days(e, current) > 60), None)
+    if fy:
+        for t, p in live:
+            series = _instants(x, t, p)
+            near = [e for e in series if abs(_days(e, fy)) <= 7]
+            if near:
+                at.prior_fallbacks.add(t)
+                return series[near[0]]
     return None
 
 
@@ -491,38 +522,58 @@ def _total_else_legs(rule):
 
 def _total_debt(x, ladders, at, prior=False):
     """Total debt read off ONE balance-sheet date: the latest that yields a figure
-    (with `prior`, the date a year before it), plus finance leases on that date.
+    (with `prior`, the date a year before it). See DEBT_LADDERS for the buckets.
 
-    The combined tag must not short-circuit on `or`, and the two legs must not be
-    summed across dates. ORCL files the combined amount annually (92.6B @ 2025-05-31)
-    and the legs quarterly (134.6B @ 2026-02-28); either shortcut understated debt by
-    31%, which flowed into invested capital, net debt, EV and every multiple."""
-    def by_end(tags):
-        out = {}
-        for tag in tags:            # first tag in ladder order wins each date
-            for e in x.entries(tag):
-                d, v = e.get("end"), e.get("val")
-                if (d and v is not None and not e.get("start") and d not in out
-                        and _recent(d, at.ref_end, days=540 + (400 if prior else 0))):
-                    out[d] = (v, tag)
-        return out
+    The legs must never be summed across dates. ORCL files the combined amount
+    annually (92.6B @ 2025-05-31) and the legs quarterly (134.6B @ 2026-02-28); either
+    shortcut understated debt by 31%, which flowed into invested capital, net debt,
+    EV and every multiple."""
+    window = 540 + (400 if prior else 0)
+    comb, nc, tot, cur, mat, short, fl_total, fl_legs = (
+        {t: {e["end"]: e["val"] for e in x.entries(t)
+             if not e.get("start") and e.get("val") is not None
+             and _recent(e["end"], at.ref_end, days=window)} for t in tags}
+        for tags in ladders)
 
-    comb, lt, st, fl_total, fl_legs = (by_end(tags) for tags in ladders)
-    dates = sorted(set(comb) | set(lt), reverse=True)
+    def first(bucket, d):
+        """(value, tag) of the first tag filed on `d`; a 0 counts only if nothing else is."""
+        hits = [(v[d], t) for t, v in bucket.items() if d in v]
+        nonzero = [h for h in hits if h[0]]
+        return (nonzero or hits or [(None, None)])[0]
+
+    dates = sorted({d for b in (comb, nc, tot) for v in b.values() for d in v}, reverse=True)
     if prior and dates:
         d0 = _year_before(dates, dates[0])
         dates = [d0] if d0 else []
     for d in dates:
-        if d in comb:
-            debt, tag = comb[d]
+        used = []
+        v, t = first(comb, d)
+        if v is not None:
+            debt = v
+            used.append(t)
         else:
-            # no current-debt tag on that date means none split out; a leg from
-            # another date would be worse
-            debt, tag = _sum(lt[d][0], (st.get(d) or (None,))[0]), lt[d][1]
-        if not any(k in tag for k in LEASE_INCLUSIVE):
-            fin = (fl_total.get(d) or (None,))[0]
+            v, t = first(nc, d)
+            if v is not None:
+                used.append(t)
+                c, ct = first(cur, d)
+                if c is not None:
+                    debt = _sum(v, c)
+                else:
+                    m, mt = first(mat, d)
+                    sb, _ = first(short, d)
+                    debt = _sum(v, m, sb)
+                    used.append(mt or "")
+            else:
+                v, t = first(tot, d)
+                if v is None:
+                    continue
+                used.append(t)
+                c, _ = first(cur, d)
+                debt = _sum(v, c if c is not None else first(short, d)[0])
+        if not any(LEASE_INCLUSIVE in (u or "") for u in used):
+            fin, _ = first(fl_total, d)
             if fin is None:
-                fin = (fl_legs.get(d) or (None,))[0]
+                fin = _sum(*(fl_legs[t].get(d) for t in fl_legs))
             debt = _sum(debt, fin)
         return debt
     return None
@@ -602,7 +653,7 @@ FIELD_LADDERS = {
     # measures GROSS grants and disagrees in SIGN for MSFT and ABBV. A count, never
     # FX-converted.
     "shares_diluted_annuals": (_annual, (("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES),)),
-    "total_debt": (_total_debt, (COMBINED_DEBT, LT_DEBT, ST_DEBT, FIN_LEASE_TOTAL, FIN_LEASE_LEGS)),
+    "total_debt": (_total_debt, DEBT_LADDERS),
     "cash": (_cash_and_securities, ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "equity": (_fresh, EQUITY_TAGS),
     "capex": (_ttm_present, CAPEX_TAGS),
@@ -639,7 +690,7 @@ FIELD_LADDERS = {
     "rnd_annuals": (_annual, RND_TAGS),
     "equity_prior": (_prior_year, EQUITY_TAGS),
     "total_debt_prior": (lambda x, ladders, at: _total_debt(x, ladders, at, prior=True),
-                         (COMBINED_DEBT, LT_DEBT, ST_DEBT, FIN_LEASE_TOTAL, FIN_LEASE_LEGS)),
+                         DEBT_LADDERS),
     "cash_prior": (lambda x, ladders, at: _cash_and_securities(x, ladders, at, prior=True),
                    ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "acquisitions_net": (_ttm, ("PaymentsToAcquireBusinessesNetOfCashAcquired",
@@ -754,6 +805,7 @@ def extract(companyfacts):
         "q4_derived_ends": sorted(x.q4_derived),
     }
     out["split_boundaries"] = _split_adjust(x, out, ni_concept)
+    out["prior_fallbacks"] = sorted(at.prior_fallbacks)
     return out
 
 
@@ -789,7 +841,10 @@ def split_boundaries(dated_counts, factors):
     factor (or of the product of two)."""
     if not factors or len(dated_counts) < 2:
         return []
-    cands = set(factors) | {a * b for a in factors for b in factors}
+    # products only of two DIFFERENT filed factors (two splits inside one gap): f x f
+    # would read a merger that doubles the share count, at a filer with an old 2-for-1,
+    # as a second split
+    cands = set(factors) | {a * b for a in factors for b in factors if a < b}
     out, cum = [], 1.0
     for (d0, v0), (d1, v1) in zip(dated_counts, dated_counts[1:]):
         if not v0 or not v1 or v1 <= 0:
@@ -838,7 +893,18 @@ def _split_adjust(x, d, ni_concept):
         d["eps_annuals_dated"] = [[e, round(v / _factor_at(bounds, e), 4)] for e, v in eps]
     q = d.get("eps_quarters")
     if q:
-        d["eps_quarters"] = {e: round(v / _factor_at(bounds, e), 4) for e, v in q.items()}
+        # 10-Qs restate only one year back, so the quarterly series has its own
+        # boundaries, found on the quarterly share count
+        qs = list(x.quarters("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES).items())
+        qb = split_boundaries(qs, factors)
+        adj = {}
+        for e, v in q.items():
+            # a Q4 derived as FY - 9M straddles two bases when a boundary sits inside
+            # the year; it is dropped rather than shown wrong
+            if e in x.q4_derived and any(0 < _days(b, e) < 366 for b, _ in qb):
+                continue
+            adj[e] = round(v / _factor_at(qb, e), 4)
+        d["eps_quarters"] = adj
     return bounds
 
 
@@ -882,6 +948,10 @@ def populate(ff, companyfacts):
                                 + ", ".join(derived))
     for c in d.get("concept_conflicts") or []:
         ff.flags.append("SEC tag conflict - " + c)
+    if d.get("prior_fallbacks"):
+        ff.flags.append("prior-year balance for " + ", ".join(d["prior_fallbacks"])
+                        + " read at the previous fiscal year end (no balance filed a year "
+                        "before the latest one)")
     if d.get("split_boundaries"):
         ff.flags.append("stock split: share and EPS history before "
                         + ", ".join(f"{b} (x{f:g})" for b, f in d["split_boundaries"])

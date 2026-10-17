@@ -36,8 +36,8 @@ MOS_GOOD, MOS_BAD = 15.0, -15.0
 _VALUE_BANDS = (
     (lambda m: m >= 40, "ราคาต่ำกว่า Fair Value มาก", "ส่วนเผื่อกว้าง"),
     (lambda m: m >= MOS_GOOD, "ต่ำกว่า Fair Value", "มีส่วนเผื่อความปลอดภัย"),
-    (lambda m: m > MOS_BAD, "ใกล้ Fair Value", "ราคาสมเหตุสมผล"),
-    (lambda m: m > -40, "สูงกว่า Fair Value", "จ่ายแพงกว่ามูลค่า"),
+    (lambda m: m >= MOS_BAD, "ใกล้ Fair Value", "ราคาสมเหตุสมผล"),
+    (lambda m: m >= -40, "สูงกว่า Fair Value", "จ่ายแพงกว่ามูลค่า"),
     (lambda m: True, "แพงกว่า Fair Value มาก", "เสี่ยง de-rating"),
 )
 
@@ -138,7 +138,8 @@ def _build(row):
     # after the clause said they were expensive.
     mos = _row_mos(row, up)
     if mos is not None:
-        good_value, bad_value = mos >= MOS_GOOD, mos <= MOS_BAD
+        # same edges as the P-score's `x >= t` bands: exactly -15% is still fair
+        good_value, bad_value = mos >= MOS_GOOD, mos < MOS_BAD
     else:
         good_value = implied is not None and rev_verdict == "Plausible"
         bad_value = rev_verdict in ("Aggressive", "Exceptional")
