@@ -99,7 +99,7 @@ def _action(good_value, bad_value, good_quality, good_mom, comp, has_parts):
         return "ทยอยสะสม (DCA) — มูลค่ากับคุณภาพผ่าน แต่ใช้ momentum เลือกจังหวะเข้า"
     if good_value:
         return "ถูกแต่คุณภาพไม่ผ่าน — รอหลักฐานงบดีขึ้นก่อน (value trap risk)"
-    if bad_value and comp is not None and comp >= 3.5:
+    if bad_value and (good_quality or (comp is not None and comp >= 3.5)):
         return "ธุรกิจดีแต่ราคาแพง — ถือของเดิม ไม่เพิ่ม รอ pullback เข้าโซน Fair Value"
     if bad_value:
         return "แพงและพื้นฐานไม่เด่น — พิจารณาลดน้ำหนัก/ไม่เข้าใหม่"
@@ -122,10 +122,20 @@ def _build(row):
 
     parts = [c for c in (_value_clause(row, up, implied), _quality_clause(spread, eq),
                          _timing_clause(mom, crash)) if c]
+    # Value is judged on the same evidence the value clause shows: the upside to the
+    # anchor when there is one, the reverse-DCF verdict ONLY when there is not. Reading
+    # both let a "Plausible" RevDCF turn MSFT (-34%) and AVGO (-66%) into a buy right
+    # after the clause said they were expensive.
+    if up is not None:
+        good_value, bad_value = up >= 15, up <= -15
+    else:
+        good_value = implied is not None and rev_verdict == "Plausible"
+        bad_value = rev_verdict in ("Aggressive", "Exceptional")
     act = _action(
-        good_value=(up is not None and up >= 15) or (implied is not None and rev_verdict == "Plausible"),
-        bad_value=(up is not None and up <= -15) or (rev_verdict in ("Aggressive", "Exceptional")),
-        good_quality=(spread or 0) >= 0 and eq != "LOW",
+        good_value=good_value,
+        bad_value=bad_value,
+        # an unmeasured spread is not a passing one (the engine caps such rows at HOLD)
+        good_quality=spread is not None and spread >= 0 and eq != "LOW",
         good_mom=mom in _BULLISH and not crash,
         comp=_fnum(row.get("composite")),
         has_parts=bool(parts))

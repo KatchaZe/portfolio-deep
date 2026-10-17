@@ -112,5 +112,24 @@ def test_f3_fundamental_peg_prices_today_not_next_year():
           "the fair P/E shown is the multiple actually applied to forward EPS")
 
 
+def test_f5_advice_never_buys_what_it_just_called_expensive():
+    from domain import advice
+    msft = dict(upside_pct=-34, rev_implied_cagr=19.1, rev_verdict="Plausible",
+                key_metrics={"spread_pct": 16.3}, eq_verdict="REVIEW",
+                momentum_v2={"mom_label": "Strong"}, composite=3.2)
+    a = advice.build(msft)
+    check("ซื้อ" not in a.split("Action:")[1] and "สะสม" not in a.split("Action:")[1],
+          "an anchor 34% below price is not a buy, whatever the RevDCF verdict", a)
+    hims = dict(upside_pct=25, key_metrics={"spread_pct": None}, eq_verdict="CLEAN",
+                momentum_v2={"mom_label": "Strong"}, composite=2.8)
+    a = advice.build(hims)
+    check("DCA" not in a and "ซื้อ" not in a.split("Action:")[1],
+          "an unmeasured ROIC-WACC spread does not pass the quality test", a)
+    pre = dict(upside_pct=None, rev_implied_cagr=20, rev_verdict="Plausible", rev_actual_1y=30,
+               key_metrics={"spread_pct": 5}, eq_verdict="CLEAN", momentum_v2={"mom_label": "Strong"})
+    check("ซื้อ" in advice.build(pre).split("Action:")[1],
+          "with no anchor, a plausible RevDCF still decides value (pre-profit path)")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_damodaran_fixes_2026_10 PASSED")
