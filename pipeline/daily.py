@@ -77,6 +77,8 @@ def _market_overview(sp):
     mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
     try:
         rf, _ = yahoo.fetch_treasury_10y()
+        from pipeline.fundamentals import refresh_implied_erp
+        refresh_implied_erp()
         mkt["valuation"] = market_valuation.overlay(rf, config.ERP, config.MARKET_PE)
         # assumption freshness, so the UI can flag a stale ERP/PE
         mkt["valuation"]["erp_as_of"] = config.ERP_AS_OF

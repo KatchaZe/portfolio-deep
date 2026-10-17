@@ -487,3 +487,95 @@ def industry_beta_for(ticker, sector, table=None):
     if b is None or b <= 0:
         return None, None
     return b, ind if precise else f"{ind} (sector-level)"
+
+
+# --------------------------------------------------------------------------- #
+#  Implied equity risk premium (home page, refreshed monthly)                  #
+# --------------------------------------------------------------------------- #
+# The ERP was a hand-typed constant: 4.45% set in July while Damodaran's 1 October
+# figure was 4.20%, and the staleness flag only fires after three months. His home
+# page states the current month's implied ERP in one sentence; it is read here, cached,
+# and overlaid by store._apply_assumptions unless a NEWER manual value was saved.
+ERP_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/home.htm"
+ERP_CACHE_FILE = "damodaran_erp.json"
+ERP_TTL_DAYS = 7
+ERP_SANE = (0.02, 0.09)
+_MONTHS = {m: i for i, m in enumerate(
+    ("january", "february", "march", "april", "may", "june", "july", "august",
+     "september", "october", "november", "december"), 1)}
+_ERP_RE = re.compile(r"implied\s+erp\s+on\s+([a-z]+)\s+(\d{1,2}),?\s+(\d{4})\W{0,40}?(\d{1,2}\.\d{1,2})\s*%",
+                     re.I)
+_RF_RE = re.compile(r"treasury\s+rate\s+of\s+(\d{1,2}\.\d{1,2})\s*%", re.I)
+
+
+class _TextParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def parse_implied_erp(html):
+    """'Implied ERP on October 1, 2026 = 4.20% (Trailing 12 month, with adjusted
+    payout)' -> {"erp": 0.042, "as_of": "2026-10", "date": "2026-10-01", "rf": 0.0529}.
+    The first figure is his headline (trailing 12m, adjusted payout). None when the
+    sentence is missing or the number is outside a sane band: never guess."""
+    p = _TextParser()
+    p.feed(html or "")
+    text = re.sub(r"\s+", " ", " ".join(p.parts).replace("\xa0", " "))
+    m = _ERP_RE.search(text)
+    if not m or m.group(1).lower() not in _MONTHS:
+        return None
+    erp = float(m.group(4)) / 100.0
+    if not ERP_SANE[0] <= erp <= ERP_SANE[1]:
+        return None
+    month, day, year = _MONTHS[m.group(1).lower()], int(m.group(2)), int(m.group(3))
+    rf = _RF_RE.search(text[m.end():m.end() + 600])
+    return {"erp": round(erp, 5), "as_of": f"{year:04d}-{month:02d}",
+            "date": f"{year:04d}-{month:02d}-{day:02d}",
+            "rf": round(float(rf.group(1)) / 100.0, 5) if rf else None}
+
+
+def cached_implied_erp(cache_dir):
+    """The last implied ERP read from his page, from disk only (no network)."""
+    path = os.path.join(cache_dir, ERP_CACHE_FILE) if cache_dir else None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            v = json.load(fh)
+        if ERP_SANE[0] <= float(v["erp"]) <= ERP_SANE[1] and re.match(r"\d{4}-\d{2}$", v["as_of"]):
+            return v
+    except Exception:
+        pass
+    return None
+
+
+def fetch_implied_erp(cache_dir=None, ttl_days=ERP_TTL_DAYS, requests_mod=None, timeout=12,
+                      user_agent="PortfolioDeepApp"):
+    """Current implied ERP from the home page, cached ttl_days. Returns the cached or
+    fresh dict, or None. Never raises."""
+    path = os.path.join(cache_dir, ERP_CACHE_FILE) if cache_dir else None
+    cached = cached_implied_erp(cache_dir) if cache_dir else None
+    if cached and path and (time.time() - os.path.getmtime(path)) < ttl_days * 86400:
+        return cached
+    try:
+        import requests as _r
+        rq = requests_mod or _r
+        r = rq.get(ERP_URL, headers={"User-Agent": user_agent}, timeout=timeout)
+        r.raise_for_status()
+        live = parse_implied_erp(r.text)
+    except Exception as e:
+        log.warning("damodaran implied ERP fetch failed (%s)", e)
+        return cached
+    if not live:
+        log.warning("damodaran implied ERP sentence not found on the home page")
+        return cached
+    if path:
+        try:
+            os.makedirs(cache_dir, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({**live, "fetched": time.time(), "url": ERP_URL}, fh)
+        except Exception as e:
+            log.warning("damodaran implied ERP cache write failed: %s", e)
+    return live

@@ -163,5 +163,33 @@ def test_n2_bottom_up_beta():
           "no industry mapping -> regression beta, unchanged")
 
 
+def test_n9_implied_erp_is_read_and_newest_wins():
+    import json, tempfile, os
+    import config
+    import store
+    from sources import damodaran as D
+    html = ("<li><b>Implied ERP on October 1, 2026</b> = 4.20% (Trailing 12 month, with adjusted "
+            "payout); 3.70% (cash yield)<br>(with the US treasury rate of 5.29% used as the riskfree rate")
+    v = D.parse_implied_erp(html)
+    check(v == {"erp": 0.042, "as_of": "2026-10", "date": "2026-10-01", "rf": 0.0529},
+          "the home-page sentence parses to ERP 4.20% as of 2026-10", repr(v))
+    check(D.parse_implied_erp("<p>Implied ERP on October 1, 2026 = 42.0%</p>") is None,
+          "an implausible ERP is refused, not used")
+    keep = (config.CACHE_DIR, config.ERP, config.ERP_AS_OF, getattr(config, "ERP_SOURCE", None))
+    with tempfile.TemporaryDirectory() as d:
+        config.CACHE_DIR = d
+        with open(os.path.join(d, D.ERP_CACHE_FILE), "w") as fh:
+            json.dump({"erp": 0.042, "as_of": "2026-10"}, fh)
+        store._apply_assumptions({"assumptions": {"erp": 0.0445, "erp_as_of": "2026-07"}})
+        check(config.ERP == 0.042 and config.ERP_SOURCE == "damodaran-live",
+              "the page's October ERP beats a July manual value")
+        store._apply_assumptions({"assumptions": {"erp": 0.05, "erp_as_of": "2026-11"}})
+        check(config.ERP == 0.05 and config.ERP_SOURCE == "manual",
+              "a manual value saved after the page's month wins")
+    config.CACHE_DIR, config.ERP, config.ERP_AS_OF, config.ERP_SOURCE = keep
+    from domain.engine import deep_v82 as E
+    check(E.erp_months_old("garbage") > config.ERP_STALE_MONTHS, "an unreadable as-of is stale, not fresh")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_damodaran_fixes_2026_10 PASSED")

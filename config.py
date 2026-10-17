@@ -34,8 +34,11 @@ DEEP_VERSION = "8.2"         # active DEEP framework version; change this ONE li
 # by hand; the engine and the validate sanity band both read it from here (a value
 # saved from the dashboard overrides it at runtime, see store._apply_assumptions).
 # ifa-stock-analysis-v8/scripts keep their own CLI default: update those too.
-ERP = 0.0445                 # decimal, not percent
-ERP_AS_OF = "2026-07"        # year-month this ERP was last set
+ERP = 0.0420                 # decimal, not percent (Damodaran implied, 1 Oct 2026)
+ERP_AS_OF = "2026-10"        # year-month this ERP was last set
+# Where the ERP in force came from: "config-default", "manual" (dashboard form) or
+# "damodaran-live" (read off his home page by sources/damodaran.fetch_implied_erp).
+ERP_SOURCE = "config-default"
 ERP_STALE_MONTHS = 3         # flag the ERP as stale once it is older than this
 
 # --- paths and caches -----------------------------------------------------------

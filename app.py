@@ -255,7 +255,7 @@ def api_assumptions():
     a = st.load().get("assumptions") or {}      # load() also applies the override
     return JSONResponse({
         **_assumption_values(),
-        "source": {"erp": "manual" if a.get("erp") else "config-default",
+        "source": {"erp": getattr(config, "ERP_SOURCE", "config-default"),
                    "market_pe": "manual" if a.get("market_pe") else "config-default"},
         "erp_months_old": erp_months_old(),
         "erp_stale": erp_months_old() > config.ERP_STALE_MONTHS,

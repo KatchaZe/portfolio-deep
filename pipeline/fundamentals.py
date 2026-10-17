@@ -31,6 +31,16 @@ def fetch_roc_table():
                                      user_agent=config.SEC_USER_AGENT)
 
 
+def refresh_implied_erp():
+    """Read Damodaran's current implied ERP (cached a week) and re-apply the
+    assumption overlay so this refresh prices on it. Never fatal."""
+    try:
+        if damodaran.fetch_implied_erp(cache_dir=config.CACHE_DIR, user_agent=config.SEC_USER_AGENT):
+            store_mod.reapply_assumptions()
+    except Exception as e:
+        log.warning("implied ERP refresh failed: %s", e)
+
+
 def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None):
     """Fetch -> normalize -> validate -> engine. Returns (facts, valuation, fmp_calls).
     NETWORK ONLY, never touches the store, safe to run outside store.LOCK.
@@ -338,6 +348,7 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     partitioned up front. Returns (fetched {ticker: (FinancialFacts, Valuation)},
     errors, fmp_calls, rf_pct, rf_live)."""
     rf, rf_live = yahoo.fetch_treasury_10y()
+    refresh_implied_erp()
     roc = fetch_roc_table()
     fetched, calls = {}, 0
     cost = batch.guaranteed_cost(fmp_key)

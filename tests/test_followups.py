@@ -44,7 +44,8 @@ def test_erp_centralised_and_staleness():
     # staleness math: 5 months past as-of
     old = E.erp_months_old(as_of="2026-01", today=datetime.date(2026, 6, 1))
     assert old == 5, old
-    assert E.erp_months_old(as_of="bad") == 0
+    # an unreadable as-of reads as stale since 2026-10-17 (it was 0 = silently fresh)
+    assert E.erp_months_old(as_of="bad") > config.ERP_STALE_MONTHS
     print("ERP centralised + staleness helper OK")
 
 

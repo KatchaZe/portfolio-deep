@@ -105,7 +105,7 @@ def erp_months_old(as_of=None, today=None):
         d = today or datetime.date.today()
         return (d.year - y) * 12 + (d.month - m)
     except Exception:
-        return 0
+        return 99          # an as-of nobody can read is stale, not fresh
 
 
 def _clamp(x, lo=0.0, hi=5.0):

@@ -36,7 +36,7 @@
   <!-- Monthly assumptions (S4/S33): manual ERP + S&P PE -> saved to store -> Google Drive -->
   <div class="addform" id="assumeForm">
     <span style="font-size:calc(12px*var(--fs));color:#475569" title="ค่ารายเดือนจากหน้า Damodaran (implied ERP) และ multpl (S&P trailing P/E) — บันทึกลง portfolio.json แล้ว mirror ขึ้น Google Drive อัตโนมัติ; มีผลกับ Ke/WACC และ market overlay ทันที">&#128200; Assumptions (รายเดือน):</span>
-    <input id="erpIn" class="n" type="number" step="0.01" min="1" max="10" placeholder="ERP % เช่น 4.45" style="width:130px">
+    <input id="erpIn" class="n" type="number" step="0.01" min="1" max="10" placeholder="ERP % เช่น 4.20" style="width:130px">
     <input id="peIn" class="n" type="number" step="0.1" min="5" max="60" placeholder="S&P PE เช่น 25.1" style="width:130px">
     <button onclick="saveAssumptions()" style="background:#b45309"><span class="spin" id="spAs" style="border-top-color:#fff"></span> Save</button>
     <span id="assumeMsg" style="font-size:calc(12px*var(--fs));color:#64748b">&hellip;</span>
@@ -136,7 +136,7 @@
       <table class="httab">
         <tr><th style="width:170px">หัวข้อ</th><th>รายละเอียด</th></tr>
         <tr><td><b>คืออะไร</b></td><td>ค่า "สมมติฐานตลาด" 2 ตัวที่ไม่มี feed สดฟรี ต้องอัพเดตมือเดือนละครั้ง: <b>ERP</b> (implied equity risk premium ของสหรัฐ — ใช้คิด Ke = Rf + &beta;&times;ERP &rarr; WACC &rarr; fair value <u>ทุกตัว</u>) และ <b>S&amp;P PE</b> (trailing P/E ของตลาด — ใช้ตัดสิน market overlay ถูก/แพง S32&ndash;33)</td></tr>
-        <tr><td><b>เอาค่าจากไหน</b></td><td>ERP: หน้า Damodaran — <span style="word-break:break-all">pages.stern.nyu.edu/~adamodar</span> (Data &rarr; Implied ERP, อัพเดตต้นเดือน; ก.ค. 2026 = 4.45% US) หรือโพสต์ ERP รายเดือนใน blog/LinkedIn ของเขา &middot; S&amp;P PE: <span style="word-break:break-all">multpl.com/s-p-500-pe-ratio</span></td></tr>
+        <tr><td><b>เอาค่าจากไหน</b></td><td>ERP: หน้า Damodaran — <span style="word-break:break-all">pages.stern.nyu.edu/~adamodar</span> (Implied ERP, อัพเดตต้นเดือน; 1 ต.ค. 2026 = 4.20% US) &mdash; <b>ระบบอ่านให้อัตโนมัติ</b>ทุกครั้งที่ Refresh (cache 7 วัน) ค่าที่กรอกมือจะใช้เมื่อใหม่กว่าค่าจากหน้าเว็บ &middot; S&amp;P PE: <span style="word-break:break-all">multpl.com/s-p-500-pe-ratio</span></td></tr>
         <tr><td><b>ทำอย่างไร</b></td><td>กรอกตัวเลข (ERP เป็น <b>เปอร์เซ็นต์</b> เช่น 4.45 ไม่ใช่ 0.0445) &rarr; กด Save &rarr; ระบบ validate (ERP 1&ndash;10% · PE 5&ndash;60) &rarr; บันทึกลง store แล้ว <b>mirror ขึ้น Google Drive อัตโนมัติ</b> — redeploy/restart ค่าไม่หาย</td></tr>
         <tr><td><b>มีผลเมื่อไร</b></td><td>Ke/WACC และ market overlay ใช้ค่าใหม่ทันที แต่ตัวเลขที่ "แสดงอยู่" มาจากการคำนวณครั้งก่อน &rarr; กด <b>Run Daily</b> (อัพเดตแผง market/แบนเนอร์) + <b>Run Fundamental Refresh</b> (คำนวณ fair value ใหม่)</td></tr>
         <tr><td><b>แถบ "ปัจจุบัน"</b></td><td>ข้างปุ่ม Save: ค่า live ที่ระบบใช้จริง + ที่มา (<b>manual</b> = คุณกรอกเอง · <b>default</b> = ค่าตั้งต้นใน config) — ถ้าเห็นธง ⚑ ERP เก่าเกิน 3 เดือน = ถึงเวลาอัพเดต</td></tr>
@@ -1447,7 +1447,7 @@
       <h3 class="ht2">ค่าใหม่ (Philosophy-2026 alignment · build 2026-07-11)</h3>
       <table class="httab">
         <tr><th style="width:190px">ค่า</th><th>นิยาม</th><th>แหล่ง/วิธีอ่าน</th></tr>
-        <tr><td><b>Assumptions: ERP %</b></td><td>Implied equity risk premium (US) — ส่วนชดเชยความเสี่ยงตลาดหุ้นเหนือ Rf ใช้ใน Ke = Rf + &beta;&times;ERP ของทุกตัว</td><td><b>กรอกมือรายเดือน</b>จากหน้า Damodaran (pages.stern.nyu.edu/~adamodar &rarr; Implied ERP) — เก็บใน store + sync Google Drive · ธง stale เมื่อเก่า &gt;3 เดือน</td></tr>
+        <tr><td><b>Assumptions: ERP %</b></td><td>Implied equity risk premium (US) — ส่วนชดเชยความเสี่ยงตลาดหุ้นเหนือ Rf ใช้ใน Ke = Rf + &beta;&times;ERP ของทุกตัว</td><td><b>อ่านอัตโนมัติ</b>จากหน้าแรก Damodaran (pages.stern.nyu.edu/~adamodar &rarr; &ldquo;Implied ERP on &hellip;&rdquo;) ทุก Refresh, cache 7 วัน · กรอกมือได้ ค่าที่ <b>ใหม่กว่า</b> ชนะ · ไม่มีเน็ต = ค่าใน config (4.20%, 2026-10) · ธง stale เมื่อเก่า &gt;3 เดือน</td></tr>
         <tr><td><b>Assumptions: S&amp;P PE</b></td><td>Trailing P/E ของ S&amp;P 500 — ใช้คิด earnings yield ใน market overlay (S32&ndash;33)</td><td><b>กรอกมือรายเดือน</b>จาก multpl.com/s-p-500-pe-ratio · sync Drive เหมือน ERP</td></tr>
         <tr><td><b>Hist VaR / CVaR (การ์ดม่วง)</b></td><td>VaR จาก <b>ผลตอบแทนจริงย้อนหลัง</b> (percentile) ไม่สมมุติ normal — เห็น fat tail ตามที่เคยเกิด (S2/S4)</td><td>คู่กับ VaR ปกติ (parametric): ถ้า Hist สูงกว่ามาก = พอร์ตมีหางอ้วนกว่าที่โมเดล normal บอก</td></tr>
         <tr><td><b>Operating leases &rarr; IC</b></td><td>หนี้สินสัญญาเช่า (ASC 842) ถูกบวกเข้า debt + invested capital ก่อนคิด ROIC/WACC (Damodaran: lease = debt)</td><td>SEC tag OperatingLeaseLiability · เห็น flag "operating leases … capitalized" บน card</td></tr>

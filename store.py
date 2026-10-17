@@ -95,14 +95,28 @@ def _apply_assumptions(s):
     restart. Never raises."""
     a = s.get("assumptions") or {}
     try:
-        if a.get("erp"):
+        # newest dated ERP wins: a manual value saved this month beats last month's
+        # page, and the page beats a manual value it has since superseded
+        from sources import damodaran
+        live = damodaran.cached_implied_erp(config.CACHE_DIR)
+        manual_as_of = (a.get("erp_as_of") or "") if a.get("erp") else None
+        if live and (manual_as_of is None or live["as_of"] > manual_as_of):
+            config.ERP, config.ERP_AS_OF = float(live["erp"]), live["as_of"]
+            config.ERP_SOURCE = "damodaran-live"
+        elif a.get("erp"):
             config.ERP = float(a["erp"])
             config.ERP_AS_OF = a.get("erp_as_of") or config.ERP_AS_OF
+            config.ERP_SOURCE = "manual"
         if a.get("market_pe"):
             config.MARKET_PE = float(a["market_pe"])
             config.MARKET_PE_AS_OF = a.get("market_pe_as_of") or config.MARKET_PE_AS_OF
     except Exception:
         pass
+
+
+def reapply_assumptions():
+    """Re-run the overlay after a fresh implied ERP was cached (network paths)."""
+    _apply_assumptions(load())
 
 
 def set_assumptions(s, erp_pct=None, market_pe=None):
