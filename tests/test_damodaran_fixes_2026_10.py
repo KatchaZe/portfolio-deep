@@ -97,5 +97,20 @@ def test_f2_growth_is_forward_looking():
     check(f.growth_lt == 0.11, "an analyst 5y growth already set is kept")
 
 
+def test_f3_fundamental_peg_prices_today_not_next_year():
+    from domain.engine import deep_v82 as E
+    g, n, gs, ke, rh, rs, e0 = 0.20, 5, 0.04, 0.10, 0.30, 0.15, 1.0
+    # an independent dividend discount model: P0 = PV(dividends 1..n) + PV(terminal price)
+    ph, ps = 1 - g / rh, 1 - gs / rs
+    eps = [e0 * (1 + g) ** t for t in range(1, n + 1)]
+    pv = sum(ph * e / (1 + ke) ** t for t, e in enumerate(eps, 1))
+    pv += ps * eps[-1] * (1 + gs) / (ke - gs) / (1 + ke) ** n
+    fv, d = E.fundamental_peg_price(g, gs, ke, rh, rs, forward_eps=e0 * (1 + g), years=n)
+    check(abs(fv - pv) < 1e-6, "Fundamental PEG on forward EPS equals the DDM price today",
+          "fv %.4f vs DDM %.4f" % (fv, pv))
+    check(abs(d["fair_pe"] * e0 * (1 + g) - fv) < 0.01,
+          "the fair P/E shown is the multiple actually applied to forward EPS")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_damodaran_fixes_2026_10 PASSED")
