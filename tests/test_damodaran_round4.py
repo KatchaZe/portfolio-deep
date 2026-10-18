@@ -249,6 +249,8 @@ def test_yahoo_split_events():
     check(parse_splits({"events": {"splits": {"1": {"date": 1, "numerator": 1, "denominator": 10}}}})
           == [("1970-01-01", 0.1)], "a reverse split is a ratio below 1")
     check(parse_splits({}) == [], "no events, no splits")
+    pfe = {"events": {"splits": {"1": {"date": 1605571200, "numerator": 1054, "denominator": 1000}}}}
+    check(parse_splits(pfe) == [], "PFE's 2020 spin-off adjustment (x1.054) is not a split")
 
 
 def _ann(end, val, filed):

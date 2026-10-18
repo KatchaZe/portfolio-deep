@@ -269,6 +269,12 @@ def pe_percentile_5y(eps_dated, closes, dates, price, current_eps):
     return max(0.0, min(1.0, (cur_pe - lo) / (hi - lo)))
 
 
+# Yahoo also files price adjustments for spin-offs and small stock dividends as
+# "splits" (PFE 2020-11-17 x1.054 for the Viatris spin-off, TSM 2009 x1.005). Filers do
+# not restate per-share history for those, so only real splits (>= 5:4, <= 4:5) count.
+MIN_SPLIT_RATIO = 1.25
+
+
 def parse_splits(chart_result):
     """[(ex-date "YYYY-MM-DD", ratio)] oldest first from a chart result's split events
     (TSLA: 2020-08-31 5:1, 2022-08-25 3:1). A reverse split has a ratio below 1."""
@@ -281,8 +287,9 @@ def parse_splits(chart_result):
             day = dt.datetime.fromtimestamp(int(ev["date"]), dt.timezone.utc).strftime("%Y-%m-%d")
         except (KeyError, TypeError, ValueError):
             continue
-        if num > 0 and den > 0 and num != den:
-            out.append((day, num / den))
+        r = num / den if num > 0 and den > 0 else 1.0
+        if r >= MIN_SPLIT_RATIO or r <= 1 / MIN_SPLIT_RATIO:
+            out.append((day, r))
     return sorted(out)
 
 
