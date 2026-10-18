@@ -53,3 +53,34 @@ function renderAssumptions(mk){
       ?` — <b>ค่าปัจจุบันในระบบอัพเดตแล้ว (ERP ${cur.erp_pct}% · ${esc(cur.erp_as_of)})</b> — แผงนี้เป็น snapshot จาก Run Daily ครั้งก่อน &middot; กด <b>Run Daily</b> เพื่อคำนวณ market overlay ใหม่`
       :' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดตที่ฟอร์ม <b>&#128200; Assumptions</b> ด้านบน (เอาค่าจากหน้า Damodaran &amp; multpl.com รายเดือน — ดูวิธีในแท็บ How to ข้อ 0) แล้วกด <b>Run Daily</b> + <b>Run Fundamental Refresh</b>');
 }
+
+// Revenue mix (country risk premium): auto from the latest 10-K on Refresh, or typed here.
+async function saveRevenueMix(){
+  const t=document.getElementById('mixT').value.trim(), m=document.getElementById('mixIn').value.trim();
+  const msg=document.getElementById('mixMsg'), sp=document.getElementById('spMix');
+  if(!t){msg.textContent='ใส่ ticker';return;}
+  sp.style.display='inline-block';
+  try{
+    const r=await fetch('/api/revenue_mix?ticker='+encodeURIComponent(t)+'&mix='+encodeURIComponent(m),{method:'POST'});
+    const d=await r.json();
+    if(d.error){msg.innerHTML='<span style="color:#dc2626">'+esc(d.error)+'</span>';}
+    else{
+      msg.innerHTML='<span style="color:#16a34a">✓ '+(d.mix?'บันทึก':'ลบ')+' '+esc(d.ticker)+'</span> — '+esc(d.note||'');
+      document.getElementById('mixIn').value='';
+      if(document.getElementById('mixList').style.display!=='none')loadMixList();
+    }
+  }catch(err){msg.innerHTML='<span style="color:#dc2626">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
+  sp.style.display='none';
+}
+function mixText(m){return m?Object.entries(m).map(([k,v])=>k+' '+v).join(', '):'';}
+async function loadMixList(){
+  const el=document.getElementById('mixList');
+  try{
+    const d=await (await fetch('/api/revenue_mix')).json();
+    el.innerHTML='<table style="border-collapse:collapse" cellpadding="3"><tr><th>Ticker</th><th>CRP</th><th>ที่มา (Refresh ล่าสุด)</th><th>กรอกเอง</th></tr>'+
+      (d.rows||[]).map(r=>`<tr><td><a href="#" onclick="document.getElementById('mixT').value='${esc(r.ticker)}';document.getElementById('mixIn').value='${esc(mixText(r.manual||r.config))}';return false">${esc(r.ticker)}</a></td>`+
+        `<td>${r.crp_pct==null?'—':r.crp_pct+'%'}</td><td>${esc(r.basis||'— (ยังไม่ Refresh)')}</td>`+
+        `<td>${r.config?'config.py: '+esc(mixText(r.config)):esc(mixText(r.manual))||'—'}</td></tr>`).join('')+'</table>';
+  }catch(err){el.textContent='โหลดไม่ได้';}
+}
+function toggleMixList(){const el=document.getElementById('mixList');const show=el.style.display==='none';el.style.display=show?'block':'none';if(show)loadMixList();}

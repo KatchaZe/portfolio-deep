@@ -414,8 +414,12 @@ def parse(bundle, facts):
     facts.set("revenue_annuals", [_num(x, "revenue") for x in inc_list if _num(x, "revenue")], SRC + "/annual")
 
     facts.set("total_debt", _num(bal, "totalDebt"), SRC)
-    # cash AND short-term investments, as the SEC path reads it (Damodaran nets both)
-    facts.set("cash", _num(bal, "cashAndShortTermInvestments", "cashAndCashEquivalents"), SRC)
+    # cash AND short-term investments, as the SEC path reads it (Damodaran nets both),
+    # except where those securities back claim reserves (health insurers)
+    from sources.industries import securities_are_operating
+    cash_keys = (("cashAndCashEquivalents",) if securities_are_operating(facts.ticker, _num(prof, "industry"))
+                 else ("cashAndShortTermInvestments", "cashAndCashEquivalents"))
+    facts.set("cash", _num(bal, *cash_keys), SRC)
     facts.set("total_assets", _num(bal, "totalAssets"), SRC)
     facts.set("equity", _num(bal, "totalStockholdersEquity", "totalEquity"), SRC)
 

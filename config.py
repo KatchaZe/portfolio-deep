@@ -126,6 +126,10 @@ REVENUE_MIX = {
     # based weighting): Taiwan 100%. Replace with a revenue mix to price it the other way.
     "TSM": {"Taiwan": 1.0},
 }
+# Mixes typed on the dashboard (Assumptions -> Revenue mix) are stored in the store and
+# overlaid here at load; a ticker in REVENUE_MIX above wins over them. Any US filer
+# without either gets its split from its latest 10-K on Fundamental Refresh.
+REVENUE_MIX_MANUAL = {}
 # A company running several businesses gets Damodaran's bottom-up treatment: its
 # industry beta, margin, sales-to-capital and terminal ROIC are the revenue-weighted
 # average of its businesses' industries (names exactly as in Damodaran's tables).
@@ -136,4 +140,4 @@ INDUSTRY_MIX = {
 }
 
 # Build stamp — bump together with DASH_BUILD in static/js/app.js (frontend/deploy guard).
-BUILD = "2026-10-18a"
+BUILD = "2026-10-18b"

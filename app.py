@@ -281,6 +281,43 @@ def api_set_assumptions(erp_pct: float = None, market_pe: float = None):
 
 
 # --------------------------------------------------------------------------- #
+#  Revenue mix (country risk): where each company earns its revenue             #
+# --------------------------------------------------------------------------- #
+@app.get("/api/revenue_mix")
+def api_revenue_mix():
+    """Per holding/watchlist ticker: the mix in force, where it came from (config,
+    dashboard, latest 10-K, or the domicile) and the CRP it gave at the last refresh."""
+    s = st.load()
+    manual = (s.get("assumptions") or {}).get("revenue_mix") or {}
+    rows = []
+    for t in sorted(set(s.get("holdings") or {}) | set(s.get("watchlist") or [])):
+        f = (s.get("facts") or {}).get(t) or {}
+        rows.append({"ticker": t, "manual": manual.get(t),
+                     "config": (getattr(config, "REVENUE_MIX", {}) or {}).get(t),
+                     "crp_pct": round(f["crp"] * 100, 2) if isinstance(f.get("crp"), (int, float)) else None,
+                     "basis": f.get("crp_basis")})
+    return JSONResponse({"rows": rows})
+
+
+@app.post("/api/revenue_mix")
+def api_set_revenue_mix(ticker: str, mix: str = ""):
+    """Save a revenue mix typed as 'US 56, China 20, Western Europe 24'; an empty mix
+    clears the ticker's dashboard entry (the 10-K or domicile applies again)."""
+    t = st.clean_ticker(ticker)
+    if not t:
+        return _invalid("invalid ticker")
+    parsed = None
+    if mix.strip():
+        parsed, err = st.parse_revenue_mix(mix)
+        if err:
+            return _invalid(err)
+    with st.transaction() as s:
+        st.set_revenue_mix(s, t, parsed)
+    return JSONResponse({"ok": True, "ticker": t, "mix": parsed,
+                         "note": "มีผลกับ CRP ตอนกด Run Fundamental Refresh ครั้งถัดไป"})
+
+
+# --------------------------------------------------------------------------- #
 #  Holdings                                                                    #
 # --------------------------------------------------------------------------- #
 @app.post("/api/holding")

@@ -102,6 +102,17 @@ REGIONS = {
                      "New Zealand"],
     "middle east": ["Saudi Arabia", "United Arab Emirates", "Israel", "Qatar", "Kuwait"],
     "africa": ["South Africa", "Nigeria", "Egypt", "Kenya", "Morocco"],
+    # regions 10-K geographic tables use (sources/revenue_geo.py)
+    "emea": ["Germany", "France", "United Kingdom", "Italy", "Spain", "Netherlands",
+             "Switzerland", "Sweden", "Poland", "Turkey", "Israel", "Saudi Arabia",
+             "United Arab Emirates", "South Africa"],
+    "americas ex us": ["Canada", "Brazil", "Mexico", "Argentina", "Colombia", "Chile"],
+    # "other countries" / "non-US": the 20 largest economies outside the US. A plain
+    # average of every country would weight Malawi like Japan.
+    "rest of world": ["China", "Japan", "Germany", "India", "United Kingdom", "France",
+                      "Italy", "Brazil", "Canada", "Korea", "Australia", "Spain", "Mexico",
+                      "Indonesia", "Netherlands", "Saudi Arabia", "Turkey", "Switzerland",
+                      "Taiwan", "Poland"],
 }
 
 # FMP profiles carry ISO-2 country codes; Damodaran's table uses names.
@@ -156,9 +167,24 @@ def market_crp(market, table):
     return sum(members) / len(members) if members else None
 
 
-def crp_for(ticker, country, table=None, mix=None):
+def revenue_mix(ticker, auto=None):
+    """(mix, source) in priority order: config.REVENUE_MIX (code), a mix saved on the
+    dashboard (config.REVENUE_MIX_MANUAL, overlaid by store._apply_assumptions), then
+    `auto` = {"mix", "note"} read off the latest 10-K. (None, None) when none applies."""
+    t = (ticker or "").upper()
+    if getattr(config, "REVENUE_MIX", {}).get(t):
+        return config.REVENUE_MIX[t], "config"
+    if getattr(config, "REVENUE_MIX_MANUAL", {}).get(t):
+        return config.REVENUE_MIX_MANUAL[t], "dashboard"
+    if auto and auto.get("mix"):
+        return auto["mix"], auto.get("note") or "10-K"
+    return None, None
+
+
+def crp_for(ticker, country, table=None, mix=None, source=None):
     """(CRP over the US, basis) for a ticker, or (None, why) when it cannot be told.
-    `mix` defaults to config.REVENUE_MIX[ticker]; `country` is the FMP ISO-2 domicile."""
+    `mix` defaults to config.REVENUE_MIX[ticker]; `country` is the FMP ISO-2 domicile;
+    `source` labels where the mix came from."""
     table = table if table is not None else CRP_FALLBACK
     us = table.get(US)
     if us is None:
@@ -177,7 +203,7 @@ def crp_for(ticker, country, table=None, mix=None):
             crp = sum(w * c for _, w, c in parts) / wsum - us
             mix_txt = ", ".join(f"{m} {w / wsum:.0%}" for m, w, _ in
                                 sorted(parts, key=lambda p: -p[1]))
-            basis = f"revenue mix: {mix_txt}"
+            basis = f"revenue mix{f' ({source})' if source else ''}: {mix_txt}"
             if unknown:
                 basis += f" (no CRP for {', '.join(unknown)}: re-weighted)"
             return max(0.0, crp), basis
@@ -190,6 +216,7 @@ def crp_for(ticker, country, table=None, mix=None):
             return 0.0, "United States"
         if country.upper() in HOLDING_DOMICILES:
             return max(0.0, c - us), (f"domicile {name} is a holding jurisdiction - revenue is "
-                                      f"likely elsewhere; add config.REVENUE_MIX['{ticker}']")
+                                      f"likely elsewhere; add its revenue mix (dashboard "
+                                      f"Assumptions or config.REVENUE_MIX['{ticker}'])")
         return max(0.0, c - us), f"domicile {name} (no revenue mix on file)"
     return None, "no country on file"

@@ -54,8 +54,18 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
         ttl_hours=config.SEC_CACHE_TTL_HOURS, min_interval=config.SEC_MIN_INTERVAL) if cik else None
     fx, sec_ccy = _sec_fx(t, sec_cf)
     profile, fmp_calls = _fmp_profile(t, fmp_key)
+    splits = _split_history(t) if sec_cf else None
+    from sources.industries import securities_are_operating
+    operating_sec = securities_are_operating(t, fmp.parse_profile(profile).get("industry"))
 
-    ff = normalize.build(t, sec_cf, profile, yahoo.fetch_consensus(t), fx_rate=fx, company=name)
+    ff = normalize.build(t, sec_cf, profile, yahoo.fetch_consensus(t), fx_rate=fx, company=name,
+                         splits=splits, cash_excludes_securities=operating_sec)
+    if operating_sec:
+        ff.flags.append("health insurer: short-term investments back claim reserves - "
+                        "cash is cash and equivalents only")
+    if splits is None and sec_cf:
+        ff.flags.append("split history unavailable (Yahoo) - splits found from the share "
+                        "count only")
     if not rf_live:
         ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
     if isinstance(sec_cf, dict) and sec_cf.get("_stale_cache"):
@@ -73,12 +83,21 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     _terminal_roic(ff, t, roc_table)
     _industry_beta(ff, t)
     _industry_operating(ff)
-    _country_risk(ff, t)
+    _country_risk(ff, t, cik)
 
     validate.validate(ff, rf=rf)
     normalize.resolve_growth(ff)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
+
+
+def _split_history(t):
+    """[(ex-date, ratio)] from Yahoo, [] when the stock never split, None on failure."""
+    try:
+        return yahoo.fetch_splits(t)
+    except Exception as e:
+        log.warning("%s split history failed: %s", t, e)
+        return None
 
 
 def _sec_fx(t, sec_cf):
@@ -363,14 +382,31 @@ def _industry_operating(ff):
         log.warning("%s industry margin / sales-to-capital lookup failed: %s", ff.ticker, e)
 
 
-def _country_risk(ff, t):
+def _auto_revenue_mix(ff, t, cik):
+    """The latest 10-K's geographic revenue split, for US-GAAP filers without a mix on
+    file. None for 20-F filers, on any failure, or when the 10-K has no usable table."""
+    if not cik or ff.accounting_standard != "us-gaap":
+        return None
+    from sources import revenue_geo
+    try:
+        return revenue_geo.fetch_mix(cik, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
+                                     throttle=lambda: sec_edgar._throttle(config.SEC_MIN_INTERVAL))
+    except Exception as e:
+        log.warning("%s 10-K revenue mix failed: %s", t, e)
+        return revenue_geo.cached_mix(cik, config.CACHE_DIR)
+
+
+def _country_risk(ff, t, cik=None):
     """Country risk premium over the US, weighted by where the revenue is earned
-    (config.REVENUE_MIX), else by the FMP domicile."""
+    (config / dashboard / latest 10-K), else by the FMP domicile."""
     from sources import country_risk
     try:
         table = country_risk.fetch_crp_table(cache_dir=config.CACHE_DIR,
                                             user_agent=config.SEC_USER_AGENT)
-        crp, basis = country_risk.crp_for(t, ff.country, table)
+        mix, source = country_risk.revenue_mix(t)
+        if mix is None:
+            mix, source = country_risk.revenue_mix(t, _auto_revenue_mix(ff, t, cik))
+        crp, basis = country_risk.crp_for(t, ff.country, table, mix=mix, source=source)
         if crp is not None:
             ff.set("crp", round(crp, 5), "damodaran-ctryprem")
             ff.set("crp_basis", basis, "damodaran-ctryprem")

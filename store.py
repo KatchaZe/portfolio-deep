@@ -112,6 +112,9 @@ def _apply_assumptions(s):
             config.MARKET_PE_AS_OF = a.get("market_pe_as_of") or config.MARKET_PE_AS_OF
     except Exception:
         pass
+    # revenue mixes typed on the dashboard; replaced wholesale so a cleared one goes
+    config.REVENUE_MIX_MANUAL = {t: dict(m) for t, m in (a.get("revenue_mix") or {}).items()
+                                 if isinstance(m, dict) and m}
 
 
 def reapply_assumptions():
@@ -135,6 +138,39 @@ def set_assumptions(s, erp_pct=None, market_pe=None):
     a["source"] = "manual"
     _apply_assumptions(s)
     return a
+
+
+def parse_revenue_mix(text):
+    """'US 56, China 20, Western Europe 24' -> ({market: weight}, None) or (None, error).
+    Markets are country names, ISO-2 codes or a region country_risk knows."""
+    from sources import country_risk
+    mix, bad = {}, []
+    for part in [p.strip() for p in (text or "").split(",") if p.strip()]:
+        m = re.match(r"^(.*?)[\s:=]+([0-9]+(?:\.[0-9]+)?)%?$", part)
+        if not m:
+            return None, f"cannot read '{part}' (write: market weight, e.g. 'Japan 12')"
+        market, w = m.group(1).strip(), float(m.group(2))
+        if country_risk.market_crp(market, country_risk.CRP_FALLBACK) is None:
+            bad.append(market)
+        elif w > 0:
+            mix[market] = mix.get(market, 0.0) + w
+    if bad:
+        return None, "unknown market: " + ", ".join(bad)
+    return (mix, None) if mix else (None, "no market with a positive weight")
+
+
+def set_revenue_mix(s, ticker, mix):
+    """Save (or, with mix None, clear) a ticker's dashboard revenue mix."""
+    store_sync.mark_local_edit()
+    a = s.setdefault("assumptions", {})
+    mixes = a.setdefault("revenue_mix", {})
+    if mix:
+        mixes[ticker] = mix
+    else:
+        mixes.pop(ticker, None)
+    a["updated"] = today()
+    _apply_assumptions(s)
+    return mixes
 
 
 # --- holdings -------------------------------------------------------------- #

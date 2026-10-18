@@ -774,8 +774,13 @@ def _series(x, concept, name):
             name + "_quarters": x.quarters(concept)}
 
 
-def extract(companyfacts):
-    """Return a dict of SEC-derived financial values (in reported currency)."""
+def extract(companyfacts, splits=None, cash_excludes_securities=False):
+    """Return a dict of SEC-derived financial values (in reported currency).
+
+    `splits`: [(ex-date, ratio)] from the market (Yahoo), oldest first; per-share
+    history is then restated by filing date (see _split_adjust_dated).
+    `cash_excludes_securities`: for firms whose short-term investments back their
+    liabilities (health insurers' claim reserves), cash is cash and equivalents only."""
     x = _Xbrl(companyfacts.get("facts", companyfacts))
 
     rev, rev_concept, rev_alts = _pick(x, REV)
@@ -804,7 +809,12 @@ def extract(companyfacts):
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
         "q4_derived_ends": sorted(x.q4_derived),
     }
-    out["split_boundaries"] = _split_adjust(x, out, ni_concept)
+    if cash_excludes_securities:
+        cash_only = ((), CASH_TAGS, ())
+        out["cash"] = _cash_and_securities(x, cash_only, at)
+        out["cash_prior"] = _cash_and_securities(x, cash_only, at, prior=True)
+    dated = _split_adjust_dated(x, out, at, splits) if splits and x.standard == "us-gaap" else None
+    out["split_boundaries"] = dated if dated is not None else _split_adjust(x, out, ni_concept)
     out["prior_fallbacks"] = sorted(at.prior_fallbacks)
     return out
 
@@ -864,6 +874,89 @@ def _factor_at(boundaries, date):
         if date <= d:
             f = cum
     return f
+
+
+def _filing_factor(filed, splits):
+    """Factor that puts a value filed on `filed` on today's share basis: a filing
+    made after a split already restates every period it presents (ASC 260 is
+    retrospective), one made before it does not."""
+    f = 1.0
+    for day, ratio in splits:
+        if filed and filed < day:
+            f *= ratio
+    return f
+
+
+def _annual_filed(x, concept, prefer):
+    """{FY_end: filing date} for the entries annual_series_dated returns."""
+    annuals = _newest_first(e for e in x.entries(concept, prefer) if _is_annual(e))
+    return {e["end"]: e.get("filed") for e in _one_per_year(annuals)}
+
+
+def _quarter_factors(x, concept, prefer, splits):
+    """{quarter_end: factor} for quarters(concept). A Q4 derived as FY - 9M takes the
+    factor its legs share, or None when a split falls between their filings."""
+    es = x.entries(concept, prefer)
+    out = {}
+    for e in _newest_first(e for e in es if _is_quarter(e)):
+        out.setdefault(e["end"], _filing_factor(e.get("filed"), splits))
+    for fy in _one_per_year(_newest_first(e for e in es if _is_annual(e))):
+        if fy["end"] in out:
+            continue
+        legs = [e for e in es if e.get("start") and e["end"] <= fy["end"]
+                and _days(fy["start"], e["start"]) >= -7]
+        fs = {_filing_factor(e.get("filed"), splits) for e in legs}
+        out[fy["end"]] = fs.pop() if len(fs) == 1 else None
+    return out
+
+
+def _split_adjust_dated(x, d, at, splits):
+    """Per-share history on today's basis from KNOWN split dates. Returns the splits
+    that restated something (empty when none did), or None when `splits` is unusable.
+
+    The share-ratio test in _split_adjust cannot see a split in a year the share count
+    also grew for other reasons (TSLA 3:1 in 2022). With the dates known, the filing
+    date of each value says which basis it is on, so no ratio test is needed."""
+    splits = sorted((str(day)[:10], float(r)) for day, r in splits
+                    if isinstance(r, (int, float)) and r > 0 and abs(r - 1) > 1e-9)
+    if not splits:
+        return None
+    used = set()
+
+    def fac(filed):
+        f = _filing_factor(filed, splits)
+        if f != 1.0:
+            used.update(day for day, _ in splits if filed and filed < day)
+        return f
+
+    shares_c = "WeightedAverageNumberOfDilutedSharesOutstanding"
+    shares = x.annual_series_dated(shares_c, SHARES)
+    if shares:
+        filed = _annual_filed(x, shares_c, SHARES)
+        adj = [v * fac(filed.get(e)) for e, v in shares]
+        if adj != [v for _, v in shares]:
+            d["shares_diluted_annuals"] = adj
+    eps = d.get("eps_annuals_dated") or []
+    if eps:
+        tag, unit = EPS_DILUTED
+        filed = _annual_filed(x, tag, unit)
+        d["eps_annuals_dated"] = [[e, round(v / fac(filed.get(e)), 4)] for e, v in eps]
+    q = d.get("eps_quarters")
+    if q:
+        src = next(((t, p) for t, p in _live_tags(x, FIELD_LADDERS["eps_quarters"][1], at)
+                    if x.quarters(t, p) == q), None)
+        if src:
+            fs = _quarter_factors(x, src[0], src[1], splits)
+            adj = {}
+            for e, v in q.items():
+                f = fs.get(e, 1.0)
+                if f is None:       # a derived Q4 whose legs sit on two bases
+                    continue
+                if f != 1.0:
+                    used.update(day for day, _ in splits if day > e)
+                adj[e] = round(v / f, 4)
+            d["eps_quarters"] = adj
+    return [(day, r) for day, r in splits if day in used]
 
 
 def _split_adjust(x, d, ni_concept):
@@ -932,9 +1025,9 @@ EBIT_DERIVED = ("operating_income", "operating_income_annuals", "operating_incom
 QUARTER_FIELDS = ("revenue_quarters", "operating_income_quarters", "eps_quarters")
 
 
-def populate(ff, companyfacts):
+def populate(ff, companyfacts, splits=None, cash_excludes_securities=False):
     """Fill SEC-sourced fields into a FinancialFacts object (source tag 'sec')."""
-    d = extract(companyfacts)
+    d = extract(companyfacts, splits, cash_excludes_securities)
     for k in POPULATED:
         ff.set(k, d.get(k), "sec")
     if d.get("operating_income_derived"):

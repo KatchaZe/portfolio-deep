@@ -300,3 +300,17 @@ def is_financial(industry):
     """Balance-sheet financials: deposits/float are raw material, not capital, so
     FCFF, invested capital and WACC do not describe them (Damodaran)."""
     return industry in FINANCIAL_INDUSTRIES
+
+
+# Health insurers invest premiums in short-term securities until claims are paid. That
+# portfolio backs a liability (claim reserves), so it is operating capital, not cash a
+# buyer of the equity could take out: counted as cash it lifted ELV's value 64%.
+OPERATING_SECURITIES_INDUSTRIES = frozenset({"healthcare plans", "medical - healthcare plans"})
+# the same firms when no FMP profile says so (no key, or the profile call failed)
+MANAGED_CARE = frozenset({"UNH", "ELV", "CI", "CVS", "HUM", "CNC", "MOH"})
+
+
+def securities_are_operating(ticker, fmp_industry=None):
+    """True when short-term investments are NOT excess cash (health insurers)."""
+    return (_key(fmp_industry) in OPERATING_SECURITIES_INDUSTRIES
+            or (ticker or "").upper().strip() in MANAGED_CARE)

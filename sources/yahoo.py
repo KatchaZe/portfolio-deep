@@ -269,6 +269,42 @@ def pe_percentile_5y(eps_dated, closes, dates, price, current_eps):
     return max(0.0, min(1.0, (cur_pe - lo) / (hi - lo)))
 
 
+def parse_splits(chart_result):
+    """[(ex-date "YYYY-MM-DD", ratio)] oldest first from a chart result's split events
+    (TSLA: 2020-08-31 5:1, 2022-08-25 3:1). A reverse split has a ratio below 1."""
+    import datetime as dt
+    out = []
+    events = ((chart_result or {}).get("events") or {}).get("splits") or {}
+    for ev in events.values():
+        try:
+            num, den = float(ev["numerator"]), float(ev["denominator"])
+            day = dt.datetime.fromtimestamp(int(ev["date"]), dt.timezone.utc).strftime("%Y-%m-%d")
+        except (KeyError, TypeError, ValueError):
+            continue
+        if num > 0 and den > 0 and num != den:
+            out.append((day, num / den))
+    return sorted(out)
+
+
+def fetch_splits(ticker, requests_mod=None, timeout=15):
+    """Full split history of a listing, from one quarterly max-range chart call."""
+    import requests as _r
+    requests_mod = requests_mod or _r
+    last_err = None
+    for host in ("query1", "query2"):
+        try:
+            r = requests_mod.get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}",
+                                 params={"range": "max", "interval": "3mo", "events": "splits"},
+                                 headers=_UA, timeout=timeout)
+            r.raise_for_status()
+            result = (r.json().get("chart") or {}).get("result")
+            if result:
+                return parse_splits(result[0])
+        except Exception as e:
+            last_err = e
+    raise last_err or RuntimeError(f"split history unavailable for {ticker}")
+
+
 def fetch_treasury_10y(requests_mod=None, timeout=12):
     """10-year US treasury yield as (decimal, live_bool). Uses ^TNX.
     live=False means Yahoo failed and the hardcoded 4.3% fallback is used —

@@ -51,12 +51,12 @@ def _fx_ic(values, fx):
 
 
 def build(ticker, sec_companyfacts=None, fmp_profile=None, yahoo_qs=None, fx_rate=None,
-          company=None):
+          company=None, splits=None, cash_excludes_securities=False):
     ff = FinancialFacts(ticker, company=company)
 
     # 1) SEC financials (primary)
     if sec_companyfacts:
-        sec_edgar.populate(ff, sec_companyfacts)
+        sec_edgar.populate(ff, sec_companyfacts, splits, cash_excludes_securities)
 
     # 2) currency normalization -> USD
     if ff.currency and ff.currency != "USD":

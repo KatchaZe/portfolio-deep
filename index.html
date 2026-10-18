@@ -41,6 +41,16 @@
     <button onclick="saveAssumptions()" style="background:#b45309"><span class="spin" id="spAs" style="border-top-color:#fff"></span> Save</button>
     <span id="assumeMsg" style="font-size:calc(12px*var(--fs));color:#64748b">&hellip;</span>
   </div>
+  <!-- Revenue mix by country -> country risk premium (CRP). Auto from the latest 10-K on Refresh -->
+  <div class="addform" id="mixForm">
+    <span style="font-size:calc(12px*var(--fs));color:#475569" title="สัดส่วนรายได้ตามประเทศ/ภูมิภาค ใช้คิด country risk premium (CRP) — ปกติอ่านอัตโนมัติจาก 10-K ล่าสุดตอน Refresh; กรอกที่นี่เมื่อ 10-K ไม่มีตาราง หรืออยากแก้ (ค่าที่กรอกชนะ 10-K)">&#127758; Revenue mix:</span>
+    <input id="mixT" placeholder="ticker" style="width:80px">
+    <input id="mixIn" placeholder="US 56, China 20, Western Europe 24 (เว้นว่าง = ลบ)" style="width:320px;max-width:100%">
+    <button onclick="saveRevenueMix()" style="background:#0f766e"><span class="spin" id="spMix" style="border-top-color:#fff"></span> Save</button>
+    <a href="#" onclick="toggleMixList();return false" style="font-size:calc(12px*var(--fs))">ดูทุกตัว</a>
+    <span id="mixMsg" style="font-size:calc(12px*var(--fs));color:#64748b"></span>
+    <div id="mixList" style="display:none;width:100%;font-size:calc(12px*var(--fs));margin-top:6px"></div>
+  </div>
 
   <div class="tabs">
     <div class="tab active" id="tab1" onclick="showTab(1)">My Portfolio</div>
@@ -141,6 +151,15 @@
         <tr><td><b>มีผลเมื่อไร</b></td><td>Ke/WACC และ market overlay ใช้ค่าใหม่ทันที แต่ตัวเลขที่ "แสดงอยู่" มาจากการคำนวณครั้งก่อน &rarr; กด <b>Run Daily</b> (อัพเดตแผง market/แบนเนอร์) + <b>Run Fundamental Refresh</b> (คำนวณ fair value ใหม่)</td></tr>
         <tr><td><b>แถบ "ปัจจุบัน"</b></td><td>ข้างปุ่ม Save: ค่า live ที่ระบบใช้จริง + ที่มา (<b>manual</b> = คุณกรอกเอง · <b>default</b> = ค่าตั้งต้นใน config) — ถ้าเห็นธง ⚑ ERP เก่าเกิน 3 เดือน = ถึงเวลาอัพเดต</td></tr>
         <tr><td><b>แบนเนอร์ส้ม "หมดอายุ"</b></td><td>อ่านจาก <b>snapshot ของ Run Daily ครั้งก่อน</b> (คนละแหล่งกับแถบ "ปัจจุบัน") — ถ้าเพิ่งกรอกค่าใหม่แล้วยังเห็นแบนเนอร์ = แค่ยังไม่ได้กด Run Daily</td></tr>
+      </table>
+
+      <h3 class="ht2">0b) &#127758; Revenue mix — สัดส่วนรายได้ตามประเทศ (ฟอร์มใต้ Assumptions)</h3>
+      <table class="httab">
+        <tr><th style="width:170px">หัวข้อ</th><th>รายละเอียด</th></tr>
+        <tr><td><b>ใช้ทำอะไร</b></td><td>คิด country risk premium (CRP) ใน Ke = Rf + &beta;&times;(ERP + CRP) — บริษัทที่ขายในจีน/ไต้หวัน/ละตินอเมริกามาก ต้นทุนเงินทุนสูงขึ้น</td></tr>
+        <tr><td><b>อัตโนมัติ</b></td><td>ทุก <b>Run Fundamental Refresh</b> ระบบอ่านตารางรายได้แยกประเทศ/ภูมิภาคจาก XBRL ของ <b>10-K ล่าสุด</b> (บริษัทที่ยื่นงบ US-GAAP) เลือกชุดที่ละเอียดที่สุดที่รวมแล้วเท่ากับรายได้ทั้งหมด (ไม่นับซ้ำ) &middot; อ่าน 10-K ใหม่เมื่อมีฉบับใหม่ เช็คทุก 30 วัน &middot; บริษัทที่ยื่น 20-F (TSM, NVO, ASML) ไม่มีตารางนี้ ใช้ config.py</td></tr>
+        <tr><td><b>กรอกเอง</b></td><td>ใส่ ticker + <code>US 56, China 20, Western Europe 24</code> (ประเทศเป็นชื่อหรือรหัส 2 ตัว เช่น TW, หรือภูมิภาค: western europe, asia pacific, latin america, emea, americas ex us, rest of world) &rarr; Save &middot; เว้นช่องว่างแล้ว Save = ลบ (กลับไปใช้ 10-K) &middot; มีผลตอน Refresh ครั้งถัดไป</td></tr>
+        <tr><td><b>ลำดับที่ใช้</b></td><td>config.py <code>REVENUE_MIX</code> &gt; ที่กรอกบน dashboard &gt; 10-K ล่าสุด &gt; ประเทศจดทะเบียน (FMP) &middot; กด <b>ดูทุกตัว</b> เพื่อดู CRP และที่มาของทุก ticker</td></tr>
       </table>
 
       <h3 class="ht2">1) Card ของหุ้นรายตัว (My Portfolio / Watchlist)</h3>
@@ -1292,7 +1311,7 @@
         <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์ / เทียบกับอะไร</th></tr>
         <tr><td><b>Rf</b></td><td>Risk-free rate = yield พันธบัตรสหรัฐ 10 ปี (ดึงสด ณ วัน refresh)</td><td>ฐานของทุกอย่าง — Rf ขึ้น &rarr; FV ทุกตัวลดลงโดยกลไก</td></tr>
         <tr><td><b>ERP</b></td><td>Equity Risk Premium (implied, US) — ผลตอบแทนส่วนเพิ่มที่ตลาดหุ้นต้องจ่ายเหนือ Rf</td><td>อ่านจากหน้า Damodaran อัตโนมัติ (cache 7 วัน) ค่าที่กรอกมือชนะเมื่อใหม่กว่า · flag เมื่อเก่ากว่า 3 เดือน · ERP สูง = ตลาดกลัว = หุ้นถูกลงทั้งกระดาน</td></tr>
-        <tr><td><b>CRP</b></td><td>Country risk premium เหนือสหรัฐ = ค่าเฉลี่ยถ่วงตาม<b>รายได้</b>ของ CRP แต่ละประเทศ (ตาราง Damodaran ม.ค. 2026, 178 ประเทศ) − CRP ของสหรัฐ 0.23%</td><td>สัดส่วนรายได้จาก <code>config.REVENUE_MIX</code> (MELI, NVO, TSM) ถ้าไม่มีใช้ประเทศจดทะเบียนจาก FMP · บริษัทจดทะเบียนใน Cayman/Bermuda/Ireland ฯลฯ มี flag ให้เพิ่มสัดส่วนรายได้</td></tr>
+        <tr><td><b>CRP</b></td><td>Country risk premium เหนือสหรัฐ = ค่าเฉลี่ยถ่วงตาม<b>รายได้</b>ของ CRP แต่ละประเทศ (ตาราง Damodaran ม.ค. 2026, 178 ประเทศ) − CRP ของสหรัฐ 0.23%</td><td>สัดส่วนรายได้: <code>config.REVENUE_MIX</code> (MELI, NVO, TSM) &gt; ที่กรอกในฟอร์ม Revenue mix &gt; ตารางรายได้แยกประเทศใน <b>10-K ล่าสุด</b> (อ่านอัตโนมัติตอน Refresh) &gt; ประเทศจดทะเบียนจาก FMP · "other countries/non-US" = ค่าเฉลี่ย 20 เศรษฐกิจใหญ่นอกสหรัฐ · บริษัทจดทะเบียนใน Cayman/Bermuda/Ireland ฯลฯ มี flag ให้เพิ่มสัดส่วนรายได้</td></tr>
         <tr><td><b>Beta (β)</b></td><td>Bottom-up: unlevered beta ของอุตสาหกรรม (Damodaran, ปรับเงินสด) &times; (1 + (1−25%)&times;D/E ตามราคาตลาด) · ไม่รู้อุตสาหกรรม = regression beta · บริษัทยังไม่มีกำไร/กำไรบาง = ใช้ค่าที่สูงกว่า · ธนาคาร = regression beta (กรอบ 0.6–1.6)</td><td>ใช้ใน Ke — β&gt;1 ผันผวนกว่าตลาด · ของพอร์ต = ถ่วงน้ำหนักรายตัว</td></tr>
         <tr><td><b>Ke</b></td><td>Cost of equity = Rf + β&times;(ERP + CRP) — ผลตอบแทนขั้นต่ำที่ "ผู้ถือหุ้น" ควรได้</td><td>ใช้คิดลดกระแสเงินสดของผู้ถือหุ้น (FCFE) และเป็นเพดานเทียบ growth · ธนาคาร/ประกันใช้ Ke เป็นต้นทุนเงินทุน</td></tr>
         <tr><td><b>Kd a-t</b></td><td>Cost of debt หลังภาษี = (Rf + default spread)&times;(1−tax) — spread จาก interest coverage (ตาราง synthetic rating ม.ค. 2026)</td><td>มักต่ำกว่า Ke (เจ้าหนี้เสี่ยงน้อยกว่า และดอกเบี้ยหักภาษีได้) · drawer แสดงค่า<b>หลังภาษี</b></td></tr>
@@ -1452,12 +1471,13 @@
         <tr><td><b>quota / headroom</b></td><td>โควตา FMP ฟรีของวันนี้ และจำนวน ticker ที่ยัง refresh ได้ (~5 calls/ตัว)</td></tr>
       </table>
 
-      <h3 class="ht2">ค่าใหม่ (Damodaran rounds 1–3 · build 2026-10-18)</h3>
+      <h3 class="ht2">ค่าใหม่ (Damodaran rounds 1–4 · build 2026-10-18b)</h3>
       <table class="httab">
         <tr><th style="width:190px">เรื่อง</th><th>เปลี่ยนอะไร</th><th>เห็นบน dashboard ที่ไหน</th></tr>
         <tr><td><b>วิธีหลักตามประเภทบริษัท</b></td><td>FCFF DCF สำหรับบริษัททั่วไป/หุ้นวัฏจักร · excess return สำหรับธนาคาร/ประกัน · PEG/FVP เป็นตัวเทียบ</td><td>★ บนช่อง Anchor FV · ชี้ที่ DCF ดูสมมติฐาน · flag "model: cyclical/financial"</td></tr>
         <tr><td><b>Country risk + อุตสาหกรรม</b></td><td>Ke = Rf + β(ERP+CRP) · β bottom-up จากอุตสาหกรรมของ Damodaran (map จาก FMP อัตโนมัติ)</td><td>tooltip DCF · flag "country risk premium …" · drawer Ke</td></tr>
-        <tr><td><b>ข้อมูล SEC</b></td><td>tag ที่ยังรายงานอยู่ · cash รวม ST investments · หนี้รวม convertible + finance lease · ค่า "ปีก่อน" = วันเดียวกันปีก่อน · split ปรับ EPS/จำนวนหุ้นย้อนหลัง · งบสำรอง (TSM) ไม่ปนงวด</td><td>flag "stock split …", "debt not found …" · แถบเทรนด์ 5 ปี</td></tr>
+        <tr><td><b>ข้อมูล SEC</b></td><td>tag ที่ยังรายงานอยู่ · cash รวม ST investments (ยกเว้นประกันสุขภาพ) · หนี้รวม convertible + finance lease · ค่า "ปีก่อน" = วันเดียวกันปีก่อน · split ปรับ EPS/จำนวนหุ้นย้อนหลัง · งบสำรอง (TSM) ไม่ปนงวด</td><td>flag "stock split …", "debt not found …" · แถบเทรนด์ 5 ปี</td></tr>
+        <tr><td><b>รอบ 4</b></td><td>ประกันสุขภาพ (FMP "Healthcare Plans" เช่น ELV, UNH, CI, CVS): หลักทรัพย์ระยะสั้นคือเงินสำรองจ่ายสินไหม <b>ไม่นับเป็น cash</b> &middot; split ย้อนหลังใช้วันที่และอัตราจาก Yahoo (เช่น TSLA 5:1 ปี 2020, 3:1 ปี 2022) ปรับตามวันที่ยื่นงบ &middot; revenue mix อ่านจาก 10-K อัตโนมัติ + แก้ได้ในฟอร์ม</td><td>flag "health insurer: …", "stock split …" &middot; ฟอร์ม &#127758; Revenue mix &middot; tooltip DCF (CRP + ที่มา)</td></tr>
         <tr><td><b>กำไรหลัก</b></td><td>ตัดรายได้นอกธุรกิจ (&gt;10% ของ EBIT) ก่อนคิด EPS, earnings quality และ P/E ย้อนหลัง</td><td>flag "non-operating income … stripped"</td></tr>
         <tr><td><b>MoS นิยามเดียว</b></td><td>(FV−P)/FV ทั้งคะแนน P, เกจ, advice, Risk Desk · upside/net เป็นตัวรอง</td><td>ช่อง MoS บนการ์ด · Portfolio MoS ที่ Risk Desk</td></tr>
         <tr><td><b>อื่น ๆ</b></td><td>Kd ใน drawer เป็นหลังภาษี · EVA ฐานเดียวกัน · FVP รวมเงินปันผล · reverse DCF ใช้ ROIC ที่ค่อย ๆ ลดจากของบริษัท · young DCF ไม่หัก SBC ซ้ำ · forward EPS เป็น NTM · Risk Desk รีเฟรชเมื่อพอร์ตเปลี่ยน · แถบ Market value เตือนเมื่อ Rf เป็นค่าสำรอง</td><td>drawer · Risk Desk · Command strip</td></tr>
