@@ -77,7 +77,7 @@ async function loadMixList(){
   const el=document.getElementById('mixList');
   try{
     const d=await (await fetch('/api/revenue_mix')).json();
-    el.innerHTML='<table style="border-collapse:collapse" cellpadding="3"><tr><th>Ticker</th><th>CRP</th><th>ที่มา (Refresh ล่าสุด)</th><th>กรอกเอง</th></tr>'+
+    el.innerHTML='<table style="border-collapse:collapse;width:100%" cellpadding="3"><tr><th>Ticker</th><th>CRP</th><th>ที่มา (Refresh ล่าสุด)</th><th>กรอกเอง</th></tr>'+
       (d.rows||[]).map(r=>`<tr><td><a href="#" onclick="document.getElementById('mixT').value='${esc(r.ticker)}';document.getElementById('mixIn').value='${esc(mixText(r.manual||r.config))}';return false">${esc(r.ticker)}</a></td>`+
         `<td>${r.crp_pct==null?'—':r.crp_pct+'%'}</td><td>${esc(r.basis||'— (ยังไม่ Refresh)')}</td>`+
         `<td>${r.config?'config.py: '+esc(mixText(r.config)):esc(mixText(r.manual))||'—'}</td></tr>`).join('')+'</table>';
