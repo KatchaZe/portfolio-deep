@@ -29,7 +29,7 @@ ROOT = os.path.dirname(HERE)
 if ROOT not in sys.path:
     sys.path.insert(0, ROOT)
 
-from domain import diversification, indicators            # noqa: E402
+from domain import diversification                        # noqa: E402
 from domain import risk as riskeng                 # noqa: E402
 from domain.engine.deep_v82 import stars                  # noqa: E402
 
@@ -131,33 +131,6 @@ def test_stars_are_monotonic():
         assert v >= prev, f"stars({x}) went backwards"
         prev = v
         x += 0.05
-
-
-# --------------------------------------------------------------------------
-# action matrix
-# --------------------------------------------------------------------------
-def test_action_matrix_reaches_its_documented_cells():
-    """Ref documents nine cells. With the secondary vote pinned at Neutral only
-    three were reachable, so ACCUMULATE never appeared on any card."""
-    assert indicators.action("HOLD", "Neutral", mom_label="Strong") == "ACCUMULATE"
-    assert indicators.action("BUY", "Neutral", mom_label="Strong") == "STRONG BUY"
-    assert indicators.action("SELL", "Neutral", mom_label="Weak") == "STRONG SELL"
-    assert indicators.action("SELL", "Neutral", mom_label="Positive") == "TRIM"
-    assert indicators.action("BUY", "Neutral", mom_label="Weak") == "WAIT"
-    assert indicators.action("HOLD", "Neutral", mom_label="Neutral") == "HOLD"
-
-
-def test_action_still_works_without_the_primary_label():
-    """Callers that have not been updated must keep their old behaviour."""
-    assert indicators.action("HOLD", "Bullish") == "ACCUMULATE"
-    assert indicators.action("HOLD", None) == "HOLD"
-    assert indicators.action(None, "Bullish") is None
-
-
-def test_action_prefers_the_label_the_card_actually_shows():
-    """The card said 'MOMENTUM Strong' while the action axis said Neutral (ABBV)."""
-    assert indicators.action("HOLD", "Neutral", mom_label="Strong") != \
-        indicators.action("HOLD", "Neutral")
 
 
 # --------------------------------------------------------------------------

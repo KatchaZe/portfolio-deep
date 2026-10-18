@@ -5,7 +5,7 @@ const MUTED_DASH='<span class="muted">&mdash;</span>';
 const CAPS_LABEL='font-size:calc(9px*var(--fs));color:var(--grey);letter-spacing:.03em;text-transform:uppercase';
 const TILE_LABEL='font-size:calc(9px*var(--fs));color:var(--grey);text-transform:uppercase;letter-spacing:.03em';
 const RECO_COLOR={"BUY":"#16a34a","HOLD / Accumulate":"#0d9488","HOLD":"#64748b","SELL / AVOID":"#dc2626"};
-const ACT_COLOR={"STRONG BUY":"#15803d","BUY":"#16a34a","ACCUMULATE":"#0d9488","HOLD":"#64748b","WAIT":"#ca8a04","WATCH":"#d97706","TRIM":"#ea580c","SELL":"#dc2626","STRONG SELL":"#991b1b"};
+const ACT_COLOR={"BUY":"#16a34a","ACCUMULATE":"#0d9488","WAIT":"#ca8a04","WATCH":"#d97706","HOLD":"#64748b","HOLD?":"#94a3b8","NO ADD":"#ea580c","REDUCE":"#dc2626"};
 const MOMV2_COLOR={"Strong":"#15803d","Positive":"#16a34a","Neutral":"#94a3b8","Weak":"#d97706","Negative":"#dc2626"};
 const RANK_COLOR={"Top":"#15803d","Mid":"#94a3b8","Bottom":"#dc2626"};
 

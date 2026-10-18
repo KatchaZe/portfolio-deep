@@ -10,7 +10,7 @@ so they unit-test offline. Use split+dividend adjusted closes (see
 `refresh.get_prices_long`); unadjusted prices bias the longer lookbacks.
 
 Composite label is a transparent vote over 4 visible components:
-    MOM_12_1 > 0,  ROC_6M > 0,  price > SMA200,  RSI(14) > 50
+    MOM_12_1 > 0,  ROC_6M > 0,  price > SMA200,  12-1 beats SPY's 12-1 (same dates)
     4/4 Strong · 3/4 Positive · 2/4 Neutral · 1/4 Weak · 0/4 Negative
 (fraction-based, so it degrades gracefully when history is short).
 """
@@ -44,6 +44,21 @@ def mom_12_1(closes):
     if not p_year:
         return None
     return p_recent / p_year - 1
+
+
+def excess_12_1(closes, dates, mkt_closes, mkt_dates):
+    """12-1 momentum minus the market's (SPY) return over the SAME two dates, so a
+    +7% name in a +16% market reads as lagging. None when either date is missing
+    from the market series (never shifts to a nearby bar)."""
+    m = mom_12_1(closes)
+    if m is None or not dates or not mkt_closes or not mkt_dates or len(dates) <= TRADING_YEAR:
+        return None
+    mkt = {str(d)[:10]: c for d, c in zip(mkt_dates, mkt_closes) if c and c > 0}
+    p_recent = mkt.get(str(dates[-1 - TRADING_MONTH])[:10])
+    p_year = mkt.get(str(dates[-1 - TRADING_YEAR])[:10])
+    if not p_recent or not p_year:
+        return None
+    return m - (p_recent / p_year - 1)
 
 
 def sma(closes, period):
@@ -228,8 +243,10 @@ def _label(score, n):
                 "Weak" if frac > 0 else "Negative")
 
 
-def compute(ticker, closes, dates=None, dividend_adjusted=True):
+def compute(ticker, closes, dates=None, dividend_adjusted=True, market=None):
     """Full momentum payload for one ticker from an adjusted close series.
+    `market` is the SPY series {"closes", "dates"}; without it the relative
+    component is unavailable and the label is a fraction of the other three.
 
     Returns {ticker, error} when there is too little data. Otherwise returns the
     measures plus the composite (mom_label / mom_score / mom_n / components)."""
@@ -244,15 +261,16 @@ def compute(ticker, closes, dates=None, dividend_adjusted=True):
     above200 = (last > s200) if s200 else None
     dist200 = (last / s200 - 1) if s200 else None
     vol = annualized_vol(closes, 126)
-    risk_adj = (r6 / vol) if (r6 is not None and vol) else None
     rv = rsi(closes, 14)
+    mk = market or {}
+    xs = excess_12_1(closes, dates, mk.get("closes"), mk.get("dates"))
 
     # 4 transparent components (None when not enough history for that one)
     components = {
         "mom_12_1_pos": (m121 > 0) if m121 is not None else None,
         "roc_6m_pos": (r6 > 0) if r6 is not None else None,
         "above_sma200": above200,
-        "rsi_gt_50": (rv > 50) if rv is not None else None,
+        "beats_mkt_12_1": (xs > 0) if xs is not None else None,
     }
     avail = [v for v in components.values() if v is not None]
     n = len(avail)
@@ -269,7 +287,7 @@ def compute(ticker, closes, dates=None, dividend_adjusted=True):
         "roc_3m": _r(r3), "roc_6m": _r(r6), "roc_12m": _r(r12),
         "mom_12_1": _r(m121),
         "sma200": _r(s200, 2), "above_sma200": above200, "dist_sma200": _r(dist200),
-        "vol_ann": _r(vol), "risk_adj_mom": _r(risk_adj),
+        "vol_ann": _r(vol), "excess_12_1": _r(xs),
         "rsi": _r(rv, 1),
         "components": components,
         "reversal": rev,                          # S9: long-horizon reversal risk
@@ -294,14 +312,21 @@ def div_warn(dividend_adjusted, dividend_ps):
 # --------------------------------------------------------------------------- #
 #  Cross-sectional rank across the portfolio                                  #
 # --------------------------------------------------------------------------- #
-def cross_sectional_rank(results, key="mom_12_1"):
-    """Rank `compute()` rows against each other on `key` (default 12-1 momentum).
+def _vol_adjusted_12_1(r):
+    """12-1 / annualised vol: a steady climber outranks a lottery ticket with the
+    same run. Read from stored fields, so rows saved before this existed rank too."""
+    m, v = r.get("mom_12_1"), r.get("vol_ann")
+    return m / v if (m is not None and v) else None
+
+
+def cross_sectional_rank(results):
+    """Rank `compute()` rows against each other on vol-adjusted 12-1 momentum.
     Mutates each row in place, adding:
         mom_rank_pct : 0..1 percentile (higher = stronger)  [None if no value]
         mom_bucket   : 'Top' / 'Mid' / 'Bottom' (terciles)
-    Rows without the key (or with an error) are left unranked. Returns `results`."""
-    vals = [r for r in results if isinstance(r, dict) and r.get(key) is not None]
-    vals.sort(key=lambda r: r[key])
+    Rows without 12-1 or vol (or with an error) are left unranked. Returns `results`."""
+    vals = [r for r in results if isinstance(r, dict) and _vol_adjusted_12_1(r) is not None]
+    vals.sort(key=_vol_adjusted_12_1)
     n = len(vals)
     for i, r in enumerate(vals):
         p = (i + 0.5) / n

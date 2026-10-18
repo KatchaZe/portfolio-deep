@@ -38,7 +38,8 @@ function momTooltip(m,s,sec){
   return (`Composite ${m.mom_label} (${m.mom_score}/${m.mom_n} positive)`
     +` · 12-1 ${ratioPct(m.mom_12_1)} · 6M ${ratioPct(m.roc_6m)} · 12M ${ratioPct(m.roc_12m)}`
     +` · ${m.above_sma200===true?'above':m.above_sma200===false?'below':'?'} SMA200 · RSI ${fixed(m.rsi,0)}`
-    +`  ||  12-1>0 ${ck('mom_12_1_pos')}  6M>0 ${ck('roc_6m_pos')}  >SMA200 ${ck('above_sma200')}  RSI>50 ${ck('rsi_gt_50')}`
+    +` · vs SPY ${m.excess_12_1!=null?signed(Math.round(m.excess_12_1*100))+'pp':'?'}`
+    +`  ||  12-1>0 ${ck('mom_12_1_pos')}  6M>0 ${ck('roc_6m_pos')}  >SMA200 ${ck('above_sma200')}  beats SPY ${ck('beats_mkt_12_1')}`
     +` · source ${m.src||'?'} · ${q.bars||'?'} bars · as of ${m.as_of||'?'}${warn}${cleaned}${staleTxt}${crashTxt}${revTxt}  ||  secondary: ${sec}`).replace(/"/g,'&quot;');
 }
 function momMarks(s){
@@ -47,13 +48,14 @@ function momMarks(s){
     +(s.crash?'<span style="color:#dc2626" title="S9 crash guard: market risk-off (S&P below 200-DMA) — momentum crash-prone">&#9888;</span>':'')
     +(s.rev?'<span style="color:#7c3aed" title="S9 long-horizon reversal: ~3y run extreme and near top — reversal-prone">&#8635;</span>':'');
 }
-// cross-sectional momentum rank (Top / Mid / Bottom by 12-1)
+// cross-sectional momentum rank (Top / Mid / Bottom by vol-adjusted 12-1)
 function rankCell(x){
   const m=x.momentum_v2;
   if(!m||!m.mom_bucket){return `<td>${MUTED_DASH}</td>`;}
   const pctile=(m.mom_rank_pct!=null)?Math.round(m.mom_rank_pct*100):null;
-  const sub=pctile!=null?`<div class="muted" style="font-size:calc(9px*var(--fs))">${pctile} %ile</div>`:'';
-  return `<td title="Cross-sectional momentum rank by 12-1 vs the other names${pctile!=null?` — ${pctile}th percentile (higher = stronger)`:''}">`
+  const xs=m.excess_12_1!=null?` · vs SPY ${signed(Math.round(m.excess_12_1*100))}pp`:'';
+  const sub=pctile!=null?`<div class="muted" style="font-size:calc(9px*var(--fs))">${pctile} %ile${xs}</div>`:'';
+  return `<td title="Rank by 12-1 ÷ volatility vs the other names on this tab${pctile!=null?` — ${pctile}th percentile (higher = stronger)`:''}. vs SPY = 12-1 minus SPY over the same dates (same on every tab)">`
     +`${tag(m.mom_bucket,RANK_COLOR[m.mom_bucket])}${sub}</td>`;
 }
 function flagIcon(x){const fl=x.flags||[];if(!fl.length)return '';return ` <span title="${esc(fl.join('\n'))}" style="cursor:help;color:#d97706;font-size:calc(11px*var(--fs));font-weight:700">⚑${fl.length}</span>`}
@@ -127,13 +129,13 @@ function moatChip(x){
   const note=good?'moat แข็งแรง':mid?'สร้างมูลค่าเหนือทุนเล็กน้อย':'ทำลายมูลค่า (ROIC ต่ำกว่า WACC — โตแค่ไหนก็ไม่ช่วย)';
   return ' '+chip(`Moat ${signed(s)}pp`,bg,col,`ROIC−WACC spread ${signed(s)}pp — ${note}. คุณภาพวัดที่ spread ไม่ใช่ที่การเติบโต (รายละเอียดใน drawer)`,8,5);
 }
-// S9: in a RISK-OFF market a buy-side action is shown as WAIT. Display only; the
-// server's action is untouched.
+// The server decides the Action once (domain/advice.py), including the S9 crash
+// guard's WAIT, so the cell and the advice line always agree.
 function dispAction(x){
+  if(!x.action)return MUTED_DASH;
   const crash=((x.momentum_v2||{}).crash_guard)===true;
-  if(crash&&['STRONG BUY','BUY','ACCUMULATE'].includes(x.action))
-    return `<span class="tag" style="background:#64748b;border:1px solid #dc2626" title="S9 crash guard: ตลาด RISK-OFF — momentum พังแรงสุดตอนตลาดกลับทิศ · สัญญาณเดิม: ${esc(x.action)}">WAIT &middot; crash guard</span>`;
-  return tag(x.action,ACT_COLOR[x.action]);
+  const t=x.action==='WAIT'&&crash?'S9 crash guard: ตลาด RISK-OFF — พักการเข้าซื้อ':'ดูเหตุผลในบรรทัด 💡 advice';
+  return `<span title="${t}">${tag(esc(x.action),ACT_COLOR[x.action])}</span>`;
 }
 function guardBadges(x){
   const m=x.momentum_v2||{}; let h='';

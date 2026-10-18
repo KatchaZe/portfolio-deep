@@ -28,7 +28,9 @@ def test_mom_12_1():
 
 def test_compute_uptrend_strong():
     closes = [100 + i for i in range(300)]             # pure uptrend
-    m = momentum.compute("UP", closes, dividend_adjusted=True)
+    flat = {"closes": [100.0] * 300, "dates": [f"d{i}" for i in range(300)]}
+    m = momentum.compute("UP", closes, dates=flat["dates"], dividend_adjusted=True,
+                         market=flat)
     assert m["mom_label"] == "Strong", m
     assert m["mom_score"] == 4 and m["mom_n"] == 4
     assert m["above_sma200"] is True
@@ -55,10 +57,10 @@ def test_compute_insufficient():
 
 def test_cross_sectional_rank():
     rows = [
-        {"ticker": "A", "mom_12_1": 0.5},
-        {"ticker": "B", "mom_12_1": 0.1},
-        {"ticker": "C", "mom_12_1": 0.3},
-        {"ticker": "D", "mom_12_1": None},            # unranked
+        {"ticker": "A", "mom_12_1": 0.5, "vol_ann": 0.25},
+        {"ticker": "B", "mom_12_1": 0.4, "vol_ann": 0.80},   # big run, very volatile
+        {"ticker": "C", "mom_12_1": 0.3, "vol_ann": 0.30},
+        {"ticker": "D", "mom_12_1": None, "vol_ann": 0.30},  # unranked
     ]
     momentum.cross_sectional_rank(rows)
     by = {r["ticker"]: r for r in rows}
@@ -67,6 +69,64 @@ def test_cross_sectional_rank():
     assert by["B"]["mom_bucket"] == "Bottom"
     assert by["D"]["mom_rank_pct"] is None and by["D"]["mom_bucket"] is None
     print("cross-sectional rank OK")
+
+
+def _dated(closes):
+    return [f"2025-{i // 28 + 1:02d}-{i % 28 + 1:02d}" for i in range(len(closes))]
+
+
+def test_laggard_in_a_rising_market_fails_the_relative_component():
+    """UNH 2026-10-16: +7% 12-1 while SPY made +16%. Absolute momentum called it
+    positive; relative to the market it lagged."""
+    n = 300
+    stock = [100 * (1.07 ** (i / 231)) for i in range(n)]
+    spy = [100 * (1.16 ** (i / 231)) for i in range(n)]
+    d = _dated(stock)
+    m = momentum.compute("UNH", stock, dates=d, market={"closes": spy, "dates": d})
+    assert m["mom_12_1"] > 0 and m["excess_12_1"] < 0, m
+    assert m["components"]["beats_mkt_12_1"] is False
+    assert m["mom_label"] == "Positive", m             # 3 of 4, not Strong
+
+
+def test_excess_uses_the_same_dates_not_the_same_positions():
+    """SPY missing a bar must not shift the comparison onto a neighbouring day."""
+    n = 300
+    stock = [100 + i for i in range(n)]
+    d = _dated(stock)
+    spy_d = [x for j, x in enumerate(d) if j != n - 1 - 21]     # drop the t-21 bar
+    spy_c = [100.0] * len(spy_d)
+    assert momentum.excess_12_1(stock, d, spy_c, spy_d) is None
+    assert momentum.excess_12_1(stock, d, [100.0] * n, d) == momentum.mom_12_1(stock)
+
+
+def test_no_market_series_degrades_to_three_components():
+    m = momentum.compute("X", [100 + i for i in range(300)])
+    assert m["components"]["beats_mkt_12_1"] is None and m["mom_n"] == 3, m
+
+
+def test_rank_works_on_rows_stored_before_the_vol_adjustment():
+    """Stored momentum has mom_12_1 and vol_ann but no derived field; a deploy must
+    not blank the Rank column until the next Run Daily."""
+    rows = [{"mom_12_1": 0.2, "vol_ann": 0.3}, {"mom_12_1": -0.1, "vol_ann": 0.3}]
+    momentum.cross_sectional_rank(rows)
+    assert rows[0]["mom_bucket"] == "Top" and rows[1]["mom_bucket"] == "Bottom", rows
+
+
+def test_rank_prefers_the_steady_climber_over_the_volatile_one():
+    """Same 12-1 run, 4x the volatility: the raw 12-1 rank tied them; vol-adjusted
+    ranks the steady one higher."""
+    n = 300
+    trend = [100 * (1.3 ** (i / 231)) for i in range(n)]
+    # noise is 1.0 on the two bars 12-1 reads (t-21 and t-252 are both i % 3 == 2)
+    def noisy(a):
+        return [p * (1.0 if i % 3 == 2 else 1 + a if i % 3 == 0 else 1 - a)
+                for i, p in enumerate(trend)]
+    steady, wild = noisy(0.01), noisy(0.08)
+    rows = [momentum.compute("S", steady), momentum.compute("W", wild)]
+    assert abs(rows[0]["mom_12_1"] - rows[1]["mom_12_1"]) < 1e-3, rows
+    assert rows[1]["vol_ann"] > 2 * rows[0]["vol_ann"], rows
+    momentum.cross_sectional_rank(rows)
+    assert rows[0]["mom_rank_pct"] > rows[1]["mom_rank_pct"], rows
 
 
 def test_fmp_parse_history_legacy():

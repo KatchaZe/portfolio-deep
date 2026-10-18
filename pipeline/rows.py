@@ -6,7 +6,7 @@ valuation as plain dicts), so a field added for one tab cannot go missing from
 the other.
 """
 import config
-from domain import indicators, costs, pead, trend
+from domain import advice, costs, pead, trend
 from pipeline import margin_track
 from pipeline import screen as screen_mod
 
@@ -54,7 +54,7 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
     rd = v.get("reverse_dcf") or {}
     eps_surprises = f.get("earnings_surprises") or f.get("eps_surprises_backfill")
     mgn_trend = margin_track.build(f.get("operating_income_quarters"), f.get("revenue_quarters"))
-    return {
+    row = {
         "ticker": t, "company": f.get("company"), "sector": f.get("sector"),
         "price": price, "change": mom.get("change"),
         "composite": v.get("composite"), "stars": v.get("stars"),
@@ -64,12 +64,10 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "upside_pct": upside, "mos_pct": mos,
         "net_upside_pct": costs.net_upside(upside, config.CAPGAINS_TAX_RATE,
                                            config.TRADING_COST_BPS),
-        "momentum_signal": mom.get("momentum_signal"), "rsi": mom.get("rsi"),
+        "rsi": mom.get("rsi"),
         "rsi_signal": mom.get("rsi_signal"), "macd_signal": mom.get("macd_signal"),
-        "dbbmv_signal": mom.get("dbbmv_signal"), "momentum_score": mom.get("momentum_score"),
+        "dbbmv_signal": mom.get("dbbmv_signal"),
         "momentum_v2": v2 or None,           # primary composite (secondary = fields above)
-        "action": indicators.action(v.get("signal"), mom.get("momentum_signal"),
-                                    mom_label=(v2 or {}).get("mom_label")),
         "verdict": v.get("verdict"),
         "rev_implied_cagr": rd.get("implied_cagr_pct"), "rev_actual_1y": rd.get("actual_1y_pct"),
         "rev_verdict": rd.get("verdict"),
@@ -110,3 +108,6 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "garp_score": screen_mod.garp_score(v.get("E_econ"), v.get("P")),
         "garp_candidate": screen_mod.is_candidate(v.get("E_econ"), v.get("P")),
     }
+    # one decision feeds both the Action cell and the advice line, so they agree
+    row["action"] = advice.action(row)
+    return row

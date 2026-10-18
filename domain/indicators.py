@@ -1,5 +1,5 @@
 """
-Momentum indicators — RSI, MACD, dynamic-Bollinger (DBBMV), combined signal.
+Momentum indicators — RSI, MACD, dynamic-Bollinger (DBBMV), shown as secondary.
 Pure functions over daily closes + volumes (Yahoo chart). Ported & verified.
 """
 import math
@@ -73,44 +73,7 @@ def compute(ticker, closes, vols, dates):
             ds = "Bullish"
         elif last > bb["u"]:
             ds = "Bearish"
-    sm = {"Bullish": 1, "Neutral": 0, "Bearish": -1}
-    tot = sm[rs] + sm[ms] + sm[ds]
-    mo = "Bullish" if tot >= 2 else "Bearish" if tot <= -2 else "Neutral"
     return {"ticker": ticker, "price": round(last, 2), "change": round((last - prev) / prev * 100, 2),
             "rsi": round(rv, 1), "rsi_signal": rs, "macd_signal": ms, "dbbmv_signal": ds,
-            "momentum_score": tot, "momentum_signal": mo, "taxonomy": TAXONOMY,
+            "taxonomy": TAXONOMY,
             "as_of": dates[-1] if dates else None}
-
-
-# combined Action (DEEP signal x momentum)  — used by the daily refresh
-ACTION_MAP = {
-    ("BUY", "Bullish"): "STRONG BUY", ("BUY", "Neutral"): "BUY", ("BUY", "Bearish"): "WAIT",
-    ("HOLD", "Bullish"): "ACCUMULATE", ("HOLD", "Neutral"): "HOLD", ("HOLD", "Bearish"): "WATCH",
-    ("SELL", "Bullish"): "TRIM", ("SELL", "Neutral"): "SELL", ("SELL", "Bearish"): "STRONG SELL",
-}
-
-
-# domain/momentum.py's PRIMARY label (4/4 Strong · 3/4 Positive · 2/4 Neutral ·
-# 1/4 Weak · 0/4 Negative) mapped onto the three columns of ACTION_MAP.
-_MOM_LABEL_TO_COLUMN = {
-    "Strong": "Bullish", "Positive": "Bullish",
-    "Neutral": "Neutral",
-    "Weak": "Bearish", "Negative": "Bearish",
-}
-
-
-def action(signal, momentum_signal, mom_label=None):
-    """Combined Action = DEEP signal x momentum.
-
-    The momentum axis prefers the PRIMARY label. The secondary RSI+MACD+DBBMV vote
-    needs two of three to agree before it leaves Neutral, which it did for 0 of 21
-    rows, so fed alone it pinned the matrix to its middle column. `momentum_signal`
-    stays as the fallback when no primary label is given."""
-    if signal is None:
-        return None
-    col = _MOM_LABEL_TO_COLUMN.get(mom_label) if mom_label else None
-    if col is None:
-        col = momentum_signal
-    if col is None:
-        return signal
-    return ACTION_MAP.get((signal, col), signal)

@@ -69,6 +69,74 @@ def test_never_raises_on_garbage():
     print("garbage-safety OK")
 
 
+# --------------------------------------------------------------------------
+# one Action: the card cell and the advice line come from the same decision
+# --------------------------------------------------------------------------
+def _cell_and_line(**kw):
+    r = row(**kw)
+    return advice.action(r), advice.build(r)
+
+
+def test_expensive_quality_with_momentum_is_no_add_not_accumulate():
+    """ASML 2026-10-16: MoS -109%, spread +27pp, momentum Positive. The old
+    composite x momentum matrix showed ACCUMULATE while the line said do not add."""
+    cell, line = _cell_and_line(mos_pct=-108.8, upside_pct=-52, composite=3.6,
+                                key_metrics={"spread_pct": 27.2},
+                                momentum_v2={"mom_label": "Positive"})
+    assert cell == "NO ADD", cell
+    assert line.endswith(advice.ACTIONS["NO ADD"]), line
+
+
+def test_cheap_quality_weak_momentum_is_accumulate_not_watch():
+    """NVO 2026-10-16: MoS +41%, spread +19pp, momentum Negative showed WATCH."""
+    cell, _ = _cell_and_line(mos_pct=40.6, upside_pct=68, composite=3.2,
+                             key_metrics={"spread_pct": 18.6},
+                             momentum_v2={"mom_label": "Negative"})
+    assert cell == "ACCUMULATE", cell
+
+
+def test_risk_off_turns_a_buy_side_action_into_wait_on_the_server():
+    for lab in ("Strong", "Negative"):
+        cell, line = _cell_and_line(mos_pct=30, upside_pct=43,
+                                    key_metrics={"spread_pct": 15},
+                                    momentum_v2={"mom_label": lab, "crash_guard": True})
+        assert cell == "WAIT", (lab, cell)
+        assert advice.ACTIONS["WAIT"] in line
+
+
+def test_every_rule_names_a_known_action():
+    seen = set()
+    for gv in (True, False):
+        for bv in (True, False):
+            for gq in (True, False):
+                for gm in (True, False):
+                    for cr in (True, False):
+                        for comp in (None, 2.0, 3.2, 3.8):
+                            for hp in (True, False):
+                                a = advice._action(gv, bv, gq, gm, cr, comp, hp)
+                                assert a is None or a in advice.ACTIONS, a
+                                seen.add(a)
+    assert seen - {None} == set(advice.ACTIONS), set(advice.ACTIONS) - seen
+
+
+def test_cell_matches_line_on_every_stored_holding():
+    """Invariant on the real store: the Action cell's key is the action the advice
+    line spells out. 2026-10-16 had 10 of 21 cards disagree."""
+    import json
+    from pipeline import portfolio
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                        "data", "portfolio.json")
+    if not os.path.exists(path):
+        print("  SKIP: no stored portfolio")
+        return
+    with open(path, encoding="utf-8") as fh:
+        rows = portfolio.view(json.load(fh))["rows"]
+    bad = [r["ticker"] for r in rows
+           if r.get("action") and not (r.get("advice") or "").endswith(advice.ACTIONS[r["action"]])]
+    assert not bad, bad
+    print(f"cell == line on all {len(rows)} stored holdings")
+
+
 if __name__ == "__main__":
     from tests._harness import run_suite
     run_suite(globals(), "ALL ADVICE TESTS PASSED ✅")

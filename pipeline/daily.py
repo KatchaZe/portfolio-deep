@@ -33,11 +33,13 @@ def short_indicators(t):
     return {} if "error" in m else m
 
 
-def composite_momentum(t, fmp_key, **window):
+def composite_momentum(t, fmp_key, market=None):
     """(composite dict or None when it cannot be computed, the long series used).
+    `market` is the SPY series for the relative component. Holdings and watchlist
+    share this one window: the S9 reversal needs 756 bars, so 5y / 780 is demanded.
     Raises when no price source answers."""
-    lc = prices.fetch_daily_adjusted(t, fmp_key, **window)
-    mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"])
+    lc = prices.fetch_daily_adjusted(t, fmp_key, rng="5y", full_bars=780)
+    mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"], market=market)
     if "error" in mv:
         return None, lc
     mv["src"] = lc.get("source")
@@ -53,8 +55,7 @@ def _daily_one(t, fmp_key, sp):
     except Exception as e:
         log.warning("%s daily momentum failed: %s", t, e)
     try:
-        # the S9 reversal needs 756 bars, so demand them
-        mv, lc = composite_momentum(t, fmp_key, rng="5y", full_bars=780)
+        mv, lc = composite_momentum(t, fmp_key, market=sp)
         if mv is not None:
             if sp:                     # regression beta vs SPY: cross-check of the vendor beta
                 try:

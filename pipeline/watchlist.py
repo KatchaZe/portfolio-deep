@@ -11,10 +11,11 @@ from pipeline import fundamentals, daily, rows, batch
 log = logging.getLogger("portfolio.watchlist")
 
 
-def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None):
+def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None, spy=None):
     """Full analysis for ONE ticker incl. momentum, returned as a display row.
     Ephemeral, NETWORK ONLY. Returns (row, fmp_calls). `regime` is the SPY market
-    state; it must be known before the advice is built, as on the holdings card."""
+    state; it must be known before the advice is built, as on the holdings card.
+    `spy` is the SPY series the relative momentum component compares against."""
     t = ticker.upper().strip()
     # the shared ROC table here too, or a single-ticker add would use the bundled
     # snapshot while the same ticker in a batch refresh uses the live table
@@ -27,7 +28,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None):
     except Exception as e:
         log.warning("%s momentum failed: %s", t, e)
     try:
-        mom_v2, _ = daily.composite_momentum(t, fmp_key)
+        mom_v2, _ = daily.composite_momentum(t, fmp_key, market=spy)
     except Exception as e:
         log.warning("%s momentum_v2 failed: %s", t, e)
     if mom_v2:                         # split-only warning matters only for dividend payers
@@ -43,24 +44,25 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None):
     return row, calls
 
 
-def _market_regime(fmp_key):
-    """SPY risk_on / risk_off, or None when it cannot be read (rows then carry no
-    crash_guard, as before)."""
+def _market(fmp_key):
+    """(SPY series or None, regime risk_on / risk_off or None). Without SPY the rows
+    carry no crash_guard and no relative momentum component."""
     try:
-        return momentum.market_state(daily.spy_series(fmp_key)["closes"]).get("regime")
+        sp = daily.spy_series(fmp_key)
+        return sp, momentum.market_state(sp["closes"]).get("regime")
     except Exception as e:
         log.warning("watchlist market_state failed: %s", e)
-        return None
+        return None, None
 
 
 def fetch_watchlist(tickers, fmp_key="", quota_used=0, quota_cap=250):
     """NETWORK PHASE, run OUTSIDE store.LOCK."""
     rf, rf_live = yahoo.fetch_treasury_10y()
-    regime = _market_regime(fmp_key)
+    spy, regime = _market(fmp_key)
     out_rows, calls = [], 0
     todo, errors = batch.partition_by_quota(tickers, batch.guaranteed_cost(fmp_key),
                                             quota_used, quota_cap)
-    futs = batch.run_parallel(lambda t: analyze_row(t, rf, fmp_key, rf_live, regime), todo)
+    futs = batch.run_parallel(lambda t: analyze_row(t, rf, fmp_key, rf_live, regime, spy), todo)
     for t in todo:                     # keep input order for the display rows
         try:
             r, c = futs[t].result()

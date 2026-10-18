@@ -97,21 +97,35 @@ def _timing_clause(mom, crash):
     return None
 
 
-def _action(good_value, bad_value, good_quality, good_mom, comp, has_parts):
+# The one Action vocabulary. The card's Action cell shows the key, the advice line
+# the text, so the two cannot disagree. First matching rule in `_action` wins.
+ACTIONS = {
+    "BUY": "ซื้อ/เพิ่มน้ำหนักแบบแบ่งไม้ — ถูก×ดี×จังหวะหนุน ครบทั้งสามเงื่อนไข",
+    "ACCUMULATE": "ทยอยสะสม (DCA) — มูลค่ากับคุณภาพผ่าน แต่ใช้ momentum เลือกจังหวะเข้า",
+    "WAIT": "รอก่อน — มูลค่ากับคุณภาพผ่าน แต่ตลาด RISK-OFF (S9) พักการเข้าซื้อจนดัชนีกลับเหนือ 200-DMA",
+    "WATCH": "ถูกแต่คุณภาพไม่ผ่าน — รอหลักฐานงบดีขึ้นก่อน (value trap risk)",
+    "NO ADD": "ธุรกิจดีแต่ราคาแพง — ถือของเดิม ไม่เพิ่ม รอ pullback เข้าโซน Fair Value",
+    "REDUCE": "แพงและพื้นฐานไม่เด่น — พิจารณาลดน้ำหนัก/ไม่เข้าใหม่",
+    "HOLD": "ถือ — พื้นฐานผ่านเกณฑ์ รอราคาหรือข้อมูลใหม่ก่อนขยับ",
+    "HOLD?": "ถือ/รอข้อมูลเพิ่ม — สัญญาณยังไม่ชัดพอจะขยับ",
+}
+
+
+def _action(good_value, bad_value, good_quality, good_mom, crash, comp, has_parts):
     if good_value and good_quality and good_mom:
-        return "ซื้อ/เพิ่มน้ำหนักแบบแบ่งไม้ — ถูก×ดี×จังหวะหนุน ครบทั้งสามเงื่อนไข"
+        return "BUY"
     if good_value and good_quality:
-        return "ทยอยสะสม (DCA) — มูลค่ากับคุณภาพผ่าน แต่ใช้ momentum เลือกจังหวะเข้า"
+        return "WAIT" if crash else "ACCUMULATE"
     if good_value:
-        return "ถูกแต่คุณภาพไม่ผ่าน — รอหลักฐานงบดีขึ้นก่อน (value trap risk)"
+        return "WATCH"
     if bad_value and (good_quality or (comp is not None and comp >= 3.5)):
-        return "ธุรกิจดีแต่ราคาแพง — ถือของเดิม ไม่เพิ่ม รอ pullback เข้าโซน Fair Value"
+        return "NO ADD"
     if bad_value:
-        return "แพงและพื้นฐานไม่เด่น — พิจารณาลดน้ำหนัก/ไม่เข้าใหม่"
+        return "REDUCE"
     if comp is not None and comp >= 3:
-        return "ถือ — พื้นฐานผ่านเกณฑ์ รอราคาหรือข้อมูลใหม่ก่อนขยับ"
+        return "HOLD"
     if has_parts:
-        return "ถือ/รอข้อมูลเพิ่ม — สัญญาณยังไม่ชัดพอจะขยับ"
+        return "HOLD?"
     return None
 
 
@@ -120,7 +134,8 @@ def _row_mos(row, up):
     return m if m is not None else mos_from_upside(up)
 
 
-def _build(row):
+def _decide(row):
+    """(clauses shown on the advice line, Action key or None)."""
     up = _fnum(row.get("upside_pct"))
     implied = _fnum(row.get("rev_implied_cagr"))
     spread = _fnum((row.get("key_metrics") or {}).get("spread_pct"))
@@ -149,8 +164,22 @@ def _build(row):
         # an unmeasured spread is not a passing one (the engine caps such rows at HOLD)
         good_quality=spread is not None and spread >= 0 and eq != "LOW",
         good_mom=mom in _BULLISH and not crash,
+        crash=crash,
         comp=_fnum(row.get("composite")),
         has_parts=bool(parts))
+    return parts, act
+
+
+def action(row):
+    """The Action key for the card cell (a key of ACTIONS), or None."""
+    try:
+        return _decide(row)[1]
+    except Exception:
+        return None
+
+
+def _build(row):
+    parts, act = _decide(row)
     if act is None:
         return ""
-    return " | ".join(parts + ["Action: " + act])
+    return " | ".join(parts + ["Action: " + ACTIONS[act]])
