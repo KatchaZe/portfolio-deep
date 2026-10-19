@@ -266,6 +266,15 @@ def test_decisions_2026_10_19_round2():
     check(annual_addbacks(f) == {"2025-12-31": 6e9}, "the impairment year gets its add-back")
     m = E._margin_history(f)
     check(abs(m[0] - 0.08) < 1e-9 and len(m) == 6, "2025 margin 2% -> 8% before the median", str(m[:2]))
+    # TSLA's revenue list skips 2019-2020: zipping the bare lists paired 2020 EBIT with
+    # 2018 revenue (+9.3%); matched by date, 2018 is its own -1.8%
+    gap = _facts(revenue_annuals_dated=[("2021-12-31", 53.8e9), ("2018-12-31", 21.46e9)],
+                 operating_income_annuals_dated=[("2021-12-31", 6.52e9), ("2020-12-31", 1.99e9),
+                                                 ("2018-12-31", -0.388e9)],
+                 revenue_annuals=[53.8e9, 21.46e9], operating_income_annuals=[6.52e9, 1.99e9])
+    mg = E._margin_history(gap)
+    check(len(mg) == 2 and abs(mg[1] - (-0.388 / 21.46)) < 1e-9, "margin years matched by date, not position",
+          str(mg))
     lo = E.DeepV82Engine().evaluate(_operating(price=40.0, market_cap=40e9, own_pe_pctile=0.1,
                                                rev_growth_path=[[0.1, 20], [0.09, 20]]), rf=RF)
     hi = E.DeepV82Engine().evaluate(_operating(price=40.0, market_cap=40e9, own_pe_pctile=0.9,
