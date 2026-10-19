@@ -1601,8 +1601,9 @@ def _dcf_sales_to_capital(f, cap):
 
 
 # A consensus year counts only with enough analysts behind it: three for the two years
-# every broker models, ten for years 3-5, where FMP's last row is often one or two
-# opinions (MSFT's year-5 30.1% lifted its DCF growth to 24.9% for five years).
+# every broker models, ten for years 3-5, whose coverage thins out. The old rule averaged
+# year 2 with the LAST row whatever its coverage (MSFT's year-5 30.1% held its DCF
+# growth at 24.9% for five years).
 PATH_MIN_ANALYSTS_NEAR, PATH_MIN_ANALYSTS_FAR, PATH_MAX_YEARS = 3, 10, 5
 # a fiscal year whose M&A spend exceeds this share of the prior year's revenue bought
 # its growth; it is left out of the organic rate
@@ -2026,8 +2027,7 @@ def _acquisitions_for_growth_year(f):
 def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(*_acquisitions_for_growth_year(f))
-    # the fade is read on the covered years only, like the DCF: FMP's final row is
-    # often one or two analysts (NVDA's read 9.5% beside a 44% consensus)
+    # the fade is read on the covered years only, the same path the DCF runs
     cpath = consensus_growth_path(f)
     fade, fade_why = (fade_ratio(cpath[0], cpath[-1]) if len(cpath) > 1
                       else (None, "consensus covers fewer than two years"))
