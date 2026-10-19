@@ -200,5 +200,23 @@ def test_same_class_followups():
     check(abs(tm2 - 0.50) < 1e-9, "above 2x industry it is held there, as in the DCF", str(tm2))
 
 
+def test_yahoo_eps_in_listing_currency():
+    print("8 Yahoo yearly EPS estimates are put in the listing's currency first")
+    with open(os.path.join(ROOT, "tests", "fixtures", "NVO", "yahoo_quotesummary.json"),
+              encoding="utf-8") as fh:
+        nvo = yahoo.parse_consensus(json.load(fh))
+    check(nvo["forward_eps"] and 2.5 < nvo["forward_eps"] < 4.5,
+          "NVO NTM EPS in USD per ADR, not DKK 22.8", str(nvo["forward_eps"]))
+    with open(os.path.join(ROOT, "tests", "fixtures", "MSFT", "yahoo_quotesummary.json"),
+              encoding="utf-8") as fh:
+        qs = json.load(fh)
+    ms = yahoo.parse_consensus(qs)
+    trend = {t["period"]: t["earningsEstimate"]["avg"]["raw"]
+             for t in qs["quoteSummary"]["result"][0]["earningsTrend"]["trend"]
+             if t["period"] in ("0y", "+1y")}
+    check(min(trend.values()) <= ms["forward_eps"] <= max(trend.values()),
+          "a USD filer's blend is untouched", str(ms["forward_eps"]))
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_fair_value_2026_10_19 PASSED")

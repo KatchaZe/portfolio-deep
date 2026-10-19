@@ -41,6 +41,18 @@ def parse_consensus(qs_json):
             avg = _raw((tr.get("earningsEstimate") or {}).get("avg"))
             if avg is not None:
                 annual.append((tr["endDate"], avg))
+    # earningsTrend is in the FINANCIAL currency, forwardEps in the listing's: NVO's
+    # years read DKK 22.32 / 21.23 beside a USD 3.30 forwardEps, the blend became
+    # 22.79 against a $38.83 ADR and the gate threw consensus away. forwardEps over the
+    # matching year's estimate is the conversion, FX and depositary ratio in one.
+    fin_ccy, px_ccy = fin.get("financialCurrency"), price.get("currency")
+    if annual and fin_ccy and px_ccy and fin_ccy != px_ccy:
+        fwd = out["forward_eps"]
+        ref = annual[-1][1]
+        if fwd and ref and fwd > 0 and ref > 0:
+            annual = [(d, v * fwd / ref) for d, v in annual]
+        else:
+            annual = []
     # NTM from this year's and next year's consensus, the clock every source is put
     # on (pipeline/consensus.ntm_eps); forwardEps (next fiscal year) when absent
     if len(annual) == 2:
