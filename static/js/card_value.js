@@ -5,7 +5,8 @@ function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','
 // what the FCFF DCF assumed, for the hover on its value
 function dcfTip(x){
   const k=x.key_metrics||{}, s=(x.dcf||{}).sources||{};
-  const parts=['FCFF DCF (Damodaran): revenue growth '+(k.dcf_growth_pct??'?')+'%/y 5y แล้วค่อยลดสู่ระยะยาว'+(s.growth?' ('+s.growth+')':''),
+  const gp=k.dcf_growth_path_pct&&k.dcf_growth_path_pct.length?k.dcf_growth_path_pct:[k.dcf_growth_pct??'?'];
+  const parts=['FCFF DCF (Damodaran): revenue growth '+gp.join('%, ')+'% (ปีที่ 1'+(gp.length>1?'–'+gp.length:'')+') แล้วลดเป็นเส้นตรงสู่ g ระยะยาวในปีที่ 10'+(s.growth?' ('+s.growth+')':''),
     'operating margin เป้าหมาย '+(k.dcf_margin_target_pct??'?')+'%',
     'sales-to-capital '+(k.dcf_sales_to_capital??'?')+(s.sales_to_capital?' ('+s.sales_to_capital+')':''),
     'terminal value = '+(k.dcf_terminal_share_pct??'?')+'% ของมูลค่า'];

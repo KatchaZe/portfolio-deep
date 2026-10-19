@@ -1,7 +1,7 @@
 // The page shell: tabs, build stamp, persistence badge, keep-alive and boot. Loaded last.
 
 // must equal config.BUILD; a browser still running cached JS shows the mismatch banner
-const DASH_BUILD="2026-10-19a";
+const DASH_BUILD="2026-10-19b";
 
 async function checkBuild(){
   const el=document.getElementById('buildStamp'); if(!el)return;

@@ -2128,6 +2128,7 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "crp_pct": _pct(crp, 2) if crp else None,
             "crp_basis": getattr(f, "crp_basis", None) if crp else None,
             "dcf_growth_pct": _pct(di.get("g_high"), 1),
+            "dcf_growth_path_pct": [_pct(g, 1) for g in (di.get("growth_path") or [])] or None,
             "dcf_margin_target_pct": _pct(di.get("margin_target"), 1),
             "dcf_sales_to_capital": di.get("sales_to_capital"),
             "dcf_terminal_share_pct": dcf.get("terminal_share_pct"),
