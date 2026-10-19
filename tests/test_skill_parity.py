@@ -192,6 +192,30 @@ def test_router_models_and_mos_parity():
     print("router models + MoS parity OK")
 
 
+def test_v85_rules_parity():
+    """v8.5 (2026-10-19): the consensus growth path, organic growth and the DCF's
+    year-by-year path must read the same in the skill as in the app."""
+    gp, fd = _load("growth_path"), _load("fcff_dcf")
+    if gp is None or fd is None:
+        print("skill v8.5 scripts not present - skipped")
+        return
+    from domain.engine import fcff_dcf as A
+    from domain.facts import FinancialFacts
+    for rows in ([[0.178, 39], [0.196, 39], [0.301, 2]], [[0.2, 30], [0.18, 28], [0.15, 12], [0.1, 9]],
+                 [[0.9, 41], [0.7, 41]], [[0.4, 2]]):
+        f = FinancialFacts("X"); f.rev_growth_path = rows
+        assert gp.consensus_path(rows) == E.consensus_growth_path(f), rows
+    rev = [["2025-12-31", 2.5e9], ["2024-12-31", 1.36e9], ["2023-12-31", 1.32e9], ["2022-12-31", 0.65e9]]
+    acq = [["2025-12-31", 1.28e9]]
+    f = FinancialFacts("X"); f.revenue_annuals_dated = rev; f.acquisitions_annuals_dated = acq
+    assert abs(gp.organic_growth(rev, acq)["growth"] - round(E.organic_growth(f)[0], 4)) < 1e-9
+    kw = dict(revenue=50e9, margin_now=0.2, margin_target=0.22, g_high=0.12, g_stable=0.04,
+              sales_to_capital=1.5, tax_now=0.2, tax_marginal=0.25, wacc=0.09, wacc_stable=0.08,
+              roic_stable=0.12, cash=5e9, debt=10e9, shares=1e9, growth_path=[0.18, 0.15, 0.12])
+    assert fd.value(**kw)["per_share"] == A.value(**kw)["per_share"]
+    print("v8.5 growth path / organic growth / DCF path parity OK")
+
+
 if __name__ == "__main__":
     from tests._harness import run_suite
     run_suite(globals(), "ALL test_skill_parity PASSED")
