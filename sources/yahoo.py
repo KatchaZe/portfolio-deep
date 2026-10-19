@@ -49,6 +49,31 @@ def parse_consensus(qs_json):
     return out
 
 
+def parse_revenue_path(qs_json, latest_fy=None):
+    """Consensus revenue growth for the fiscal years that end after `latest_fy` (the
+    last reported period): [[growth, analysts], ...], nearest year first. Yahoo's "0y"
+    row is the current fiscal year, which may already be reported (MSFT's FY ending
+    2026-06-30 read as "0y" in July), so rows are kept by date, not by label. Growth is
+    Yahoo's own year-over-year figure, a ratio, so a DKK filer needs no FX."""
+    try:
+        res = qs_json["quoteSummary"]["result"][0]
+    except Exception:
+        return []
+    rows = []
+    for tr in (res.get("earningsTrend") or {}).get("trend", []):
+        if tr.get("period") not in ("0y", "+1y") or not tr.get("endDate"):
+            continue
+        if latest_fy and str(tr["endDate"]) <= str(latest_fy)[:10]:
+            continue
+        rev = tr.get("revenueEstimate") or {}
+        g, n = _raw(rev.get("growth")), _raw(rev.get("numberOfAnalysts"))
+        if g is None:
+            continue
+        rows.append((tr["endDate"], float(g), int(n) if n else 0))
+    rows.sort()
+    return [[round(g, 4), n] for _, g, n in rows]
+
+
 def parse_earnings_history(qs_json):
     """From a Yahoo quoteSummary response -> list of recent EPS-surprise quarters,
     oldest first. Each: {quarter, eps_actual, eps_estimate, surprise_pct, grade}.

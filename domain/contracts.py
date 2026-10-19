@@ -75,6 +75,8 @@ CLOCK = {
     "income_before_tax": TTM, "tax_expense": TTM, "interest_expense": TTM,
     "rnd_expense": TTM, "capex": TTM, "dep_amort": TTM, "sbc": TTM, "cfo": TTM,
     "acquisitions_net": TTM, "dividend_ps": TTM,
+    "impairment_ttm": TTM, "restructuring_ttm": TTM, "acquired_iprd_ttm": TTM,
+    "operating_income_gaap": TTM,
 
     # --- balance sheet, a point in time --------------------------------------
     "total_debt": INSTANT, "cash": INSTANT, "equity": INSTANT, "total_assets": INSTANT,
@@ -95,6 +97,8 @@ CLOCK = {
     "sbc_annuals_dated": FY_DATED,
     "gross_profit_annuals_dated": FY_DATED, "cost_of_revenue_annuals_dated": FY_DATED,
     "eps_annuals_dated": FY_DATED, "ic_components_dated": FY_DATED,
+    "acquisitions_annuals_dated": FY_DATED, "restructuring_annuals_dated": FY_DATED,
+    "acquired_iprd_annuals_dated": FY_DATED,
 
     # --- quarterly -----------------------------------------------------------
     "revenue_quarters": QUARTER, "operating_income_quarters": QUARTER,
@@ -107,7 +111,7 @@ CLOCK = {
     "forward_eps_high": FORWARD, "forward_eps_spread_pct": FORWARD,
     "forward_eps_n": FORWARD, "forward_eps_sources": FORWARD,
     "growth_lt": FORWARD, "fwd_growth_near": FORWARD, "fwd_growth_far": FORWARD,
-    "fwd_growth_y1": FORWARD,
+    "fwd_growth_y1": FORWARD, "rev_growth_path": FORWARD,
     "peer_median_growth": FORWARD, "terminal_roic_sector": FORWARD,
 }
 
@@ -130,7 +134,10 @@ UNIT = {
     "revenue": MONEY, "operating_income": MONEY, "net_income": MONEY,
     "income_before_tax": MONEY, "tax_expense": MONEY, "interest_expense": MONEY,
     "rnd_expense": MONEY, "capex": MONEY, "dep_amort": MONEY, "sbc": MONEY, "cfo": MONEY,
-    "acquisitions_net": MONEY, "total_debt": MONEY, "cash": MONEY, "equity": MONEY,
+    "acquisitions_net": MONEY, "impairment_ttm": MONEY, "restructuring_ttm": MONEY,
+    "acquired_iprd_ttm": MONEY, "operating_income_gaap": MONEY,
+    "acquisitions_annuals_dated": MONEY, "restructuring_annuals_dated": MONEY,
+    "acquired_iprd_annuals_dated": MONEY, "total_debt": MONEY, "cash": MONEY, "equity": MONEY,
     "total_assets": MONEY, "receivables": MONEY, "inventory": MONEY,
     "accounts_payable": MONEY, "operating_leases": MONEY, "deferred_revenue": MONEY,
     "equity_prior": MONEY, "cash_prior": MONEY, "total_debt_prior": MONEY,
@@ -158,6 +165,7 @@ UNIT = {
     "forward_eps_spread_pct": RATIO, "confidence": RATIO,
     # counts
     "n_analysts": COUNT, "forward_eps_n": COUNT, "n_analysts_y2": COUNT, "fwd_growth_y1": RATIO,
+    "rev_growth_path": RATIO,
     # text / structures
     "ticker": TEXT, "company": TEXT, "sector": TEXT, "currency": TEXT,
     "fiscal_year": TEXT, "as_of": TEXT, "provenance": TEXT, "confidence_tier": TEXT,

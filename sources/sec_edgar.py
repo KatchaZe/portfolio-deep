@@ -371,6 +371,23 @@ RND_TAGS = ("ResearchAndDevelopmentExpense",
 LEASE_TOTAL = ("OperatingLeaseLiability", "LeaseLiabilities")
 LEASE_LEGS = (("OperatingLeaseLiabilityNoncurrent", "NoncurrentLeaseLiabilities"),
               ("OperatingLeaseLiabilityCurrent", "CurrentLeaseLiabilities"))
+# Charges that are not the cost of running the business this year (Damodaran: normalize
+# EBIT before valuing it). Impairments write down capital already spent, so they are
+# always non-recurring cash-wise; restructuring and acquired IPR&D count only when they
+# do not recur (see pipeline/one_time.py). Tags within a group overlap (PFE files the
+# same 4.94B under two of them), so a group takes its largest TTM, never the sum.
+IMPAIRMENT_TAGS = ("AssetImpairmentCharges", "GoodwillAndIntangibleAssetImpairment",
+                   "GoodwillImpairmentLoss", "ImpairmentOfIntangibleAssetsExcludingGoodwill",
+                   "ImpairmentOfIntangibleAssetsFinitelived",
+                   "ImpairmentOfIntangibleAssetsIndefinitelivedExcludingGoodwill",
+                   "ImpairmentOfLongLivedAssetsHeldForUse")
+RESTRUCTURING_TAGS = ("RestructuringCharges", "RestructuringCosts",
+                      "RestructuringCostsAndAssetImpairmentCharges")
+ACQUIRED_IPRD_TAGS = ("ResearchAndDevelopmentInProcess",
+                      "ResearchAndDevelopmentAssetAcquiredOtherThanThroughBusinessCombinationWrittenOff")
+ACQUISITION_TAGS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",
+                    "PaymentsToAcquireBusinessesAndInterestInAffiliates",
+                    "PaymentsToAcquireBusinessesGross")
 # Per-share units: an IFRS filer reports EPS in its own currency.
 EPS_DILUTED = ("EarningsPerShareDiluted", ("USD/shares",))
 
@@ -413,6 +430,12 @@ def _ttm_present(x, ladder, at):
     """First TTM that exists among the live tags (a filed 0 is kept)."""
     return next((v for v in (x.ttm(t, p) for t, p in _live_tags(x, ladder, at))
                  if v is not None), None)
+
+
+def _ttm_max(x, ladder, at):
+    """Largest TTM among the live tags of one group of overlapping concepts."""
+    vals = [v for v in (x.ttm(t, p) for t, p in _live_tags(x, ladder, at)) if v]
+    return max(vals) if vals else None
 
 
 def _annual(x, ladder, at):
@@ -693,9 +716,13 @@ FIELD_LADDERS = {
                          DEBT_LADDERS),
     "cash_prior": (lambda x, ladders, at: _cash_and_securities(x, ladders, at, prior=True),
                    ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
-    "acquisitions_net": (_ttm, ("PaymentsToAcquireBusinessesNetOfCashAcquired",
-                                "PaymentsToAcquireBusinessesAndInterestInAffiliates",
-                                "PaymentsToAcquireBusinessesGross")),
+    "acquisitions_net": (_ttm, ACQUISITION_TAGS),
+    "acquisitions_annuals_dated": (_annual_dated, ACQUISITION_TAGS),
+    "impairment_ttm": (_ttm_max, IMPAIRMENT_TAGS),
+    "restructuring_ttm": (_ttm_max, RESTRUCTURING_TAGS),
+    "restructuring_annuals_dated": (_annual_dated, RESTRUCTURING_TAGS),
+    "acquired_iprd_ttm": (_ttm_max, ACQUIRED_IPRD_TAGS),
+    "acquired_iprd_annuals_dated": (_annual_dated, ACQUIRED_IPRD_TAGS),
     "deferred_revenue": (_fresh, DEFREV_TAGS),
     "deferred_revenue_prior": (_prior_year, DEFREV_TAGS),
     # Leases are debt (Damodaran); the prior year too, or a lease-heavy filer is
@@ -1020,7 +1047,9 @@ POPULATED = (
     "revenue_annuals_dated", "operating_income_annuals_dated",
     "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
     "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
-    "ic_components_dated")
+    "ic_components_dated",
+    "acquisitions_annuals_dated", "impairment_ttm", "restructuring_ttm",
+    "restructuring_annuals_dated", "acquired_iprd_ttm", "acquired_iprd_annuals_dated")
 EBIT_DERIVED = ("operating_income", "operating_income_annuals", "operating_income_quarters")
 QUARTER_FIELDS = ("revenue_quarters", "operating_income_quarters", "eps_quarters")
 

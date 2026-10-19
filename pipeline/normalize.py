@@ -19,6 +19,7 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
           "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
           "operating_leases", "operating_leases_prior",
           "sbc",
+          "impairment_ttm", "restructuring_ttm", "acquired_iprd_ttm", "operating_income_gaap",
           "receivables_prior", "inventory", "inventory_prior",
           "accounts_payable", "accounts_payable_prior",
           # Scalar eps_gaap is divided into the USD listed price, so both sides of that
@@ -30,7 +31,9 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
 # `eps_annuals_dated` is deliberately NOT here (see eps_gaap above).
 _MONEY_SERIES_DATED = ("revenue_annuals_dated", "operating_income_annuals_dated",
                        "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
-                       "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated")
+                       "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
+                       "acquisitions_annuals_dated", "restructuring_annuals_dated",
+                       "acquired_iprd_annuals_dated")
 
 
 def _fx_each(values, fx):
@@ -125,6 +128,11 @@ def _apply_yahoo(ff, yahoo_qs):
     if rq:
         ff.set("rev_estimate_curq", rq, "yahoo")
     ff.set("forward_eps", y.get("forward_eps"), "yahoo")
+    # second source for the consensus revenue path; FMP's estimates replace it when
+    # they arrive (pipeline/fundamentals._estimate_path)
+    path = yahoo.parse_revenue_path(yahoo_qs, ff.fiscal_year)
+    if path:
+        ff.set("rev_growth_path", path, "yahoo")
     if ff.beta is None:
         ff.set("beta", y.get("beta"), "yahoo")
     if ff.price is None:

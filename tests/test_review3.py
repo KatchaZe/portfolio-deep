@@ -186,7 +186,9 @@ def test_unmeasurable_roic_row_is_not_a_buy():
         capex=0.5e9, dep_amort=0.4e9, cfo=2.8e9, total_assets=40e9, sbc=0.2e9,
         revenue_annuals=[10e9, 8.0e9, 6.6e9, 5.5e9], operating_income_annuals=[3e9, 2.2e9],
         forward_eps=4.5, growth_lt=0.22, beta=1.0, market_cap=40e9,
-        shares_diluted_annuals=[1e9, 1e9, 1e9])
+        shares_diluted_annuals=[1e9, 1e9, 1e9],
+        # an analyst path, so the no-consensus Price cap does not mask the E_econ cap
+        rev_growth_path=[[0.22, 12], [0.20, 12]])
     v = E.DeepV82Engine().evaluate(f, rf=0.045)
     check(v.E_econ is None, "quality pillar is genuinely unmeasurable here", str(v.E_econ))
     check(v.recommendation != "BUY", "row is not a BUY on an untested quality pillar",

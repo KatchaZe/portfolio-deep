@@ -977,6 +977,7 @@ WEIGHTS = {"D": 0.20, "E_exec": 0.20, "E_econ": 0.30, "P": 0.30}
 
 
 NEUTRAL_SCORE = 2.5     # midpoint of the 0-5 band: "we did not find out", not "it is bad"
+NO_CONSENSUS_P_CAP = 3.0
 
 
 _D = _decimal.Decimal
@@ -1165,8 +1166,11 @@ def _early_stage(f, mcap):
     oi, rev = f.operating_income, f.revenue
     if oi is None or oi <= 0:
         return "pre-profit"
-    if rev and oi / rev < EARLY_MARGIN:
-        return f"operating margin {oi / rev:.1%} (barely profitable)"
+    # a thin margin marks a young firm only while it is small: a $1.4T carmaker with a
+    # 4% margin is a cyclical at a trough, and Damodaran would not swap its industry
+    # beta for a noisy regression one (TSLA read 1.92 against Auto & Truck 1.32)
+    if rev and oi / rev < EARLY_MARGIN and mcap and mcap < EARLY_MAX_MCAP:
+        return f"operating margin {oi / rev:.1%} (barely profitable, small)"
     ann = f.revenue_annuals or []
     if len(ann) > 3 and ann[3] and ann[3] > 0 and mcap and mcap < EARLY_MAX_MCAP:
         cagr = (ann[0] / ann[3]) ** (1 / 3) - 1
@@ -1344,13 +1348,15 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
     """Terminal ROIC, the growth the valuation may assume, realised revenue growth,
     trailing EPS, and the stable-phase Ke and growth."""
     # Terminal ROIC comes first: it is also the fallback for the growth cap and the
-    # high-growth ROIC when the firm's own ROIC is unmeasurable. Floored against
-    # the higher of today's and the terminal cost of capital.
+    # high-growth ROIC when the firm's own ROIC is unmeasurable.
     own_roic = cap.roic_used if (cap.roic_used and cap.roic_used > 0) else None
     # an industry return on capital is no ceiling for a bank's return on equity
     sector_roic = (None if ctype is CompanyType.FINANCIAL
                    else getattr(f, "terminal_roic_sector", None))
-    roic_term = terminal_roic(own_roic, max(cap.wacc, cap.wacc_term), sector_roic)
+    # floored at the STABLE-phase cost of capital, the rate the terminal value is
+    # discounted at: today's higher WACC as the floor handed a high-beta firm excess
+    # returns forever (TSLA: terminal ROIC 13.9% against a 10.6% stable WACC)
+    roic_term = terminal_roic(own_roic, cap.wacc_term, sector_roic)
     if sector_roic and abs(roic_term - sector_roic) < 1e-9 and roic_term > cap.wacc_term:
         _add_flag(f, f"terminal ROIC {roic_term*100:.1f}% set by industry ceiling (Damodaran ROC)")
 
@@ -1584,20 +1590,76 @@ def _dcf_sales_to_capital(f, cap):
     return S2C_DEFAULT, f"default {S2C_DEFAULT}"
 
 
+# A consensus year counts only with enough analysts behind it: three for the two years
+# every broker models, ten for years 3-5, where FMP's last row is often one or two
+# opinions (MSFT's year-5 30.1% lifted its DCF growth to 24.9% for five years).
+PATH_MIN_ANALYSTS_NEAR, PATH_MIN_ANALYSTS_FAR, PATH_MAX_YEARS = 3, 10, 5
+# a fiscal year whose M&A spend exceeds this share of the prior year's revenue bought
+# its growth; it is left out of the organic rate
+INORGANIC_ACQ_SHARE = 0.10
+
+
+def consensus_growth_path(f):
+    """Consensus revenue growth year by year, as far as coverage allows: [g1, g2, ...].
+    Years 1-2 need PATH_MIN_ANALYSTS_NEAR, years 3-5 PATH_MIN_ANALYSTS_FAR; the path
+    stops at the first year that falls short. [] when there is no usable consensus."""
+    rows = f.rev_growth_path or []
+    if not rows and f.fwd_growth_y1 is not None:     # facts stored before the path field
+        rows = [[f.fwd_growth_y1, f.n_analysts or 0]]
+        if f.fwd_growth_near is not None:
+            rows.append([f.fwd_growth_near, f.n_analysts_y2 or 0])
+    path = []
+    for i, (g, n) in enumerate(rows[:PATH_MAX_YEARS]):
+        need = PATH_MIN_ANALYSTS_NEAR if i < 2 else PATH_MIN_ANALYSTS_FAR
+        if g is None or (n or 0) < need:
+            break
+        path.append(_clamp(g, -0.05, GROWTH_CAP))
+    return path
+
+
+def organic_growth(f):
+    """(growth, note): realised revenue growth with acquisition years left out. The
+    latest fiscal year whose M&A spend stayed under INORGANIC_ACQ_SHARE of the year
+    before's revenue, looking back three years, and never above the clean 3-year CAGR
+    when all three years are clean. None when no clean year exists."""
+    rev = sorted(f.revenue_annuals_dated or [], reverse=True)
+    acq = {d: v for d, v in (f.acquisitions_annuals_dated or [])}
+    years = []
+    for (d0, r0), (_, r1) in zip(rev, rev[1:]):
+        if r1 and r1 > 0:
+            years.append((d0, r0 / r1 - 1, (acq.get(d0) or 0) / r1 > INORGANIC_ACQ_SHARE))
+    years = years[:3]
+    if not years:
+        return None, None
+    clean = [g for _, g, bought in years if not bought]
+    bought = [d for d, _, b in years if b]
+    if not clean:
+        return None, "every recent year was acquisition-driven"
+    g = clean[0]
+    if len(clean) == 3 and len(rev) > 3 and rev[3][1] > 0:
+        g = min(g, (rev[0][1] / rev[3][1]) ** (1 / 3) - 1)
+    note = ("organic: acquisition years " + ", ".join(bought) + " left out") if bought else None
+    return g, note
+
+
 def _dcf_revenue_growth(f, gr):
-    """Revenue growth for the five high-growth years: consensus revenue growth (the
-    average of the near and far years), else the more conservative of realised 1y/3y
-    growth, else the capped EPS growth. Returns (g, source)."""
-    cons = [g for g in (f.fwd_growth_near, f.fwd_growth_far) if g is not None]
-    if cons:
-        g, src = sum(cons) / len(cons), "consensus revenue growth"
-    else:
-        real = [g for g in (gr.rev_growth_yoy, gr.actual_3y) if g is not None]
+    """Revenue growth path for the explicit years and where it came from:
+    (path, source, basis). basis is "consensus", or "historical" when no analyst path
+    exists (the Price pillar then refuses to rate above neutral). After the path,
+    fcff_dcf fades linearly to the stable growth rate by year 10."""
+    path = consensus_growth_path(f)
+    if path:
+        src = f.provenance.get("rev_growth_path") or "consensus"
+        return path, f"consensus revenue growth ({src}, {len(path)}y)", "consensus"
+    g, note = organic_growth(f)
+    if g is None:
+        real = [x for x in (gr.rev_growth_yoy, gr.actual_3y) if x is not None]
         if real:
-            g, src = max(0.0, min(real)), "realised revenue growth"
+            g, note = min(real), note
         else:
-            g, src = gr.growth, "EPS growth (no revenue history)"
-    return _clamp(g, -0.05, GROWTH_CAP), src
+            return [_clamp(gr.growth, -0.05, GROWTH_CAP)], "EPS growth (no revenue history)", "historical"
+    src = "historical revenue growth, fading (no consensus)" + (f"; {note}" if note else "")
+    return [_clamp(g, -0.05, GROWTH_CAP)], src, "historical"
 
 
 def _lease_ebit_addback(f, cap, rf):
@@ -1646,17 +1708,19 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         if m_now <= 0:
             return None
         target, t_label = _dcf_target_margin(f, m_now)
-    g_high, g_src = _dcf_revenue_growth(f, gr)
+    g_path, g_src, g_basis = _dcf_revenue_growth(f, gr)
     s2c, s2c_src = _dcf_sales_to_capital(f, cap)
     shares = _quote_shares(f, cap)
     out = fcff_dcf.value(
-        revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_high,
+        revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_path[0],
+        growth_path=g_path,
         g_stable=gr.g_stable, sales_to_capital=s2c, tax_now=cap.tax,
         tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
         wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
         cash=f.cash, debt=cap.debt_eff, shares=shares, margin_years=years)
     if not out:
         return None
+    out["growth_basis"] = g_basis
     out["sources"] = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
                       "lease_interest_added": round(addback, 0) if addback else None}
     if (out.get("terminal_share_pct") or 0) > DCF_TERMINAL_HEAVY:
@@ -1708,16 +1772,13 @@ def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf, ctype=CompanyType.STANDARD):
                 method, value = "FCFF DCF", dcf["per_share"]
     except Exception as e:          # a primary model must never kill a row
         _add_flag(f, f"{ctype.value} model unavailable ({type(e).__name__}) - earnings paths used")
-    # the same broken-input guard the FVP gets: a value under 10% of the price says
-    # more about one distorted input (a charge-laden EBIT) than about the business
+    # A primary value far below the price stays the anchor. Charge-laden EBIT, the
+    # case the old "below 10% of price -> discard" guard caught, is now normalized
+    # upstream (pipeline/one_time.py); swapping models on a low answer let TSLA's $30
+    # DCF be replaced by an $18 PEG. Damodaran reports the value and the gap.
     if value is not None and f.price and value < 0.1 * f.price:
-        _add_flag(f, (f"{method} ${value} is below 10% of the price - treated as a broken "
-                      f"input, not a verdict; anchored on the earnings paths and left out "
-                      f"of the fair-value range"))
-        for d in (dcf, exret):
-            if d:
-                d["discarded"] = "below 10% of the price"
-        method = value = None
+        _add_flag(f, (f"{method} ${value} is under 10% of the price: the market prices a "
+                      f"story these inputs do not contain - check growth and margin"))
     elif value is None and ctype is not CompanyType.YOUNG:
         primary = (exret if ctype is CompanyType.FINANCIAL else dcf)
         model = "excess-return model" if ctype is CompanyType.FINANCIAL else "FCFF DCF"
@@ -1979,6 +2040,13 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
         notes.append(f"P growth-unreconciled(consensus vs realised FV {pv.growth_fv_x}x)"
                      f"={NEUTRAL_SCORE - P:+.2f}")
         P = NEUTRAL_SCORE
+    # Growth read off the firm's own past is the weakest forecast there is (Damodaran);
+    # without an analyst path the value can say "fair", not "cheap".
+    if P is not None and P > NO_CONSENSUS_P_CAP and anchor_value and not consensus_growth_path(f):
+        notes.append(f"P no-consensus growth (historical only)={NO_CONSENSUS_P_CAP - P:+.2f}")
+        _add_flag(f, f"no analyst revenue path: growth is historical, Price capped at "
+                     f"{NO_CONSENSUS_P_CAP}")
+        P = NO_CONSENSUS_P_CAP
     return {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
 
 

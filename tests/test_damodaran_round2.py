@@ -261,11 +261,14 @@ def test_engine_pre_profit_unchanged_route():
 
 
 def test_broken_dcf_is_not_the_anchor():
-    print("12 a near-zero DCF (one distorted input) does not become the verdict")
+    print("12 a DCF far below the price stays the anchor, with the gap named (2026-10-19)")
     v = E.DeepV82Engine().evaluate(_operating(total_debt=140e9), rf=RF)   # equity ~5% of price
     check(v.fv_dcf and v.fv_dcf < 10, "fixture: DCF below 10% of the $100 price", str(v.fv_dcf))
-    check(v.anchor_method != "FCFF DCF" and any("below 10% of the price" in x for x in v.flags),
-          "anchored on the earnings paths, with the DCF still on the card", v.anchor_method)
+    # the old guard swapped to the earnings paths, which handed TSLA an $18 PEG in place
+    # of its $30 DCF; charge-laden EBIT is now normalized upstream instead
+    check(v.anchor_method == "FCFF DCF" and v.anchor_value == v.fv_dcf
+          and any("under 10% of the price" in x for x in v.flags),
+          "the DCF is the anchor and the card says the price holds a story", v.anchor_method)
     neg = E.DeepV82Engine().evaluate(_operating(total_debt=150e9), rf=RF)  # equity < 0
     check(neg.fv_dcf is None and any("equity value <= 0" in x for x in neg.flags),
           "a negative equity value is named, not hidden", str(neg.fv_dcf))
@@ -318,8 +321,8 @@ def test_review_findings():
     check(er["g_stable"] <= er["roe_stable"] + 1e-12, "stable growth held to the stable ROE")
 
     pfe_like = E.DeepV82Engine().evaluate(_operating(total_debt=140e9), rf=RF)
-    check(pfe_like.dcf.get("discarded") and (pfe_like.range_low or 0) > pfe_like.fv_dcf,
-          "a discarded DCF is not the low end of the range", f"{pfe_like.range_low}")
+    check(not pfe_like.dcf.get("discarded") and pfe_like.range_low == pfe_like.fv_dcf,
+          "the anchored DCF is the low end of the range", f"{pfe_like.range_low}")
 
     good_bank = _facts("ZZBANK3", price=300.0, shares_diluted=2.8e9, market_cap=840e9, revenue=170e9,
                        operating_income=65e9, net_income=50e9, equity=330e9, equity_prior=320e9,

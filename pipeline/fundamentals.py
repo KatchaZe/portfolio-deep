@@ -9,12 +9,13 @@ Fundamentals refresh: SEC + FMP + Yahoo (+ optional Finnhub / Alpha Vantage)
 step returns the number of FMP calls it spent, for the quota counter.
 """
 import logging
+import os
 
 import config
 from sources import sec_edgar, yahoo, fmp, finnhub, alphavantage, damodaran
 from domain.facts import FinancialFacts
 from domain.engine import get_engine
-from pipeline import (normalize, validate, rev_track, consensus, surprise_backfill,
+from pipeline import (normalize, validate, one_time, rev_track, consensus, surprise_backfill,
                       dataquality, batch)
 from pipeline.cik import resolve_cik
 import store as store_mod
@@ -84,6 +85,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     _industry_beta(ff, t)
     _industry_operating(ff)
     _country_risk(ff, t, cik)
+    one_time.normalize_operating_income(ff)
 
     validate.validate(ff, rf=rf)
     normalize.resolve_growth(ff)
@@ -222,22 +224,64 @@ def _earnings_surprises(ff, t, fmp_key):
 def _estimate_path(ff, t, fmp_key):
     """FMP analyst-estimates -> growth fade + breadth. Returns (raw estimates, calls);
     the raw response is reused as a forward-EPS candidate."""
-    if not fmp_key:
-        return None, 0
     estimates, calls = None, 0
-    try:
-        estimates = fmp.fetch_estimates(t, fmp_key)
-        calls = 1
-        # FMP estimates are in the filer's reporting currency; the actual-year anchor is
-        # only comparable for a USD filer (ff money is FX-converted otherwise)
-        anchor = (ff.revenue_annuals or [None])[0] if not ff.provenance.get("fx") else None
-        path = fmp.parse_estimate_path(estimates, ff.fiscal_year, latest_revenue=anchor)
-        for k in ("fwd_growth_near", "fwd_growth_far", "n_analysts", "fwd_growth_y1", "n_analysts_y2"):
-            if path.get(k) is not None:
-                ff.set(k, path[k], "fmp/estimates")
-    except Exception as e:
-        log.warning("%s FMP estimates failed: %s", t, e)
+    if fmp_key:
+        try:
+            estimates, calls = _cached_estimates(t, fmp_key)
+            # FMP estimates are in the filer's reporting currency; the actual-year anchor
+            # is only comparable for a USD filer (ff money is FX-converted otherwise)
+            anchor = (ff.revenue_annuals or [None])[0] if not ff.provenance.get("fx") else None
+            path = fmp.parse_estimate_path(estimates, ff.fiscal_year, latest_revenue=anchor)
+            for k in ("fwd_growth_near", "fwd_growth_far", "n_analysts", "fwd_growth_y1",
+                      "n_analysts_y2", "rev_growth_path"):
+                if path.get(k) is not None:
+                    ff.set(k, path[k], "fmp/estimates")
+        except Exception as e:
+            log.warning("%s FMP estimates failed: %s", t, e)
+    _yahoo_growth_fallback(ff)
     return estimates, calls
+
+
+ESTIMATES_TTL_DAYS = 7
+
+
+def _cached_estimates(t, fmp_key):
+    """(estimates, calls). Consensus moves over weeks, not hours, so a non-empty answer
+    is reused for ESTIMATES_TTL_DAYS instead of spending a call on every refresh."""
+    import json
+    import time
+    path = os.path.join(config.CACHE_DIR, f"fmp_estimates_{t}.json")
+    try:
+        with open(path, encoding="utf-8") as fh:
+            cached = json.load(fh)
+        if cached.get("data") and time.time() - cached.get("at", 0) < ESTIMATES_TTL_DAYS * 86400:
+            return cached["data"], 0
+    except (OSError, ValueError):
+        pass
+    data = fmp.fetch_estimates(t, fmp_key)
+    if data:
+        try:
+            os.makedirs(config.CACHE_DIR, exist_ok=True)
+            with open(path, "w", encoding="utf-8") as fh:
+                json.dump({"at": time.time(), "data": data}, fh)
+        except OSError as e:
+            log.warning("%s estimates cache write failed: %s", t, e)
+    return data, 1
+
+
+def _yahoo_growth_fallback(ff):
+    """FMP's free tier refuses analyst-estimates for some symbols (LLY, MELI, AVGO came
+    back with a profile and no estimates on 2026-10-18), leaving 13 of 21 names on
+    historical growth. When FMP gave no path, Yahoo's does the same job for the fields
+    the earnings paths read."""
+    if ff.provenance.get("rev_growth_path") != "yahoo" or ff.fwd_growth_y1 is not None:
+        return
+    path = ff.rev_growth_path
+    ff.set("fwd_growth_y1", path[0][0], "yahoo/estimates")
+    ff.set("n_analysts", path[0][1], "yahoo/estimates")
+    if len(path) > 1:
+        ff.set("fwd_growth_near", path[1][0], "yahoo/estimates")
+        ff.set("n_analysts_y2", path[1][1], "yahoo/estimates")
 
 
 def _surprise_backfill(ff, t, fmp_key):

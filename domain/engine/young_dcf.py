@@ -244,8 +244,11 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
 
     # growth: consensus first (the reference is explicit that g_high must not be
     # hand-picked), then the engine's own long-term input, then nothing.
-    g_src = "fmp/estimates next-FY revenue"
-    g_high = f.fwd_growth_near
+    # next fiscal year against the last actual one; fwd_growth_near is the year after
+    rows = getattr(f, "rev_growth_path", None) or []
+    g_high, g_src = ((rows[0][0], "consensus next-FY revenue") if rows else
+                     (f.fwd_growth_y1, "consensus next-FY revenue") if f.fwd_growth_y1 is not None else
+                     (f.fwd_growth_near, "fmp/estimates year-2 revenue"))
     if g_high is None:
         g_high, g_src = growth_fallback, "sec revenue CAGR (min 3y/5y)"
     if g_high is None:

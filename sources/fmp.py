@@ -320,6 +320,19 @@ def parse_estimate_path(estimates, latest_fy=None, latest_revenue=None):
     revs = [_num(e, "revenueAvg") for e in future]
     growths = [revs[i + 1] / revs[i] - 1 for i in range(len(revs) - 1) if revs[i]]
     out = {}
+    # year-by-year path from the last actual year, each with its own analyst count.
+    # The anchor is the filed revenue (USD filers) or, for a foreign filer whose ff
+    # money is FX-converted, FMP's own row for the last reported year (same currency).
+    past = [e for e in rows if latest_fy and e["date"] <= latest_fy]
+    anchor = latest_revenue if (latest_revenue and latest_revenue > 0) else (
+        _num(past[-1], "revenueAvg") if past else None)
+    if future and future[0]["date"] > (latest_fy or "") and anchor:
+        seq = [anchor] + revs
+        out["rev_growth_path"] = [
+            [round(seq[i + 1] / seq[i] - 1, 4), int(_num(future[i], "numberAnalystsEstimatedRevenue",
+                                                       "numberAnalystEstimatedRevenue",
+                                                       "numAnalystsRevenue") or 0)]
+            for i in range(len(revs)) if seq[i]]
     if growths:
         out["fwd_growth_near"] = round(growths[0], 4)
         out["fwd_growth_far"] = round(growths[-1], 4)

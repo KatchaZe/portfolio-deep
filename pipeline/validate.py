@@ -247,6 +247,9 @@ def _assumption_flags(ff):
         ff.flags.append("growth missing → defaults to 8% (assumption)")
 
 
+NO_PATH_PENALTY = 8
+
+
 def _rescore(ff):
     score = 100
     critical = ("revenue", "net_income", "shares_diluted", "price", "forward_eps")
@@ -264,6 +267,11 @@ def _rescore(ff):
         score -= 30
     score += _earnings_confidence(ff)
     score += _consensus_confidence(ff)
+    # no analyst revenue path: every forward number rests on the firm's own history
+    if not (ff.rev_growth_path or ff.fwd_growth_y1 is not None):
+        ff.flags.append(f"no consensus revenue path (FMP and Yahoo) - growth is historical "
+                        f"(-{NO_PATH_PENALTY} conf)")
+        score -= NO_PATH_PENALTY
     # the data's own condition (stale financials, an invested-capital gap, an
     # unconverted currency), graded by severity rather than a flat -8 `serious` flag
     score -= dataquality.total_penalty(dataquality.apply(ff))

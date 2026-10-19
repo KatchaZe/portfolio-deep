@@ -1,8 +1,10 @@
 """FCFF DCF — the primary intrinsic value for an operating company (Damodaran's
 simple Ginzu: revenue growth, operating margin, sales-to-capital, cost of capital).
 
-    revenue_t   = revenue_{t-1} x (1 + g_t)       g: g_high for years 1-5, then a straight
-                                                  line down to g_stable by year 10
+    revenue_t   = revenue_{t-1} x (1 + g_t)       g: growth_path year by year when given
+                                                  (consensus years), else g_high for
+                                                  years 1-5; then a straight line down
+                                                  to g_stable by year 10
     margin_t    moves from today's margin to the target margin by `margin_years`
     tax_t       effective rate for years 1-5, then a straight line to the marginal rate
     NOPAT_t     = revenue_t x margin_t x (1 - tax_t)
@@ -28,7 +30,7 @@ def _lerp(a, b, frac):
 
 def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capital,
           tax_now, tax_marginal, wacc, wacc_stable, roic_stable, cash, debt, shares,
-          margin_years=5) -> Optional[dict]:
+          margin_years=5, growth_path=None) -> Optional[dict]:
     """Per-share value and the projection behind it, or None when the inputs cannot
     support a DCF (no revenue, no shares, or a stable WACC at or below g)."""
     if not revenue or revenue <= 0 or not shares or shares <= 0:
@@ -37,13 +39,12 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
         return None
     if wacc_stable <= g_stable or wacc <= 0 or not roic_stable or roic_stable <= 0:
         return None
+    explicit = list(growth_path or [])[:TOTAL_YEARS - 1] or [g_high] * HIGH_YEARS
     rows, pv_sum, disc = [], 0.0, 1.0
     rev_prev = revenue
     for t in range(1, TOTAL_YEARS + 1):
-        if t <= HIGH_YEARS:
-            g = g_high
-        else:
-            g = _lerp(g_high, g_stable, (t - HIGH_YEARS) / (TOTAL_YEARS - HIGH_YEARS))
+        k = len(explicit)
+        g = explicit[t - 1] if t <= k else _lerp(explicit[-1], g_stable, (t - k) / (TOTAL_YEARS - k))
         rev = rev_prev * (1 + g)
         m = _lerp(margin_now, margin_target, min(1.0, t / margin_years)) if margin_years else margin_target
         tax = tax_now if t <= HIGH_YEARS else _lerp(tax_now, tax_marginal,
@@ -74,7 +75,8 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
             "terminal_share_pct": round(pv_tv / firm * 100, 1) if firm > 0 else None,
             "terminal_reinvestment_rate": round(reinvest_rate, 3),
             "implied_roic_high": round(margin_target * (1 - tax_now) * sales_to_capital, 4),
-            "inputs": {"g_high": round(g_high, 4), "g_stable": round(g_stable, 4),
+            "inputs": {"g_high": round(explicit[0], 4), "g_stable": round(g_stable, 4),
+                       "growth_path": [round(g, 4) for g in explicit],
                        "margin_now": round(margin_now, 4), "margin_target": round(margin_target, 4),
                        "sales_to_capital": round(sales_to_capital, 3), "wacc": round(wacc, 4),
                        "wacc_stable": round(wacc_stable, 4), "roic_stable": round(roic_stable, 4),

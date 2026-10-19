@@ -77,6 +77,10 @@ class FinancialFacts:
     cash_prior: Optional[float] = None
     # --- 🟢 round 2: organic growth + billings (SEC) -------------------------
     acquisitions_net: Optional[float] = None    # M&A cash spent (TTM) — organic-growth penalty
+    impairment_ttm: Optional[float] = None      # asset/goodwill impairment charges (TTM)
+    restructuring_ttm: Optional[float] = None   # restructuring charges (TTM)
+    acquired_iprd_ttm: Optional[float] = None   # acquired in-process R&D expensed (TTM)
+    operating_income_gaap: Optional[float] = None   # reported EBIT before the add-back
     deferred_revenue: Optional[float] = None    # contract liability — billings/leading signal
     deferred_revenue_prior: Optional[float] = None
     # --- 🟢 round 2: consensus path + peers (FMP) ----------------------------
@@ -84,6 +88,8 @@ class FinancialFacts:
     fwd_growth_far: Optional[float] = None       # final-FY consensus revenue growth (fade)
     n_analysts: Optional[int] = None             # consensus breadth (reliability gate)
     fwd_growth_y1: Optional[float] = None        # next-FY consensus revenue vs last actual FY
+    # consensus revenue growth year by year from the last actual FY: [[growth, analysts], ...]
+    rev_growth_path: list = field(default_factory=list)
     n_analysts_y2: Optional[int] = None          # coverage of the second estimate year
     peer_median_growth: Optional[float] = None   # median revenue growth of the sector cohort
     terminal_roic_sector: Optional[float] = None  # Damodaran industry ROIC — perpetuity ceiling
@@ -150,6 +156,11 @@ class FinancialFacts:
     capex_annuals_dated: list = field(default_factory=list)
     gross_profit_annuals_dated: list = field(default_factory=list)
     cost_of_revenue_annuals_dated: list = field(default_factory=list)
+    # M&A cash per fiscal year: tells organic growth from bought growth (CELH +85%)
+    acquisitions_annuals_dated: list = field(default_factory=list)
+    # one-time charges inside EBIT (pipeline/one_time.py decides which are added back)
+    restructuring_annuals_dated: list = field(default_factory=list)
+    acquired_iprd_annuals_dated: list = field(default_factory=list)
     # {FY_end: {equity, cash, debt, lt_source}} at the income-statement year-ends —
     # invested capital per year, so ROIC can be a SERIES rather than one snapshot.
     # A dict, not a list: FX conversion handles it separately (see normalize).
