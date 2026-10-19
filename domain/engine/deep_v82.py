@@ -2009,9 +2009,23 @@ def _roic_fy(op_income, invested, rnd_series, tax, rd_basis):
     return out[2] if out else None
 
 
+def _acquisitions_for_growth_year(f):
+    """(M&A cash, revenue) for the fiscal year the Demand base growth is measured on.
+    The TTM payment can miss the deal entirely: CELH's TTM read $0.08B while FY2025,
+    the year its revenue grew 86%, spent $1.28B on Alani Nu. The larger of the two is
+    charged against that year's revenue."""
+    rev = sorted(f.revenue_annuals_dated or [], reverse=True)
+    fy0 = rev[0][0] if rev else None
+    fy_acq = dict(f.acquisitions_annuals_dated or []).get(fy0) if fy0 else None
+    if fy_acq is None:
+        return f.acquisitions_net, f.revenue
+    ttm = f.acquisitions_net if f.acquisitions_net is not None else 0.0
+    return max(fy_acq, ttm), rev[0][1]
+
+
 def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
-    acq_int, acq_label = acquisition_intensity(f.acquisitions_net, f.revenue)
+    acq_int, acq_label = acquisition_intensity(*_acquisitions_for_growth_year(f))
     # the fade is read on the covered years only, like the DCF: FMP's final row is
     # often one or two analysts (NVDA's read 9.5% beside a 44% consensus)
     cpath = consensus_growth_path(f)

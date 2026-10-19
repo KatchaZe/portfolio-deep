@@ -442,6 +442,26 @@ def _annual(x, ladder, at):
     return _or(x.annual_series(t, p) for t, p in _live_tags(x, ladder, at))
 
 
+def _annual_or_ytd_dated(x, ladder, at):
+    """Annual series per fiscal year end, merged across the live tags, and for a fiscal
+    year with no full-year value the largest year-to-date figure inside it. CELH's
+    10-K carries no full-year M&A payment for 2025, only the 10-Q's $1.28B nine-month
+    YTD, so the year it bought Alani Nu read as organic growth."""
+    out = {}
+    for t, p in _live_tags(x, ladder, at):
+        for d, v in x.annual_series_dated(t, p):
+            out.setdefault(d, v)
+    for fy in at.fy_ends or []:
+        if any(abs(_days(fy, d)) <= 7 for d in out):
+            continue
+        ytd = [e["val"] for t, p in _live_tags(x, ladder, at) for e in x.entries(t, p)
+               if e.get("start") and e.get("val") is not None
+               and 0 <= _days(e["end"], fy) <= 370 and 0 < _days(e["start"], fy) <= 380]
+        if ytd:
+            out[fy] = max(ytd)
+    return [[d, out[d]] for d in sorted(out, reverse=True)]
+
+
 def _annual_dated(x, ladder, at):
     return _or(x.annual_series_dated(t, p) for t, p in _live_tags(x, ladder, at))
 
@@ -717,7 +737,7 @@ FIELD_LADDERS = {
     "cash_prior": (lambda x, ladders, at: _cash_and_securities(x, ladders, at, prior=True),
                    ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "acquisitions_net": (_ttm, ACQUISITION_TAGS),
-    "acquisitions_annuals_dated": (_annual_dated, ACQUISITION_TAGS),
+    "acquisitions_annuals_dated": (_annual_or_ytd_dated, ACQUISITION_TAGS),
     "impairment_ttm": (_ttm_max, IMPAIRMENT_TAGS),
     "restructuring_ttm": (_ttm_max, RESTRUCTURING_TAGS),
     "restructuring_annuals_dated": (_annual_dated, RESTRUCTURING_TAGS),

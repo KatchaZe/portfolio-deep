@@ -218,5 +218,36 @@ def test_yahoo_eps_in_listing_currency():
           "a USD filer's blend is untouched", str(ms["forward_eps"]))
 
 
+def test_acquisition_year_from_ytd():
+    print("2d an M&A year the 10-K leaves untagged is read from its largest 10-Q YTD")
+    from sources import sec_edgar
+
+    def e(start, end, val, form="10-K", filed="2026-02-20"):
+        return {"start": start, "end": end, "val": val, "form": form, "filed": filed}
+    cf = {"facts": {"us-gaap": {
+        "Revenues": {"units": {"USD": [e("2023-01-01", "2023-12-31", 1.32e9),
+                                       e("2024-01-01", "2024-12-31", 1.36e9),
+                                       e("2025-01-01", "2025-12-31", 2.5e9)]}},
+        "PaymentsToAcquireBusinessesNetOfCashAcquired": {"units": {"USD": [
+            e("2024-01-01", "2024-12-31", 75e6),
+            e("2025-01-01", "2025-06-30", 1256e6, "10-Q", "2025-08-05"),
+            e("2025-01-01", "2025-09-30", 1279e6, "10-Q", "2025-11-05")]}}}}}
+    d = sec_edgar.extract(cf)
+    acq = dict(d.get("acquisitions_annuals_dated") or [])
+    check(acq.get("2025-12-31") == 1279e6 and acq.get("2024-12-31") == 75e6,
+          "FY2025 from the 9M YTD, FY2024 from the 10-K", str(acq))
+
+
+def test_demand_charges_the_growth_year_deal():
+    print("2e the Demand M&A penalty is charged on the year the growth was measured")
+    celh = _facts(acquisitions_net=0.08e9, revenue=3.0e9,
+                  revenue_annuals_dated=[("2025-12-31", 2.5e9), ("2024-12-31", 1.36e9)],
+                  acquisitions_annuals_dated=[("2025-12-31", 1.28e9)])
+    acq, rev = E._acquisitions_for_growth_year(celh)
+    check(acq == 1.28e9 and rev == 2.5e9, "FY2025's $1.28B against FY2025 revenue", f"{acq} / {rev}")
+    plain = _facts(acquisitions_net=0.1e9, revenue=3.0e9)
+    check(E._acquisitions_for_growth_year(plain) == (0.1e9, 3.0e9), "no annual series: TTM as before")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_fair_value_2026_10_19 PASSED")
