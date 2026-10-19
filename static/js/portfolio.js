@@ -63,7 +63,7 @@ function cardHead(x,watch){
   const rmFn=watch?`removeWatch('${x.ticker}')`:`removeHolding('${x.ticker}')`;
   const ac=ASSET_CLASS[x.ticker];
   const pl=x.pl==null?'&mdash;':`${x.pl>=0?'+':'-'}${money(Math.abs(x.pl))} (${x.pl_pct>=0?'+':''}${fixed(x.pl_pct,1)}%)`;
-  const right=`<div style="text-align:right"><div style="font-size:calc(12px*var(--fs));font-weight:600;color:#475569">${fixed(x.price)}${chg}</div>`
+  const right=`<div style="text-align:right"><div title="${x.price_date?'ราคาปิด '+x.price_date+' (T-1)':'ราคาล่าสุด'}" style="font-size:calc(12px*var(--fs));font-weight:600;color:#475569">${fixed(x.price)}${chg}</div>`
     +(watch?'':`<div class="muted" style="font-size:calc(10px*var(--fs));margin-top:2px">P/L ${pl}</div>`)+`</div>`;
   return `<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:10px">
     <div>${dot(x.confidence_tier)}<b style="font-size:calc(14px*var(--fs))">${x.ticker}</b>${flagIcon(x)}${ac?' '+pricingBadge(ac):''} <span class="rm" title="remove" onclick="${rmFn}">&times;</span>

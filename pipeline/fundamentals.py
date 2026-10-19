@@ -13,6 +13,7 @@ import os
 
 import config
 from sources import sec_edgar, yahoo, fmp, finnhub, alphavantage, damodaran
+from domain import pricing
 from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from pipeline import (normalize, validate, one_time, rev_track, consensus, surprise_backfill,
@@ -61,6 +62,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
 
     ff = normalize.build(t, sec_cf, profile, yahoo.fetch_consensus(t), fx_rate=fx, company=name,
                          splits=splits, cash_excludes_securities=operating_sec)
+    _t1_price(ff, t)
     if operating_sec:
         ff.flags.append("health insurer: short-term investments back claim reserves - "
                         "cash is cash and equivalents only")
@@ -91,6 +93,25 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     normalize.resolve_growth(ff)
     val = get_engine().evaluate(ff, rf=rf)
     return ff, val, fmp_calls
+
+
+def _t1_price(ff, t):
+    """Value against the last completed session's close (the project's T-1 rule), not
+    the live quote FMP and Yahoo hand back mid-session. Market cap moves with it, so
+    the share count derived from mcap / price is unchanged."""
+    try:
+        ch = yahoo.fetch_chart(t, rng="5d", interval="1d")
+        close, day = pricing.t1_close(ch.get("closes"), ch.get("dates"))
+    except Exception as e:
+        log.warning("%s T-1 close failed: %s", t, e)
+        close = day = None
+    if not close:
+        if ff.price:
+            ff.flags.append("price is the live quote: the previous close was unavailable")
+        return
+    if ff.price and ff.market_cap:
+        ff.market_cap = ff.market_cap * close / ff.price
+    ff.set("price", round(close, 4), f"yahoo close {day} (T-1)")
 
 
 def _split_history(t):

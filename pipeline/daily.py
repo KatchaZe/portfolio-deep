@@ -12,7 +12,7 @@ import logging
 
 import config
 from sources import yahoo
-from domain import indicators, momentum
+from domain import indicators, momentum, pricing
 from pipeline import prices, market_valuation, batch
 
 log = logging.getLogger("portfolio.daily")
@@ -22,14 +22,17 @@ MARKET_KEY = "^MARKET"
 
 def spy_series(fmp_key):
     """SPY adjusted closes; ~2y is enough for SMA200 and the regression beta."""
-    return prices.fetch_daily_adjusted("SPY", fmp_key, rng="2y")
+    s = prices.fetch_daily_adjusted("SPY", fmp_key, rng="2y")
+    s["closes"], s["dates"] = pricing.completed_bars(s.get("closes"), s.get("dates"))
+    return s
 
 
 def short_indicators(t):
     """RSI/MACD/DBBMV over the short series; {} when the indicators refuse it.
     Raises when no price source answers."""
     c = prices.fetch_daily_series(t)
-    m = indicators.compute(t, c["closes"], c["volumes"], c["dates"])
+    closes, dates, vols = pricing.completed_bars(c["closes"], c["dates"], None, c["volumes"])
+    m = indicators.compute(t, closes, vols, dates)
     return {} if "error" in m else m
 
 
@@ -39,10 +42,13 @@ def composite_momentum(t, fmp_key, market=None):
     share this one window: the S9 reversal needs 756 bars, so 5y / 780 is demanded.
     Raises when no price source answers."""
     lc = prices.fetch_daily_adjusted(t, fmp_key, rng="5y", full_bars=780)
-    mv = momentum.compute(t, lc["closes"], lc["dates"], lc["dividend_adjusted"], market=market)
+    # the T-1 rule: today's partial bar is a live quote, not a close
+    closes, dates = pricing.completed_bars(lc["closes"], lc["dates"])
+    mv = momentum.compute(t, closes, dates, lc["dividend_adjusted"], market=market)
     if "error" in mv:
         return None, lc
     mv["src"] = lc.get("source")
+    mv["price_date"] = str(dates[-1])[:10] if dates else None
     mv["quality"] = lc.get("quality")
     return mv, lc
 
