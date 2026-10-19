@@ -60,10 +60,13 @@ def terminal_margin(ticker, operating_income, revenue, industry_margin=None, ind
                         f"{industry or 'industry'} - today's {cur*100:.1f}% is below the "
                         f"{TERMINAL_MARGIN_FLOOR*100:.0f}% floor)"), False
         if cur > 0:
-            tm = max(TERMINAL_MARGIN_FLOOR, min(TERMINAL_MARGIN_CAP, cur))
+            # the FCFF DCF's ceiling (_dcf_target_margin): pricing and value must read
+            # the same steady state, or LLY's 43% is valued at 43% and priced at 40%
+            ceil = max(TERMINAL_MARGIN_CAP, 2 * industry_margin) if industry_margin else TERMINAL_MARGIN_CAP
+            tm = max(TERMINAL_MARGIN_FLOOR, min(ceil, cur))
             if tm < cur - 1e-9:
                 return tm, (f"terminal margin CAPPED {cur*100:.0f}% -> {tm*100:.0f}% "
-                            f"(ceiling {TERMINAL_MARGIN_CAP*100:.0f}%) - RevDCF asks for more "
+                            f"(ceiling {ceil*100:.0f}%) - RevDCF asks for more "
                             f"growth than the firm's own margin implies"), True
             if tm > cur + 1e-9:
                 return tm, (f"terminal margin FLOORED {cur*100:.0f}% -> {tm*100:.0f}% "
@@ -1388,6 +1391,13 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
                           f"({nonop / abs(f.operating_income) * 100:+.0f}% of EBIT) stripped "
                           f"from net income for EPS and earnings quality "
                           f"(core ${ni/1e9:.1f}B vs reported ${f.net_income/1e9:.1f}B)"))
+    # the one-time charges taken out of EBIT (pipeline/one_time) come out of net
+    # income too, after tax, or PEG/FVP value PFE on an impairment-laden EPS while the
+    # DCF beside them does not
+    gaap_oi = getattr(f, "operating_income_gaap", None)
+    if ni is not None and gaap_oi is not None and f.operating_income is not None \
+            and ctype is not CompanyType.FINANCIAL:
+        ni = ni + (f.operating_income - gaap_oi) * (1 - cap.tax)
     # break-even net income (0.0) is a measurement, not a gap
     if ni is not None and f.shares_diluted:
         earn = min(ni, nopat) if (nopat and ni > nopat) else ni
@@ -2002,7 +2012,11 @@ def _roic_fy(op_income, invested, rnd_series, tax, rd_basis):
 def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(f.acquisitions_net, f.revenue)
-    fade, fade_why = fade_ratio(f.fwd_growth_near, f.fwd_growth_far)
+    # the fade is read on the covered years only, like the DCF: FMP's final row is
+    # often one or two analysts (NVDA's read 9.5% beside a 44% consensus)
+    cpath = consensus_growth_path(f)
+    fade, fade_why = (fade_ratio(cpath[0], cpath[-1]) if len(cpath) > 1
+                      else (None, "consensus covers fewer than two years"))
     cons_adj, cons_note = growth_consistency(gr.rev_growth_yoy, gr.actual_3y)
     D = _r_demand(gr.rev_growth_yoy, getattr(f, "peer_median_growth", None), acq_int, fade,
                   notes, acq_label=acq_label, fade_why=fade_why,

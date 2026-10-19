@@ -132,10 +132,14 @@ def test_peer_medians():
     def mk(sec, g):
         ff = FinancialFacts("x"); ff.sector = sec; ff.revenue_annuals = [100 * (1 + g), 100]
         return (ff, None)
-    fetched = {"A": mk("Tech", 0.30), "B": mk("Tech", 0.10), "C": mk("Tech", 0.20), "D": mk("Health", 0.05)}
+    fetched = {"A": mk("Tech", 0.30), "B": mk("Tech", 0.10), "C": mk("Tech", 0.20),
+               "E": mk("Tech", 0.40), "D": mk("Health", 0.05)}
     med = compute_peer_medians(fetched)
-    assert approx(med["A"], 0.15, 1e-6), med
+    assert approx(med["A"], 0.20, 1e-6), med          # peers B, C, E
     assert "D" not in med
+    # two peers are an anecdote: no sector median
+    two = compute_peer_medians({k: fetched[k] for k in ("A", "B", "C")})
+    assert two == {}, two
     print("peer-median (sector cohort) OK")
 
 

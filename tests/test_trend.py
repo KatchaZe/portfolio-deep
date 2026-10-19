@@ -246,7 +246,11 @@ def test_incremental_roic_needs_a_profitable_start():
         if f and f.get("ic_components_dated"):
             rows = {r["key"]: r for r in (trend.build(f) or {}).get("rows", [])}
             r = rows.get("roic")
-            check(not r or r.get("summary_label") != "ทุนใหม่",
+            # the guard is about a window that STARTS at a loss; after the 2026-10-18
+            # refresh HIMS's window starts profitable (2024 ROIC +30.5%), where a
+            # measured return on new capital is correct
+            starts_at_loss = bool(r and r.get("points") and r["points"][0]["v"] <= 0)
+            check(not r or not starts_at_loss or r.get("summary_label") != "ทุนใหม่",
                   "and HIMS no longer shows one on the real stored facts",
                   str(r and (r.get("summary_label"), r.get("summary"))))
 

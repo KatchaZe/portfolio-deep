@@ -460,6 +460,9 @@ def _country_risk(ff, t, cik=None):
         log.warning("%s country risk lookup failed: %s", t, e)
 
 
+MIN_PEERS = 3
+
+
 def compute_peer_medians(fetched):
     """{ticker: median revenue-growth of its SECTOR cohort, excluding itself}, from
     the batch already fetched. Needs >=2 names in the sector; otherwise the ticker
@@ -477,7 +480,8 @@ def compute_peer_medians(fetched):
     for t, (ff, _v) in fetched.items():
         sec = ff.sector or "Unknown"
         peers = [growth[p] for p in by_sector.get(sec, []) if p != t and p in growth]
-        if peers:
+        # one or two names from the user's own list are an anecdote, not a sector
+        if len(peers) >= MIN_PEERS:
             peers.sort()
             n = len(peers)
             out[t] = peers[n // 2] if n % 2 else (peers[n // 2 - 1] + peers[n // 2]) / 2

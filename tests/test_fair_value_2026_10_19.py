@@ -177,5 +177,28 @@ def test_thin_margin_regression_beta_only_when_small():
           str(small.key_metrics["beta"]))
 
 
+def test_same_class_followups():
+    print("7 the same classes, found by the follow-up audit")
+    # (a) PEG/FVP earnings carry the EBIT add-back after tax
+    v_b = E.DeepV82Engine().evaluate(_operating(operating_income=10e9, net_income=5e9), rf=RF)
+    v_n = E.DeepV82Engine().evaluate(_operating(operating_income=10e9, net_income=5e9,
+                                                operating_income_gaap=6e9), rf=RF)
+    check((v_n.fv_fvp or 0) > (v_b.fv_fvp or 0),
+          "an impairment taken out of EBIT is taken out of EPS too", f"{v_b.fv_fvp} -> {v_n.fv_fvp}")
+    # (b) the Demand fade reads covered years only
+    notes = []
+    thin = _facts(rev_growth_path=[[0.25, 41], [0.15, 41], [0.02, 2]], fwd_growth_near=0.15,
+                  fwd_growth_far=0.02)
+    path = E.consensus_growth_path(thin)
+    ratio, _ = E.fade_ratio(path[0], path[-1])
+    check(abs(ratio - 0.15 / 0.25) < 1e-9, "fade on years 1-2, not the 2-analyst row", str(ratio))
+    # (c) reverse DCF and DCF share one margin ceiling
+    tm, label, _ = E.terminal_margin("X", 43.0, 100.0, industry_margin=0.25)
+    check(abs(tm - 0.43) < 1e-9, "a 43% margin in a 25% industry is not cut to 40% in the reverse DCF",
+          label)
+    tm2, _, _ = E.terminal_margin("X", 65.0, 100.0, industry_margin=0.25)
+    check(abs(tm2 - 0.50) < 1e-9, "above 2x industry it is held there, as in the DCF", str(tm2))
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_fair_value_2026_10_19 PASSED")
