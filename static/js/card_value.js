@@ -80,7 +80,7 @@ function upsideCell(x){
 function youngPanel(x){
   const y=x.young_dcf; if(!y)return '';
   const surv=Math.round((y.p_survival||0)*100);
-  return youngHeader(y,surv)+youngBand(y,y.monte_carlo||{},x.price)+youngChain(y,surv)
+  return youngHeader(y,surv)+youngBand(y,y.monte_carlo||{},x.price)+youngChain(y,surv)+youngSurvivalRange(y)
     +(y.promote?'':`<div class="muted" style="font-size:calc(9px*var(--fs));margin-top:2px;color:#92400e">${esc(y.blocked_reason||'')}</div>`)
     +pricedInLine(x);
 }
@@ -114,6 +114,17 @@ function youngBand(y,mc,px){
       ${mark(y.distress_per_share,'#94a3b8','distress floor $'+y.distress_per_share)}</div>
     <div style="display:flex;justify-content:space-between;font-size:calc(9px*var(--fs));color:var(--grey)">
       <span>p10 $${mc.p10}</span><span style="color:#4338ca;font-weight:700">p50 $${mc.p50}</span><span>p90 $${mc.p90}</span></div>`;
+}
+// p_survival is an assumption (a runway table, not his sector failure statistics), so
+// the card shows what the value is if it is 20 points off either way.
+const RUNWAY_TABLE='ตาราง runway → survival: ไม่เผาเงิน 90% · ≥5 ปี 85% · ≥3 ปี 75% · ≥2 ปี 65% · ≥1 ปี 50% · <1 ปี 30% · ไม่มีเงินสด 25% · รายได้ ≥$5B +5 จุด';
+function youngSurvivalRange(y){
+  const p=y.p_survival, gc=y.going_concern_per_share, d=y.distress_per_share||0;
+  if(p==null||gc==null)return '';
+  const at=q=>{q=Math.max(0,Math.min(1,q));return {q:Math.round(q*100),v:(q*gc+(1-q)*d).toFixed(2)}};
+  const lo=at(p-0.2), hi=at(p+0.2);
+  return `<div style="font-size:calc(9px*var(--fs));margin-top:2px;color:#92400e" title="${esc('survival เป็นสมมติฐาน ไม่ใช่ข้อมูลที่ยื่น — Damodaran ใช้สถิติการล้มของ sector ปรับด้วย runway; ที่นี่ใช้ runway อย่างเดียว\n'+RUNWAY_TABLE)}">
+    &#9888; survival ${Math.round(p*100)}% = สมมติฐาน (จาก cash runway) · ถ้า ${lo.q}% → <b>$${lo.v}</b> · ถ้า ${hi.q}% → <b>$${hi.v}</b> &#9432;</div>`;
 }
 // value = p_survival × going concern + (1 − p_survival) × distress
 function youngChain(y,surv){
