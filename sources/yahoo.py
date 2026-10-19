@@ -189,7 +189,8 @@ def _qs_ok(j):
         return False
 
 
-def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.5):
+def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.5,
+                    modules=_QS_MODULES):
     """quoteSummary with retry + host rotation. Yahoo blocks/empties responses
     intermittently (esp. from datacenter IPs); we try query2 then query1, re-warm
     the session each round, and back off between rounds. Returns the last response
@@ -207,7 +208,7 @@ def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.
         for host in ("query2", "query1"):
             try:
                 r = s.get(f"https://{host}.finance.yahoo.com/v10/finance/quoteSummary/{ticker}",
-                          params={"modules": _QS_MODULES, "crumb": crumb}, timeout=timeout)
+                          params={"modules": modules, "crumb": crumb}, timeout=timeout)
                 if r.status_code == 200:
                     j = r.json()
                     if _qs_ok(j):
@@ -347,6 +348,32 @@ def fetch_splits(ticker, requests_mod=None, timeout=15):
         except Exception as e:
             last_err = e
     raise last_err or RuntimeError(f"split history unavailable for {ticker}")
+
+
+MARKET_PE_SANE = (8.0, 60.0)
+
+
+def parse_trailing_pe(qs_json):
+    """summaryDetail.trailingPE of an index ETF (SPY = the S&P 500's trailing P/E).
+    None when absent or outside a sane band: never guess."""
+    try:
+        res = qs_json["quoteSummary"]["result"][0]
+        pe = _raw(res.get("summaryDetail", {}).get("trailingPE"))
+    except (KeyError, IndexError, TypeError):
+        return None
+    if not isinstance(pe, (int, float)) or not MARKET_PE_SANE[0] <= pe <= MARKET_PE_SANE[1]:
+        return None
+    return round(float(pe), 2)
+
+
+def fetch_market_pe(requests_mod=None, timeout=15):
+    """S&P 500 trailing P/E read from SPY (Damodaran S33 overlay). None on failure;
+    the caller keeps the saved MARKET_PE and says so."""
+    try:
+        return parse_trailing_pe(fetch_consensus("SPY", requests_mod=requests_mod, timeout=timeout,
+                                                 retries=2, modules="summaryDetail"))
+    except Exception:
+        return None
 
 
 def fetch_treasury_10y(requests_mod=None, timeout=12):
