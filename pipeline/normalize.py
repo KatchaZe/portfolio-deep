@@ -33,6 +33,7 @@ _MONEY_SERIES_DATED = ("revenue_annuals_dated", "operating_income_annuals_dated"
                        "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
                        "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
                        "acquisitions_annuals_dated", "restructuring_annuals_dated",
+                       "impairment_annuals_dated",
                        "acquired_iprd_annuals_dated")
 
 

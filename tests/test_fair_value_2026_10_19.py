@@ -20,7 +20,8 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from domain.facts import FinancialFacts             # noqa: E402
 from domain.engine import deep_v82 as E, fcff_dcf   # noqa: E402
-from pipeline import one_time, validate             # noqa: E402
+from domain import one_time                          # noqa: E402
+from pipeline import validate                        # noqa: E402
 from sources import fmp, yahoo                      # noqa: E402
 from tests._harness import check, run_suite         # noqa: E402
 
@@ -48,15 +49,18 @@ def _operating(**kw):
 
 
 def test_consensus_path_drops_thin_out_years():
-    print("1 consensus growth path: y1, y2, then years 3-5 only with >= 10 analysts")
-    msft = _facts(rev_growth_path=[[0.178, 39], [0.196, 39], [0.18, 6], [0.301, 2]])
-    check(E.consensus_growth_path(msft) == [0.178, 0.196],
-          "MSFT's 2-analyst 30.1% out-year is not used", str(E.consensus_growth_path(msft)))
-    deep = _facts(rev_growth_path=[[0.20, 30], [0.18, 28], [0.15, 12], [0.12, 9]])
-    check(E.consensus_growth_path(deep) == [0.20, 0.18, 0.15],
-          "a well-covered year 3 is used, the path stops at the first thin year")
-    thin = _facts(rev_growth_path=[[0.40, 2], [0.30, 2]])
-    check(E.consensus_growth_path(thin) == [], "two analysts are an opinion, not a path")
+    print("1 consensus growth path: y1-y2 need 3 analysts; years 3-5 as reported with 10+,")
+    print("  held at or below the year before with fewer (user decision 2026-10-19)")
+    msft = _facts(rev_growth_path=[[0.178, 39], [0.196, 39], [0.2165, 27], [0.1747, 13], [0.3007, 13]])
+    check(E.consensus_growth_path(msft) == [0.178, 0.196, 0.2165, 0.1747, 0.3],
+          "13-analyst out-years are taken as reported, even rising (30.1% capped at 30%)",
+          str(E.consensus_growth_path(msft)))
+    thin = _facts(rev_growth_path=[[0.10, 20], [0.10, 20], [0.20, 6], [0.05, 4], [0.30, 2]])
+    check(E.consensus_growth_path(thin) == [0.10, 0.10, 0.10, 0.05, 0.05],
+          "a thin out-year may slow growth but never re-accelerate it",
+          str(E.consensus_growth_path(thin)))
+    two = _facts(rev_growth_path=[[0.40, 2], [0.30, 2]])
+    check(E.consensus_growth_path(two) == [], "two analysts in year 1 are an opinion, not a path")
     legacy = _facts(fwd_growth_y1=0.10, n_analysts=20, fwd_growth_near=0.08, n_analysts_y2=18)
     check(E.consensus_growth_path(legacy) == [0.10, 0.08],
           "facts stored before the path field still read their y1 / y2")
@@ -79,8 +83,8 @@ def test_dcf_fades_after_the_path():
     check([r["growth"] for r in old["path"]][:5] == [0.2] * 5,
           "callers without a path keep the five flat years (skill parity)")
     m = E.DeepV82Engine().evaluate(_operating(rev_growth_path=[[0.178, 39], [0.196, 39], [0.301, 2]]), rf=RF)
-    check(m.dcf["inputs"]["growth_path"] == [0.178, 0.196],
-          "the engine hands the DCF the covered years only", str(m.dcf["inputs"].get("growth_path")))
+    check(m.dcf["inputs"]["growth_path"] == [0.178, 0.196, 0.196],
+          "the engine hands the DCF the same path", str(m.dcf["inputs"].get("growth_path")))
 
 
 def test_yahoo_path_skips_a_reported_year():
@@ -187,11 +191,12 @@ def test_same_class_followups():
           "an impairment taken out of EBIT is taken out of EPS too", f"{v_b.fv_fvp} -> {v_n.fv_fvp}")
     # (b) the Demand fade reads covered years only
     notes = []
-    thin = _facts(rev_growth_path=[[0.25, 41], [0.15, 41], [0.02, 2]], fwd_growth_near=0.15,
-                  fwd_growth_far=0.02)
+    thin = _facts(rev_growth_path=[[0.25, 41], [0.15, 41], [0.30, 2]], fwd_growth_near=0.15,
+                  fwd_growth_far=0.30)
     path = E.consensus_growth_path(thin)
     ratio, _ = E.fade_ratio(path[0], path[-1])
-    check(abs(ratio - 0.15 / 0.25) < 1e-9, "fade on years 1-2, not the 2-analyst row", str(ratio))
+    check(abs(ratio - 0.15 / 0.25) < 1e-9, "fade read on the path, where the thin 30% is held to 15%",
+          str(ratio))
     # (c) reverse DCF and DCF share one margin ceiling
     tm, label, _ = E.terminal_margin("X", 43.0, 100.0, industry_margin=0.25)
     check(abs(tm - 0.43) < 1e-9, "a 43% margin in a 25% industry is not cut to 40% in the reverse DCF",
@@ -247,6 +252,25 @@ def test_demand_charges_the_growth_year_deal():
     check(acq == 1.28e9 and rev == 2.5e9, "FY2025's $1.28B against FY2025 revenue", f"{acq} / {rev}")
     plain = _facts(acquisitions_net=0.1e9, revenue=3.0e9)
     check(E._acquisitions_for_growth_year(plain) == (0.1e9, 3.0e9), "no annual series: TTM as before")
+
+
+def test_decisions_2026_10_19_round2():
+    print("9 cyclical margin history carries the add-back; own P/E no longer moves P")
+    from domain.one_time import annual_addbacks
+    rev = [("2025-12-31", 100e9), ("2024-12-31", 95e9), ("2023-12-31", 90e9), ("2022-12-31", 85e9),
+           ("2021-12-31", 80e9), ("2020-12-31", 70e9)]
+    oi = [("2025-12-31", 2e9), ("2024-12-31", 9e9), ("2023-12-31", 8e9), ("2022-12-31", 9e9),
+          ("2021-12-31", 7e9), ("2020-12-31", 6e9)]
+    f = _facts(revenue_annuals_dated=rev, operating_income_annuals_dated=oi,
+               impairment_annuals_dated=[("2025-12-31", 6e9)])
+    check(annual_addbacks(f) == {"2025-12-31": 6e9}, "the impairment year gets its add-back")
+    m = E._margin_history(f)
+    check(abs(m[0] - 0.08) < 1e-9 and len(m) == 6, "2025 margin 2% -> 8% before the median", str(m[:2]))
+    lo = E.DeepV82Engine().evaluate(_operating(price=40.0, market_cap=40e9, own_pe_pctile=0.1,
+                                               rev_growth_path=[[0.1, 20], [0.09, 20]]), rf=RF)
+    hi = E.DeepV82Engine().evaluate(_operating(price=40.0, market_cap=40e9, own_pe_pctile=0.9,
+                                               rev_growth_path=[[0.1, 20], [0.09, 20]]), rf=RF)
+    check(lo.P == hi.P, "own 5y P/E percentile 10% vs 90%: same Price score", f"{lo.P} vs {hi.P}")
 
 
 if __name__ == "__main__":

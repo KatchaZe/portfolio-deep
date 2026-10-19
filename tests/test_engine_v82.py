@@ -167,24 +167,22 @@ def test_pe_percentile():
 def test_price_adjustment():
     # REV-7: the Price pillar scores MARGIN OF SAFETY = (Value - Price) / VALUE
     # (Damodaran S4/S12), not upside on price. V=150 / P=100 is a 33% margin, which
-    # is the 15% band (4.0), +0.5 for a cheap own-multiple = 4.5. Under the old
-    # divide-by-price this read 50% and took the top band — the +40% cut was really
-    # only a 28.6% margin, so the pillar leaned generous.
+    # is the 15% band (4.0). The own-multiple adjustment was removed 2026-10-19.
     notes = []
-    s = E._r_price(150, 100, 0.20, notes)
-    assert approx(s, 4.5), s
+    s = E._r_price(150, 100, notes)
+    assert approx(s, 4.0), s
     assert "of value" in notes[0], notes
     notes = []
-    s2 = E._r_price(90, 100, 0.90, notes)
-    assert approx(s2, 2.5), s2
+    s2 = E._r_price(90, 100, notes)
+    assert approx(s2, 3.0), s2
     # pin the denominator: a 40% margin OF VALUE must reach the top band
     notes = []
-    assert approx(E._r_price(100, 60, None, notes), 5.0), notes      # MoS 40.0%
+    assert approx(E._r_price(100, 60, notes), 5.0), notes      # MoS 40.0%
     notes = []
-    assert approx(E._r_price(100, 61, None, notes), 4.0), notes      # MoS 39.0%
+    assert approx(E._r_price(100, 61, notes), 4.0), notes      # MoS 39.0%
     notes = []
-    assert E._r_price(-5, 100, None, notes) is None, "negative fair value must not score"
-    print("price margin-of-safety + own-multiple adjustment OK")
+    assert E._r_price(-5, 100, notes) is None, "negative fair value must not score"
+    print("price margin-of-safety OK")
 
 
 def test_review_2026_08_04_fixes():

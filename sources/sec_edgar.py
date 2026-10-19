@@ -374,7 +374,7 @@ LEASE_LEGS = (("OperatingLeaseLiabilityNoncurrent", "NoncurrentLeaseLiabilities"
 # Charges that are not the cost of running the business this year (Damodaran: normalize
 # EBIT before valuing it). Impairments write down capital already spent, so they are
 # always non-recurring cash-wise; restructuring and acquired IPR&D count only when they
-# do not recur (see pipeline/one_time.py). Tags within a group overlap (PFE files the
+# do not recur (see domain/one_time.py). Tags within a group overlap (PFE files the
 # same 4.94B under two of them), so a group takes its largest TTM, never the sum.
 IMPAIRMENT_TAGS = ("AssetImpairmentCharges", "GoodwillAndIntangibleAssetImpairment",
                    "GoodwillImpairmentLoss", "ImpairmentOfIntangibleAssetsExcludingGoodwill",
@@ -436,6 +436,17 @@ def _ttm_max(x, ladder, at):
     """Largest TTM among the live tags of one group of overlapping concepts."""
     vals = [v for v in (x.ttm(t, p) for t, p in _live_tags(x, ladder, at)) if v]
     return max(vals) if vals else None
+
+
+def _annual_max_dated(x, ladder, at):
+    """Per fiscal-year end, the largest value among the live tags of one group of
+    overlapping concepts (the annual twin of _ttm_max)."""
+    out = {}
+    for t, p in _live_tags(x, ladder, at):
+        for d, v in x.annual_series_dated(t, p):
+            if v and (d not in out or v > out[d]):
+                out[d] = v
+    return [[d, out[d]] for d in sorted(out, reverse=True)]
 
 
 def _annual(x, ladder, at):
@@ -739,6 +750,7 @@ FIELD_LADDERS = {
     "acquisitions_net": (_ttm, ACQUISITION_TAGS),
     "acquisitions_annuals_dated": (_annual_or_ytd_dated, ACQUISITION_TAGS),
     "impairment_ttm": (_ttm_max, IMPAIRMENT_TAGS),
+    "impairment_annuals_dated": (_annual_max_dated, IMPAIRMENT_TAGS),
     "restructuring_ttm": (_ttm_max, RESTRUCTURING_TAGS),
     "restructuring_annuals_dated": (_annual_dated, RESTRUCTURING_TAGS),
     "acquired_iprd_ttm": (_ttm_max, ACQUIRED_IPRD_TAGS),
@@ -1068,7 +1080,7 @@ POPULATED = (
     "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
     "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
     "ic_components_dated",
-    "acquisitions_annuals_dated", "impairment_ttm", "restructuring_ttm",
+    "acquisitions_annuals_dated", "impairment_ttm", "impairment_annuals_dated", "restructuring_ttm",
     "restructuring_annuals_dated", "acquired_iprd_ttm", "acquired_iprd_annuals_dated")
 EBIT_DERIVED = ("operating_income", "operating_income_annuals", "operating_income_quarters")
 QUARTER_FIELDS = ("revenue_quarters", "operating_income_quarters", "eps_quarters")

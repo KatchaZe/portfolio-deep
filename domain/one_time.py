@@ -57,3 +57,20 @@ def normalize_operating_income(ff):
                     + (f" (capped at {MAX_ADDBACK_SHARE:.0%} of revenue)" if capped < total else "")
                     + f" -> margin {oi/rev:.1%} to {(oi+capped)/rev:.1%}")
     return capped
+
+
+def annual_addbacks(f):
+    """{fiscal-year end: add-back} under the TTM rules, per year: that year's
+    impairment always, restructuring and acquired IPR&D only when the series does not
+    recur, the sum capped at MAX_ADDBACK_SHARE of that year's revenue."""
+    rev = {d: v for d, v in (f.revenue_annuals_dated or [])}
+    parts = [dict(f.impairment_annuals_dated or [])]
+    for dated in (f.restructuring_annuals_dated, f.acquired_iprd_annuals_dated):
+        if dated and not _recurs(dated, f.revenue_annuals_dated):
+            parts.append(dict(dated))
+    out = {}
+    for d, r in rev.items():
+        total = sum(max(0.0, p.get(d) or 0.0) for p in parts)
+        if total > 0 and r and r > 0:
+            out[d] = min(total, MAX_ADDBACK_SHARE * r)
+    return out

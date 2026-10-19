@@ -205,6 +205,12 @@ def test_v85_rules_parity():
                  [[0.9, 41], [0.7, 41]], [[0.4, 2]]):
         f = FinancialFacts("X"); f.rev_growth_path = rows
         assert gp.consensus_path(rows) == E.consensus_growth_path(f), rows
+    sub = _load("deep_subscores")
+    if sub is not None:
+        # v8.6: Price is the MoS band only; a P/E low in its own 5y range adds nothing
+        base = {"fair_value_anchor": 150.0, "price": 100.0}
+        own = dict(base, multiple_now=10, multiple_5y_low=10, multiple_5y_high=30)
+        assert sub.price(own)[0] == sub.price(base)[0] == E._r_price(150.0, 100.0, []), sub.price(own)
     rev = [["2025-12-31", 2.5e9], ["2024-12-31", 1.36e9], ["2023-12-31", 1.32e9], ["2022-12-31", 0.65e9]]
     acq = [["2025-12-31", 1.28e9]]
     f = FinancialFacts("X"); f.revenue_annuals_dated = rev; f.acquisitions_annuals_dated = acq

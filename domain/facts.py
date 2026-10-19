@@ -158,8 +158,9 @@ class FinancialFacts:
     cost_of_revenue_annuals_dated: list = field(default_factory=list)
     # M&A cash per fiscal year: tells organic growth from bought growth (CELH +85%)
     acquisitions_annuals_dated: list = field(default_factory=list)
-    # one-time charges inside EBIT (pipeline/one_time.py decides which are added back)
+    # one-time charges inside EBIT (domain/one_time.py decides which are added back)
     restructuring_annuals_dated: list = field(default_factory=list)
+    impairment_annuals_dated: list = field(default_factory=list)
     acquired_iprd_annuals_dated: list = field(default_factory=list)
     # {FY_end: {equity, cash, debt, lt_source}} at the income-statement year-ends —
     # invested capital per year, so ROIC can be a SERIES rather than one snapshot.

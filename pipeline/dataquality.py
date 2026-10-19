@@ -196,7 +196,8 @@ FALLBACK_INVALIDATES = ("revenue_annuals", "revenue_annuals_dated",
                         "cfo_annuals_dated", "capex_annuals_dated", "sbc_annuals_dated",
                         "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
                         "rnd_annuals", "shares_diluted_annuals", "acquisitions_annuals_dated",
-                        "restructuring_annuals_dated", "acquired_iprd_annuals_dated")
+                        "restructuring_annuals_dated", "acquired_iprd_annuals_dated",
+                        "impairment_annuals_dated")
 
 
 def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):

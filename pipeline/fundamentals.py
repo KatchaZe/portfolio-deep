@@ -13,10 +13,10 @@ import os
 
 import config
 from sources import sec_edgar, yahoo, fmp, finnhub, alphavantage, damodaran
-from domain import pricing
+from domain import one_time, pricing
 from domain.facts import FinancialFacts
 from domain.engine import get_engine
-from pipeline import (normalize, validate, one_time, rev_track, consensus, surprise_backfill,
+from pipeline import (normalize, validate, rev_track, consensus, surprise_backfill,
                       dataquality, batch)
 from pipeline.cik import resolve_cik
 import store as store_mod

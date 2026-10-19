@@ -98,6 +98,7 @@ CLOCK = {
     "gross_profit_annuals_dated": FY_DATED, "cost_of_revenue_annuals_dated": FY_DATED,
     "eps_annuals_dated": FY_DATED, "ic_components_dated": FY_DATED,
     "acquisitions_annuals_dated": FY_DATED, "restructuring_annuals_dated": FY_DATED,
+    "impairment_annuals_dated": FY_DATED,
     "acquired_iprd_annuals_dated": FY_DATED,
 
     # --- quarterly -----------------------------------------------------------
@@ -137,6 +138,7 @@ UNIT = {
     "acquisitions_net": MONEY, "impairment_ttm": MONEY, "restructuring_ttm": MONEY,
     "acquired_iprd_ttm": MONEY, "operating_income_gaap": MONEY,
     "acquisitions_annuals_dated": MONEY, "restructuring_annuals_dated": MONEY,
+    "impairment_annuals_dated": MONEY,
     "acquired_iprd_annuals_dated": MONEY, "total_debt": MONEY, "cash": MONEY, "equity": MONEY,
     "total_assets": MONEY, "receivables": MONEY, "inventory": MONEY,
     "accounts_payable": MONEY, "operating_leases": MONEY, "deferred_revenue": MONEY,

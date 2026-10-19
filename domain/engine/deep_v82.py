@@ -946,7 +946,7 @@ def fcf_yield_adj(trend_rows, enterprise_value, wacc_val):
     return adj, f"FCF yield {y*100:.1f}% vs WACC {wacc_val*100:.1f}% ({ratio:.2f}x)"
 
 
-def _r_price(fv_anchor, price, own_pe_pctile, notes, fcf_adj=0.0, fcf_note=None):
+def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None):
     if fv_anchor is None or not price or fv_anchor <= 0:
         # No point fair value: an FCF yield is still a cheapness opinion, scored
         # around neutral because the margin-of-safety half is missing.
@@ -963,11 +963,10 @@ def _r_price(fv_anchor, price, own_pe_pctile, notes, fcf_adj=0.0, fcf_note=None)
     base = _band(mos, [(0.40, 5.0), (0.15, 4.0), (-0.15, 3.0), (-0.40, 2.0), (-1e9, 1.0)])
     notes.append(f"P base(margin-of-safety {mos*100:+.0f}% of value)={base}")
     score = base
-    if own_pe_pctile is not None:
-        adj = 0.5 if own_pe_pctile <= 0.33 else (-0.5 if own_pe_pctile >= 0.67 else 0.0)
-        score += adj; notes.append(f"P own-5y-multiple(pctile {own_pe_pctile*100:.0f}%)={adj}")
-    else:
-        notes.append("P own-5y-multiple adj=skipped(no P/E history)")
+    # The firm's own 5-year P/E range no longer moves P (user decision 2026-10-19):
+    # Damodaran compares a multiple with fundamentals and the sector, not with the firm's
+    # past, and GAAP EPS history (impairments) made acquisitive pharma look cheap. The
+    # percentile is still computed for display.
     if fcf_note:
         score += fcf_adj
         notes.append(f"P FCF-yield({fcf_note})={fcf_adj}")
@@ -1113,7 +1112,17 @@ class DeepV82Engine(DeepEngine):
 # an argument or read off a stage result is invisible to that scanner.
 
 def _margin_history(f):
-    """Operating margin by fiscal year, newest first (None where a year is missing)."""
+    """Operating margin by fiscal year, newest first (None where a year is missing).
+    Years are matched by date and carry the same one-time add-back as TTM EBIT
+    (domain/one_time.annual_addbacks), so a cyclical's normal margin is not set by an
+    impairment year. Without dated series, the bare lists as before."""
+    from domain.one_time import annual_addbacks
+    oid = dict(f.operating_income_annuals_dated or [])
+    revd = sorted(f.revenue_annuals_dated or [], reverse=True)
+    if oid and revd:
+        add = annual_addbacks(f)
+        return [((oid[d] + add.get(d, 0.0)) / r) if (oid.get(d) is not None and r) else None
+                for d, r in revd]
     oia = f.operating_income_annuals or []
     ann = f.revenue_annuals or []
     return [(o / r) if (o is not None and r) else None for o, r in zip(oia, ann)]
@@ -1391,7 +1400,7 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
                           f"({nonop / abs(f.operating_income) * 100:+.0f}% of EBIT) stripped "
                           f"from net income for EPS and earnings quality "
                           f"(core ${ni/1e9:.1f}B vs reported ${f.net_income/1e9:.1f}B)"))
-    # the one-time charges taken out of EBIT (pipeline/one_time) come out of net
+    # the one-time charges taken out of EBIT (domain/one_time) come out of net
     # income too, after tax, or PEG/FVP value PFE on an impairment-laden EPS while the
     # DCF beside them does not
     gaap_oi = getattr(f, "operating_income_gaap", None)
@@ -1611,9 +1620,10 @@ INORGANIC_ACQ_SHARE = 0.10
 
 
 def consensus_growth_path(f):
-    """Consensus revenue growth year by year, as far as coverage allows: [g1, g2, ...].
-    Years 1-2 need PATH_MIN_ANALYSTS_NEAR, years 3-5 PATH_MIN_ANALYSTS_FAR; the path
-    stops at the first year that falls short. [] when there is no usable consensus."""
+    """Consensus revenue growth year by year: [g1, g2, ...], each capped at GROWTH_CAP.
+    Years 1-2 need PATH_MIN_ANALYSTS_NEAR or the path stops there. Years 3-5 with
+    PATH_MIN_ANALYSTS_FAR are taken as reported; with fewer they are held at or below
+    the year before. [] when there is no usable consensus."""
     rows = f.rev_growth_path or []
     if not rows and f.fwd_growth_y1 is not None:     # facts stored before the path field
         rows = [[f.fwd_growth_y1, f.n_analysts or 0]]
@@ -1621,10 +1631,17 @@ def consensus_growth_path(f):
             rows.append([f.fwd_growth_near, f.n_analysts_y2 or 0])
     path = []
     for i, (g, n) in enumerate(rows[:PATH_MAX_YEARS]):
-        need = PATH_MIN_ANALYSTS_NEAR if i < 2 else PATH_MIN_ANALYSTS_FAR
-        if g is None or (n or 0) < need:
+        if g is None:
             break
-        path.append(_clamp(g, -0.05, GROWTH_CAP))
+        g = _clamp(g, -0.05, GROWTH_CAP)
+        if i < 2:
+            if (n or 0) < PATH_MIN_ANALYSTS_NEAR:
+                break
+        elif (n or 0) < PATH_MIN_ANALYSTS_FAR:
+            # a thinly covered out-year may slow growth but never re-accelerate it
+            # (user decision 2026-10-19: >= 10 analysts are taken as reported)
+            g = min(g, path[-1])
+        path.append(g)
     return path
 
 
@@ -1785,7 +1802,7 @@ def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf, ctype=CompanyType.STANDARD):
         _add_flag(f, f"{ctype.value} model unavailable ({type(e).__name__}) - earnings paths used")
     # A primary value far below the price stays the anchor. Charge-laden EBIT, the
     # case the old "below 10% of price -> discard" guard caught, is now normalized
-    # upstream (pipeline/one_time.py); swapping models on a low answer let TSLA's $30
+    # upstream (domain/one_time.py); swapping models on a low answer let TSLA's $30
     # DCF be replaced by an $18 PEG. Damodaran reports the value and the gap.
     if value is not None and f.price and value < 0.1 * f.price:
         _add_flag(f, (f"{method} ${value} is under 10% of the price: the market prices a "
@@ -2060,7 +2077,7 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     # the same EV the WACC weights and the reverse DCF were built from
     ev = (cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)) if cap.mcap else None
     fy_adj, fy_note = (0.0, None) if fin else fcf_yield_adj(trend_rows, ev, cap.wacc)
-    P = _r_price(anchor_value, f.price, getattr(f, "own_pe_pctile", None), notes,
+    P = _r_price(anchor_value, f.price, notes,
                  fcf_adj=fy_adj, fcf_note=fy_note)
     # When the two growth stories disagree, "cheap" is a belief about consensus:
     # cap (never lift) P at NEUTRAL.
