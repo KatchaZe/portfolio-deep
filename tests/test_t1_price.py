@@ -62,5 +62,17 @@ def test_fundamentals_use_t1():
           "chart down: the live quote stays and the card says so")
 
 
+def test_row_carries_the_close_date():
+    print("T1d the card row says which session its price closed on")
+    from pipeline import rows
+    f = {"price": 101.0, "provenance": {"price": "yahoo close 2026-10-16 (T-1)"}}
+    v = {"anchor_value": 120.0}
+    kw = dict(rev_surprises=[], has_new_schema=True, fmp_on=False)
+    r = rows.valuation_row("X", f, v, {"price": 102.0}, {"price_date": "2026-10-16"}, **kw)
+    check(r["price_date"] == "2026-10-16", "momentum price: date from the composite series", str(r["price_date"]))
+    r2 = rows.valuation_row("X", f, v, {}, {}, **kw)
+    check(r2["price_date"] == "2026-10-16", "no momentum: date from the facts' close", str(r2["price_date"]))
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_t1_price PASSED")

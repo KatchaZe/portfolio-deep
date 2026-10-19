@@ -58,7 +58,8 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "ticker": t, "company": f.get("company"), "sector": f.get("sector"),
         "price": price, "change": mom.get("change"),
         # the session the price closed on (T-1 rule); facts' close when momentum is absent
-        "price_date": mom.get("price_date") if mom.get("price") else
+        # the short series carries no date; the composite series cut at the same T-1 bar does
+        "price_date": (mom.get("price_date") or (v2 or {}).get("price_date")) if mom.get("price") else
                       (str(f.get("provenance", {}).get("price", "")).split(" ")[2]
                        if str(f.get("provenance", {}).get("price", "")).startswith("yahoo close ") else None),
         "composite": v.get("composite"), "stars": v.get("stars"),
