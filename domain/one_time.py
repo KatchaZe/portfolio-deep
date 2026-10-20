@@ -17,6 +17,9 @@ RECURRING_YEARS, RECURRING_OF, RECURRING_MIN_SHARE = 3, 4, 0.01
 # a guard on what a mis-tagged concept could do: the add-back never exceeds this share
 # of revenue
 MAX_ADDBACK_SHARE = 0.25
+# the charges were deducted for tax, so the add-back comes back taxed at the marginal
+# rate they saved (Damodaran's US marginal rate, sources.damodaran.MARGINAL_TAX_US)
+ADDBACK_TAX_RATE = 0.25
 
 
 def _recurs(dated, revenue_dated):

@@ -213,8 +213,22 @@ class FinancialFacts:
             self.provenance[name] = source
 
     @property
+    def one_time_addback(self):
+        """What domain/one_time added back to EBIT (0.0 when nothing was)."""
+        if self.operating_income is None or self.operating_income_gaap is None:
+            return 0.0
+        return self.operating_income - self.operating_income_gaap
+
+    @property
     def tax_rate(self):
-        r = effective_tax_rate(self.income_before_tax, self.tax_expense)
+        """Effective rate on the same pre-tax income the EBIT describes. The one-time
+        charges added back to EBIT come back with the tax they saved: CELH's $413M
+        restructuring left an 8.8% rate on an EBIT that no longer carried it."""
+        from domain.one_time import ADDBACK_TAX_RATE
+        ibt, txe, add = self.income_before_tax, self.tax_expense, self.one_time_addback
+        if add and ibt is not None and txe is not None:
+            ibt, txe = ibt + add, txe + add * ADDBACK_TAX_RATE
+        r = effective_tax_rate(ibt, txe)
         return DEFAULT_TAX_RATE if r is None else r
 
     def to_dict(self):

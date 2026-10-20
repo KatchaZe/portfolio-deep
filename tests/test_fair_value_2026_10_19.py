@@ -282,5 +282,23 @@ def test_decisions_2026_10_19_round2():
     check(lo.P == hi.P, "own 5y P/E percentile 10% vs 90%: same Price score", f"{lo.P} vs {hi.P}")
 
 
+def test_addback_carries_its_tax():
+    print("10 a charge added back to EBIT comes back with the tax it saved (CELH, 2026-10-20)")
+    from domain import one_time
+    from sources.damodaran import MARGINAL_TAX_US
+    check(one_time.ADDBACK_TAX_RATE == MARGINAL_TAX_US, "add-back taxed at Damodaran's US marginal rate")
+    kw = dict(revenue=3.047e9, income_before_tax=141.6e6, tax_expense=12.5e6, operating_income=160.3e6)
+    filed = _facts(**kw)
+    check(abs(filed.tax_rate - 12.5 / 141.6) < 1e-9 and filed.one_time_addback == 0.0,
+          "nothing added back: the filed effective rate", str(filed.tax_rate))
+    norm = _facts(**kw, restructuring_ttm=413.7e6,
+                  restructuring_annuals_dated=[("2025-12-31", 327.5e6)],
+                  revenue_annuals_dated=[("2025-12-31", 2.515e9), ("2024-12-31", 1.356e9)])
+    one_time.normalize_operating_income(norm)
+    want = (12.5e6 + 413.7e6 * 0.25) / (141.6e6 + 413.7e6)
+    check(abs(norm.one_time_addback - 413.7e6) < 1 and abs(norm.tax_rate - want) < 1e-9,
+          "$413.7M restructuring back in EBIT: 8.8% -> 20.9%", f"{norm.tax_rate:.4f}")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_fair_value_2026_10_19 PASSED")

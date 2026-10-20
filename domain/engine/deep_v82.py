@@ -1403,10 +1403,9 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
     # the one-time charges taken out of EBIT (domain/one_time) come out of net
     # income too, after tax, or PEG/FVP value PFE on an impairment-laden EPS while the
     # DCF beside them does not
-    gaap_oi = getattr(f, "operating_income_gaap", None)
-    if ni is not None and gaap_oi is not None and f.operating_income is not None \
-            and ctype is not CompanyType.FINANCIAL:
-        ni = ni + (f.operating_income - gaap_oi) * (1 - cap.tax)
+    if ni is not None and f.one_time_addback and ctype is not CompanyType.FINANCIAL:
+        from domain.one_time import ADDBACK_TAX_RATE
+        ni = ni + f.one_time_addback * (1 - ADDBACK_TAX_RATE)
     # break-even net income (0.0) is a measurement, not a gap
     if ni is not None and f.shares_diluted:
         earn = min(ni, nopat) if (nopat and ni > nopat) else ni
