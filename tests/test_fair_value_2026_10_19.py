@@ -298,6 +298,13 @@ def test_addback_carries_its_tax():
     want = (12.5e6 + 413.7e6 * 0.25) / (141.6e6 + 413.7e6)
     check(abs(norm.one_time_addback - 413.7e6) < 1 and abs(norm.tax_rate - want) < 1e-9,
           "$413.7M restructuring back in EBIT: 8.8% -> 20.9%", f"{norm.tax_rate:.4f}")
+    # ... and the capital it was charged against comes back with it
+    f = _operating(operating_income=12e9, operating_income_gaap=10e9)
+    v = E.DeepV82Engine().evaluate(f, rf=RF)
+    ic = 10e9 + 40e9 - 5e9 + 2e9 + (f.operating_leases or 0)
+    want = 12e9 * (1 - f.tax_rate) / ic * 100
+    check(abs(v.key_metrics["roic_pct"] - want) < 0.05,
+          "ROIC = NOPAT / (filed capital + the $2B add-back)", f"{v.key_metrics['roic_pct']} vs {want:.2f}")
 
 
 if __name__ == "__main__":

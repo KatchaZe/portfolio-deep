@@ -1257,7 +1257,13 @@ def _capital(f, rf, notes, ctype=CompanyType.STANDARD):
     # operating lease liability is debt (Damodaran): inside WACC weights, IC and EV
     lease = getattr(f, "operating_leases", None) or 0
     debt_eff = (f.total_debt or 0) + lease
-    ic = debt_eff + (f.equity or 0) - (f.cash or 0)
+    # A charge added back to EBIT as one-time already cut book equity when it was
+    # expensed; capital gets it back too (Damodaran on write-offs), or ROIC counts the
+    # earnings without the capital that earns them. CELH: 41.5% -> 27.1%.
+    ic = debt_eff + (f.equity or 0) - (f.cash or 0) + f.one_time_addback
+    if f.one_time_addback:
+        _add_flag(f, f"one-time add-back ${f.one_time_addback/1e9:.2f}B added to invested "
+                     f"capital as well as EBIT")
     if lease:
         _add_flag(f, f"operating leases ${lease/1e9:.1f}B capitalized into debt+IC (S5)")
     roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
@@ -2000,7 +2006,9 @@ def _roic_delta(f, cap):
     ic_prior = (f.total_debt_prior or 0) + (lease_prior or 0) + f.equity_prior - f.cash_prior
     if not (ic_prior and ic_prior > 0):
         return None
-    roic_fy0 = _roic_fy(op_income=oia[0], invested=cap.ic, rnd_series=f.rnd_annuals,
+    # filed capital beside filed annual EBIT: neither side carries the TTM add-back
+    roic_fy0 = _roic_fy(op_income=oia[0], invested=cap.ic - f.one_time_addback,
+                        rnd_series=f.rnd_annuals,
                         tax=cap.tax, rd_basis=cap.rd)
     roic_fy1 = _roic_fy(op_income=oia[1], invested=ic_prior, rnd_series=(f.rnd_annuals or [])[1:],
                         tax=cap.tax, rd_basis=cap.rd)
