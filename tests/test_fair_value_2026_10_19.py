@@ -307,5 +307,23 @@ def test_addback_carries_its_tax():
           "ROIC = NOPAT / (filed capital + the $2B add-back)", f"{v.key_metrics['roic_pct']} vs {want:.2f}")
 
 
+def test_ref_tab_matches_round6_rules():
+    print("11 the Ref / How-to text describes the rules the code runs (2026-10-20)")
+    from pathlib import Path
+    from pipeline import market_valuation as mv
+    from sources.damodaran_snapshot import ERP_HISTORY
+    root = Path(__file__).resolve().parent.parent
+    html = (root / "index.html").read_text(encoding="utf-8")
+    lo, hi, _, y0, y1 = mv.erp_bands(ERP_HISTORY)
+    check(f"{lo*100:.2f}%" in html and f"{hi*100:.2f}%" in html and f"{y0}–{y1}" in html,
+          f"Ref quotes the ERP band the overlay uses ({lo*100:.2f}% / {hi*100:.2f}%, {y0}-{y1})")
+    check("4.0–5.5%" not in html, "the old fixed 4.0-5.5% band is gone")
+    check("ตำแหน่ง P/E ตัวเองใน 5 ปี" not in html, "P is not described with the removed own-P/E adjustment")
+    check("ถ้าน้อยกว่าให้ไม่เกินปีก่อนหน้า" in html, "the thin out-year rule is described")
+    check("multpl" not in html, "no instruction to type the S&P P/E by hand each month")
+    js = (root / "static/js/assumptions.js").read_text(encoding="utf-8")
+    check("market_pe_live" in js, "the Assumptions line shows the P/E the overlay used")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_fair_value_2026_10_19 PASSED")

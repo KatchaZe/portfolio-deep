@@ -6,13 +6,22 @@ async function loadAssumptions(){
     const a=await (await fetch('/api/assumptions')).json();
     window._assume=a;   // renderAssumptions compares the Run Daily snapshot with these live values
     const src=(a.source||{});
-    el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':src.erp==='damodaran-live'?'Damodaran web':'default'})`+
-      ` · PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'})`+
-      (a.erp_stale?` <span style="color:#b45309;font-weight:700">⚑ ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');
+    assumeLine();
     const e=document.getElementById('erpIn'), p=document.getElementById('peIn');
     if(e&&!e.value)e.placeholder=`ERP % (${a.erp_pct})`;
-    if(p&&!p.value)p.placeholder=`S&P PE (${a.market_pe})`;
+    if(p&&!p.value)p.placeholder=`S&P PE สำรอง (${a.market_pe})`;
   }catch(err){el.textContent='โหลดค่า assumptions ไม่ได้';}
+}
+// The P/E the overlay used comes from the last Run Daily: SPY when Yahoo answered,
+// the saved value only when it did not. The line shows that one, not the saved one.
+function assumeLine(){
+  const el=document.getElementById('assumeMsg'), a=window._assume; if(!el||!a)return;
+  const src=a.source||{}, v=(((window.__last||{}).market)||{}).valuation||{};
+  const pe=v.market_pe_live
+    ?`PE <b>${v.market_pe}</b> (SPY live ${esc(v.market_pe_as_of||'')}; ค่าสำรอง ${a.market_pe})`
+    :`PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'}${v.market_pe!=null?' · ดึง SPY ไม่ได้':''})`;
+  el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':src.erp==='damodaran-live'?'Damodaran web':'default'}) · `+pe+
+    (a.erp_stale?` <span style="color:#b45309;font-weight:700">⚑ ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');
 }
 async function saveAssumptions(){
   const e=document.getElementById('erpIn').value, p=document.getElementById('peIn').value;
@@ -36,6 +45,7 @@ async function saveAssumptions(){
 function monthsSince(a){if(!a)return null;const m=String(a).match(/^(\d{4})-(\d{2})/);if(!m)return null;const n=new Date();return (n.getFullYear()-(+m[1]))*12+(n.getMonth()+1-(+m[2]));}
 // S32/33: the whole market overlay rests on the manual ERP / P/E, so stale values get a banner
 function renderAssumptions(mk){
+  assumeLine();
   const el=document.getElementById('assumeBanner'); if(!el)return;
   const v=(mk||{}).valuation||{};
   const em=monthsSince(v.erp_as_of), pm=monthsSince(v.market_pe_as_of), lim=v.erp_stale_months||3;
@@ -51,7 +61,7 @@ function renderAssumptions(mk){
   el.innerHTML='&#9888; <b>สมมติฐานหมดอายุ:</b> '+bad.join(' · ')
     +(snapshotStale
       ?` — <b>ค่าปัจจุบันในระบบอัพเดตแล้ว (ERP ${cur.erp_pct}% · ${esc(cur.erp_as_of)})</b> — แผงนี้เป็น snapshot จาก Run Daily ครั้งก่อน &middot; กด <b>Run Daily</b> เพื่อคำนวณ market overlay ใหม่`
-      :' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดตที่ฟอร์ม <b>&#128200; Assumptions</b> ด้านบน (เอาค่าจากหน้า Damodaran &amp; multpl.com รายเดือน — ดูวิธีในแท็บ How to ข้อ 0) แล้วกด <b>Run Daily</b> + <b>Run Fundamental Refresh</b>');
+      :' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดตที่ฟอร์ม <b>&#128200; Assumptions</b> ด้านบน (ค่าสำรองเมื่อดึงอัตโนมัติไม่ได้ — ดูวิธีในแท็บ How to ข้อ 0) แล้วกด <b>Run Daily</b> + <b>Run Fundamental Refresh</b>');
 }
 
 // Revenue mix (country risk premium): auto from the latest 10-K on Refresh, or typed here.
