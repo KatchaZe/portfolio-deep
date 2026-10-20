@@ -211,6 +211,16 @@ def test_v85_rules_parity():
         base = {"fair_value_anchor": 150.0, "price": 100.0}
         own = dict(base, multiple_now=10, multiple_5y_low=10, multiple_5y_high=30)
         assert sub.price(own)[0] == sub.price(base)[0] == E._r_price(150.0, 100.0, []), sub.price(own)
+    # v8.7: the add-back's tax and capital, CELH 2026-10
+    out = gp.one_time_addback(revenue=3.047e9, ebit=160.3e6, restructuring=413.7e6,
+                              restructuring_years=[327.5e6], revenue_years=[2.515e9],
+                              income_before_tax=141.6e6, tax_expense=12.5e6)
+    if "tax_rate_normalized" in out:
+        f = FinancialFacts("CELH")
+        f.income_before_tax, f.tax_expense = 141.6e6, 12.5e6
+        f.operating_income, f.operating_income_gaap = 160.3e6 + out["addback"], 160.3e6
+        assert abs(out["tax_rate_normalized"] - round(f.tax_rate, 4)) < 1e-9, (out, f.tax_rate)
+        assert out["invested_capital_addback"] == f.one_time_addback
     rev = [["2025-12-31", 2.5e9], ["2024-12-31", 1.36e9], ["2023-12-31", 1.32e9], ["2022-12-31", 0.65e9]]
     acq = [["2025-12-31", 1.28e9]]
     f = FinancialFacts("X"); f.revenue_annuals_dated = rev; f.acquisitions_annuals_dated = acq
