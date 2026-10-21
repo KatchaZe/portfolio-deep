@@ -115,5 +115,32 @@ def test_young_dcf_fades_wacc_and_holds_s2c():
     check(Y.going_concern(d) == Y.going_concern(dict(d, wacc_stable=None)), "no stable WACC given: unchanged")
 
 
+def _elv(**kw):
+    base = dict(price=430.0, shares_diluted=219e6, market_cap=93e9, revenue=201e9,
+                operating_income=5.6e9, revenue_annuals=[199e9, 177e9, 171e9, 156e9, 138e9],
+                revenue_annuals_dated=[["2025-12-31", 199e9], ["2024-12-31", 177e9],
+                                       ["2023-12-31", 171e9], ["2022-12-31", 156e9],
+                                       ["2021-12-31", 138e9]],
+                operating_income_annuals_dated=[["2025-12-31", 7.2e9], ["2024-12-31", 8.6e9],
+                                                ["2023-12-31", 8.9e9], ["2022-12-31", 8.1e9],
+                                                ["2021-12-31", 7.6e9]],
+                cash=10e9, total_debt=31e9, equity=42e9, income_before_tax=5.9e9,
+                tax_expense=1.0e9, capex=1.3e9, dep_amort=1.4e9, interest_expense=1.4e9,
+                rev_growth_path=[[0.01, 12], [0.02, 11]], fiscal_year="2025-12-31")
+    base.update(kw)
+    return _facts("ELVX", **base)
+
+
+def test_trough_margin_reverts_to_five_year_median():
+    print("8 DCF target margin: a trough TTM margin reverts to the 5-year median (ELV)")
+    v = E.DeepV82Engine().evaluate(_elv(), rf=RF)
+    tgt = v.dcf["inputs"]["margin_target"]
+    check(tgt > 0.04, f"target {tgt:.1%} is the 5.2% median, not today's 2.8%", str(v.dcf.get("sources")))
+    check(any("reverts to the 5-year median" in x for x in v.flags), "the reversion is flagged")
+    hi = E.DeepV82Engine().evaluate(_elv(operating_income=12e9), rf=RF)
+    check(abs(hi.dcf["inputs"]["margin_target"] - hi.dcf["inputs"]["margin_now"]) < 1e-9,
+          "a margin ABOVE its median keeps its own (no forced reversion down)")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")

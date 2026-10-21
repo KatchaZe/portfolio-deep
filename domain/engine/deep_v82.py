@@ -1770,6 +1770,19 @@ def _lease_ebit_addback(f, cap, rf):
     return cap.lease * (cap.kd_pre if cap.kd_pre else rf + DEFAULT_KD_SPREAD)
 
 
+NORMAL_MARGIN_YEARS, NORMAL_MARGIN_MIN_YEARS = 5, 3
+
+
+def _normal_margin(f):
+    """Median operating margin of the last five fiscal years (one-time add-backs
+    applied, _margin_history), or None with fewer than three. Damodaran sets the
+    target margin from the firm's sustainable margin, not one year: on TTM alone the
+    2026 managed-care trough was valued forever (ELV 2.8% vs a 5.2% median)."""
+    import statistics
+    hist = [m for m in _margin_history(f)[:NORMAL_MARGIN_YEARS] if m is not None]
+    return statistics.median(hist) if len(hist) >= NORMAL_MARGIN_MIN_YEARS else None
+
+
 def _dcf_target_margin(f, m_now):
     """Where today's margin goes in the FCFF DCF. A barely profitable firm (under 5%)
     converges on its industry's margin; any other keeps its own, limited only at twice
@@ -1806,6 +1819,16 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         if m_now <= 0:
             return None
         target, t_label = _dcf_target_margin(f, m_now)
+        norm = _normal_margin(f)
+        if norm is not None and norm + m_adj > target:
+            hi = max(TERMINAL_MARGIN_CAP, 2 * f.industry_margin) if (
+                getattr(f, "industry_margin", None) or 0) > 0 else None
+            target = min(norm + m_adj, hi) if hi else norm + m_adj
+            t_label = (f"5y median {norm*100:.1f}% (today's {m_now*100:.1f}% is below the "
+                       f"firm's own normal)")
+            _add_flag(f, (f"margin target: today's {m_now*100:.1f}% reverts to the 5-year "
+                          f"median {target*100:.1f}% over 5y - a trough year is not the "
+                          f"firm's steady state"))
     g_path, g_src, g_basis = _dcf_revenue_growth(f, gr)
     s2c, s2c_src = _dcf_sales_to_capital(f, cap)
     shares = _quote_shares(f, cap)
