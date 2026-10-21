@@ -81,7 +81,7 @@ function youngPanel(x){
   const y=x.young_dcf; if(!y)return '';
   const surv=Math.round((y.p_survival||0)*100);
   return youngHeader(y,surv)+youngBand(y,y.monte_carlo||{},x.price)+youngChain(y,surv)+youngSurvivalRange(y)
-    +(y.promote?'':`<div class="muted" style="font-size:calc(9px*var(--fs));margin-top:2px;color:#92400e">${esc(y.blocked_reason||'')}</div>`)
+    +((!y.promote||y.uncertain)?`<div class="muted" style="font-size:calc(9px*var(--fs));margin-top:2px;color:#92400e">${y.promote?'ใช้เป็น FV หลักแต่ไม่แน่นอน (P ไม่เกินกลาง): ':''}${esc(y.blocked_reason||'')}</div>`:'')
     +pricedInLine(x);
 }
 function youngHeader(y,surv){
@@ -96,7 +96,7 @@ function youngHeader(y,surv){
   return `<div style="display:flex;align-items:center;gap:6px;margin:9px 0 1px">
     <span style="${CAPS_LABEL}">Pre-profit forward value (S20)</span>
     <span title="${esc(tipInputs)}" style="cursor:help;font-size:calc(9px*var(--fs));font-weight:700;background:#eef2ff;color:#3730a3;border-radius:4px;padding:1px 6px">survival ${surv}% &#9432;</span>
-    ${y.promote?'':`<span style="font-size:calc(9px*var(--fs));font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px" title="${esc('ยังไม่ใช้เป็น Fair Value หลัก: '+(y.blocked_reason||''))}">ข้อมูลเสริม &#9432;</span>`}</div>`;
+    ${y.promote?(y.uncertain?`<span style="font-size:calc(9px*var(--fs));font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px" title="${esc('Fair Value หลักแต่ช่วงกว้าง/ติดลบ — คะแนน Price ไม่เกินกลาง: '+(y.blocked_reason||''))}">ไม่แน่นอน &#9432;</span>`:''):`<span style="font-size:calc(9px*var(--fs));font-weight:700;background:#fef3c7;color:#92400e;border-radius:4px;padding:1px 6px" title="${esc('ยังไม่ใช้เป็น Fair Value หลัก: '+(y.blocked_reason||''))}">ข้อมูลเสริม &#9432;</span>`}</div>`;
 }
 // distress (floor) -> p10 -> p50 -> p90 -> going concern (ceiling), with the price marked
 function youngBand(y,mc,px){

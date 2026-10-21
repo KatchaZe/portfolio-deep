@@ -118,10 +118,11 @@ def test_band_gate_promotes_only_when_tight():
     v2 = eng.evaluate(FinancialFacts("WIDECO", **wide), rf=RF)
     y2 = v2.young_dcf
     assert y2, "the model should still RUN, it just should not anchor"
-    assert y2["promote"] is False and y2["blocked_reason"], y2
-    assert v2.anchor_method == "Terminal-Anchored Reverse DCF", v2.anchor_method
-    assert v2.anchor_value is None
-    assert any("informational only" in f for f in v2.flags), v2.flags
+    # round 8 (2026-10-21, v8.6): a wide or loss-making band still anchors, flagged
+    assert y2["promote"] is True and y2["uncertain"] and y2["blocked_reason"], y2
+    assert v2.anchor_method.startswith("Young-Company"), v2.anchor_method
+    assert v2.anchor_value is not None and (v2.P is None or v2.P <= 2.5), (v2.anchor_value, v2.P)
+    assert any("anchor but uncertain" in f for f in v2.flags), v2.flags
     print("band gate OK (promote at %.2fx; blocked: %s)" % (y["band_ratio"], y2["blocked_reason"]))
 
 
@@ -184,10 +185,11 @@ def test_underwater_equity_never_anchors():
     v = eng.evaluate(FinancialFacts("SUNKCO", **sunk), rf=RF)
     y = v.young_dcf
     assert y, "the model must still RUN and still be shown — it just may not anchor"
-    assert y["promote"] is False, y
+    # round 8 (v8.6): it anchors at the failure-adjusted value, marked uncertain
+    assert y["promote"] is True and y["uncertain"], y
     assert "below its net debt" in y["blocked_reason"], y["blocked_reason"]
-    assert v.anchor_method == "Terminal-Anchored Reverse DCF", v.anchor_method
-    assert v.anchor_value is None
+    assert v.anchor_method.startswith("Young-Company"), v.anchor_method
+    assert v.P is None or v.P <= 2.5      # a $0 p50 is "worth nothing", not cheap
     # nothing the card renders may be negative any more
     for k in ("going_concern_per_share", "distress_per_share", "failure_adjusted_per_share"):
         assert y[k] >= 0, (k, y[k])

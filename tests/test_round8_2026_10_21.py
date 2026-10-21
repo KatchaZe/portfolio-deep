@@ -99,5 +99,21 @@ def test_pfe_cash_reads_other_short_term_investments():
           "the balance-sheet total ranks ahead of its AFS-debt component")
 
 
+def test_young_dcf_fades_wacc_and_holds_s2c():
+    print("7 young DCF: WACC fades to stable, terminal at stable WACC + marginal tax, S2C held to industry")
+    from domain.engine import young_dcf as Y
+    d = dict(current_revenue=2.58e9, g_high=0.37, g_stable=0.0513, horizon=10,
+             current_margin=-0.06, target_margin=0.147, sales_to_capital=2.5, tax=0.131,
+             wacc=0.136, roic_stable=0.15, net_debt=0.7e9, shares=230e6)
+    flat = Y.going_concern(d)["going_concern_per_share"]
+    faded = Y.going_concern(dict(d, wacc_stable=0.0936))["going_concern_per_share"]
+    check(faded > 2 * flat, f"HIMS-like: fading 13.6% -> 9.4% lifts going concern ${flat:.1f} -> ${faded:.1f}")
+    taxed = Y.going_concern(dict(d, wacc_stable=0.0936, tax_terminal=0.25))["going_concern_per_share"]
+    check(taxed < faded, "the terminal year pays the marginal 25%, not a loss year's 13%")
+    s2c, label = Y._held_to_industry(0.59, "revenue / invested capital 0.59", 2.74)
+    check(abs(s2c - 1.37) < 1e-9 and "held to 1.37" in label, "RKLB 0.59 held to 0.5x industry 2.74", label)
+    check(Y.going_concern(d) == Y.going_concern(dict(d, wacc_stable=None)), "no stable WACC given: unchanged")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")

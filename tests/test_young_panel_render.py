@@ -82,7 +82,8 @@ def test_panel_renders():
     blocked = _row(ticker="WIDECO", facts=dict(
         revenue=0.35e9, cash=0.30e9, cfo=-0.40e9, operating_income=-0.45e9,
         total_assets=0.5e9, equity=0.30e9))
-    assert blocked["young_dcf"]["promote"] is False, "fixture should be blocked"
+    # round 8 (v8.6): a wide band anchors marked uncertain; the panel still says why
+    assert blocked["young_dcf"]["uncertain"] is True, "fixture should be uncertain"
     profitable = _row(ticker="PROFITCO", young_dcf=None, anchor_value=160.0,
                       upside_pct=14.3, anchor_method="Fundamental PEG")
 
@@ -117,9 +118,8 @@ console.log(JSON.stringify(out));
     assert "YoungDCF" in p["anchor"], p["anchor"]
 
     b = out["blocked"]
-    assert "ข้อมูลเสริม" in b["panel"], "a blocked value MUST say it is not the anchor"
+    assert "ไม่แน่นอน" in b["panel"], "an uncertain anchor MUST say so"
     assert blocked["young_dcf"]["blocked_reason"][:30] in b["panel"]
-    assert "ตีมูลค่าไม่ได้" in b["upside"], b["upside"]
 
     assert out["profitable"]["panel"] == "", "profitable names get no S20 panel"
 

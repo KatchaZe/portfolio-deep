@@ -135,12 +135,19 @@ def going_concern(d):
     n = int(d.get("horizon", 10))
     cur_m, tgt_m = d["current_margin"], d["target_margin"]
     s2c, tax, wacc = d["sales_to_capital"], d["tax"], d["wacc"]
+    # Damodaran: a young firm's cost of capital moves toward a mature firm's as it
+    # grows into its margin, and the terminal value is a mature firm's. Years 1-5 at
+    # today's WACC, a straight line to the stable WACC over years 6-10, and the
+    # perpetuity at the stable rate (the FCFF DCF already ran this way; this leg held
+    # RKLB's 16.5% for all ten years AND the terminal). Absent: today's WACC throughout.
+    wacc_st = d.get("wacc_stable") or wacc
+    tax_term = d.get("tax_terminal", tax)
     roic_st = d.get("roic_stable", 0.15)
-    if wacc <= g_st or not s2c or s2c <= 0:
+    if wacc_st <= g_st or wacc <= g_st or not s2c or s2c <= 0:
         return None
     use_nol = d.get("use_nol", True)
     nol = float(d.get("nol_initial", 0.0))
-    pv_fcff, rev_prev, rows = 0.0, rev, []
+    pv_fcff, rev_prev, rows, disc = 0.0, rev, [], 1.0
     for t in range(1, n + 1):
         g_t = g_h + (g_st - g_h) * ((t - 1) / (n - 1)) if n > 1 else g_st
         m_t = cur_m + (tgt_m - cur_m) * (t / n)
@@ -156,14 +163,17 @@ def going_concern(d):
             nopat = ebit - tax * (ebit - shield)
         reinv = (rev_t - rev_prev) / s2c
         fcff = nopat - reinv
-        pv_fcff += fcff / (1 + wacc) ** t
+        half = n // 2
+        r_t = wacc if t <= half else wacc + (wacc_st - wacc) * (t - half) / (n - half)
+        disc *= (1 + r_t)
+        pv_fcff += fcff / disc
         rows.append({"yr": t, "g_pct": round(g_t * 100, 1), "margin_pct": round(m_t * 100, 1),
                      "revenue": round(rev_t, 0), "fcff": round(fcff, 0)})
         rev_prev = rev_t
     rev_term = rev_prev * (1 + g_st)
-    nopat_term = rev_term * tgt_m * (1 - tax)
+    nopat_term = rev_term * tgt_m * (1 - tax_term)
     fcff_term = nopat_term * (1 - min(0.9, g_st / roic_st))
-    pv_tv = (fcff_term / (wacc - g_st)) / (1 + wacc) ** n
+    pv_tv = (fcff_term / (wacc_st - g_st)) / disc
     firm = pv_fcff + pv_tv
     equity = firm - d.get("net_debt", 0.0)
     shares = d["shares"] * (1 + d.get("annual_dilution", 0.0) or 0.0) ** n
@@ -225,9 +235,23 @@ def monte_carlo(d, n_sims=MC_SIMS, seed=MC_SEED, margin_span=MC_MARGIN_SPAN_ASSU
             "p90": round(pct(0.90), 2), "mean": round(statistics.mean(vals), 2)}
 
 
+def _held_to_industry(s2c, label, industry):
+    """The firm's own sales-to-capital held inside [0.5x, 2x] its industry's, the
+    band the FCFF DCF uses. A young firm's capital base is not its marginal one: RKLB
+    turns $0.59 of revenue per dollar today against its industry's $2.74."""
+    if not industry or industry <= 0 or s2c is None:
+        return s2c, label
+    lo, hi = 0.5 * industry, 2.0 * industry
+    held = max(lo, min(hi, s2c))
+    if abs(held - s2c) > 1e-9:
+        return held, f"{label} held to {held:.2f} (industry {industry:.2f} x0.5-2)"
+    return s2c, label
+
+
 def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
              target_margin, target_margin_label, annual_dilution, fcff,
-             growth_fallback, target_margin_anchored=False):
+             growth_fallback, target_margin_anchored=False, wacc_stable=None,
+             tax_terminal=None, industry_s2c=None, growth_rows=None):
     """Value a pre-profit company from a FinancialFacts. Returns a dict ready to
     hang off the Valuation, or None when the inputs cannot support a valuation.
 
@@ -241,11 +265,12 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
     s2c, s2c_label = sales_to_capital(f.revenue, invested_capital, f.total_assets, f.cash)
     if not s2c:
         return None
+    s2c, s2c_label = _held_to_industry(s2c, s2c_label, industry_s2c)
 
     # growth: consensus first (the reference is explicit that g_high must not be
     # hand-picked), then the engine's own long-term input, then nothing.
     # next fiscal year against the last actual one; fwd_growth_near is the year after
-    rows = getattr(f, "rev_growth_path", None) or []
+    rows = growth_rows if growth_rows is not None else (getattr(f, "rev_growth_path", None) or [])
     g_high, g_src = ((rows[0][0], "consensus next-FY revenue") if rows else
                      (f.fwd_growth_y1, "consensus next-FY revenue") if f.fwd_growth_y1 is not None else
                      (f.fwd_growth_near, "fmp/estimates year-2 revenue"))
@@ -266,6 +291,8 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
     d = {"current_revenue": f.revenue, "g_high": g_high, "g_stable": rf, "horizon": 10,
          "current_margin": cur_margin, "target_margin": target_margin,
          "sales_to_capital": s2c, "tax": tax, "wacc": wacc, "roic_stable": roic_term,
+         "wacc_stable": wacc_stable or wacc,
+         "tax_terminal": tax if tax_terminal is None else tax_terminal,
          "net_debt": (debt_eff or 0) - (f.cash or 0), "shares": f.shares_diluted,
          # The margins are GAAP, so stock-based pay is already an expense in every
          # projected year. Growing the share count as well charged it twice (-39% at
@@ -311,7 +338,13 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
         if band_ratio >= BAND_MAX_RATIO:
             blocked = (f"value band ${mc['p10']}-${mc['p90']} spans {band_ratio}x - the "
                        f"assumptions, not the company, are driving the answer")
-    promote = blocked is None
+    # v8.6 (project instructions): the young-company DCF IS the primary value for a
+    # pre-profit firm. The old gate (p90/p10 < 4 on a +/-10pp sample of an ASSUMED
+    # margin) was close to unpassable, so RKLB and HIMS never had a fair value at all.
+    # Every condition above is still reported, and it now caps the Price pillar at
+    # neutral (`uncertain`) instead of withholding the number.
+    promote = mc is not None
+    uncertain = blocked is not None
 
     return {
         "going_concern_per_share": round(gc["going_concern_per_share"], 2),
@@ -321,6 +354,7 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
         "monte_carlo": mc,
         "band_ratio": band_ratio,
         "promote": promote,
+        "uncertain": uncertain,
         "blocked_reason": blocked,
         "terminal_share_of_value_pct": (round(gc["pv_terminal"] / gc["firm_value"] * 100, 1)
                                         if gc["firm_value"] else None),

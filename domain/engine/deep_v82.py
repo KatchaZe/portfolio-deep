@@ -1071,7 +1071,9 @@ class DeepV82Engine(DeepEngine):
         anc = _anchor(f, cap, fcff, gr, dil.rate, pv, pi, rf, ctype)
         range_low, range_high, fv_disagreement = _fv_range(f, anc)
         ex = _execution_inputs(f, cap, acq, gr, notes, ctype)
-        scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype)
+        scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype,
+                          young_uncertain=bool((anc.ydcf or {}).get("uncertain"))
+                          and anc.method.startswith("Young-Company"))
         comp, reco = _overall(f, scores, notes)
 
         # EVA on ONE basis: the measured return on the capital it was measured on
@@ -1921,7 +1923,10 @@ def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf):
             f, rf=rf, wacc=cap.wacc, roic_term=gr.roic_term, invested_capital=cap.ic,
             debt_eff=cap.debt_eff, tax=cap.tax, target_margin=pi.tmargin,
             target_margin_label=pi.tm_label, annual_dilution=dil_rate, fcff=fcff,
-            growth_fallback=f.growth_lt, target_margin_anchored=pi.tm_anchored)
+            growth_fallback=f.growth_lt, target_margin_anchored=pi.tm_anchored,
+            wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), tax_terminal=_MARGINAL_TAX,
+            industry_s2c=getattr(f, "industry_sales_to_capital", None),
+            growth_rows=ntm_rebase(f, f.rev_growth_path or []))
     except Exception as e:          # a young-company model must never kill a row
         _add_flag(f, f"young-company DCF unavailable ({type(e).__name__})")
     if ydcf and ydcf.get("promote"):
@@ -1931,6 +1936,10 @@ def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf):
             f"pre-profit valued forward (S20): p50 ${value} "
             f"[p10 ${mc['p10']} - p90 ${mc['p90']}], "
             f"survival {ydcf['p_survival']*100:.0f}%, distress ${ydcf['distress_per_share']}"))
+        if ydcf.get("uncertain"):
+            _add_flag(f, (f"young-company DCF is the anchor but uncertain - "
+                          f"{ydcf.get('blocked_reason')}; Price capped at neutral "
+                          f"{NEUTRAL_SCORE}"))
         return "Young-Company DCF (failure-adjusted)", value, ydcf
     if ydcf:
         _add_flag(f, "young-company DCF is informational only: "
@@ -2111,7 +2120,8 @@ def _acquisitions_for_growth_year(f):
     return max(fy_acq, ttm), rev[0][1]
 
 
-def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD):
+def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD,
+             young_uncertain=False):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(*_acquisitions_for_growth_year(f))
     # the fade is read on the covered years only, the same path the DCF runs
@@ -2154,6 +2164,11 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     if pv.growth_unreconciled and P is not None and P > NEUTRAL_SCORE:
         notes.append(f"P growth-unreconciled(consensus vs realised FV {pv.growth_fv_x}x)"
                      f"={NEUTRAL_SCORE - P:+.2f}")
+        P = NEUTRAL_SCORE
+    # A young-company value with a wide or loss-making band anchors (v8.6) but cannot
+    # call the stock cheap.
+    if young_uncertain and P is not None and P > NEUTRAL_SCORE:
+        notes.append(f"P young-DCF uncertain={NEUTRAL_SCORE - P:+.2f}")
         P = NEUTRAL_SCORE
     # Growth read off the firm's own past is the weakest forecast there is (Damodaran);
     # without an analyst path the value can say "fair", not "cheap".
