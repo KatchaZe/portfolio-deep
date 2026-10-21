@@ -52,8 +52,9 @@ def test_consensus_path_drops_thin_out_years():
     print("1 consensus growth path: y1-y2 need 3 analysts; years 3-5 as reported with 10+,")
     print("  held at or below the year before with fewer (user decision 2026-10-19)")
     msft = _facts(rev_growth_path=[[0.178, 39], [0.196, 39], [0.2165, 27], [0.1747, 13], [0.3007, 13]])
-    check(E.consensus_growth_path(msft) == [0.178, 0.196, 0.2165, 0.1747, 0.3],
-          "13-analyst out-years are taken as reported, even rising (30.1% capped at 30%)",
+    # round 8 (2026-10-21): a >10pp re-acceleration is held (tests.test_round8_2026_10_21 #2)
+    check(E.consensus_growth_path(msft) == [0.178, 0.196, 0.2165, 0.1747, 0.1747],
+          "13-analyst out-years are taken as reported, except a >10pp jump (30.1% held at 17.5%)",
           str(E.consensus_growth_path(msft)))
     thin = _facts(rev_growth_path=[[0.10, 20], [0.10, 20], [0.20, 6], [0.05, 4], [0.30, 2]])
     check(E.consensus_growth_path(thin) == [0.10, 0.10, 0.10, 0.05, 0.05],

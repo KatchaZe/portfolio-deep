@@ -1619,16 +1619,22 @@ def _dcf_sales_to_capital(f, cap):
 # year 2 with the LAST row whatever its coverage (MSFT's year-5 30.1% held its DCF
 # growth at 24.9% for five years).
 PATH_MIN_ANALYSTS_NEAR, PATH_MIN_ANALYSTS_FAR, PATH_MAX_YEARS = 3, 10, 5
+# An out-year (3-5) that re-accelerates by more than this over the year before is a
+# provider artefact, not a forecast: FMP's TSLA FY2029 row read +54% after +19% (the
+# quarterly sum is about +15%), MSFT's FY2031 +30% after +17%. Held at the year before.
+PATH_MAX_REACCEL = 0.10
 # a fiscal year whose M&A spend exceeds this share of the prior year's revenue bought
 # its growth; it is left out of the organic rate
 INORGANIC_ACQ_SHARE = 0.10
 
 
-def consensus_growth_path(f):
+def consensus_growth_path(f, held=None):
     """Consensus revenue growth year by year: [g1, g2, ...], each capped at GROWTH_CAP.
     Years 1-2 need PATH_MIN_ANALYSTS_NEAR or the path stops there. Years 3-5 with
     PATH_MIN_ANALYSTS_FAR are taken as reported; with fewer they are held at or below
-    the year before. [] when there is no usable consensus."""
+    the year before; any out-year jumping more than PATH_MAX_REACCEL above the year
+    before is held there too, and `held` (a list) collects those years. [] when there
+    is no usable consensus."""
     rows = f.rev_growth_path or []
     if not rows and f.fwd_growth_y1 is not None:     # facts stored before the path field
         rows = [[f.fwd_growth_y1, f.n_analysts or 0]]
@@ -1646,6 +1652,10 @@ def consensus_growth_path(f):
             # a thinly covered out-year may slow growth but never re-accelerate it
             # (user decision 2026-10-19: >= 10 analysts are taken as reported)
             g = min(g, path[-1])
+        if i >= 2 and g > path[-1] + PATH_MAX_REACCEL:
+            if held is not None:
+                held.append(f"year {i + 1} {g*100:.0f}% held at {path[-1]*100:.0f}%")
+            g = path[-1]
         path.append(g)
     return path
 
@@ -1680,7 +1690,11 @@ def _dcf_revenue_growth(f, gr):
     (path, source, basis). basis is "consensus", or "historical" when no analyst path
     exists (the Price pillar then refuses to rate above neutral). After the path,
     fcff_dcf fades linearly to the stable growth rate by year 10."""
-    path = consensus_growth_path(f)
+    held = []
+    path = consensus_growth_path(f, held)
+    if held:
+        _add_flag(f, "consensus out-year re-accelerates past +10pp - provider artefact: "
+                     + "; ".join(held))
     if path:
         src = f.provenance.get("rev_growth_path") or "consensus"
         return path, f"consensus revenue growth ({src}, {len(path)}y)", "consensus"

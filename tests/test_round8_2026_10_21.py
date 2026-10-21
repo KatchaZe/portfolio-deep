@@ -39,5 +39,19 @@ def test_revenue_top_line_beats_contract_subset():
     check(c == sec_edgar.REV[0], "a SMALLER Revenues figure does not replace contract revenue")
 
 
+def test_outyear_reacceleration_held():
+    print("2 a consensus out-year that jumps >10pp above the year before is held (TSLA, MSFT)")
+    tsla = _facts(rev_growth_path=[[0.1294, 32], [0.1307, 32], [0.1866, 32], [0.5424, 30], [0.0545, 16]])
+    held = []
+    p = E.consensus_growth_path(tsla, held)
+    check(p[3] == 0.1866, "TSLA FY2029 +54% held at the year before (18.7%)", str(p))
+    check(p[4] == 0.0545 and len(held) == 1, "the slower year 5 is kept and the hold is reported")
+    msft = _facts(rev_growth_path=[[0.178, 39], [0.1963, 39], [0.2165, 27], [0.1747, 13], [0.3007, 13]])
+    p = E.consensus_growth_path(msft)
+    check(p[4] == 0.1747 and p[2] == 0.2165, "MSFT year 5 +30% held at 17.5%; +2pp in year 3 is kept", str(p))
+    near = _facts(rev_growth_path=[[0.10, 20], [0.35, 20]])
+    check(E.consensus_growth_path(near)[1] == 0.30, "years 1-2 are not jump-tested (only capped)")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")
