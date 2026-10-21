@@ -36,6 +36,11 @@ from domain import contracts        # the unit contract — see FALLBACK_MONEY b
 # April, plus slack); beyond that the figures are describing a different company.
 STALE_WARN_MONTHS = 15
 STALE_BLOCK_MONTHS = 24
+# A base period this old means interim quarters have been reported that the figures
+# do not hold. A 10-Q filer is never past ~5 months; a 20-F filer reports quarters by
+# 6-K, which carries no XBRL, so its base stays on the fiscal year (ASML and TSM ran
+# on FY2025 in October 2026 with three 2026 quarters out: TSM TTM revenue +34%).
+STALE_INTERIM_MONTHS = 6
 # Confidence points removed per finding. Deliberately smaller than the -18 a missing
 # critical field costs: stale data is still data, it is just older than it looks.
 PENALTY = {"block": 25, "warn": 12, "note": 0}
@@ -96,6 +101,10 @@ def _staleness(ff, today):
         yield ("stale_financials", "warn",
                f"งบล่าสุดคืองวด {ff.fiscal_year} — เก่า {age} เดือน "
                f"(เกิน {STALE_WARN_MONTHS}) น่าจะมีงบใหม่กว่านี้แล้ว")
+    elif age >= STALE_INTERIM_MONTHS:
+        yield ("interim_not_used", "warn",
+               f"ฐานตัวเลขคืองวด {ff.fiscal_year} (เก่า {age} เดือน) — บริษัทน่าจะรายงาน"
+               f"ไตรมาสหลังจากนั้นแล้ว (6-K ไม่มี XBRL) มูลค่าจึงอิงงบที่ล้าหลังราคา")
 
 
 def _series_gaps(ff):

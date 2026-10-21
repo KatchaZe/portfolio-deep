@@ -68,5 +68,15 @@ def test_consensus_rebased_to_ttm_clock():
     check(E.consensus_growth_path(fy_end) == [0.178], "TTM == last fiscal year (MSFT): unchanged")
 
 
+def test_interim_quarters_not_used_is_a_warning():
+    print("4 a base period 6+ months old warns that interim quarters are missing (ASML, TSM)")
+    import datetime as dt
+    from pipeline import dataquality as Q
+    codes = lambda fy: [x["code"] for x in Q.assess(_facts(fiscal_year=fy), dt.date(2026, 10, 21))]
+    check("interim_not_used" in codes("2025-12-31"), "FY2025 base in Oct 2026 -> warning")
+    check("interim_not_used" not in codes("2026-06-30"), "a June 10-Q in October is current")
+    check("interim_not_used" not in codes("2024-06-30"), "older still is the existing stale rule")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")
