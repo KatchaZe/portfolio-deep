@@ -1628,6 +1628,52 @@ PATH_MAX_REACCEL = 0.10
 INORGANIC_ACQ_SHARE = 0.10
 
 
+def _rebase_fraction(f):
+    """How far into the next fiscal year the TTM base reaches, in years (0-1): the
+    latest reported period end against the last fiscal-year end."""
+    ann = sorted(f.revenue_annuals_dated or [], reverse=True)
+    if not ann or not f.fiscal_year:
+        return 0.0
+    try:
+        fy0 = datetime.date.fromisoformat(str(ann[0][0])[:10])
+        last = datetime.date.fromisoformat(str(f.fiscal_year)[:10])
+    except ValueError:
+        return 0.0
+    return max(0.0, min(1.0, (last - fy0).days / 365.25))
+
+
+def ntm_rebase(f, rows):
+    """Consensus fiscal-year growth re-cut to the DCF's clock. The DCF starts from TTM
+    revenue; the consensus rows grow fiscal year over fiscal year from the last annual
+    report. Halfway through a year TTM already holds half of year 1's growth, and
+    applying the whole of it again overstated revenue (LLY TTM is 1.22x FY2025, then
+    +36% on top). Each year's revenue level is interpolated (geometrically) at the
+    TTM's offset, and growth is measured from the TTM itself. Analyst counts are kept."""
+    frac = _rebase_fraction(f)
+    ann = sorted(f.revenue_annuals_dated or [], reverse=True)
+    if frac < 0.05 or not rows or not f.revenue or not ann or not ann[0][1]:
+        return rows
+    if any(g is None for g, _ in rows):
+        rows = rows[:next(i for i, (g, _) in enumerate(rows) if g is None)]
+        if not rows:
+            return rows
+    lv = [ann[0][1]]
+    for g, _ in rows:
+        lv.append(lv[-1] * (1 + g))
+
+    def level(s):
+        i = int(s)
+        if i >= len(lv) - 1:
+            return lv[-1] * (1 + rows[-1][0]) ** (s - (len(lv) - 1))
+        return lv[i] ** (1 - (s - i)) * lv[i + 1] ** (s - i)
+    out, prev = [], f.revenue
+    for k in range(1, len(rows) + 1):
+        nxt = level(frac + k)
+        out.append([round(nxt / prev - 1, 4), rows[k - 1][1]])
+        prev = nxt
+    return out
+
+
 def consensus_growth_path(f, held=None):
     """Consensus revenue growth year by year: [g1, g2, ...], each capped at GROWTH_CAP.
     Years 1-2 need PATH_MIN_ANALYSTS_NEAR or the path stops there. Years 3-5 with
@@ -1640,6 +1686,7 @@ def consensus_growth_path(f, held=None):
         rows = [[f.fwd_growth_y1, f.n_analysts or 0]]
         if f.fwd_growth_near is not None:
             rows.append([f.fwd_growth_near, f.n_analysts_y2 or 0])
+    rows = ntm_rebase(f, rows)
     path = []
     for i, (g, n) in enumerate(rows[:PATH_MAX_YEARS]):
         if g is None:

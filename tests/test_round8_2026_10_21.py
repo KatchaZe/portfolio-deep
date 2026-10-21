@@ -53,5 +53,20 @@ def test_outyear_reacceleration_held():
     check(E.consensus_growth_path(near)[1] == 0.30, "years 1-2 are not jump-tested (only capped)")
 
 
+def test_consensus_rebased_to_ttm_clock():
+    print("3 consensus growth is re-cut to the TTM clock (LLY: TTM already 1.22x FY2025)")
+    lly = _facts(revenue=79.67e9, fiscal_year="2026-06-30",
+                 revenue_annuals_dated=[["2025-12-31", 65.18e9], ["2024-12-31", 45.04e9]],
+                 rev_growth_path=[[0.3584, 29], [0.1528, 27]])
+    p = E.consensus_growth_path(lly)
+    fy26, fy27 = 65.18e9 * 1.3584, 65.18e9 * 1.3584 * 1.1528
+    want = (fy26 ** 0.5 * fy27 ** 0.5) / 79.67e9 - 1
+    check(abs(p[0] - want) < 0.003, f"year 1 = NTM level / TTM - 1 = {want:.1%} (not 35.8%)", str(p))
+    check(p[1] == 0.1528, "year 2 keeps FY27/FY26 growth (same geometric interpolation)", str(p))
+    fy_end = _facts(revenue=331.84e9, fiscal_year="2026-06-30",
+                    revenue_annuals_dated=[["2026-06-30", 331.84e9]], rev_growth_path=[[0.178, 39]])
+    check(E.consensus_growth_path(fy_end) == [0.178], "TTM == last fiscal year (MSFT): unchanged")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")
