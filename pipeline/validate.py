@@ -239,9 +239,7 @@ def _assumption_flags(ff):
         # the right UNIT for a depositary listing, but derived, not filed
         ff.flags.append("shares outstanding derived from market cap / price "
                         "(SEC count missing or in a different share unit)")
-    ibt, txe = ff.income_before_tax, ff.tax_expense
-    tax_sourced = (ibt and txe is not None and ibt != 0 and 0 <= (txe / ibt) <= 0.6)
-    if not tax_sourced:
+    if ff.tax_rate_defaulted:
         ff.flags.append("tax rate defaults to 21% (no usable filing data)")
     if ff.growth_lt is None:
         ff.flags.append("growth missing → defaults to 8% (assumption)")

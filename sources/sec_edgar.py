@@ -367,6 +367,8 @@ CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents",
 # Cash-only read GOOGL at $55.9B against $242.5B, MSFT $20.9B against $76.8B.
 COMBINED_CASH = "CashCashEquivalentsAndShortTermInvestments"
 STI_TAGS = ("ShortTermInvestments", "MarketableSecuritiesCurrent", "DebtSecuritiesCurrent",
+            # PFE files its balance-sheet line here; AFS debt below is one part of it
+            "OtherShortTermInvestments",
             "AvailableForSaleSecuritiesDebtSecuritiesCurrent")
 DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiability",
                "DeferredRevenueCurrent", "DeferredRevenue")

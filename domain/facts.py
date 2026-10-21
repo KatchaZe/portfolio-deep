@@ -12,8 +12,10 @@ DEFAULT_TAX_RATE = 0.21
 
 
 def effective_tax_rate(income_before_tax, tax_expense):
-    """tax / pretax income when it lands in 0-60%, else None (a loss year or a one-off)."""
-    if income_before_tax and tax_expense is not None and income_before_tax != 0:
+    """tax / pretax income when it lands in 0-60%, else None (a loss year or a one-off).
+    A loss year is None even when the ratio is positive: a tax BENEFIT over a pre-tax
+    LOSS (RKLB 13.7%, HIMS 13.1%) is not the rate future profits will pay."""
+    if income_before_tax and tax_expense is not None and income_before_tax > 0:
         r = tax_expense / income_before_tax
         if 0 <= r <= 0.6:
             return r
@@ -224,12 +226,22 @@ class FinancialFacts:
         """Effective rate on the same pre-tax income the EBIT describes. The one-time
         charges added back to EBIT come back with the tax they saved: CELH's $413M
         restructuring left an 8.8% rate on an EBIT that no longer carried it."""
+        r = self._sourced_tax_rate()
+        return DEFAULT_TAX_RATE if r is None else r
+
+    def _sourced_tax_rate(self):
         from domain.one_time import ADDBACK_TAX_RATE
         ibt, txe, add = self.income_before_tax, self.tax_expense, self.one_time_addback
         if add and ibt is not None and txe is not None:
             ibt, txe = ibt + add, txe + add * ADDBACK_TAX_RATE
-        r = effective_tax_rate(ibt, txe)
-        return DEFAULT_TAX_RATE if r is None else r
+        return effective_tax_rate(ibt, txe)
+
+    @property
+    def tax_rate_defaulted(self):
+        """True when tax_rate fell back to DEFAULT_TAX_RATE (the flag reads this, so it
+        cannot disagree with the rate the valuation used: PFE showed "defaults to 21%"
+        over a 16.8% rate)."""
+        return self._sourced_tax_rate() is None
 
     def to_dict(self):
         d = {k: v for k, v in self.__dict__.items()}

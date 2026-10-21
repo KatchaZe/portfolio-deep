@@ -1380,7 +1380,9 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
 
     g_cap = sustainable_growth_cap(cap.roic_used, roic_fallback=roic_term)
     if own_roic is None:
-        _add_flag(f, (f"ROIC unmeasurable (negative or zero invested capital) - high-growth "
+        why = ("negative operating profit" if (cap.ic and cap.ic > 0) else
+               "negative or zero invested capital")
+        _add_flag(f, (f"ROIC unmeasurable ({why}) - high-growth "
                       f"ROIC and growth cap both fall back to the terminal {roic_term*100:.1f}%, "
                       f"not the old 15%/30% defaults"))
     # a measured 0% growth is not missing (`is not None`, never `or 0.08`)

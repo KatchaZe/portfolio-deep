@@ -78,5 +78,26 @@ def test_interim_quarters_not_used_is_a_warning():
     check("interim_not_used" not in codes("2024-06-30"), "older still is the existing stale rule")
 
 
+def test_tax_and_flags_for_loss_makers():
+    print("5 a loss year's tax benefit is not a future tax rate; the 21% flag matches the rate used")
+    from domain.facts import DEFAULT_TAX_RATE, effective_tax_rate
+    check(effective_tax_rate(-260e6, -35.6e6) is None, "RKLB: benefit/loss 13.7% is not a rate")
+    rk = _facts(income_before_tax=-260e6, tax_expense=-35.6e6)
+    check(rk.tax_rate == DEFAULT_TAX_RATE and rk.tax_rate_defaulted, "loss year -> default rate, flagged")
+    pfe = _facts(income_before_tax=4.209e9, tax_expense=-0.5e9,
+                 operating_income=17.611e9, operating_income_gaap=6.908e9)
+    check(not pfe.tax_rate_defaulted and pfe.tax_rate != DEFAULT_TAX_RATE,
+          "PFE: the add-back makes the rate sourced, so no 'defaults to 21%' flag",
+          f"{pfe.tax_rate:.3f}")
+
+
+def test_pfe_cash_reads_other_short_term_investments():
+    print("6 cash + securities reads OtherShortTermInvestments (PFE $8.3B -> $11.7B)")
+    check("OtherShortTermInvestments" in sec_edgar.STI_TAGS
+          and sec_edgar.STI_TAGS.index("OtherShortTermInvestments")
+          < sec_edgar.STI_TAGS.index("AvailableForSaleSecuritiesDebtSecuritiesCurrent"),
+          "the balance-sheet total ranks ahead of its AFS-debt component")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")
