@@ -66,7 +66,9 @@ def test_consensus_path_drops_thin_out_years():
     check(E.consensus_growth_path(legacy) == [0.10, 0.08],
           "facts stored before the path field still read their y1 / y2")
     capped = _facts(rev_growth_path=[[0.90, 41], [0.70, 41]])
-    check(E.consensus_growth_path(capped) == [E.GROWTH_CAP, E.GROWTH_CAP], "each year capped at 30%")
+    # round 8 (2026-10-21): consensus years are used as reported; 30% bounds only the
+    # extrapolated fade (tests.test_round8_2026_10_21 #9)
+    check(E.consensus_growth_path(capped) == [0.90, 0.70], "consensus years taken as reported")
 
 
 def test_dcf_fades_after_the_path():

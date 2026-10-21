@@ -295,7 +295,9 @@ def test_review_findings():
     hi = E.DeepV82Engine().evaluate(_operating(operating_income=32e9, industry_margin=0.35), rf=RF)
     check(abs(hi.dcf["inputs"]["margin_target"] - 0.64) < 1e-3,
           "a 64% margin is kept (2x industry 70% > 64%)", str(hi.dcf["inputs"]["margin_target"]))
-    thin = E.DeepV82Engine().evaluate(_operating(operating_income=1.35e9, industry_margin=0.03), rf=RF)
+    # its history is thin too (round 8 reverts a trough margin to the 5y median)
+    thin = E.DeepV82Engine().evaluate(_operating(operating_income=1.35e9, industry_margin=0.03,
+                                                 operating_income_annuals=[0.027 * r for r in (50e9, 45e9, 41e9, 37e9)]), rf=RF)
     check(abs(thin.dcf["inputs"]["margin_target"] - 0.03) < 1e-3,
           "a 2.7% firm in a 3% industry targets 3%, not a 5% floor",
           str(thin.dcf["inputs"]["margin_target"]))

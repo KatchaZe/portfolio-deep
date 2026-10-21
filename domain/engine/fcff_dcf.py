@@ -30,7 +30,7 @@ def _lerp(a, b, frac):
 
 def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capital,
           tax_now, tax_marginal, wacc, wacc_stable, roic_stable, cash, debt, shares,
-          margin_years=5, growth_path=None) -> Optional[dict]:
+          margin_years=5, growth_path=None, fade_start_cap=None) -> Optional[dict]:
     """Per-share value and the projection behind it, or None when the inputs cannot
     support a DCF (no revenue, no shares, or a stable WACC at or below g)."""
     if not revenue or revenue <= 0 or not shares or shares <= 0:
@@ -40,11 +40,15 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
     if wacc_stable <= g_stable or wacc <= 0 or not roic_stable or roic_stable <= 0:
         return None
     explicit = list(growth_path or [])[:TOTAL_YEARS - 1] or [g_high] * HIGH_YEARS
+    # the fade to g_stable starts from the last explicit year, at most `fade_start_cap`:
+    # consensus years are taken as given, the years extrapolated past them are not
+    fade_from = (min(explicit[-1], fade_start_cap) if fade_start_cap is not None
+                 else explicit[-1])
     rows, pv_sum, disc = [], 0.0, 1.0
     rev_prev = revenue
     for t in range(1, TOTAL_YEARS + 1):
         k = len(explicit)
-        g = explicit[t - 1] if t <= k else _lerp(explicit[-1], g_stable, (t - k) / (TOTAL_YEARS - k))
+        g = explicit[t - 1] if t <= k else _lerp(fade_from, g_stable, (t - k) / (TOTAL_YEARS - k))
         rev = rev_prev * (1 + g)
         m = _lerp(margin_now, margin_target, min(1.0, t / margin_years)) if margin_years else margin_target
         tax = tax_now if t <= HIGH_YEARS else _lerp(tax_now, tax_marginal,

@@ -1627,6 +1627,11 @@ PATH_MIN_ANALYSTS_NEAR, PATH_MIN_ANALYSTS_FAR, PATH_MAX_YEARS = 3, 10, 5
 # provider artefact, not a forecast: FMP's TSLA FY2029 row read +54% after +19% (the
 # quarterly sum is about +15%), MSFT's FY2031 +30% after +17%. Held at the year before.
 PATH_MAX_REACCEL = 0.10
+# Consensus years are used as reported (round 8, user decision 2026-10-21): the 30%
+# GROWTH_CAP held AVGO's 66%/64% consensus (40-49 analysts, matching published FY26-27
+# estimates) at 30%. It now bounds the years the DCF EXTRAPOLATES past the consensus
+# (the fade starts from at most 30%); this ceiling only catches broken rows.
+CONSENSUS_SANITY_CAP = 1.0
 # a fiscal year whose M&A spend exceeds this share of the prior year's revenue bought
 # its growth; it is left out of the organic rate
 INORGANIC_ACQ_SHARE = 0.10
@@ -1679,7 +1684,8 @@ def ntm_rebase(f, rows):
 
 
 def consensus_growth_path(f, held=None):
-    """Consensus revenue growth year by year: [g1, g2, ...], each capped at GROWTH_CAP.
+    """Consensus revenue growth year by year: [g1, g2, ...], as reported up to
+    CONSENSUS_SANITY_CAP (GROWTH_CAP bounds only the extrapolated years, in fcff_dcf).
     Years 1-2 need PATH_MIN_ANALYSTS_NEAR or the path stops there. Years 3-5 with
     PATH_MIN_ANALYSTS_FAR are taken as reported; with fewer they are held at or below
     the year before; any out-year jumping more than PATH_MAX_REACCEL above the year
@@ -1695,7 +1701,7 @@ def consensus_growth_path(f, held=None):
     for i, (g, n) in enumerate(rows[:PATH_MAX_YEARS]):
         if g is None:
             break
-        g = _clamp(g, -0.05, GROWTH_CAP)
+        g = _clamp(g, -0.05, CONSENSUS_SANITY_CAP)
         if i < 2:
             if (n or 0) < PATH_MIN_ANALYSTS_NEAR:
                 break
@@ -1838,7 +1844,8 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         g_stable=gr.g_stable, sales_to_capital=s2c, tax_now=cap.tax,
         tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
         wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
-        cash=f.cash, debt=cap.debt_eff, shares=shares, margin_years=years)
+        cash=f.cash, debt=cap.debt_eff, shares=shares, margin_years=years,
+        fade_start_cap=GROWTH_CAP)
     if not out:
         return None
     out["growth_basis"] = g_basis

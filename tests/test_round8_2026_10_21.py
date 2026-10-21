@@ -50,7 +50,7 @@ def test_outyear_reacceleration_held():
     p = E.consensus_growth_path(msft)
     check(p[4] == 0.1747 and p[2] == 0.2165, "MSFT year 5 +30% held at 17.5%; +2pp in year 3 is kept", str(p))
     near = _facts(rev_growth_path=[[0.10, 20], [0.35, 20]])
-    check(E.consensus_growth_path(near)[1] == 0.30, "years 1-2 are not jump-tested (only capped)")
+    check(E.consensus_growth_path(near)[1] == 0.35, "years 1-2 are not jump-tested")
 
 
 def test_consensus_rebased_to_ttm_clock():
@@ -140,6 +140,21 @@ def test_trough_margin_reverts_to_five_year_median():
     hi = E.DeepV82Engine().evaluate(_elv(operating_income=12e9), rf=RF)
     check(abs(hi.dcf["inputs"]["margin_target"] - hi.dcf["inputs"]["margin_now"]) < 1e-9,
           "a margin ABOVE its median keeps its own (no forced reversion down)")
+
+
+def test_consensus_as_reported_fade_starts_at_cap():
+    print("9 consensus years as reported; the extrapolated fade starts from at most 30% (AVGO)")
+    from domain.engine import fcff_dcf
+    kw = dict(revenue=89e9, margin_now=0.5, margin_target=0.5, g_high=0.66, g_stable=0.05,
+              sales_to_capital=0.64, tax_now=0.06, tax_marginal=0.25, wacc=0.12,
+              wacc_stable=0.105, roic_stable=0.19, cash=24e9, debt=62e9, shares=4.9e9,
+              growth_path=[0.66, 0.64])
+    a = fcff_dcf.value(**kw, fade_start_cap=0.30)
+    g = [r["growth"] for r in a["path"]]
+    check(g[:2] == [0.66, 0.64], "years 1-2 are the consensus 66% / 64%", str(g[:3]))
+    check(abs(g[2] - (0.30 + (0.05 - 0.30) / 8)) < 1e-4, "year 3 fades from 30%, not from 64%", str(g[2]))
+    b = fcff_dcf.value(**kw)
+    check(b["path"][2]["growth"] > 0.55, "without the cap argument the old fade is unchanged (skill parity)")
 
 
 if __name__ == "__main__":
