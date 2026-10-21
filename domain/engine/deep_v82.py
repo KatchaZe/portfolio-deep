@@ -1545,16 +1545,25 @@ def _priced_in(f, cap, gr, rf, ctype=CompanyType.STANDARD):
     # debt_eff (leases included) and the resolved market cap, so the reverse DCF
     # values the same firm the WACC priced; today's margin so the path ramps.
     m_now = (f.operating_income / f.revenue) if (f.operating_income is not None and f.revenue) else None
-    rdcf = reverse_dcf(price=f.price, shares=f.shares_diluted, revenue=f.revenue, rev_1y=rev_1y,
-                       total_debt=cap.debt_eff or None, cash=f.cash, wacc_val=cap.wacc, g=rf,
-                       tax=cap.tax, margin=tmargin, wacc_term=cap.wacc_term,
-                       roic_term=gr.roic_term, market_cap=cap.mcap, margin_now=m_now,
-                       # FY over FY, the rate Demand scores (not TTM over FY-2)
-                       actual_growth=gr.rev_growth_yoy, roic_now=gr.roic_high)
-    if rdcf.get("triggered") and m_now is not None and abs(m_now - tmargin) > 0.10:
+    built = (_dcf_inputs(f, cap, gr, ctype, rf)
+             if (cap.mcap and m_now is not None and m_now > 0) else None)
+    if built:
+        ev = cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)
+        rdcf = reverse_dcf_ginzu(built[0], ev, actual_growth=gr.rev_growth_yoy,
+                                 roic_term=gr.roic_term)
+    else:
+        # a pre-profit firm has no margin of its own for the forward model to hold
+        rdcf = reverse_dcf(price=f.price, shares=f.shares_diluted, revenue=f.revenue, rev_1y=rev_1y,
+                           total_debt=cap.debt_eff or None, cash=f.cash, wacc_val=cap.wacc, g=rf,
+                           tax=cap.tax, margin=tmargin, wacc_term=cap.wacc_term,
+                           roic_term=gr.roic_term, market_cap=cap.mcap, margin_now=m_now,
+                           # FY over FY, the rate Demand scores (not TTM over FY-2)
+                           actual_growth=gr.rev_growth_yoy, roic_now=gr.roic_high)
+    if rdcf.get("triggered") and rdcf.get("model") != "ginzu" and m_now is not None \
+            and abs(m_now - tmargin) > 0.10:
         _add_flag(f, (f"RevDCF margin ramps {m_now*100:.0f}% -> {tmargin*100:.0f}% over "
                       f"{REVERSE_HORIZON}y (was held flat at the terminal margin from year 1)"))
-    if rdcf.get("triggered") and not tm_anchored:
+    if rdcf.get("triggered") and rdcf.get("model") != "ginzu" and not tm_anchored:
         _add_flag(f, tm_label + " - RevDCF verdict approximate")
     if (rdcf.get("funding_ratio") or 0) >= 2.0:
         _add_flag(f, (f"market prices {rdcf.get('implied_cagr_pct')}%/yr growth against a terminal "
@@ -1803,10 +1812,11 @@ def _dcf_target_margin(f, m_now):
     return m_now, f"own margin {m_now*100:.1f}%"
 
 
-def _fcff_dcf(f, cap, gr, pi, ctype, rf):
-    """Damodaran's FCFF DCF for an operating company, on lease-adjusted EBIT. A
+def _dcf_inputs(f, cap, gr, ctype, rf):
+    """Everything the FCFF DCF runs on, built once so the reverse DCF can solve the
+    SAME model: (fcff_dcf.value kwargs, sources dict, growth basis), or None. A
     cyclical's margin reverts to its own multi-year median; any other firm keeps its
-    own (_dcf_target_margin). Returns the fcff_dcf result with its sources, or None."""
+    own (_dcf_target_margin), or its 5-year median when today sits below it."""
     if not f.revenue or f.operating_income is None:
         return None
     addback = _lease_ebit_addback(f, cap, rf)
@@ -1837,24 +1847,74 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
                           f"firm's steady state"))
     g_path, g_src, g_basis = _dcf_revenue_growth(f, gr)
     s2c, s2c_src = _dcf_sales_to_capital(f, cap)
-    shares = _quote_shares(f, cap)
-    out = fcff_dcf.value(
-        revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_path[0],
-        growth_path=g_path,
-        g_stable=gr.g_stable, sales_to_capital=s2c, tax_now=cap.tax,
-        tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
-        wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
-        cash=f.cash, debt=cap.debt_eff, shares=shares, margin_years=years,
-        fade_start_cap=GROWTH_CAP)
+    kw = dict(revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_path[0],
+              growth_path=g_path, g_stable=gr.g_stable, sales_to_capital=s2c,
+              tax_now=cap.tax, tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
+              wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
+              cash=f.cash, debt=cap.debt_eff, shares=_quote_shares(f, cap),
+              margin_years=years, fade_start_cap=GROWTH_CAP)
+    sources = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
+               "lease_interest_added": round(addback, 0) if addback else None}
+    return kw, sources, g_basis
+
+
+def _fcff_dcf(f, cap, gr, pi, ctype, rf):
+    """Damodaran's FCFF DCF for an operating company, on lease-adjusted EBIT.
+    Returns the fcff_dcf result with its sources, or None."""
+    built = _dcf_inputs(f, cap, gr, ctype, rf)
+    if not built:
+        return None
+    kw, sources, g_basis = built
+    out = fcff_dcf.value(**kw)
     if not out:
         return None
     out["growth_basis"] = g_basis
-    out["sources"] = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
-                      "lease_interest_added": round(addback, 0) if addback else None}
+    out["sources"] = sources
     if (out.get("terminal_share_pct") or 0) > DCF_TERMINAL_HEAVY:
         _add_flag(f, (f"FCFF DCF: {out['terminal_share_pct']}% of value is terminal - "
                       f"the fair value rests on the stable-phase assumptions"))
     return out
+
+
+def reverse_dcf_ginzu(kw, enterprise_value, actual_growth=None, roic_term=None):
+    """Reverse DCF on the FORWARD model itself (Damodaran: the same valuation solved for
+    one input). The revenue growth x held for years 1-5, then the model's own fade, at
+    its margin target, sales-to-capital, WACC path and terminal ROIC, such that the
+    operating assets equal the enterprise value. The older reverse_dcf priced growth at
+    a ROIC fading to the terminal one (often = the stable WACC), so 9 of 21 holdings
+    read "no growth justifies this price" while the forward DCF of the same names rose
+    with growth (AXON $66 -> $176 from zero to consensus growth)."""
+    ev = enterprise_value
+    if not ev or ev <= 0:
+        return {"triggered": False}
+
+    def implied(dm):
+        def pv(x):
+            out = fcff_dcf.value(**dict(kw, growth_path=[x] * 5, g_high=x,
+                                        margin_target=kw["margin_target"] + dm,
+                                        fade_start_cap=None))
+            return out["firm_value"] if out else None
+        if kw["margin_target"] + dm <= 0:
+            return None, "no margin"
+        return _implied_cagr(pv, ev)
+
+    base, why = implied(0.0)
+    a1 = actual_growth
+    accel = (base / a1) if (base and a1 and a1 > 0) else None
+    roic_t = roic_term or kw.get("roic_stable")
+    sens = {}
+    for k, dm in (("bear", -0.05), ("base", 0.0), ("bull", 0.05)):
+        x, _ = implied(dm)
+        sens[k] = round(x * 100, 1) if x else None
+    return {"triggered": True, "model": "ginzu", "enterprise_value": round(ev, 0),
+            "implied_cagr_pct": round(base * 100, 1) if base else None,
+            "actual_1y_pct": round(a1 * 100, 1) if a1 is not None else None,
+            "acceleration": round(accel, 2) if accel else None,
+            "verdict": _rdcf_verdict(base, why, a1, accel),
+            "out_of_band": base is None,
+            "funding_ratio": None if (base is None or not roic_t) else round(base / roic_t, 2),
+            "roic_terminal_pct": round(roic_t * 100, 1) if roic_t else None,
+            "sensitivity": sens}
 
 
 def _excess_return(f, cap, gr):

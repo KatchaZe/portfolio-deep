@@ -137,6 +137,10 @@ def test_price_leg_is_bounded():
         b, a = _eval(t, strip_series=True), _eval(t)
         if b.P is None or a.P is None:
             continue
+        # round 8: the dated series also feed the 5-year normal margin, so a stripped
+        # row can carry a different fair value; the cash leg is judged at the same one
+        if b.anchor_value != a.anchor_value:
+            continue
         check(abs(a.P - b.P) <= 0.5 + 1e-9, f"{t}: Price moves at most 0.5", f"{b.P} -> {a.P}")
 
 

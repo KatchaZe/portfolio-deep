@@ -157,5 +157,20 @@ def test_consensus_as_reported_fade_starts_at_cap():
     check(b["path"][2]["growth"] > 0.55, "without the cap argument the old fade is unchanged (skill parity)")
 
 
+def test_reverse_dcf_solves_the_forward_model():
+    print("10 the reverse DCF is the forward DCF solved for growth (same S2C, margin, WACC path)")
+    from domain.engine import fcff_dcf
+    kw = dict(revenue=3.2e9, margin_now=0.014, margin_target=0.33, g_high=0.3, g_stable=0.0513,
+              sales_to_capital=0.77, tax_now=0.21, tax_marginal=0.25, wacc=0.117,
+              wacc_stable=0.1075, roic_stable=0.1075, cash=0.7e9, debt=1.8e9, shares=82.5e6,
+              growth_path=[0.3, 0.29], margin_years=5, fade_start_cap=0.30)
+    at = fcff_dcf.value(**dict(kw, growth_path=[0.25] * 5, fade_start_cap=None))["firm_value"]
+    r = E.reverse_dcf_ginzu(kw, at, actual_growth=0.33)
+    check(abs(r["implied_cagr_pct"] - 25.0) < 0.2, "EV of the 25% path reads back as 25%",
+          str(r["implied_cagr_pct"]))
+    check(r["model"] == "ginzu" and r["sensitivity"]["bull"] < r["sensitivity"]["bear"],
+          "a higher margin needs less growth (bull < bear)", str(r["sensitivity"]))
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")

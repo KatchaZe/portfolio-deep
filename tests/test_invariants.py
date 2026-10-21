@@ -337,7 +337,16 @@ def test_the_invariants_can_actually_fail():
         kw.pop("actual_growth", None)
         return original(*a, **kw)
 
+    # round 8: profitable rows run reverse_dcf_ginzu, whose only growth input is the one
+    # supplied; the defect there is a growth on the wrong clock, so shift it 10pp
+    original_g = eng.reverse_dcf_ginzu
+
+    def wrong_clock(kw, ev, actual_growth=None, roic_term=None):
+        ag = None if actual_growth is None else actual_growth + 0.10
+        return original_g(kw, ev, actual_growth=ag, roic_term=roic_term)
+
     eng.reverse_dcf = without_supplied_growth
+    eng.reverse_dcf_ginzu = wrong_clock
     try:
         broken = _rows()
         bad = []
@@ -348,6 +357,7 @@ def test_the_invariants_can_actually_fail():
                 bad.append(t)
     finally:
         eng.reverse_dcf = original
+        eng.reverse_dcf_ginzu = original_g
     check(len(bad) >= 5, "I1 goes red when P3-1 is reintroduced",
           f"caught only {len(bad)} tickers — the check may no longer be able to fire")
 
