@@ -96,8 +96,10 @@ def test_low_false_positive_rate_on_the_real_portfolio():
     # sources). That undercount is fixed; the snapshot still predates the fix, so the
     # note count is asserted at a level that describes reality without hiding it.
     scored = {t: sev for t, sev in flagged.items() if sev in ("warn", "block")}
-    check(len(scored) <= 3,
-          f"at most 3 of {len(store.get('facts') or {})} names carry a warn/block",
+    # round 8 (2026-10-21): the three 20-F filers (ASML, NVO, TSM) now warn that their
+    # FY2025 base misses the 2026 quarters (`interim_not_used`), a real data state
+    check(len(scored) <= 5,
+          f"at most 5 of {len(store.get('facts') or {})} names carry a warn/block",
           str(scored))
     notes_only = {t: sev for t, sev in flagged.items() if sev == "note"}
     check(len(notes_only) <= 15,
