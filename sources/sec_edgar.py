@@ -275,7 +275,12 @@ def _tag_units(ladder, prefer=USD):
 # Every ladder is written most-specific-first; `pick` and the period rules honour that
 # order. IFRS variants go LAST so a US filer can never resolve to them by accident.
 REV = ["RevenueFromContractWithCustomerExcludingAssessedTax", "Revenues",
-       "RevenueFromContractWithCustomerIncludingAssessedTax", "Revenue", "SalesRevenueNet"]
+       "RevenueFromContractWithCustomerIncludingAssessedTax", "Revenue", "SalesRevenueNet",
+       "RevenuesNetOfInterestExpense"]
+# Income-statement TOP LINES. ASC 606 contract revenue is a subset of them: it leaves out
+# interest on a credit book (MELI $24.5B of $35.2B, SOFI $0.6B of $4.3B) and derivative
+# or lease revenue (CEG). Filed for the same period and >5% larger, the top line wins.
+REV_TOTALS = ("Revenues", "RevenuesNetOfInterestExpense")
 OP = ["OperatingIncomeLoss", "OperatingIncome", "OperatingProfitLoss", "ProfitLossFromOperatingActivities"]
 NI = ["NetIncomeLoss", "ProfitLoss", "NetIncomeLossAvailableToCommonStockholdersBasic"]
 # EBIT fallback inputs — used ONLY when no OP concept above exists.
@@ -792,6 +797,19 @@ def _pick(x, concepts):
     return val, concept, alts
 
 
+def _prefer_top_line(x, val, concept, alts):
+    """Swap ASC 606 contract revenue for the income statement's total when both cover
+    the same latest period and the total is larger (REV_TOTALS). The contract figure
+    stays listed as the alternative, so the conflict line still shows both."""
+    if not concept or concept in REV_TOTALS:
+        return val, concept, alts
+    for c, v in alts:
+        if c in REV_TOTALS and val and v > val:
+            rest = [(a, av) for a, av in alts if a != c] + [(concept, val)]
+            return v, c, rest
+    return val, concept, alts
+
+
 def _conflicts(*picked):
     """Two concepts covering the SAME period that disagree by >5% are a real ambiguity;
     list order resolves it predictably, and this says so."""
@@ -843,6 +861,7 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
     x = _Xbrl(companyfacts.get("facts", companyfacts))
 
     rev, rev_concept, rev_alts = _pick(x, REV)
+    rev, rev_concept, rev_alts = _prefer_top_line(x, rev, rev_concept, rev_alts)
     net_income, ni_concept, ni_alts = _pick(x, NI)
     oi, op_concept, _ = _pick(x, OP)
     ebit = None if op_concept else _derived_ebit(x)
