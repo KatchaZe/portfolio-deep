@@ -172,5 +172,163 @@ def test_reverse_dcf_solves_the_forward_model():
           "a higher margin needs less growth (bull < bear)", str(r["sensitivity"]))
 
 
+AV_ORCL = os.path.join(HERE, "fixtures", "alphavantage", "ORCL_earnings_estimates.json")
+
+
+def _orcl_raw():
+    with open(AV_ORCL, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def test_alphavantage_estimates_parse_real_orcl():
+    print("11 Alpha Vantage EARNINGS_ESTIMATES: the user's real ORCL response, no network")
+    import datetime as dt
+    from sources import alphavantage as A
+    raw = _orcl_raw()
+    path = A.parse_estimate_path(raw, "2026-08-31", latest_revenue=67.36e9)
+    check(path == [[0.3424, 39], [0.4566, 39]],
+          "FY2027 $90.42B / FY2028 $131.71B vs FY2026 $67.36B, 39 analysts each", str(path))
+    check(path == [[round(g, 4), n] for g, n in [[0.3424, 39], [0.4566, 39]]]
+          and abs(path[0][0] - 0.3425) < 0.0002, "matches Yahoo's ORCL path (34.25% / 45.66%)")
+    check(A.parse_estimate_path(raw, "2027-05-31", latest_revenue=90e9) == [[round(131711633380 / 90e9 - 1, 4), 39]],
+          "a reported fiscal year is dropped (only unreported years)")
+    check(A.parse_estimate_path(raw, "2026-08-31", latest_revenue=None) == [], "no actual-year anchor -> no path")
+    eps = A.parse_ntm_eps(raw, "2026-08-31", today=dt.date(2026, 10, 21))
+    check(abs(eps - 9.2576) < 1e-3, f"NTM EPS {eps} blends FY27 $8.14 and FY28 $10.99 (Yahoo 9.2575)")
+    f = _facts(rev_growth_path=path)
+    check(E.consensus_growth_path(f)[:2] == [0.3424, 0.4566], "the engine reads it like any other source")
+    check(A.parse_estimate_path({"Information": "rate limit"}, None, 1e9) == [], "a throttle note is no data")
+
+
+def test_alphavantage_cache_spends_one_call_a_week():
+    print("12 Alpha Vantage cache: 7 days, a failed fetch is not cached, no key = no call")
+    import tempfile
+    from sources import alphavantage as A
+    calls = []
+
+    def fake(sym, key):
+        calls.append(sym)
+        return _orcl_raw()
+    with tempfile.TemporaryDirectory() as d:
+        a, n1 = A.cached("estimates", "ORCL", "K", fake, d, now=1000.0)
+        b, n2 = A.cached("estimates", "ORCL", "K", fake, d, now=1000.0 + 6.9 * 86400)
+        c, n3 = A.cached("estimates", "ORCL", "K", fake, d, now=1000.0 + 7.1 * 86400)
+        check((n1, n2, n3) == (1, 0, 1) and a == b, "fetched, reused inside 7 days, refetched after")
+        empty, n4 = A.cached("estimates", "XYZ", "K", lambda s, k: {}, d, now=1000.0)
+        again, n5 = A.cached("estimates", "XYZ", "K", lambda s, k: {}, d, now=1001.0)
+        check(n4 == 1 and n5 == 1, "an empty answer is retried, not cached")
+        _, n6 = A.cached("estimates", "NEW", "", fake, d)
+        check(n6 == 0, "no key -> no call")
+
+
+def test_third_source_and_last_good_path():
+    print("13 pipeline: FMP -> Yahoo -> Alpha Vantage -> last live path (<= 30 days, flagged)")
+    import config
+    import store
+    from pipeline import fundamentals as fu
+    from sources import alphavantage as A
+    keep = (config.ALPHAVANTAGE_API_KEY, fu._av_estimates, store.today)
+    try:
+        config.ALPHAVANTAGE_API_KEY = "K"
+        fu._av_estimates = lambda t: (_orcl_raw(), 1)
+        store.today = lambda: "2026-10-21"
+        ff = _facts("ORCL", fiscal_year="2026-08-31", revenue_annuals=[67.36e9],
+                    revenue_annuals_dated=[["2026-05-31", 67.36e9]])
+        fu._estimate_path(ff, "ORCL", fmp_key="")
+        check(ff.provenance.get("rev_growth_path") == "alphavantage/estimates"
+              and ff.rev_growth_path[0] == [0.3424, 39], "no FMP/Yahoo -> Alpha Vantage path")
+        check(ff.consensus_as_of == "2026-10-21", "a live path is dated")
+
+        fu._av_estimates = lambda t: ({}, 1)
+        prev = {"rev_growth_path": [[0.34, 39], [0.46, 39]], "consensus_as_of": "2026-10-01",
+                "provenance": {"rev_growth_path": "yahoo"}, "fwd_growth_y1": 0.34,
+                "n_analysts": 39, "revenue_annuals_dated": [["2026-05-31", 67.36e9]]}
+        ff2 = _facts("ORCL", fiscal_year="2026-08-31", revenue_annuals=[67.36e9],
+                     revenue_annuals_dated=[["2026-05-31", 67.36e9]])
+        fu._estimate_path(ff2, "ORCL", fmp_key="", prev=prev)
+        check(ff2.rev_growth_path == prev["rev_growth_path"]
+              and "last-good yahoo (2026-10-01)" in ff2.provenance["rev_growth_path"],
+              "all three fail -> the last live path, tagged with its source and date",
+              str(ff2.provenance.get("rev_growth_path")))
+        check(any("consensus sources all failed" in x for x in ff2.flags), "and flagged")
+        check(ff2.consensus_as_of == "2026-10-01", "the reuse keeps the ORIGINAL date (no rolling forward)")
+
+        old = dict(prev, consensus_as_of="2026-08-01")
+        ff3 = _facts("ORCL", fiscal_year="2026-08-31", revenue_annuals=[67.36e9],
+                     revenue_annuals_dated=[["2026-05-31", 67.36e9]])
+        fu._estimate_path(ff3, "ORCL", fmp_key="", prev=old)
+        check(not ff3.rev_growth_path, "older than 30 days -> not reused")
+        newfy = dict(prev, revenue_annuals_dated=[["2025-05-31", 57.4e9]])
+        ff4 = _facts("ORCL", fiscal_year="2026-08-31", revenue_annuals=[67.36e9],
+                     revenue_annuals_dated=[["2026-05-31", 67.36e9]])
+        fu._estimate_path(ff4, "ORCL", fmp_key="", prev=newfy)
+        check(not ff4.rev_growth_path, "a fiscal year reported since -> the old path is not reused")
+    finally:
+        config.ALPHAVANTAGE_API_KEY, fu._av_estimates, store.today = keep
+
+
+def test_forward_eps_backup_and_last_good():
+    print("14 forward EPS: Alpha Vantage as the backup through the same unit gate; then last-good")
+    import config
+    import store
+    from pipeline import fundamentals as fu
+    keep = (config.ALPHAVANTAGE_API_KEY, config.FINNHUB_API_KEY, fu._av_estimates, store.today)
+    try:
+        config.ALPHAVANTAGE_API_KEY, config.FINNHUB_API_KEY = "K", ""
+        fu._av_estimates = lambda t: (_orcl_raw(), 1)
+        store.today = lambda: "2026-10-21"
+        ff = _facts("ORCL", price=129.59, fiscal_year="2026-08-31")
+        fu._blend_forward_eps(ff, "ORCL", None)
+        check(ff.provenance.get("forward_eps") == "consensus-blend(alphavantage)"
+              and abs(ff.forward_eps - 9.26) < 0.05, f"AV NTM EPS used ({ff.forward_eps})")
+        yh = _facts("ORCL", price=129.59, fiscal_year="2026-08-31", forward_eps=9.2575)
+        fu._blend_forward_eps(yh, "ORCL", None)
+        check(yh.provenance.get("forward_eps") == "consensus-blend(yahoo)", "with Yahoo present AV is not called")
+        twd = _facts("TSM", price=420.0, fiscal_year="2025-12-31")
+        fu._av_estimates = lambda t: ({"estimates": [{"date": "2026-12-31", "horizon": "fiscal year",
+                                                     "eps_estimate_average": "690.0"}]}, 1)
+        fu._blend_forward_eps(twd, "TSM", None)
+        check(twd.forward_eps is None and any("different currency/unit" in x for x in twd.flags),
+              "a lone backup at a 0.6x P/E is dropped as a unit mismatch")
+        fu._av_estimates = lambda t: ({}, 1)
+        prev = {"forward_eps": 9.2575, "forward_eps_as_of": "2026-10-10",
+                "provenance": {"forward_eps": "consensus-blend(yahoo)"}}
+        lg = _facts("ORCL", price=129.59, fiscal_year="2026-08-31")
+        fu._blend_forward_eps(lg, "ORCL", None, prev)
+        check(lg.forward_eps == 9.2575 and lg.provenance["forward_eps"].startswith("last-good")
+              and lg.forward_eps_as_of == "2026-10-10", "no source -> last live consensus EPS, dated")
+        sec = dict(prev, provenance={"forward_eps": "sec-derived (no consensus)"})
+        lg2 = _facts("ORCL", price=129.59, fiscal_year="2026-08-31")
+        fu._blend_forward_eps(lg2, "ORCL", None, sec)
+        check(lg2.forward_eps is None, "an SEC-derived EPS is not a consensus to keep")
+    finally:
+        config.ALPHAVANTAGE_API_KEY, config.FINNHUB_API_KEY, fu._av_estimates, store.today = keep
+
+
+def test_market_pe_last_good():
+    print("15 S&P P/E: live SPY, else the last live value <= 30 days, else the saved MARKET_PE")
+    import config
+    import store
+    from pipeline import daily
+    from sources import yahoo
+    keep = (yahoo.fetch_market_pe, store.today)
+    try:
+        store.today = lambda: "2026-10-21"
+        yahoo.fetch_market_pe = lambda *a, **k: None
+        prev = {"as_of": "2026-10-19", "valuation": {"market_pe": 24.43, "market_pe_live": True}}
+        pe, live, d, src = daily._market_pe(prev)
+        check(pe == 24.43 and not live and d == "2026-10-19", f"Yahoo blocked -> {pe} from {d}", src)
+        again = {"as_of": "2026-10-20", "valuation": {"market_pe": 24.43, "market_pe_live": False,
+                                                      "market_pe_live_date": "2026-10-19"}}
+        check(daily._market_pe(again)[2] == "2026-10-19", "a reused P/E keeps its original date")
+        stale = {"as_of": "2026-06-01", "valuation": {"market_pe": 25.1, "market_pe_live": True}}
+        pe, live, d, src = daily._market_pe(stale)
+        check(pe == config.MARKET_PE and d is None, "older than 30 days -> the saved MARKET_PE", src)
+        yahoo.fetch_market_pe = lambda *a, **k: 24.9
+        check(daily._market_pe(prev, "2026-10-21")[:3] == (24.9, True, "2026-10-21"), "live wins")
+    finally:
+        yahoo.fetch_market_pe, store.today = keep
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")

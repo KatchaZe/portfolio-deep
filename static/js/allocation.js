@@ -39,5 +39,5 @@ function renderCashStance(){
   el.style.cssText=`display:block;margin:2px 0 10px;padding:7px 11px;border-radius:8px;font-size:calc(12px*var(--fs));background:${m2[2]};border:1px solid ${m2[3]};color:${m2[1]}`;
   el.innerHTML=`&#129517; Cash stance (S32/33): <b>${m2[0]}</b> — จาก market valuation <b>${esc(v.regime.toUpperCase())}</b> · เป็น tilt เบา ๆ ผ่าน allocation ไม่ใช่สวิตช์เข้า-ออกตลาด (S34 บอกว่าแบบนั้นล้มเหลว)`+
     (v.implied_erp_pct!=null&&v.erp_low_pct!=null?`<div style="opacity:.8;margin-top:2px">ERP วันนี้ <b>${v.implied_erp_pct}%</b> · ต่ำกว่า ${v.erp_low_pct}% = แพง · สูงกว่า ${v.erp_high_pct}% = ถูก <span title="${esc(v.band_source||'')}">(${esc(v.band_source||'')})</span>`+
-     (v.market_pe!=null?` · S&amp;P P/E <b>${v.market_pe}</b> ${v.market_pe_live?'(SPY, Yahoo)':'(ค่าที่บันทึกไว้ — ดึง SPY ไม่ได้)'}`:'')+`</div>`:'');
+     (v.market_pe!=null?` · S&amp;P P/E <b>${v.market_pe}</b> ${v.market_pe_live?'(SPY, Yahoo)':(v.market_pe_live_date?`(ค่าล่าสุดที่ดึงได้ ${esc(v.market_pe_live_date)} — ดึง SPY ไม่ได้)`:'(ค่าที่บันทึกไว้ — ดึง SPY ไม่ได้)')}`:'')+`</div>`:'');
 }

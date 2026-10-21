@@ -18,6 +18,7 @@ from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from pipeline import (normalize, validate, rev_track, consensus, surprise_backfill,
                       dataquality, batch)
+from pipeline import lastgood
 from pipeline.cik import resolve_cik
 import store as store_mod
 
@@ -43,12 +44,13 @@ def refresh_implied_erp():
         log.warning("implied ERP refresh failed: %s", e)
 
 
-def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None):
+def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=None, prev=None):
     """Fetch -> normalize -> validate -> engine. Returns (facts, valuation, fmp_calls).
     NETWORK ONLY, never touches the store, safe to run outside store.LOCK.
 
     `quota_left` is a batch.Budget for the OPTIONAL FMP spend (the stale-financials
-    fallback); None = unlimited (single-ticker paths)."""
+    fallback); None = unlimited (single-ticker paths). `prev` is the ticker's facts
+    dict from the last refresh (read-only), for the 30-day last-good consensus."""
     t = ticker.upper().strip()
     cik, name = resolve_cik(t)
     sec_cf = sec_edgar.fetch_companyfacts(
@@ -77,10 +79,10 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     fmp_calls += _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left)
     fmp_calls += _quote_fallback(ff, t, fmp_key)
     fmp_calls += _earnings_surprises(ff, t, fmp_key)
-    estimates, calls = _estimate_path(ff, t, fmp_key)
+    estimates, calls = _estimate_path(ff, t, fmp_key, prev)
     fmp_calls += calls
     fmp_calls += _surprise_backfill(ff, t, fmp_key)
-    _blend_forward_eps(ff, t, estimates)
+    _blend_forward_eps(ff, t, estimates, prev)
     _own_pe_percentile(ff, t)
     _industry(ff, t)
     _terminal_roic(ff, t, roc_table)
@@ -227,8 +229,13 @@ def _earnings_surprises(ff, t, fmp_key):
                             finnhub.fetch_earnings, finnhub.parse_earnings)
     if fh:
         by_source["finnhub"] = fh
+    # cached 7 days: uncached, one call per name per refresh (21 holdings + the
+    # watchlist) would spend the free 25/day before EARNINGS_ESTIMATES got any
     av = _optional_earnings(t, "AlphaVantage earnings", config.ALPHAVANTAGE_API_KEY,
-                            alphavantage.fetch_earnings, alphavantage.parse_earnings)
+                            lambda sym, key: alphavantage.cached(
+                                "earnings", sym, key, alphavantage.fetch_earnings,
+                                config.CACHE_DIR)[0],
+                            alphavantage.parse_earnings)
     if av:
         by_source["alphavantage"] = av
     rec = consensus.reconcile_earnings(by_source)
@@ -242,9 +249,11 @@ def _earnings_surprises(ff, t, fmp_key):
     return calls
 
 
-def _estimate_path(ff, t, fmp_key):
-    """FMP analyst-estimates -> growth fade + breadth. Returns (raw estimates, calls);
-    the raw response is reused as a forward-EPS candidate."""
+def _estimate_path(ff, t, fmp_key, prev=None):
+    """Consensus revenue path: FMP analyst-estimates, else Yahoo's revenue estimates,
+    else Alpha Vantage EARNINGS_ESTIMATES, else the last live path no older than 30
+    days (flagged). Returns (raw FMP estimates, FMP calls); the raw FMP response is
+    reused as a forward-EPS candidate."""
     estimates, calls = None, 0
     if fmp_key:
         try:
@@ -260,7 +269,61 @@ def _estimate_path(ff, t, fmp_key):
         except Exception as e:
             log.warning("%s FMP estimates failed: %s", t, e)
     _yahoo_growth_fallback(ff)
+    if not ff.rev_growth_path:
+        _alphavantage_path(ff, t)
+    if ff.rev_growth_path:
+        ff.consensus_as_of = store_mod.today()
+    else:
+        _last_good_path(ff, prev)
     return estimates, calls
+
+
+def _av_estimates(t):
+    """Alpha Vantage EARNINGS_ESTIMATES through its 7-day cache: (raw, calls)."""
+    try:
+        return alphavantage.cached("estimates", t, config.ALPHAVANTAGE_API_KEY,
+                                   alphavantage.fetch_estimates, config.CACHE_DIR)
+    except Exception as e:
+        log.warning("%s AlphaVantage estimates failed: %s", t, e)
+        return {}, 0
+
+
+def _alphavantage_path(ff, t):
+    """Third consensus source, called only after FMP and Yahoo both came back empty,
+    so the free 25-a-day quota goes to the names that need it. The actual-year anchor
+    is a USD filer's own filed revenue, the rule FMP's path follows."""
+    if not config.ALPHAVANTAGE_API_KEY or ff.provenance.get("fx"):
+        return
+    raw, _ = _av_estimates(t)
+    anchor = (ff.revenue_annuals or [None])[0]
+    path = alphavantage.parse_estimate_path(raw, ff.fiscal_year, latest_revenue=anchor)
+    if not path:
+        return
+    ff.set("rev_growth_path", path, "alphavantage/estimates")
+    ff.set("fwd_growth_y1", path[0][0], "alphavantage/estimates")
+    ff.set("n_analysts", path[0][1], "alphavantage/estimates")
+    if len(path) > 1:
+        ff.set("fwd_growth_near", path[1][0], "alphavantage/estimates")
+        ff.set("n_analysts_y2", path[1][1], "alphavantage/estimates")
+    ff.flags.append("consensus revenue path from Alpha Vantage (FMP and Yahoo returned none)")
+
+
+def _last_good_path(ff, prev):
+    """Every consensus source failed: the previous refresh's live path, if it is no
+    older than lastgood.MAX_AGE_DAYS and still anchored on the same fiscal year."""
+    today = lastgood.date_of(store_mod.today())
+    got = lastgood.consensus_path(prev, ff, today)
+    if not got:
+        return
+    rows, fields, src, as_of = got
+    tag = f"last-good {src} ({as_of})"
+    ff.set("rev_growth_path", rows, tag)
+    for k, v in fields.items():
+        ff.set(k, v, tag)
+    ff.consensus_as_of = as_of
+    ff.flags.append(f"consensus sources all failed - using the last live revenue path "
+                    f"from {src} read {as_of} ({lastgood.age_days(as_of, today)} days old, "
+                    f"kept up to {lastgood.MAX_AGE_DAYS})")
 
 
 ESTIMATES_TTL_DAYS = 7
@@ -335,9 +398,11 @@ def _surprise_backfill(ff, t, fmp_key):
     return calls
 
 
-def _blend_forward_eps(ff, t, fmp_estimates):
+def _blend_forward_eps(ff, t, fmp_estimates, prev=None):
     """Median of the free forward-EPS candidates, with the min-max dispersion kept for
-    display. validate() still applies the revenue-ceiling backstop afterwards."""
+    display. validate() still applies the revenue-ceiling backstop afterwards. Alpha
+    Vantage is the backup when no other source answers; the last live consensus (30
+    days, flagged) when none does."""
     candidates = {}
     if ff.forward_eps and ff.forward_eps > 0:
         candidates["yahoo"] = ff.forward_eps          # Yahoo value set by normalize
@@ -352,14 +417,40 @@ def _blend_forward_eps(ff, t, fmp_estimates):
                 candidates["finnhub"] = fh_fwd
         except Exception as e:
             log.warning("%s Finnhub eps-estimate failed: %s", t, e)
+    if not candidates and config.ALPHAVANTAGE_API_KEY:
+        raw, _ = _av_estimates(t)
+        av = alphavantage.parse_ntm_eps(raw, ff.fiscal_year)
+        if av:
+            candidates["alphavantage"] = av
+    reused = None
+    if not candidates:
+        reused = lastgood.forward_eps(prev, lastgood.date_of(store_mod.today()))
+        if reused:
+            candidates["last-good"] = reused[0]
     # the PRICE lets a candidate quoted in another currency be rejected as a unit
-    # mismatch instead of being averaged in and blamed on analyst disagreement
+    # mismatch instead of being averaged in and blamed on analyst disagreement. The
+    # band only judges 2+ candidates, so a lone backup is tested on its own.
     blend = consensus.blend_forward_eps(candidates, price=ff.price)
+    if blend and blend["n"] == 1 and ff.price and set(blend["sources"]) & {"alphavantage", "last-good"}:
+        pe = ff.price / blend["value"]
+        if not (consensus.PE_MIN <= pe <= consensus.PE_MAX):
+            ff.flags.append(f"forward EPS backup {blend['value']} dropped: a {pe:,.1f}x "
+                            f"forward P/E reads as a different currency/unit")
+            return
     if not blend:
+        return
+    if reused:
+        eps, src, as_of = reused
+        ff.set("forward_eps", eps, f"last-good {src} ({as_of})")
+        ff.forward_eps_as_of = as_of
+        ff.flags.append(f"forward EPS sources all failed - using the last live consensus "
+                        f"{eps} from {src} read {as_of} "
+                        f"({lastgood.age_days(as_of, lastgood.date_of(store_mod.today()))} days old)")
         return
     for src, why in (blend.get("rejected") or {}).items():
         ff.flags.append(f"forward EPS from {src} dropped before the blend: {why}")
     ff.set("forward_eps", blend["value"], "consensus-blend(" + "+".join(blend["sources"]) + ")")
+    ff.forward_eps_as_of = store_mod.today()
     ff.forward_eps_sources = blend["sources"]
     ff.forward_eps_low = blend["low"]
     ff.forward_eps_high = blend["high"]
@@ -509,11 +600,12 @@ def compute_peer_medians(fetched):
     return out
 
 
-def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
+def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_facts=None):
     """NETWORK PHASE, run OUTSIDE store.LOCK. Tickers are analysed in parallel:
     analyze() is network+pure, the SEC throttle is global, and the FMP quota is
     partitioned up front. Returns (fetched {ticker: (FinancialFacts, Valuation)},
-    errors, fmp_calls, rf_pct, rf_live)."""
+    errors, fmp_calls, rf_pct, rf_live). `prev_facts` {ticker: facts dict} is the
+    store's last refresh, read-only, for the 30-day last-good consensus."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     refresh_implied_erp()
     roc = fetch_roc_table()
@@ -522,7 +614,10 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250):
     todo, errors = batch.partition_by_quota(tickers, cost, quota_used, quota_cap)
     # whatever the guaranteed spend does not claim, the optional fallback may draw on
     spare = batch.Budget(max(0, batch.usable_quota(quota_used, quota_cap) - len(todo) * cost)) if fmp_key else None
-    futs = batch.run_parallel(lambda t: analyze(t, rf, fmp_key, rf_live, roc, spare), todo)
+    prev_facts = prev_facts or {}
+    futs = batch.run_parallel(
+        lambda t: analyze(t, rf, fmp_key, rf_live, roc, spare,
+                          **({"prev": prev_facts[t]} if prev_facts.get(t) else {})), todo)
     for t in todo:
         try:
             ff, val, c = futs[t].result()

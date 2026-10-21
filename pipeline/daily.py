@@ -77,7 +77,26 @@ def _daily_one(t, fmp_key, sp):
     return m
 
 
-def _market_overview(sp):
+def _market_pe(prev_market, live_date=None):
+    """(pe, live, as_of, source). SPY live; else the last live P/E no older than 30 days
+    (pipeline/lastgood); else the saved MARKET_PE. On Render Yahoo is often blocked, and
+    the saved 25.1 was four months old by October 2026."""
+    from pipeline import lastgood
+    pe_live = yahoo.fetch_market_pe()
+    if pe_live is not None:
+        return pe_live, True, live_date or store_today(), "SPY live"
+    got = lastgood.market_pe(prev_market, lastgood.date_of(store_today()))
+    if got:
+        return got[0], False, got[1], f"last live SPY P/E ({got[1]})"
+    return config.MARKET_PE, False, None, f"saved MARKET_PE ({config.MARKET_PE_AS_OF})"
+
+
+def store_today():
+    import store
+    return store.today()
+
+
+def _market_overview(sp, prev_market=None):
     """S9 regime + S16/S35 12m benchmark + S32/33 valuation overlay from SPY."""
     mkt = momentum.market_state(sp["closes"])
     mkt["ret_12m"] = momentum.roc(sp["closes"], 252)
@@ -87,28 +106,31 @@ def _market_overview(sp):
         from pipeline.fundamentals import refresh_implied_erp
         refresh_implied_erp()
         # S&P 500 trailing P/E read live from SPY; the saved MARKET_PE only when Yahoo fails
-        pe_live = yahoo.fetch_market_pe()
+        pe, pe_live, pe_date, pe_src = _market_pe(prev_market, mkt.get("as_of"))
         from sources.damodaran_snapshot import ERP_HISTORY
-        mkt["valuation"] = market_valuation.overlay(
-            rf, config.ERP, pe_live if pe_live is not None else config.MARKET_PE, ERP_HISTORY)
-        mkt["valuation"]["market_pe"] = pe_live if pe_live is not None else config.MARKET_PE
-        mkt["valuation"]["market_pe_live"] = pe_live is not None
+        mkt["valuation"] = market_valuation.overlay(rf, config.ERP, pe, ERP_HISTORY)
+        mkt["valuation"]["market_pe"] = pe
+        mkt["valuation"]["market_pe_live"] = pe_live
+        # the day the P/E in use was read live (kept through a last-good reuse)
+        mkt["valuation"]["market_pe_live_date"] = pe_date
+        mkt["valuation"]["market_pe_source"] = pe_src
         # a fallback Rf moves the Fed-model spread; the strip says so instead of
         # presenting 4.3% as today's yield
         mkt["valuation"]["rf_live"] = bool(rf_live)
         # assumption freshness, so the UI can flag a stale ERP/PE
         mkt["valuation"]["erp_as_of"] = config.ERP_AS_OF
-        mkt["valuation"]["market_pe_as_of"] = (mkt.get("as_of") or "")[:7] if pe_live is not None \
-            else config.MARKET_PE_AS_OF
+        mkt["valuation"]["market_pe_as_of"] = (pe_date[:7] if pe_date else config.MARKET_PE_AS_OF)
         mkt["valuation"]["erp_stale_months"] = config.ERP_STALE_MONTHS
     except Exception as e:
         log.warning("market valuation overlay failed: %s", e)
     return mkt
 
 
-def fetch_daily(tickers, fmp_key=""):
+def fetch_daily(tickers, fmp_key="", prev_market=None):
     """NETWORK PHASE. `fmp_key` is spent only if Yahoo is blocked (the long
-    ladder's FMP tier); pass "" to keep the run quota-free. Run OUTSIDE store.LOCK."""
+    ladder's FMP tier); pass "" to keep the run quota-free. Run OUTSIDE store.LOCK.
+    `prev_market` (the store's last market block, read-only) carries the last live
+    S&P P/E for the 30-day reuse."""
     # SPY first, so every ticker can compute its regression beta
     sp = None
     try:
@@ -123,7 +145,8 @@ def fetch_daily(tickers, fmp_key=""):
         if m:
             out[t] = m
     try:
-        out[MARKET_KEY] = _market_overview(sp if sp is not None else spy_series(fmp_key))
+        out[MARKET_KEY] = _market_overview(sp if sp is not None else spy_series(fmp_key),
+                                           prev_market)
     except Exception as e:
         log.warning("market_state SPY failed: %s", e)
     return out

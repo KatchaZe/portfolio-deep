@@ -19,6 +19,8 @@ function assumeLine(){
   const src=a.source||{}, v=(((window.__last||{}).market)||{}).valuation||{};
   const pe=v.market_pe_live
     ?`PE <b>${v.market_pe}</b> (SPY live ${esc(v.market_pe_as_of||'')}; ค่าสำรอง ${a.market_pe})`
+    :v.market_pe_live_date
+    ?`PE <b>${v.market_pe}</b> (SPY ล่าสุดที่ดึงได้ ${esc(v.market_pe_live_date)} — ใช้ได้ถึง 30 วัน; ค่าสำรอง ${a.market_pe})`
     :`PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'}${v.market_pe!=null?' · ดึง SPY ไม่ได้':''})`;
   el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':src.erp==='damodaran-live'?'Damodaran web':'default'}) · `+pe+
     (a.erp_stale?` <span style="color:#b45309;font-weight:700">⚑ ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');

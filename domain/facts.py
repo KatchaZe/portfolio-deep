@@ -93,6 +93,10 @@ class FinancialFacts:
     # consensus revenue growth year by year from the last actual FY: [[growth, analysts], ...]
     rev_growth_path: list = field(default_factory=list)
     n_analysts_y2: Optional[int] = None          # coverage of the second estimate year
+    # the day the consensus path / forward EPS were last read LIVE (a last-good reuse
+    # keeps the original date, so it can never be extended past its 30 days)
+    consensus_as_of: Optional[str] = None
+    forward_eps_as_of: Optional[str] = None
     peer_median_growth: Optional[float] = None   # median revenue growth of the sector cohort
     terminal_roic_sector: Optional[float] = None  # Damodaran industry ROIC — perpetuity ceiling
     # Damodaran industry unlevered beta (corrected for cash) and the industry it came

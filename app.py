@@ -145,10 +145,11 @@ def _commit_fmp_calls(calls):
 def _fetch_and_commit(tickers):
     """Fundamentals + daily momentum for `tickers`: slow fetch with no lock, then a
     locked merge into a freshly loaded store. Returns (result_meta, saved_store)."""
-    used = st.fmp_used_today(st.load())
+    before = st.load()
+    used = st.fmp_used_today(before)
     fetched, errors, calls, rf_pct, rf_live = fundamentals.fetch_fundamentals(
-        tickers, config.FMP_API_KEY, used, config.QUOTA_CAP)
-    daily = daily_mod.fetch_daily(tickers, config.FMP_API_KEY)
+        tickers, config.FMP_API_KEY, used, config.QUOTA_CAP, prev_facts=before.get("facts"))
+    daily = daily_mod.fetch_daily(tickers, config.FMP_API_KEY, prev_market=before.get("market"))
     with st.transaction() as s:
         fundamentals.commit_fundamentals(s, fetched, calls)
         daily_mod.commit_daily(s, daily)
@@ -349,7 +350,8 @@ def api_refresh():
 
 @app.post("/api/daily")
 def api_daily():
-    daily = daily_mod.fetch_daily(_holding_tickers(), config.FMP_API_KEY)
+    daily = daily_mod.fetch_daily(_holding_tickers(), config.FMP_API_KEY,
+                                  prev_market=st.load().get("market"))
     with st.transaction() as s:
         daily_mod.commit_daily(s, daily)
     return JSONResponse(portfolio.view(s))
