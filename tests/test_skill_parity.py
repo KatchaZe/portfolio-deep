@@ -232,6 +232,44 @@ def test_v85_rules_parity():
     print("v8.5 growth path / organic growth / DCF path parity OK")
 
 
+def test_v88_rules_parity():
+    """v8.8 (2026-10-22): consensus as reported + re-acceleration hold, the TTM re-cut,
+    the fade cap, the reverse DCF on the forward model and the young DCF's WACC fade."""
+    gp, fd, yc = _load("growth_path"), _load("fcff_dcf"), _load("young_company_dcf")
+    if gp is None or not hasattr(gp, "ntm_rebase"):
+        print("skill v8.8 scripts not present - skipped")
+        return
+    from domain.engine import young_dcf as Y
+    from domain.facts import FinancialFacts
+    rows = [[0.1294, 32], [0.1307, 32], [0.1866, 32], [0.5424, 30], [0.0545, 16]]
+    f = FinancialFacts("X"); f.rev_growth_path = rows
+    assert gp.consensus_path(rows) == E.consensus_growth_path(f)
+    f = FinancialFacts("LLY"); f.revenue, f.fiscal_year = 79.67e9, "2026-06-30"
+    f.revenue_annuals_dated = [["2025-12-31", 65.18e9]]
+    f.rev_growth_path = [[0.3584, 29], [0.1528, 27]]
+    frac = E._rebase_fraction(f)
+    assert gp.ntm_rebase(f.rev_growth_path, 79.67e9, 65.18e9, frac) == E.ntm_rebase(f, f.rev_growth_path)
+    kw = dict(revenue=3.2e9, margin_now=0.014, margin_target=0.33, g_high=0.3, g_stable=0.0513,
+              sales_to_capital=0.77, tax_now=0.21, tax_marginal=0.25, wacc=0.117,
+              wacc_stable=0.1075, roic_stable=0.1075, cash=0.7e9, debt=1.8e9, shares=82.5e6,
+              growth_path=[0.3, 0.29], margin_years=5, fade_start_cap=0.30)
+    from domain.engine import fcff_dcf as A
+    assert fd.value(**kw)["per_share"] == A.value(**kw)["per_share"]
+    ev = 30e9
+    x_skill = fd.implied_growth(kw, ev)
+    x_app = E.reverse_dcf_ginzu(kw, ev)["implied_cagr_pct"]
+    assert abs(round(x_skill * 100, 1) - x_app) < 0.11, (x_skill, x_app)
+    d = dict(current_revenue=2.58e9, g_high=0.37, g_stable=0.0513, horizon=10,
+             current_margin=-0.06, target_margin=0.147, sales_to_capital=2.5, tax=0.131,
+             wacc=0.136, wacc_stable=0.0936, tax_terminal=0.25, roic_stable=0.15,
+             net_debt=0.7e9, shares=230e6, annual_dilution=0.0)
+    a = Y.going_concern(dict(d))["equity_value"]
+    b = yc.going_concern(dict(d))["equity_value"]
+    assert abs(a - b) < 1.0, (a, b)
+    assert yc.held_to_industry(0.59, 2.74) == Y._held_to_industry(0.59, "x", 2.74)[0]
+    print("v8.8 consensus / TTM re-cut / fade cap / reverse DCF / young WACC fade parity OK")
+
+
 if __name__ == "__main__":
     from tests._harness import run_suite
     run_suite(globals(), "ALL test_skill_parity PASSED")
