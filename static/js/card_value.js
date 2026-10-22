@@ -194,3 +194,38 @@ function impliedVsActualBars(x){
       ${act!=null?`<div style="display:flex;align-items:center;gap:6px;font-size:calc(10px*var(--fs));margin-top:2px"><span style="width:76px;flex:none">actual <b>${act}%</b>/y</span>${bar(act,'#86efac')}</div>`:''}
       <div style="margin-top:3px">${chip(esc(verd||'priced-in'),vc[0],vc[1],esc(x.rev_verdict||''))} <span class="muted" style="font-size:calc(9px*var(--fs))">ช่องว่างระหว่างแท่ง = ศรัทธาที่ตลาดจ่ายล่วงหน้า</span></div>`;
 }
+
+
+// Cross-checks on the primary model (domain/engine/scenarios.py): what the price has to
+// believe, and Bear / Base / Bull from the firm's own history at 25/50/25. Neither moves
+// Anchor FV or the Price pillar.
+const SCEN_COLOR={Bear:'#b4462f',Base:'#7a6a1f',Bull:'#1f7a52'};
+function pricedInWhy(note){
+  return note==='above'?'เกินช่วงที่โมเดลหา (margin 80% / growth สูงสุด)':note==='below'?'ต่ำกว่าช่วงที่หา':note==='decreasing'?'ยิ่งโตยิ่งเสียมูลค่า (ผลตอบแทนเงินลงทุนใหม่ต่ำกว่าต้นทุนเงินทุน)':'คำนวณไม่ได้';
+}
+function scenarioPanel(x){
+  const sc=x.scenarios, pi=x.priced_in; if(!sc||!sc.cases)return '';
+  const px=x.price, vals=sc.cases.map(c=>c.value), hi=Math.max(px||0,sc.expected||0,...vals)*1.1||1;
+  const at=v=>Math.max(0,Math.min(100,v/hi*100));
+  const rows=sc.cases.map(c=>`<div style="display:grid;grid-template-columns:3.2em 1fr 4.6em;align-items:center;gap:6px;font-size:calc(10px*var(--fs))" title="${esc(c.name+': margin '+c.margin_pct+'% · growth ปีแรก '+c.growth_y1_pct+'%')}">
+      <span style="color:${SCEN_COLOR[c.name]};font-weight:700">${c.name}</span>
+      <div style="position:relative;height:10px;background:#f1f5f9;border-radius:3px"><div style="position:absolute;left:0;top:0;bottom:0;width:${at(c.value).toFixed(1)}%;background:${SCEN_COLOR[c.name]};opacity:.8;border-radius:3px"></div>
+        ${px?`<div style="position:absolute;left:${at(px).toFixed(1)}%;top:-2px;width:2px;height:14px;background:#0f172a"></div>`:''}</div>
+      <span style="text-align:right;font-variant-numeric:tabular-nums">$${fixed(c.value)}</span></div>`).join('');
+  const pb=sc.implied_bull_prob;
+  const pbTxt=pb!=null?(pb===0?'Bear + Base ก็คุ้มราคาแล้ว':`ราคาเท่ากับโอกาส Bull <b>${Math.round(pb*100)}%</b> (ตั้งไว้ 25%)`):'ทุก scenario ต่ำกว่าราคา';
+  const mos=sc.mos!=null?`${sc.mos>=0?'+':''}${Math.round(sc.mos*100)}%`:'–';
+  let piLine='';
+  if(pi){
+    const m=pi.margin_pct!=null?`margin <b>${pi.margin_pct}%</b> <span class="muted">(ตอนนี้ ${pi.margin_now_pct}% · โมเดล ${pi.margin_model_pct}%)</span>`:`margin: ${pricedInWhy(pi.margin_note)}`;
+    const g=pi.growth_pct!=null?`หรือรายได้โต <b>${pi.growth_pct}%</b>/ปี 5 ปี → ปีที่ 10 = <b>${pi.rev10_x}×</b> ของวันนี้`:`growth: ${pricedInWhy(pi.growth_note)}`;
+    piLine=`<div style="font-size:calc(10px*var(--fs));margin-top:2px" title="${esc('ใช้โมเดลเดียวกับ Anchor FV แล้วแก้สมการหาตัวแปรเดียวที่ทำให้มูลค่าเท่าราคา ตัวแปรอื่นคงเดิม')}">ราคาต้องการ ${m} · ${g}</div>`;
+  }
+  const destroy=sc.growth_destroys_value?`<div style="font-size:calc(9px*var(--fs));color:#b45309">โตช้ากว่ากลับได้มูลค่ามากกว่า: ที่ margin นี้การโตใช้เงินลงทุนมากกว่าที่สร้าง</div>`:'';
+  return `<details style="margin-top:6px;padding-top:5px;border-top:0.5px dashed #e2e8f0">
+    <summary style="cursor:pointer;${CAPS_LABEL}">Scenario &amp; price-in &middot; คาดหวัง $${fixed(sc.expected)} (MoS ${mos})</summary>
+    ${piLine}
+    <div style="display:grid;gap:3px;margin-top:5px">${rows}</div>
+    <div style="font-size:calc(10px*var(--fs));margin-top:3px">25/50/25 → คาดหวัง <b>$${fixed(sc.expected)}</b> · ${pbTxt}</div>${destroy}
+    <div class="muted" style="font-size:calc(9px*var(--fs))">${esc(sc.basis)} · cross-check เท่านั้น ไม่เปลี่ยน FV และคะแนน P</div></details>`;
+}

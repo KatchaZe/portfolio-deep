@@ -54,6 +54,10 @@ class Valuation:
     fv_excess_return: Optional[float] = None           # excess-return value per share (financials)
     dcf: dict = field(default_factory=dict)            # fcff_dcf.value() result: inputs, path, sources
     excess_return: dict = field(default_factory=dict)  # financial.value() result
+    # cross-checks on the primary model (domain/engine/scenarios.py): the input the
+    # price implies, and a 25/50/25 Bear/Base/Bull expected value. Never the anchor.
+    priced_in: dict = field(default_factory=dict)
+    scenarios: dict = field(default_factory=dict)
 
     verdict: str = ""                                  # short ifa-style summary line
     flags: list = field(default_factory=list)

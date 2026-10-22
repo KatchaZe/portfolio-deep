@@ -11,6 +11,7 @@ from domain import pead as pead_mod
 from domain import trend as trend_mod
 from domain.company_type import CompanyType, classify, normalized_margin
 from . import fcff_dcf, young_dcf
+from . import scenarios as scenarios_mod
 from . import financial as financial_mod
 from .contract import DeepEngine, Valuation
 
@@ -1100,11 +1101,30 @@ class DeepV82Engine(DeepEngine):
             subscores={"breakdown": notes},
             key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype, anc),
             flags=list(f.flags))
+        v.priced_in, v.scenarios = _cross_checks(f, cap, gr, ctype, rf, anc)
         try:
             v.verdict = _verdict(f, v)
         except Exception as e:                       # guard: never let a verdict typo/bad field crash a ticker
             v.verdict = (f"{v.recommendation or 'N/A'} {v.stars or ''} - verdict unavailable ({type(e).__name__})").strip()
         return v
+
+
+def _cross_checks(f, cap, gr, ctype, rf, anc):
+    """(priced_in, scenarios) on the anchor's own model, or ({}, {}). A cross-check
+    must never kill a row."""
+    try:
+        if anc.method == "FCFF DCF" and f.price:
+            built = _dcf_inputs(f, cap, gr, ctype, rf)
+            if built:
+                m_raw = f.operating_income / f.revenue
+                pi, sc = scenarios_mod.operating(built[0], f.price, _margin_history(f), m_raw)
+                return pi or {}, sc or {}
+        if anc.method.startswith("Young-Company") and f.price:
+            pi, sc = scenarios_mod.young(anc.ydcf, f.price, getattr(f, "industry_margin", None))
+            return pi or {}, sc or {}
+    except Exception as e:
+        _add_flag(f, f"scenario cross-check unavailable ({type(e).__name__})")
+    return {}, {}
 
 
 # --- evaluate() stages, in call order -----------------------------------------

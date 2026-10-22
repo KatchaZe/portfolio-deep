@@ -99,6 +99,10 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "dcf": v.get("dcf") or None, "excess_return": v.get("excess_return") or None,
         # pre-profit forward valuation; {} for profitable names
         "young_dcf": v.get("young_dcf") or None,
+        # cross-checks on the primary model: the input the price implies, and the
+        # 25/50/25 Bear/Base/Bull expected value (never the anchor)
+        "priced_in": v.get("priced_in") or None,
+        "scenarios": v.get("scenarios") or None,
         "earn_status": earn_status(eps_surprises, rev_surprises, mgn_trend,
                                    f.get("provenance"), has_new_schema, fmp_on),
         "forward_eps": f.get("forward_eps"), "forward_eps_low": f.get("forward_eps_low"),

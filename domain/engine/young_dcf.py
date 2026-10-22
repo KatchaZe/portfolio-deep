@@ -358,6 +358,9 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
         "blocked_reason": blocked,
         "terminal_share_of_value_pct": (round(gc["pv_terminal"] / gc["firm_value"] * 100, 1)
                                         if gc["firm_value"] else None),
+        # the exact going_concern() input, so scenario and priced-in solvers re-run
+        # the SAME model with one input changed (domain/engine/scenarios.py)
+        "model": {k: v for k, v in d.items() if isinstance(v, (int, float))},
         "inputs": {
             "g_high_pct": round(g_high * 100, 1), "g_high_src": g_src,
             "current_margin_pct": round(cur_margin * 100, 1),

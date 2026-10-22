@@ -330,5 +330,47 @@ def test_market_pe_last_good():
         yahoo.fetch_market_pe, store.today = keep
 
 
+def test_priced_in_and_scenarios_rerun_the_anchor_model():
+    print("16 priced-in inputs and 25/50/25 scenarios re-run the anchor's own model")
+    from domain.engine import scenarios as SC, fcff_dcf
+    kw = dict(revenue=450e9, margin_now=0.0543, margin_target=0.0839, g_high=0.012,
+              g_stable=0.0513, sales_to_capital=5.875, tax_now=0.158, tax_marginal=0.25,
+              wacc=0.0806, wacc_stable=0.0806, roic_stable=0.1054, cash=28.6e9, debt=78e9,
+              shares=908e6, growth_path=[0.012, 0.044, 0.05, 0.055, 0.063], margin_years=5,
+              fade_start_cap=0.30)
+    price = 406.88
+    hist = [0.048, 0.081, 0.087, 0.088, 0.083]
+    pi, sc = SC.operating(kw, price, hist, margin_now_unadjusted=0.0537)
+    at = fcff_dcf.value(**dict(kw, margin_target=pi["margin_pct"] / 100))["per_share"]
+    check(abs(at - price) < 1.0, f"the priced-in margin {pi['margin_pct']}% values the stock at the price (${at:.2f})")
+    base = fcff_dcf.value(**kw)["per_share"]
+    names = [c["name"] for c in sc["cases"]]
+    check(names == ["Bear", "Base", "Bull"] and abs(sc["cases"][1]["value"] - round(base, 2)) < 0.01,
+          "Base is the anchor's own value")
+    check(sc["cases"][0]["value"] < base < sc["cases"][2]["value"], "Bear < Base < Bull for UNH-like history")
+    exp = 0.25 * sc["cases"][0]["value"] + 0.5 * sc["cases"][1]["value"] + 0.25 * sc["cases"][2]["value"]
+    check(abs(sc["expected"] - exp) < 0.02, "expected = 25/50/25 weights")
+    check(abs(sc["cases"][0]["margin_pct"] - (4.8 + 0.06)) < 0.01, "Bear margin = lowest year + lease add-back")
+    v = E.DeepV82Engine().evaluate(_elv(), rf=RF)
+    check(v.scenarios and v.priced_in and v.anchor_value == v.scenarios["cases"][1]["value"],
+          "the engine attaches both to an FCFF DCF row, Base = anchor", str(v.anchor_value))
+    check(v.P == E.DeepV82Engine().evaluate(_elv(), rf=RF).P, "cross-check only: P unchanged")
+
+
+def test_young_scenarios_and_growth_that_destroys_value():
+    print("17 young-company scenarios use the S20 form; slower growth worth more is reported")
+    from domain.engine import scenarios as SC
+    d = dict(current_revenue=0.77e9, g_high=0.46, g_stable=0.0513, horizon=10,
+             current_margin=-0.29, target_margin=0.0865, sales_to_capital=1.37, tax=0.21,
+             wacc=0.165, wacc_stable=0.104, tax_terminal=0.25, roic_stable=0.127,
+             net_debt=-2.19e9, shares=617.6e6, annual_dilution=0.0)
+    y = {"model": d, "p_survival": 0.85, "distress_per_share": 3.55}
+    pi, sc = SC.young(y, 51.36, industry_margin=0.0865)
+    check(pi["margin_pct"] is None and pi["margin_note"] == "above", "no margin up to 80% reaches $51 (RKLB)")
+    check(pi["growth_note"] == "decreasing", "at 8.65% more growth lowers value")
+    check(sc["growth_destroys_value"] and sc["implied_bull_prob"] is None,
+          "Bear above Base is flagged; no Bull probability reaches the price")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")

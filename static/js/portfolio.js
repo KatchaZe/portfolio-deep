@@ -49,7 +49,7 @@ function pcard(x,watch){
   // earnings dots answer "beat the estimate?", the trend strip below them "improving?"
   const earn=`<div style="margin:6px 0"><div style="${CAPS_LABEL}">Earnings &middot; EPS / Rev / Mgn &middot; 5q</div><div style="margin-top:2px;padding-left:8px">${earnCircles(x)}</div></div>`;
   const verdict=`<div class="muted" style="font-size:calc(12px*var(--fs));border-top:0.5px solid #e2e8f0;padding-top:6px;margin-top:4px">${esc(x.verdict)}</div>`+adviceLine(x);
-  return `<div style="${CARD_BOX}">${head}${vg}${youngPanel(x)}${deep}${signalGrid(x,'6px 0','    ',valueCells)}${guardBadges(x)}${earn}${trendStrip(x)}${verdict}${extra}</div>`;
+  return `<div style="${CARD_BOX}">${head}${vg}${youngPanel(x)}${scenarioPanel(x)}${deep}${signalGrid(x,'6px 0','    ',valueCells)}${guardBadges(x)}${earn}${trendStrip(x)}${verdict}${extra}</div>`;
 }
 function signalGrid(x,margin,indent,more){
   return `<div style="display:flex;flex-wrap:wrap;gap:10px;margin:${margin}">
