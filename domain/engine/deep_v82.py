@@ -1692,7 +1692,7 @@ def ntm_rebase(f, rows):
     return out
 
 
-def consensus_growth_path(f, held=None):
+def consensus_growth_path(f, held=None, rebase=True):
     """Consensus revenue growth year by year: [g1, g2, ...], as reported up to
     CONSENSUS_SANITY_CAP (GROWTH_CAP bounds only the extrapolated years, in fcff_dcf).
     Years 1-2 need PATH_MIN_ANALYSTS_NEAR or the path stops there. Years 3-5 with
@@ -1705,7 +1705,8 @@ def consensus_growth_path(f, held=None):
         rows = [[f.fwd_growth_y1, f.n_analysts or 0]]
         if f.fwd_growth_near is not None:
             rows.append([f.fwd_growth_near, f.n_analysts_y2 or 0])
-    rows = ntm_rebase(f, rows)
+    if rebase:
+        rows = ntm_rebase(f, rows)
     path = []
     for i, (g, n) in enumerate(rows[:PATH_MAX_YEARS]):
         if g is None:
@@ -2214,8 +2215,9 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
              young_uncertain=False):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(*_acquisitions_for_growth_year(f))
-    # the fade is read on the covered years only, the same path the DCF runs
-    cpath = consensus_growth_path(f)
+    # the fade is read on the covered years only, on the fiscal-year clock Demand
+    # scores realised growth on (the DCF's TTM re-cut would hide a fade TTM already holds)
+    cpath = consensus_growth_path(f, rebase=False)
     fade, fade_why = (fade_ratio(cpath[0], cpath[-1]) if len(cpath) > 1
                       else (None, "consensus covers fewer than two years"))
     cons_adj, cons_note = growth_consistency(gr.rev_growth_yoy, gr.actual_3y)
