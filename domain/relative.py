@@ -185,7 +185,8 @@ def fit(peers):
                              round(max(p["growth"] for p in kept), 4)],
             "peers": [{k: (round(v, 4) if isinstance(v, float) else v)
                        for k, v in p.items() if k in ("symbol", "ev_sales", "margin", "growth",
-                                                      "period_end", "price_date")} for p in kept],
+                                                      "period_end", "price_date", "sic",
+                                                      "addback")} for p in kept],
             "outliers": [p["symbol"] for p in dropped]}, None
 
 

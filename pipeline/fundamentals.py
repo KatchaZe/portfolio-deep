@@ -76,6 +76,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     if not rf_live:
         ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
     ff.sec_gap = (sec_cf or {}).get("_sec_gap")
+    ff.sic = (sec_cf or {}).get("_sic")
     if isinstance(sec_cf, dict) and sec_cf.get("_stale_cache"):
         ff.flags.append("SEC via stale cache (network failed) — figures may lag the latest filing")
 

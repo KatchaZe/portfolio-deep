@@ -282,5 +282,39 @@ class Pipeline(unittest.TestCase):
         self.assertIn("stale", why)
 
 
+class IndustryAndOneTime(unittest.TestCase):
+    def test_peer_ebit_gets_the_targets_one_time_addback(self):
+        x = facts(rev=30e9, oi=-2.4e9)                         # GILD-like: -8% margin
+        x.update(acquired_iprd_ttm=10e9, impairment_ttm=None, restructuring_ttm=None,
+                 acquired_iprd_annuals_dated=[["2025-12-31", 0.1e9], ["2024-12-31", 0.2e9]],
+                 restructuring_annuals_dated=None,
+                 revenue_annuals_dated=[["2025-12-31", 29e9], ["2024-12-31", 28e9]])
+        y, add = peers.normalized(x)
+        self.assertEqual(add, 7.5e9)                           # capped at 25% of revenue
+        self.assertAlmostEqual(y["operating_income"] / y["revenue"], 0.17)
+        x["acquired_iprd_annuals_dated"] = [["2025-12-31", 3e9], ["2024-12-31", 3e9],
+                                            ["2023-12-31", 3e9], ["2022-12-31", 3e9]]
+        x["revenue_annuals_dated"] = [[d, 29e9] for d, _ in x["acquired_iprd_annuals_dated"]]
+        y, add = peers.normalized(x)
+        self.assertEqual((add, y["operating_income"]), (0.0, -2.4e9))   # recurs: an operating cost
+
+    def test_sic_level(self):
+        self.assertEqual(peers.sic_level(["7372", ""], ["7370", ""]), 3)
+        self.assertEqual(peers.sic_level(["2844", ""], ["8000", ""]), 0)
+        self.assertIsNone(peers.sic_level(None, ["7372", ""]))
+
+    def test_other_industries_dropped_only_when_enough_remain(self):
+        soft = [dict(pt(f"S{i}", 5, .2, .1), sic=["7372", "software"]) for i in range(5)]
+        cosm = [dict(pt(f"C{i}", 3, .1, .1), sic=["2844", "perfumes, cosmetics"]) for i in range(3)]
+        kept, dropped, note = peers.match_industry(soft + cosm, ["7372", "software"])
+        self.assertEqual(len(kept), 5)
+        self.assertIsNone(note)
+        self.assertTrue(all("other industry: SIC 2844" in d["reason"] for d in dropped))
+        kept, dropped, note = peers.match_industry(soft[:3] + cosm, ["7372", "software"])
+        self.assertEqual((len(kept), dropped), (6, []))
+        self.assertIn("only 3 of 6", note)
+        self.assertIn("SIC unknown", peers.match_industry(soft, None)[2])
+
+
 if __name__ == "__main__":
     unittest.main()

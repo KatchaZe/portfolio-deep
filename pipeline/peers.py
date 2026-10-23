@@ -22,14 +22,17 @@ import os
 import threading
 
 import config
-from domain import relative, pricing
+from types import SimpleNamespace
+
+from domain import one_time, relative, pricing
 from pipeline import batch, lastgood
 from pipeline.cik import resolve_cik
 from sources import fmp, sec_edgar, sec_gap, stooq, yahoo
 
 log = logging.getLogger("portfolio.peers")
 
-MAX_PEERS = 8
+MAX_PEERS = 12             # FMP lists ~10; the SIC match below may drop some
+SIC_MATCH_MIN = 2          # digits of SIC a peer must share with the target
 LIST_TTL_DAYS = 30
 MODEL_TTL_DAYS = 7
 PEER_LIST_CALLS = 1
@@ -144,10 +147,59 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
     close, day, src = fetch_price(sym, today.isoformat())
     if not close:
         return None, "no T-1 close (Yahoo and Stooq)"
-    return relative.point(sym, x, close, day, today)
+    x, addback = normalized(x)
+    p, why = relative.point(sym, x, close, day, today)
+    if p:
+        p["sic"] = cf.get("_sic")
+        p["addback"] = round(addback / x["revenue"], 4) if addback and x.get("revenue") else 0.0
+    return p, why
 
 
-def build_model(t, symbols, today, memo=None, price_date=None, **kw):
+ONE_TIME_FIELDS = ("operating_income", "revenue", "impairment_ttm", "restructuring_ttm",
+                   "restructuring_annuals_dated", "acquired_iprd_ttm",
+                   "acquired_iprd_annuals_dated", "revenue_annuals_dated")
+
+
+def normalized(x):
+    """(x with EBIT after the same one-time add-back the target gets, add-back $).
+    The target's ff.operating_income is already normalized (domain/one_time.py); a
+    peer's raw EBIT next to it would compare two different definitions of margin
+    (GILD's acquired IPR&D read -8%, live 2026-10-23)."""
+    ns = SimpleNamespace(**{k: x.get(k) for k in ONE_TIME_FIELDS}, operating_income_gaap=None,
+                         flags=[], provenance={})
+    ns.set = lambda name, value, source: setattr(ns, name, value)
+    add = one_time.normalize_operating_income(ns)
+    return (dict(x, operating_income=ns.operating_income) if add else x), add
+
+
+def sic_level(a, b):
+    """Leading SIC digits two codes share (0-4); None when either is unknown."""
+    a, b = (str(c[0]) if c else None for c in (a, b))
+    if not a or not b:
+        return None
+    n = 0
+    while n < 4 and n < len(a) and n < len(b) and a[n] == b[n]:
+        n += 1
+    return n
+
+
+def match_industry(pts, target_sic):
+    """(kept, dropped[{symbol, reason}], note). Peers outside the target's SIC major
+    group are dropped only when at least MIN_PEERS remain; otherwise all stay and the
+    note says the set spans industries (the card shows each peer's SIC)."""
+    if not target_sic:
+        return pts, [], "target SIC unknown: peers not industry-checked"
+    lv = [(p, sic_level(p.get("sic"), target_sic)) for p in pts]
+    same = [p for p, l in lv if l is None or l >= SIC_MATCH_MIN]
+    if len(same) >= relative.MIN_PEERS:
+        dropped = [{"symbol": p["symbol"], "reason": f"other industry: SIC {p['sic'][0]} "
+                    f"{p['sic'][1] or ''} vs {target_sic[0]}"} for p, l in lv if p not in same]
+        return same, dropped, None
+    return pts, [], (f"only {len(same)} of {len(pts)} peers share SIC group {target_sic[0][:2]} "
+                     f"({target_sic[1] or ''}); all kept")
+
+
+def build_model(t, symbols, today, memo=None, price_date=None, target_sic=None, **kw):
     """(model, excluded[{symbol, reason}]) from up to MAX_PEERS symbols."""
     memo = memo or PointMemo()
     pts, excluded = [], []
@@ -156,11 +208,15 @@ def build_model(t, symbols, today, memo=None, price_date=None, **kw):
         if p and price_date and relative._days(p["price_date"], price_date) > relative.PRICE_LAG_DAYS:
             p, why = None, f"close {p['price_date']} not within {relative.PRICE_LAG_DAYS} days of {price_date}"
         (pts.append(p) if p else excluded.append({"symbol": sym, "reason": why}))
+    pts, dropped, note = match_industry(pts, target_sic)
+    excluded += dropped
     model, why = relative.fit(pts)
     if model is None:
-        return None, excluded, why
+        return None, excluded, "; ".join(w for w in (why, note) if w)
     excluded += [{"symbol": s, "reason": "EV/Sales outlier (IQR fence)"} for s in model["outliers"]]
     model["as_of"] = today.isoformat()
+    model["industry_note"] = note
+    model["target_sic"] = target_sic
     return model, excluded, None
 
 
@@ -198,7 +254,8 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, **kw):
         symbols, list_as_of, note, calls = peer_list(t, fmp_key, today, budget, kw.pop("cache_dir", None),
                                                      kw.pop("fetch_list", None))
         notes += [note] if note else []
-        model, excluded, why = build_model(t, symbols, today, memo, _price_date(f), **kw) if symbols \
+        model, excluded, why = build_model(t, symbols, today, memo, _price_date(f),
+                                                     getattr(f, "sic", None), **kw) if symbols \
             else (None, [], None if notes else "no peers")
         if model is None:
             notes += [why] if why else []

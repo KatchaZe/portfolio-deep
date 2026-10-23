@@ -222,6 +222,26 @@ class Truncation(unittest.TestCase):
         self.assertIs(out["_sec_gap"]["read"], False)
 
 
+class Sic(unittest.TestCase):
+    def test_sic_attached_and_old_cache_refetched(self):
+        tmp = tempfile.mkdtemp()
+        os.makedirs(os.path.join(tmp, "sec_gap"))
+        with open(os.path.join(tmp, "sec_gap", "submissions_0000000001.json"), "w") as fh:
+            json.dump(subs(("10-Q", "2026-04-29", "2026-03-31", "Q1")), fh)   # no "sic": old shape
+        full = dict(subs(("10-Q", "2026-04-29", "2026-03-31", "Q1")), sic="7372",
+                    sicDescription="Services-Prepackaged Software")
+
+        class R:
+            urls = []
+            def get(self, url, headers=None, timeout=None):
+                self.urls.append(url)
+                return SimpleNamespace(json=lambda: full, raise_for_status=lambda: None)
+        rq = R()
+        out = sec_gap.complete("1", cf_with({"Q1": 300}), "ua", cache_dir=tmp, requests_mod=rq)
+        self.assertEqual(out["_sic"], ["7372", "Services-Prepackaged Software"])
+        self.assertEqual(len(rq.urls), 1)
+
+
 class Gaps(unittest.TestCase):
     ROWS = [("10-Q", "2026-10-22", "2026-09-30", "Q3"), ("8-K", "2026-08-01", "", "X"),
             ("10-Q", "2026-07-29", "2026-06-30", "Q2"), ("10-Q", "2026-04-29", "2026-03-31", "Q1"),

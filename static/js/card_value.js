@@ -243,9 +243,9 @@ function relativePanel(x){
   const vs=v=>v&&px?` <span class="muted">(${v>=px?'+':''}${Math.round((v-px)/px*100)}% vs ราคา)</span>`:'';
   const eq=`EV/Sales = ${m.coef[0]} ${m.coef[1]>=0?'+':'−'} ${Math.abs(m.coef[1])}×margin${m.terms.includes('growth')?` ${m.coef[2]>=0?'+':'−'} ${Math.abs(m.coef[2])}×growth`:''}`;
   const weak=m.weak?`<span style="background:#f1f5f9;color:#64748b;border-radius:3px;padding:0 4px;margin-left:4px">fit อ่อน</span>`:'';
-  const rowsP=(m.peers||[]).map(p=>`<tr><td>${esc(p.symbol)}</td><td style="text-align:right">${p.ev_sales.toFixed(1)}×</td><td style="text-align:right">${pct(p.margin)}</td><td style="text-align:right">${pct(p.growth)}</td></tr>`).join('');
+  const rowsP=(m.peers||[]).map(p=>`<tr title="${esc((p.sic?'SIC '+p.sic[0]+' '+(p.sic[1]||''):'SIC ไม่ทราบ')+(p.addback?' · บวกคืนรายการพิเศษ '+(p.addback*100).toFixed(1)+'% ของรายได้':''))}"><td>${esc(p.symbol)}${p.addback?'*':''}</td><td style="text-align:right">${p.ev_sales.toFixed(1)}×</td><td style="text-align:right">${pct(p.margin)}</td><td style="text-align:right">${pct(p.growth)}</td></tr>`).join('');
   const tgt=r.target_ev_sales!=null?`<tr style="font-weight:700"><td>${esc(x.ticker)}</td><td style="text-align:right">${r.target_ev_sales.toFixed(1)}× <span class="muted">→ ${r.implied_ev_sales}×</span></td><td style="text-align:right">${pct(r.target_margin)}</td><td style="text-align:right">${pct(r.target_growth)}</td></tr>`:'';
-  const flags=(r.flags||[]).concat(r.target_excluded?[r.target_excluded]:[]).map(f=>`<div style="font-size:calc(9px*var(--fs));color:#b45309">${esc(f)}</div>`).join('');
+  const flags=(r.flags||[]).concat(r.target_excluded?[r.target_excluded]:[]).concat(m.industry_note?[m.industry_note]:[]).map(f=>`<div style="font-size:calc(9px*var(--fs));color:#b45309">${esc(f)}</div>`).join('');
   return `<details style="margin-top:6px;padding-top:5px;border-top:0.5px dashed #e2e8f0">
     <summary style="cursor:pointer;${CAPS_LABEL}">Relative (peers) &middot; ${vr!=null?'$'+fixed(vr):'–'}${weak}</summary>
     <div style="font-size:calc(10px*var(--fs));margin-top:3px">regression <b>${vr!=null?'$'+fixed(vr):'–'}</b>${vs(vr)} · peer median ${m.peer_median_ev_sales}× → <b>${vm!=null?'$'+fixed(vm):'–'}</b>${vs(vm)}</div>

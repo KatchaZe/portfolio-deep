@@ -243,8 +243,15 @@ def _periodic_only(full):
     list hid the very filing this module looks for (live, 2026-10-23)."""
     r = (full.get("filings") or {}).get("recent") or {}
     idx = [i for i, f in enumerate(r.get("form") or []) if f in PERIODIC][:MAX_GAPS * 2]
-    return {"filings": {"recent": {k: [(r.get(k) or [""] * (i + 1))[i] if i < len(r.get(k) or []) else ""
+    return {"sic": full.get("sic") or None, "sicDescription": full.get("sicDescription") or None,
+            "filings": {"recent": {k: [(r.get(k) or [""] * (i + 1))[i] if i < len(r.get(k) or []) else ""
                                        for i in idx] for k in KEYS}}}
+
+
+def sic_of(sub):
+    """[code, description] from a submissions document, or None."""
+    code = str((sub or {}).get("sic") or "").strip()
+    return [code, (sub or {}).get("sicDescription")] if code.isdigit() else None
 
 
 def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30, throttle=None):
@@ -261,6 +268,8 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
     sub_path = os.path.join(cache_dir, "sec_gap", f"submissions_{cik10}.json") if cache_dir else None
     try:
         sub = _cached_json(sub_path, SUBMISSIONS_TTL_HOURS)
+        if sub is not None and "sic" not in sub:     # cached before the SIC field existed
+            sub = None
         if sub is None:
             if throttle:
                 throttle()
@@ -279,6 +288,8 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
     out = cf
     for g in gaps(sub, cf):                     # oldest first: the newest wins `_sec_gap`
         out = _fill(cik10, out, g, headers, cache_dir, requests_mod, timeout, throttle)
+    if sic_of(sub):
+        out["_sic"] = sic_of(sub)               # the industry code peers are matched on
     return out
 
 

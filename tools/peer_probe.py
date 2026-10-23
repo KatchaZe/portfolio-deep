@@ -19,8 +19,23 @@ import store
 from domain import pricing
 from pipeline import batch, peers
 
-FIELDS = ("ticker", "currency", "revenue", "operating_income", "total_debt", "operating_leases",
+FIELDS = ("sic", "ticker", "currency", "revenue", "operating_income", "total_debt", "operating_leases",
           "cash", "shares_diluted", "market_cap", "price", "provenance", "revenue_annuals_dated")
+
+
+def _sic(t):
+    import requests
+    from pipeline.cik import resolve_cik
+    from sources import sec_gap
+    cik, _ = resolve_cik(t)
+    if not cik:
+        return None
+    try:
+        r = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json",
+                         headers={"User-Agent": config.SEC_USER_AGENT}, timeout=30)
+        return sec_gap.sic_of(r.json())
+    except Exception:
+        return None
 
 
 def main(argv):
@@ -36,6 +51,8 @@ def main(argv):
             print(f"{t:6} no stored facts"); continue
         ff = SimpleNamespace(**{k: f.get(k) for k in FIELDS})
         ff.ticker = t
+        if not ff.sic:                         # stored facts predate the SIC field
+            ff.sic = _sic(t)
         t1 = time.time()
         try:
             block, calls = peers.relative_value(ff, config.FMP_API_KEY, today, None, budget, memo)
@@ -47,7 +64,7 @@ def main(argv):
         px = f.get("price")
         if m:
             vr = block.get("value_regression")
-            print(f"{t:6} n={m['n']} R2={m['r2']} LOO={m['loo_median_err']} "
+            print(f"{t:6} SIC {(ff.sic or ['?'])[0]} n={m['n']} R2={m['r2']} LOO={m['loo_median_err']} "
                   f"reg=${vr} median=${block.get('value_median')} price=${px} "
                   f"excl={len(block['excluded'])} {block['_secs']}s")
         else:
