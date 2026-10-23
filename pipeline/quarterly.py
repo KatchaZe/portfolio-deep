@@ -251,13 +251,18 @@ def run(ff, t, sec_currency, sec_fx, key, cache_dir, fetch_rate):
         for fn in alphavantage.STATEMENTS:
             raw[fn], c = alphavantage.cached(
                 f"q_{fn.lower()}", t, key, lambda s, k, fn=fn: alphavantage.fetch_statement(fn, s, k),
-                cache_dir, ttl_days=alphavantage.STATEMENT_TTL_DAYS)
+                cache_dir, ttl_days=alphavantage.STATEMENT_TTL_DAYS, priority=True)
             calls += c
         try:
             yq = yahoo.parse_quarterly_timeseries(yahoo.fetch_quarterly_timeseries(t))
         except Exception as e:
             log.info("%s Yahoo quarterly failed: %s", t, e)
             yq = {}
+        refused = next((raw[fn]["_refused"] for fn in alphavantage.STATEMENTS
+                        if isinstance(raw[fn], dict) and raw[fn].get("_refused")), None)
+        if refused:
+            ff.flags.append(f"QUARTERLY not used: {refused} (retried on a later refresh)")
+            return calls
         inc = alphavantage.parse_quarters(raw["INCOME_STATEMENT"])
         ccy = next((q["currency"] for _, q in sorted(inc.items(), reverse=True) if q.get("currency")), None)
         fx_rate = dataquality.fallback_rate(ccy, sec_currency, sec_fx, fetch_rate) if ccy else None

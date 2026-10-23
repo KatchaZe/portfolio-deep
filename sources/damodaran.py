@@ -661,8 +661,10 @@ def fetch_psdata(cache_dir=None, ttl_days=PSDATA_TTL_DAYS, requests_mod=None, ti
             PSDATA_URL, f"damodaran_psdata_{field}.json", parse, _psdata_fallback(field),
             f"psdata {field}", cache_dir, ttl_days, requests_mod, timeout, user_agent)
         out[field] = go() if requests_mod is not None else _memo_fetch(f"psdata_{field}", cache_dir, go)
-    # the bundled table is a fixed vintage: say so, so a later year never labels it as new
-    out["snapshot"] = out["ev_sales"] == _psdata_fallback("ev_sales")
+    # the bundled table is a fixed vintage: say so, so a later year never labels it as
+    # new. _fetch_table writes its cache only from a live page, so no cache = bundled
+    # (comparing values cannot tell: the live January page equals the snapshot).
+    out["snapshot"] = not (cache_dir and os.path.exists(os.path.join(cache_dir, "damodaran_psdata_ev_sales.json")))
     return out
 
 

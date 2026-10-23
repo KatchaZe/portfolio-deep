@@ -36,6 +36,10 @@ MAX_PEERS = 12             # FMP lists ~10; the SIC match below may drop some
 SIC_MATCH_MIN = 2          # digits of SIC a peer must share with the target
 LIST_TTL_DAYS = 30
 MODEL_TTL_DAYS = 7
+# bump when the way peers are chosen changes: a stored fit from the old method is not
+# reused for its remaining week (live 2026-10-24: MSFT/NVDA kept their FMP-peer fits
+# for days after the Damodaran list went in)
+MODEL_VERSION = 2
 PEER_LIST_CALLS = 1
 
 
@@ -228,6 +232,7 @@ def fit_points(pts, excluded, today, target_sic=None):
         return None, excluded, "; ".join(w for w in (why, note) if w)
     excluded += [{"symbol": s, "reason": "EV/Sales outlier (IQR fence)"} for s in model["outliers"]]
     model["as_of"] = today.isoformat()
+    model["version"] = MODEL_VERSION
     model["industry_note"] = note
     same = len(ours) + sum(1 for p in fmp_pts if (sic_level(p.get("sic"), target_sic) or 0) >= SIC_MATCH_MIN)
     if note and "all kept" in note and same < len(pts) / 2:
@@ -354,7 +359,8 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, univers
     ind = universe.industry_block(f, industry, basis, tp, net_debt) if tp else None
     cache_dir, fetch_list = kw.pop("cache_dir", None), kw.pop("fetch_list", None)
     model, excluded, list_as_of = None, [], None
-    if prev and prev.get("model") and lastgood.usable(prev["model"].get("as_of"), today, MODEL_TTL_DAYS):
+    same_method = bool(prev and prev.get("model") and prev["model"].get("version") == MODEL_VERSION)
+    if same_method and lastgood.usable(prev["model"].get("as_of"), today, MODEL_TTL_DAYS):
         model, excluded = prev["model"], prev.get("excluded", [])
         list_as_of, notes = prev.get("peer_list_as_of"), list(prev.get("notes") or [])
     else:
@@ -378,7 +384,7 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, univers
             why = None if notes else "no peers"
         if model is None:
             notes += [why] if why else []
-            if prev and prev.get("model") and lastgood.usable(prev["model"].get("as_of"), today):
+            if same_method and lastgood.usable(prev["model"].get("as_of"), today):
                 model, excluded = prev["model"], prev.get("excluded", [])
                 notes.append(f"peer fit from {model['as_of']} reused (this week's failed)")
     block = {"model": model, "excluded": excluded, "notes": notes, "peer_list_as_of": list_as_of,

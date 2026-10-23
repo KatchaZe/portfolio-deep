@@ -58,7 +58,9 @@ def fetch_earnings(symbol, key, requests_mod=None, timeout=20):
     j = get_json(BASE, requests_mod or _r,
                  params={"function": "EARNINGS", "symbol": symbol, "apikey": key},
                  timeout=timeout)
-    return j if isinstance(j, dict) else {}
+    if refusal(j):
+        return j                 # handed back so `cached` can name the refusal
+    return j if isinstance(j, dict) and isinstance(j.get("quarterlyEarnings"), list) else {}
 
 
 # --------------------------------------------------------------------------- #
@@ -121,14 +123,69 @@ def fetch_estimates(symbol, key, requests_mod=None, timeout=20):
     j = get_json(BASE, requests_mod or _r,
                  params={"function": "EARNINGS_ESTIMATES", "symbol": symbol, "apikey": key},
                  timeout=timeout)
+    if refusal(j):
+        return j
     if not isinstance(j, dict) or not isinstance(j.get("estimates"), list):
-        return {}               # 'Note' / 'Information' = throttled or premium
+        return {}
     return j
 
 
-def cached(kind, symbol, key, fetch, cache_dir, ttl_days=ESTIMATES_TTL_DAYS, now=None):
-    """(raw, calls). A non-empty answer is reused for `ttl_days`: the free tier is 25
-    calls a day, shared by every function, so nothing here is fetched per refresh."""
+# Every Alpha Vantage call in a run goes through `cached`, which (live 2026-10-24) has
+# to hold three rules the free tier enforces silently:
+#   * 1 request per second: the parallel refresh fired 4 at once, and AV answered
+#     {"Information": "...1 request per second..."} with HTTP 200;
+#   * 25 requests a day, for every function together;
+#   * a refusal is not data: 12 tickers had that "Information" reply cached as their
+#     EARNINGS history for 7 days, so their surprise track came out empty with no flag.
+REFUSAL_KEYS = ("Information", "Note", "Error Message")
+MIN_GAP_SECS = 1.2
+DAILY_CAP = 24                 # one under the free tier, so a manual check still fits
+# The quarterly statements move a fair value (ASML/TSM/NVO, 9 calls a week); EARNINGS
+# and EARNINGS_ESTIMATES only feed cross-checks. Those stop at DAILY_CAP - RESERVED so a
+# cold cache of 21 earnings histories cannot crowd the statements out of the day.
+RESERVED_FOR_PRIORITY = 9
+_gate = __import__("threading").Lock()
+_last_call = [0.0]
+
+
+def refusal(data):
+    """The refusal text of an AV reply ('Information'/'Note'/'Error Message'), else None."""
+    if isinstance(data, dict):
+        for k in REFUSAL_KEYS:
+            if k in data and len(data) <= 2:
+                return str(data[k])[:120]
+    return None
+
+
+def _take_daily(cache_dir, now, priority=False):
+    """True when one more call fits today's cap (a small counter file, under the gate)."""
+    import datetime as _dt
+    import json
+    import os
+    path = os.path.join(cache_dir, "av_usage.json")
+    day = _dt.datetime.utcfromtimestamp(now).date().isoformat()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            u = json.load(fh)
+    except (OSError, ValueError):
+        u = {}
+    n = u.get("n", 0) if u.get("date") == day else 0
+    if n >= (DAILY_CAP if priority else DAILY_CAP - RESERVED_FOR_PRIORITY):
+        return False
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"date": day, "n": n + 1}, fh)
+    except OSError:
+        pass
+    return True
+
+
+def cached(kind, symbol, key, fetch, cache_dir, ttl_days=ESTIMATES_TTL_DAYS, now=None, sleep=None,
+           priority=False):
+    """(raw, calls). A real answer is reused for `ttl_days`. A refusal, the daily cap
+    or an empty answer comes back as {"_refused": reason} and is never cached, so the
+    caller can say why instead of reading it as "no data"."""
     import json
     import os
     import time
@@ -137,20 +194,31 @@ def cached(kind, symbol, key, fetch, cache_dir, ttl_days=ESTIMATES_TTL_DAYS, now
     try:
         with open(path, encoding="utf-8") as fh:
             c = json.load(fh)
-        if c.get("data") and now - c.get("at", 0) < ttl_days * 86400:
+        if c.get("data") and not refusal(c["data"]) and now - c.get("at", 0) < ttl_days * 86400:
             return c["data"], 0
     except (OSError, ValueError):
         pass
     if not key:
         return {}, 0
-    data = fetch(symbol, key)
-    if data:
+    with _gate:                                    # one AV request at a time, spaced
+        if not _take_daily(cache_dir, now, priority):
+            return {"_refused": f"Alpha Vantage daily limit ({DAILY_CAP}) reached"}, 0
+        wait = MIN_GAP_SECS - (time.time() - _last_call[0])
+        if wait > 0:
+            (sleep or time.sleep)(wait)
         try:
-            os.makedirs(cache_dir, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump({"at": now, "data": data}, fh)
-        except OSError:
-            pass
+            data = fetch(symbol, key)
+        finally:
+            _last_call[0] = time.time()
+    why = refusal(data)
+    if why or not data:
+        return {"_refused": why or "Alpha Vantage returned nothing"}, 1
+    try:
+        os.makedirs(cache_dir, exist_ok=True)
+        with open(path, "w", encoding="utf-8") as fh:
+            json.dump({"at": now, "data": data}, fh)
+    except OSError:
+        pass
     return data, 1
 
 
@@ -170,6 +238,8 @@ def fetch_statement(function, symbol, key, requests_mod=None, timeout=30):
     import requests as _r
     j = get_json(BASE, requests_mod or _r, timeout=timeout,
                  params={"function": function, "symbol": symbol, "apikey": key}) or {}
+    if refusal(j):
+        return j
     return j if isinstance(j, dict) and j.get("quarterlyReports") else {}
 
 

@@ -170,6 +170,16 @@ class Flow(Base):
             self.assertIsNone(block["value_regression"])
             self.assertIn("no fiscal-year growth", block["flags"][0])
 
+    def test_a_fit_from_the_old_method_is_not_reused(self):
+        old = {"model": {"as_of": "2026-10-23", "n": 7, "peers": [], "coef": [1, 1], "terms": ["margin"]},
+               "excluded": [], "notes": []}                 # no version: the FMP-only fit
+        block, _ = peers.relative_value(self.target("ORCL"), "k", TODAY, old, batch.Budget(5), None,
+                                        self.u, cache_dir=tempfile.mkdtemp(), fetch_list=self.fetch_list)
+        self.assertEqual(block["model"]["version"], peers.MODEL_VERSION)
+        again, _ = peers.relative_value(self.target("ORCL"), "k", TODAY, block, batch.Budget(5), None,
+                                        self.u, cache_dir=tempfile.mkdtemp(), fetch_list=self.fetch_list)
+        self.assertIs(again["model"], block["model"])        # same method, same week: reused
+
     def test_universe_failure_never_breaks_the_refresh(self):
         def boom():
             raise OSError("stern.nyu.edu down")
@@ -220,6 +230,17 @@ class Sources(unittest.TestCase):
         self.assertEqual(rev, {1: 10, 2: 5, 3: 9})
         self.assertEqual(dc.frames_year(dt.date(2026, 3, 1)), 2024)
         self.assertEqual(dc.frames_year(dt.date(2026, 10, 1)), 2025)
+
+    def test_psdata_label_follows_where_the_table_came_from(self):
+        tmp = tempfile.mkdtemp()
+
+        class Down:
+            def get(self, *a, **k):
+                raise ConnectionError("down")
+        self.assertTrue(damodaran.fetch_psdata(tmp, requests_mod=Down())["snapshot"])
+        with open(os.path.join(tmp, "damodaran_psdata_ev_sales.json"), "w") as fh:
+            json.dump({"fetched": 0, "table": {"semiconductor": 15.7}}, fh)
+        self.assertFalse(damodaran.fetch_psdata(tmp, requests_mod=Down())["snapshot"])
 
     def test_psdata_snapshot_is_labelled_as_bundled(self):
         ps = {f: damodaran._psdata_fallback(f) for f in damodaran.PSDATA_COLUMNS}

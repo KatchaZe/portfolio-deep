@@ -133,14 +133,57 @@ class Plumbing(unittest.TestCase):
         self.assertEqual(quarterly.run(ff, "ASML", "EUR", 1.1199, "KEY", "/nonexistent", lambda c: 1), 0)
 
     def test_throttle_reply_is_never_cached_as_data(self):
-        class Fake:
-            status_code = 200
-            def json(self):
-                return {"Information": "rate limit"}
-        class C:
-            def get(self, url, **kw):
-                return Fake()
-        self.assertEqual(av.fetch_statement("INCOME_STATEMENT", "ASML", "k", requests_mod=C()), {})
+        """Live 2026-10-24: 12 tickers had AV's '1 request per second' reply cached as
+        their EARNINGS history for 7 days."""
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        info = {"Information": "Please consider spreading out your free API requests (1 request per second)."}
+        data, calls = av.cached("earnings", "ABBV", "k", lambda s, k: info, tmp, sleep=lambda x: None)
+        self.assertIn("1 request per second", data["_refused"])
+        self.assertFalse(os.path.exists(os.path.join(tmp, "av_earnings_ABBV.json")))
+        # an old cache holding a refusal is ignored and refetched
+        with open(os.path.join(tmp, "av_earnings_PFE.json"), "w") as fh:
+            json.dump({"at": 9e12, "data": info}, fh)
+        good = {"quarterlyEarnings": [{"fiscalDateEnding": "2026-06-30"}]}
+        data, calls = av.cached("earnings", "PFE", "k", lambda s, k: good, tmp, sleep=lambda x: None)
+        self.assertEqual((data, calls), (good, 1))
+
+    def test_calls_are_spaced_and_capped_per_day(self):
+        import tempfile
+        tmp, waits = tempfile.mkdtemp(), []
+        good = {"quarterlyReports": [{}]}
+        for i in range(3):
+            av.cached("q", f"S{i}", "k", lambda s, k: good, tmp, sleep=waits.append)
+        self.assertEqual(len(waits), 2)                 # the 2nd and 3rd waited
+        self.assertTrue(all(0 < w <= av.MIN_GAP_SECS for w in waits))
+        with open(os.path.join(tmp, "av_usage.json")) as fh:
+            u = json.load(fh)
+        u["n"] = av.DAILY_CAP
+        with open(os.path.join(tmp, "av_usage.json"), "w") as fh:
+            json.dump(u, fh)
+        data, calls = av.cached("q", "LATE", "k", lambda s, k: good, tmp, sleep=lambda x: None,
+                                priority=True)
+        self.assertEqual(calls, 0)
+        self.assertIn("daily limit", data["_refused"])
+        # a cross-check stops earlier, leaving the reserve for the statements
+        u["n"] = av.DAILY_CAP - av.RESERVED_FOR_PRIORITY
+        with open(os.path.join(tmp, "av_usage.json"), "w") as fh:
+            json.dump(u, fh)
+        self.assertIn("_refused", av.cached("earnings", "X", "k", lambda s, k: good, tmp,
+                                            sleep=lambda x: None)[0])
+        self.assertEqual(av.cached("q", "Y", "k", lambda s, k: good, tmp, sleep=lambda x: None,
+                                   priority=True), (good, 1))
+
+    def test_refused_statement_says_why_on_the_card(self):
+        ff, *_ = load("ASML")
+        orig = av.cached
+        av.cached = lambda *a, **k: ({"_refused": "Alpha Vantage daily limit (24) reached"}, 0)
+        try:
+            quarterly.run(ff, "ASML", "EUR", 1.1199, "KEY", "/tmp", lambda c: 1.1199)
+        finally:
+            av.cached = orig
+        self.assertTrue(any("daily limit" in f for f in ff.flags if f.startswith("QUARTERLY")))
+        self.assertEqual(ff.fiscal_year, "2025-12-31")
 
 
 if __name__ == "__main__":
