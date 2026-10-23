@@ -27,6 +27,7 @@ GROWTH_SHIFT_MIN, GROWTH_SHIFT_SHARE = 0.02, 0.20
 YOUNG_GROWTH_SHIFT = 0.15
 MARGIN_LO, MARGIN_HI = 0.005, 0.80
 HISTORY_YEARS, HISTORY_MIN = 5, 3
+BEAR_MARGIN_FLOOR = 0.5
 
 
 def _bisect(fn, target, lo, hi, n=60):
@@ -127,7 +128,15 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None):
     else:
         lo, hi = 0.8 * m_model, 1.2 * m_model
         basis = "margin = โมเดล ∓20% (ประวัติไม่ถึง 3 ปี)"
+    # a loss year or a charge-laden year is not a steady-state story: TMDX's -130%
+    # margins from its pre-profit years made every Bear and most Monte Carlo draws
+    # worth zero. Bear is floored at half the model margin, and the floor is reported.
+    floor = BEAR_MARGIN_FLOOR * m_model
+    floored = lo < floor
+    lo = max(lo, floor)
     lo, hi = min(lo, m_model), max(hi, m_model)
+    if floored:
+        basis += " · Bear ไม่ต่ำกว่าครึ่งหนึ่งของ margin โมเดล (ปีขาดทุน/ปีพิเศษไม่ใช่ steady state)"
     path = kw.get("growth_path") or [kw["g_high"]]
     cases = [("Bear", dict(margin_target=lo, growth_path=_shift(path, -1))),
              ("Base", {}),
@@ -139,8 +148,10 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None):
         g = (over.get("growth_path") or path)
         inputs.append({"margin_pct": round(over.get("margin_target", m_model) * 100, 2),
                        "growth_y1_pct": round(g[0] * 100, 1)})
-    return priced, _pack([c[0] for c in cases], values, inputs, price,
-                         basis + " · growth = consensus ∓ มากกว่าระหว่าง 2pp กับ 20% ของปีนั้น")
+    pack = _pack([c[0] for c in cases], values, inputs, price,
+                 basis + " · growth = consensus ∓ มากกว่าระหว่าง 2pp กับ 20% ของปีนั้น")
+    pack["story_mc"] = story_mc_operating(kw, price, lo, hi)
+    return priced, pack
 
 
 def young(ydcf, price, industry_margin=None):
@@ -178,5 +189,94 @@ def young(ydcf, price, industry_margin=None):
         values.append(v or 0.0)
         inputs.append({"margin_pct": round(over.get("target_margin", d["target_margin"]) * 100, 2),
                        "growth_y1_pct": round(over.get("g_high", gh) * 100, 1)})
-    return priced, _pack([c[0] for c in cases], values, inputs, price,
-                         "margin = อุตสาหกรรม / โมเดล / 2× อุตสาหกรรม · growth ปีแรก ∓15pp · Base = ค่าจุด (FV หลักคือ p50 ของ Monte Carlo)")
+    pack = _pack([c[0] for c in cases], values, inputs, price,
+                 "margin = อุตสาหกรรม / โมเดล / 2× อุตสาหกรรม · growth ปีแรก ∓15pp · Base = ค่าจุด (FV หลักคือ p50 ของ Monte Carlo)")
+    pack["story_mc"] = story_mc_young(ydcf, price, lo, hi)
+    return priced, pack
+
+
+# --------------------------------------------------------------------------- #
+#  Story Monte Carlo (Damodaran item 6)                                        #
+# --------------------------------------------------------------------------- #
+# The 25/50/25 scenarios are three points. The story Monte Carlo samples the same
+# story inputs continuously, between the same Bear and Bull bounds, and answers "what
+# share of the stories is worth the price". It is not the young-company band (that
+# one samples around ONE story to measure our input noise). Seeded: the same facts
+# give the same answer. Cross-check only.
+MC_SIMS, MC_SEED, MC_BINS = 1000, 20261023, 20
+S2C_SPREAD, WACC_SPREAD, SURVIVAL_SPREAD = 0.25, 0.01, 0.20
+
+
+def _tri(rnd, lo, mode, hi):
+    lo, hi = min(lo, mode), max(hi, mode)
+    return mode if hi - lo < 1e-12 else rnd.triangular(lo, hi, mode)
+
+
+def _summary(vals, price, story):
+    vals = sorted(vals)
+    n = len(vals)
+    if n == 0:
+        return None
+    q = lambda p: vals[min(n - 1, int(p * (n - 1)))]
+    top = q(0.99) or 1.0
+    width = top / MC_BINS if top > 0 else 1.0
+    bins = [0] * MC_BINS
+    for v in vals:
+        bins[min(MC_BINS - 1, max(0, int(v / width)))] += 1
+    above = sum(1 for v in vals if v >= price) / n
+    return {"n": n, "p10": round(q(0.10), 2), "p50": round(q(0.50), 2), "p90": round(q(0.90), 2),
+            "mean": round(sum(vals) / n, 2), "prob_above_price": round(above, 3),
+            "price_percentile": round(1 - above, 3), "bins": bins, "bin_width": round(width, 4),
+            "story": story}
+
+
+def story_mc_operating(kw, price, margin_lo, margin_hi, sims=MC_SIMS, seed=MC_SEED):
+    """Monte Carlo over an FCFF DCF story: target margin triangular(lo, model, hi),
+    growth shifted by u x the scenario step (u triangular -1..+1), sales-to-capital
+    x triangular(0.75, 1, 1.25), WACC (both phases) +/- 1pp."""
+    import random
+    if not kw or not price:
+        return None
+    rnd = random.Random(seed)
+    path = kw.get("growth_path") or [kw["g_high"]]
+    step = [max(GROWTH_SHIFT_MIN, GROWTH_SHIFT_SHARE * abs(g)) for g in path]
+    vals = []
+    for _ in range(sims):
+        u = _tri(rnd, -1.0, 0.0, 1.0)
+        dw = _tri(rnd, -WACC_SPREAD, 0.0, WACC_SPREAD)
+        over = dict(margin_target=_tri(rnd, margin_lo, kw["margin_target"], margin_hi),
+                    growth_path=[g + u * s for g, s in zip(path, step)],
+                    sales_to_capital=kw["sales_to_capital"] * _tri(rnd, 1 - S2C_SPREAD, 1.0, 1 + S2C_SPREAD),
+                    wacc=kw["wacc"] + dw,
+                    wacc_stable=max(kw["wacc_stable"] + dw, kw["g_stable"] + 0.01))
+        v = _dcf(kw, **over)
+        if v is not None:
+            vals.append(v)
+    return _summary(vals, price, {
+        "margin_pct": [round(margin_lo * 100, 2), round(kw["margin_target"] * 100, 2), round(margin_hi * 100, 2)],
+        "growth": "consensus -/+ max(2pp, 20%)", "sales_to_capital": "x0.75-1.25", "wacc": "+/-1pp"})
+
+
+def story_mc_young(ydcf, price, margin_lo, margin_hi, sims=MC_SIMS, seed=MC_SEED):
+    """Monte Carlo over a young-company story: target margin triangular(industry,
+    model, 2x industry), first-year growth +/-15pp, sales-to-capital x0.75-1.25,
+    survival +/-20 points; value = p x going concern + (1 - p) x distress."""
+    import random
+    d = (ydcf or {}).get("model")
+    if not d or not price:
+        return None
+    rnd = random.Random(seed)
+    p0, distress = ydcf.get("p_survival") or 0.0, ydcf.get("distress_per_share") or 0.0
+    vals = []
+    for _ in range(sims):
+        p = min(1.0, max(0.0, _tri(rnd, p0 - SURVIVAL_SPREAD, p0, p0 + SURVIVAL_SPREAD)))
+        over = dict(target_margin=_tri(rnd, margin_lo, d["target_margin"], margin_hi),
+                    g_high=max(0.0, _tri(rnd, d["g_high"] - YOUNG_GROWTH_SHIFT, d["g_high"],
+                                         d["g_high"] + YOUNG_GROWTH_SHIFT)),
+                    sales_to_capital=d["sales_to_capital"] * _tri(rnd, 1 - S2C_SPREAD, 1.0, 1 + S2C_SPREAD))
+        g = young_dcf.going_concern(dict(d, **over))
+        if g is not None:
+            vals.append(p * g["going_concern_per_share"] + (1 - p) * distress)
+    return _summary(vals, price, {
+        "margin_pct": [round(margin_lo * 100, 2), round(d["target_margin"] * 100, 2), round(margin_hi * 100, 2)],
+        "growth": "first-year -/+15pp", "sales_to_capital": "x0.75-1.25", "survival": "+/-20 points"})

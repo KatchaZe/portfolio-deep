@@ -372,5 +372,64 @@ def test_young_scenarios_and_growth_that_destroys_value():
           "Bear above Base is flagged; no Bull probability reaches the price")
 
 
+_UNH_KW = dict(revenue=450e9, margin_now=0.0543, margin_target=0.0839, g_high=0.012,
+               g_stable=0.0513, sales_to_capital=5.875, tax_now=0.158, tax_marginal=0.25,
+               wacc=0.0806, wacc_stable=0.0806, roic_stable=0.1054, cash=28.6e9, debt=78e9,
+               shares=908e6, growth_path=[0.012, 0.044, 0.05, 0.055, 0.063], margin_years=5,
+               fade_start_cap=0.30)
+
+
+def _degenerate(SC):
+    keep = (SC.S2C_SPREAD, SC.WACC_SPREAD, SC.GROWTH_SHIFT_MIN, SC.GROWTH_SHIFT_SHARE)
+    SC.S2C_SPREAD = SC.WACC_SPREAD = SC.GROWTH_SHIFT_MIN = SC.GROWTH_SHIFT_SHARE = 0.0
+    return keep
+
+
+def _restore(SC, keep):
+    SC.S2C_SPREAD, SC.WACC_SPREAD, SC.GROWTH_SHIFT_MIN, SC.GROWTH_SHIFT_SHARE = keep
+
+
+def test_story_mc_known_answers():
+    print("18 story Monte Carlo: known answers (degenerate = point, margin-only = triangular CDF)")
+    from domain.engine import scenarios as SC, fcff_dcf
+    m = _UNH_KW["margin_target"]
+    keep = _degenerate(SC)
+    try:
+        point = fcff_dcf.value(**_UNH_KW)["per_share"]
+        mc = SC.story_mc_operating(_UNH_KW, 406.88, m, m, sims=200)
+        check(abs(mc["p10"] - point) < 0.01 and abs(mc["p90"] - point) < 0.01,
+              f"no spread anywhere -> every draw is the point value ${point:.2f}")
+        lo, hi, price = 0.045, 0.09, 500.0
+        pi, _ = SC.operating(dict(_UNH_KW), price, [0.048, 0.081, 0.087, 0.088, 0.083])
+        mstar = pi["margin_pct"] / 100
+        # P(value >= price) = P(margin >= m*) for triangular(lo, mode m, hi)
+        F = ((mstar - lo) ** 2 / ((hi - lo) * (m - lo)) if mstar <= m
+             else 1 - (hi - mstar) ** 2 / ((hi - lo) * (hi - m)))
+        mc = SC.story_mc_operating(_UNH_KW, price, lo, hi, sims=4000)
+        se = (F * (1 - F) / 4000) ** 0.5
+        check(abs(mc["prob_above_price"] - (1 - F)) < 4 * se + 0.005,
+              f"margin-only draws: P(>= price) {mc['prob_above_price']:.3f} vs analytic {1 - F:.3f}")
+    finally:
+        _restore(SC, keep)
+    a = SC.story_mc_operating(_UNH_KW, 406.88, 0.05, 0.088)
+    b = SC.story_mc_operating(_UNH_KW, 406.88, 0.05, 0.088)
+    check(a == b, "seeded: the same facts give the same band")
+    up = SC.story_mc_operating(_UNH_KW, 406.88, 0.06, 0.098)
+    check(up["p50"] > a["p50"] and up["prob_above_price"] >= a["prob_above_price"],
+          "a higher margin range moves the band up")
+    check(sum(a["bins"]) == a["n"] and a["p10"] <= a["p50"] <= a["p90"], "histogram covers every draw")
+
+
+def test_bear_margin_floor():
+    print("19 Bear margin is floored at half the model's (a pre-profit year is not a steady state)")
+    from domain.engine import scenarios as SC
+    kw = dict(_UNH_KW, margin_now=0.1227, margin_target=0.1227)
+    _, sc = SC.operating(kw, 71.6, [0.179, 0.085, -0.119, -0.336, -1.303])
+    check(abs(sc["cases"][0]["margin_pct"] - 6.135) < 0.01, "TMDX-like -130% history -> Bear 6.1%",
+          str(sc["cases"][0]["margin_pct"]))
+    check(sc["story_mc"]["story"]["margin_pct"][0] == sc["cases"][0]["margin_pct"],
+          "the Monte Carlo samples between the same Bear and Bull bounds")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_round8_2026_10_21 PASSED")

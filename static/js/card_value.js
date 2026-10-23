@@ -226,6 +226,22 @@ function scenarioPanel(x){
     <summary style="cursor:pointer;${CAPS_LABEL}">Scenario &amp; price-in &middot; คาดหวัง $${fixed(sc.expected)} (MoS ${mos})</summary>
     ${piLine}
     <div style="display:grid;gap:3px;margin-top:5px">${rows}</div>
-    <div style="font-size:calc(10px*var(--fs));margin-top:3px">25/50/25 → คาดหวัง <b>$${fixed(sc.expected)}</b> · ${pbTxt}</div>${destroy}
+    <div style="font-size:calc(10px*var(--fs));margin-top:3px">25/50/25 → คาดหวัง <b>$${fixed(sc.expected)}</b> · ${pbTxt}</div>${destroy}${storyMcBlock(sc.story_mc,px)}
     <div class="muted" style="font-size:calc(9px*var(--fs))">${esc(sc.basis)} · cross-check เท่านั้น ไม่เปลี่ยน FV และคะแนน P</div></details>`;
+}
+
+// Story Monte Carlo: the same story inputs sampled between Bear and Bull (1,000 draws,
+// seeded). The bars are the value histogram; the dark line is the price.
+function storyMcBlock(mc,px){
+  if(!mc||!mc.bins||!mc.bins.length)return '';
+  const top=Math.max(...mc.bins)||1, w=mc.bin_width||1, n=mc.bins.length, span=w*n;
+  const pxPos=px?Math.max(0,Math.min(100,px/span*100)):null;
+  const bars=mc.bins.map((c,i)=>`<div style="flex:1;align-self:flex-end;height:${(c/top*100).toFixed(0)}%;background:#4f6fd8;opacity:${(i+0.5)*w>=(px||0)?0.95:0.45}"></div>`).join('');
+  const share=Math.round(mc.prob_above_price*100);
+  const st=mc.story||{}, mg=st.margin_pct||[];
+  return `<div style="margin-top:6px" title="${esc('สุ่ม story 1,000 แบบ: margin '+mg.join(' / ')+'% (Bear / โมเดล / Bull) · growth '+(st.growth||'')+' · S2C '+(st.sales_to_capital||'')+(st.wacc?' · WACC '+st.wacc:'')+(st.survival?' · survival '+st.survival:'')+'\nไม่ใช่ช่วงความคลาดเคลื่อนของ FV หลัก')}">
+    <div style="${CAPS_LABEL}">Story Monte Carlo &middot; 1,000 แบบ</div>
+    <div style="position:relative;display:flex;gap:1px;height:34px;margin-top:3px;border-bottom:1px solid #cbd5e1">${bars}
+      ${pxPos!=null?`<div style="position:absolute;left:${pxPos.toFixed(1)}%;top:0;bottom:0;width:2px;background:#0f172a"></div>`:''}</div>
+    <div style="font-size:calc(10px*var(--fs));margin-top:2px">p10 $${fixed(mc.p10)} · <b>p50 $${fixed(mc.p50)}</b> · p90 $${fixed(mc.p90)} · story ที่คุ้มราคา <b>${share}%</b>${px&&px>span?` · ราคา $${fixed(px)} อยู่เกินขวาสุดของกราฟ`:''}</div></div>`;
 }
