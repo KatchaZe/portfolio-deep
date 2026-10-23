@@ -230,6 +230,30 @@ function scenarioPanel(x){
     <div class="muted" style="font-size:calc(9px*var(--fs))">${esc(sc.basis)} · cross-check เท่านั้น ไม่เปลี่ยน FV และคะแนน P</div></details>`;
 }
 
+// Relative valuation on the firm's own peers (weekly fit, target side every refresh):
+// EV/Sales regressed on operating margin (+ growth when n >= 8). A cross-check only.
+function relativePanel(x){
+  const r=x.relative; if(!r)return '';
+  const pct=v=>v==null?'–':`${(v*100).toFixed(1)}%`;
+  const exc=(r.excluded||[]).map(e=>`${esc(e.symbol)}: ${esc(e.reason)}`).join(' · ');
+  const notes=(r.notes||[]).filter(Boolean).map(esc).join(' · ');
+  const m=r.model;
+  if(!m) return `<div class="muted" style="margin-top:6px;font-size:calc(9px*var(--fs))">Relative (peers): ไม่ได้คำนวณ${notes?' — '+notes:''}${exc?` <span title="${exc}">(ตัดออก ${(r.excluded||[]).length})</span>`:''}</div>`;
+  const px=x.price, vr=r.value_regression, vm=r.value_median;
+  const vs=v=>v&&px?` <span class="muted">(${v>=px?'+':''}${Math.round((v-px)/px*100)}% vs ราคา)</span>`:'';
+  const eq=`EV/Sales = ${m.coef[0]} ${m.coef[1]>=0?'+':'−'} ${Math.abs(m.coef[1])}×margin${m.terms.includes('growth')?` ${m.coef[2]>=0?'+':'−'} ${Math.abs(m.coef[2])}×growth`:''}`;
+  const weak=m.weak?`<span style="background:#f1f5f9;color:#64748b;border-radius:3px;padding:0 4px;margin-left:4px">fit อ่อน</span>`:'';
+  const rowsP=(m.peers||[]).map(p=>`<tr><td>${esc(p.symbol)}</td><td style="text-align:right">${p.ev_sales.toFixed(1)}×</td><td style="text-align:right">${pct(p.margin)}</td><td style="text-align:right">${pct(p.growth)}</td></tr>`).join('');
+  const tgt=r.target_ev_sales!=null?`<tr style="font-weight:700"><td>${esc(x.ticker)}</td><td style="text-align:right">${r.target_ev_sales.toFixed(1)}× <span class="muted">→ ${r.implied_ev_sales}×</span></td><td style="text-align:right">${pct(r.target_margin)}</td><td style="text-align:right">${pct(r.target_growth)}</td></tr>`:'';
+  const flags=(r.flags||[]).concat(r.target_excluded?[r.target_excluded]:[]).map(f=>`<div style="font-size:calc(9px*var(--fs));color:#b45309">${esc(f)}</div>`).join('');
+  return `<details style="margin-top:6px;padding-top:5px;border-top:0.5px dashed #e2e8f0">
+    <summary style="cursor:pointer;${CAPS_LABEL}">Relative (peers) &middot; ${vr!=null?'$'+fixed(vr):'–'}${weak}</summary>
+    <div style="font-size:calc(10px*var(--fs));margin-top:3px">regression <b>${vr!=null?'$'+fixed(vr):'–'}</b>${vs(vr)} · peer median ${m.peer_median_ev_sales}× → <b>${vm!=null?'$'+fixed(vm):'–'}</b>${vs(vm)}</div>
+    <div class="muted" style="font-size:calc(9px*var(--fs))" title="${esc('R² = ส่วนที่ margin/growth อธิบาย EV/Sales ของ peer ได้ · LOO = ทำนายทีละตัวจากตัวที่เหลือ แล้ววัดความคลาดเคลื่อน')}">${esc(eq)} · R² ${m.r2??'–'} · n ${m.n} · LOO คลาด ${m.loo_median_err!=null?Math.round(m.loo_median_err*100)+'%':'–'}</div>${flags}
+    <table style="width:100%;font-size:calc(9.5px*var(--fs));margin-top:3px;font-variant-numeric:tabular-nums"><tr class="muted"><td></td><td style="text-align:right">EV/Sales</td><td style="text-align:right">margin</td><td style="text-align:right">โต FY</td></tr>${tgt}${rowsP}</table>
+    <div class="muted" style="font-size:calc(9px*var(--fs))">peer fit ${esc(m.as_of)}${r.peer_list_as_of?' · รายชื่อ FMP '+esc(r.peer_list_as_of):''}${exc?' · ตัดออก: '+exc:''}${notes?' · '+notes:''} · cross-check เท่านั้น ไม่เปลี่ยน FV และคะแนน P</div></details>`;
+}
+
 // Story Monte Carlo: the same story inputs sampled between Bear and Bull (1,000 draws,
 // seeded). The bars are the value histogram; the dark line is the price.
 function storyMcBlock(mc,px){

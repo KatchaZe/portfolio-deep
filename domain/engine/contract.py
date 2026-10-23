@@ -58,6 +58,9 @@ class Valuation:
     # price implies, and a 25/50/25 Bear/Base/Bull expected value. Never the anchor.
     priced_in: dict = field(default_factory=dict)
     scenarios: dict = field(default_factory=dict)
+    # relative valuation on the firm's own peers (pipeline/peers.py): weekly peer fit,
+    # target side recomputed each refresh; a cross-check, never the anchor
+    relative: dict = field(default_factory=dict)
 
     verdict: str = ""                                  # short ifa-style summary line
     flags: list = field(default_factory=list)

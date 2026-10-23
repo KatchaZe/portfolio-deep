@@ -148,7 +148,8 @@ def _fetch_and_commit(tickers):
     before = st.load()
     used = st.fmp_used_today(before)
     fetched, errors, calls, rf_pct, rf_live = fundamentals.fetch_fundamentals(
-        tickers, config.FMP_API_KEY, used, config.QUOTA_CAP, prev_facts=before.get("facts"))
+        tickers, config.FMP_API_KEY, used, config.QUOTA_CAP, prev_facts=before.get("facts"),
+        prev_results=before.get("results"))
     daily = daily_mod.fetch_daily(tickers, config.FMP_API_KEY, prev_market=before.get("market"))
     with st.transaction() as s:
         fundamentals.commit_fundamentals(s, fetched, calls)

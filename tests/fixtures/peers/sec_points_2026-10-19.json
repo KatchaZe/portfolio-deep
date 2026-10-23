@@ -1,0 +1,632 @@
+{
+ "LLY": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 79666000000,
+   "operating_income": 34157700000,
+   "total_debt": 54908000000,
+   "operating_leases": 1362000000,
+   "cash": 8950000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     65179000000
+    ],
+    [
+     "2024-12-31",
+     45043000000
+    ],
+    [
+     "2023-12-31",
+     34124000000
+    ]
+   ],
+   "shares_diluted": 894800000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 1240.34,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Drugs (Pharmaceutical)"
+ },
+ "PFE": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 63696000000,
+   "operating_income": 6908000000,
+   "total_debt": 63194000000,
+   "operating_leases": 2620000000,
+   "cash": 11699000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     62579000000
+    ],
+    [
+     "2024-12-31",
+     63627000000
+    ],
+    [
+     "2023-12-31",
+     59553000000
+    ]
+   ],
+   "shares_diluted": 5733000000,
+   "latest_period_end": "2026-06-28"
+  },
+  "price": 29.44,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Drugs (Pharmaceutical)"
+ },
+ "NVO": {
+  "facts": {
+   "currency": "DKK",
+   "revenue": 309064000000,
+   "operating_income": 127658000000,
+   "total_debt": 130958000000,
+   "operating_leases": 8572000000,
+   "cash": 26464000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     309064000000
+    ],
+    [
+     "2024-12-31",
+     290403000000
+    ],
+    [
+     "2023-12-31",
+     232261000000
+    ]
+   ],
+   "shares_diluted": 4447700000,
+   "latest_period_end": "2025-12-31"
+  },
+  "price": 38.42,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Drugs (Pharmaceutical)"
+ },
+ "UNH": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 450129000000,
+   "operating_income": 21676000000,
+   "total_debt": 73328000000,
+   "operating_leases": 4615000000,
+   "cash": 31468000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     447567000000
+    ],
+    [
+     "2024-12-31",
+     400278000000
+    ],
+    [
+     "2023-12-31",
+     371622000000
+    ]
+   ],
+   "shares_diluted": 908000000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 406.88,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Healthcare Support Services"
+ },
+ "MSFT": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 331839000000,
+   "operating_income": 155237000000,
+   "total_debt": 106888000000,
+   "operating_leases": 21925000000,
+   "cash": 76843000000,
+   "revenue_annuals_dated": [
+    [
+     "2026-06-30",
+     331839000000
+    ],
+    [
+     "2025-06-30",
+     281724000000
+    ],
+    [
+     "2024-06-30",
+     245122000000
+    ]
+   ],
+   "shares_diluted": 7453000000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 533.52,
+  "price_date": "2026-10-19",
+  "sector": "Technology",
+  "industry": "Software (System & Application)"
+ },
+ "REGN": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 15534700000,
+   "operating_income": 3843100000,
+   "total_debt": 2706600000,
+   "operating_leases": 266800000,
+   "cash": 7994600000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     14342900000
+    ],
+    [
+     "2024-12-31",
+     14202000000
+    ],
+    [
+     "2023-12-31",
+     13117200000
+    ]
+   ],
+   "shares_diluted": 106800000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 782.04,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Drugs (Biotechnology)"
+ },
+ "ASML": {
+  "facts": {
+   "currency": "EUR",
+   "revenue": 32667300000,
+   "operating_income": 11301400000,
+   "total_debt": 4407400000,
+   "operating_leases": null,
+   "cash": 13321900000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     32667300000
+    ],
+    [
+     "2024-12-31",
+     28262900000
+    ],
+    [
+     "2023-12-31",
+     27558500000
+    ]
+   ],
+   "shares_diluted": 388900000,
+   "latest_period_end": "2025-12-31"
+  },
+  "price": 1647.12,
+  "price_date": "2026-10-19",
+  "sector": "Technology",
+  "industry": "Semiconductor Equip"
+ },
+ "NVDA": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 302970000000,
+   "operating_income": 197579000000,
+   "total_debt": 33366000000,
+   "operating_leases": 5494000000,
+   "cash": 56586000000,
+   "revenue_annuals_dated": [
+    [
+     "2026-01-25",
+     215938000000
+    ],
+    [
+     "2025-01-26",
+     130497000000
+    ],
+    [
+     "2024-01-28",
+     60922000000
+    ]
+   ],
+   "shares_diluted": 24338000000,
+   "latest_period_end": "2026-07-26"
+  },
+  "price": 217.09,
+  "price_date": "2026-10-19",
+  "sector": "Technology",
+  "industry": "Semiconductor"
+ },
+ "TSM": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 88268000000,
+   "operating_income": 40318800000,
+   "total_debt": null,
+   "operating_leases": 31804300000,
+   "cash": 64886500000,
+   "revenue_annuals_dated": [
+    [
+     "2024-12-31",
+     88268000000
+    ],
+    [
+     "2023-12-31",
+     70598800000
+    ],
+    [
+     "2022-12-31",
+     73670400000
+    ]
+   ],
+   "shares_diluted": 25929700000,
+   "latest_period_end": "2024-12-31"
+  },
+  "price": 420.22,
+  "price_date": "2026-10-19",
+  "sector": "Technology",
+  "industry": "Semiconductor"
+ },
+ "AXON": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 3219099000,
+   "operating_income": 23774000,
+   "total_debt": 1731817000,
+   "operating_leases": 105932000,
+   "cash": 692533000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     2779536000
+    ],
+    [
+     "2024-12-31",
+     2082526000
+    ],
+    [
+     "2023-12-31",
+     1560699000
+    ]
+   ],
+   "shares_diluted": 82518000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 383.09,
+  "price_date": "2026-10-19",
+  "sector": "Industrials",
+  "industry": "Software (System & Application)"
+ },
+ "MELI": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 35182000000,
+   "operating_income": 2907000000,
+   "total_debt": 10741000000,
+   "operating_leases": 2550000000,
+   "cash": 5730000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     28893000000
+    ],
+    [
+     "2024-12-31",
+     20777000000
+    ],
+    [
+     "2023-12-31",
+     15107000000
+    ]
+   ],
+   "shares_diluted": 50697299,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 1839.72,
+  "price_date": "2026-10-19",
+  "sector": "Consumer Cyclical",
+  "industry": "Retail (General)"
+ },
+ "ELV": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 201113000000,
+   "operating_income": 5453000000,
+   "total_debt": 31044000000,
+   "operating_leases": 660000000,
+   "cash": 35951000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     199125000000
+    ],
+    [
+     "2024-12-31",
+     177011000000
+    ],
+    [
+     "2023-12-31",
+     171340000000
+    ]
+   ],
+   "shares_diluted": 219100000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 430.23,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Healthcare Support Services"
+ },
+ "TSLA": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 103619000000,
+   "operating_income": 4372000000,
+   "total_debt": 9342000000,
+   "operating_leases": 6343000000,
+   "cash": 43524000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     94827000000
+    ],
+    [
+     "2024-12-31",
+     97690000000
+    ],
+    [
+     "2023-12-31",
+     96773000000
+    ]
+   ],
+   "shares_diluted": 3538000000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 368.06,
+  "price_date": "2026-10-19",
+  "sector": "Consumer Cyclical",
+  "industry": "Auto & Truck"
+ },
+ "ORCL": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 71776000000,
+   "operating_income": 23057000000,
+   "total_debt": 134522000000,
+   "operating_leases": 34621000000,
+   "cash": 37077000000,
+   "revenue_annuals_dated": [
+    [
+     "2026-05-31",
+     67357000000
+    ],
+    [
+     "2025-05-31",
+     57399000000
+    ],
+    [
+     "2024-05-31",
+     52961000000
+    ]
+   ],
+   "shares_diluted": 3000000000,
+   "latest_period_end": "2026-08-31"
+  },
+  "price": 129.59,
+  "price_date": "2026-10-19",
+  "sector": "Technology",
+  "industry": "Software (System & Application)"
+ },
+ "CELH": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 3047274000,
+   "operating_income": 160314000,
+   "total_debt": 674850000,
+   "operating_leases": 18216000,
+   "cash": 631234000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     2515269000
+    ],
+    [
+     "2024-12-31",
+     1355630000
+    ],
+    [
+     "2023-12-31",
+     1318014000
+    ]
+   ],
+   "shares_diluted": 258495000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 29.72,
+  "price_date": "2026-10-19",
+  "sector": "Consumer Defensive",
+  "industry": "Beverage (Soft)"
+ },
+ "ABBV": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 64386000000,
+   "operating_income": 16870000000,
+   "total_debt": 70822000000,
+   "operating_leases": 883000000,
+   "cash": 6569000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     61160000000
+    ],
+    [
+     "2024-12-31",
+     56334000000
+    ],
+    [
+     "2023-12-31",
+     54318000000
+    ]
+   ],
+   "shares_diluted": 1773000000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 282.68,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Drugs (Pharmaceutical)"
+ },
+ "GOOGL": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 445866000000,
+   "operating_income": 147628000000,
+   "total_debt": 102754000000,
+   "operating_leases": 18037000000,
+   "cash": 242474000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     402836000000
+    ],
+    [
+     "2024-12-31",
+     350018000000
+    ],
+    [
+     "2023-12-31",
+     307394000000
+    ]
+   ],
+   "shares_diluted": 12274000000,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 344.18,
+  "price_date": "2026-10-19",
+  "sector": "Communication Services",
+  "industry": "Advertising"
+ },
+ "AVGO": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 89104000000,
+   "operating_income": 42814000000,
+   "total_debt": 61079000000,
+   "operating_leases": 1325000000,
+   "cash": 23975000000,
+   "revenue_annuals_dated": [
+    [
+     "2025-11-02",
+     63887000000
+    ],
+    [
+     "2024-11-03",
+     51574000000
+    ],
+    [
+     "2023-10-29",
+     35819000000
+    ]
+   ],
+   "shares_diluted": 4884000000,
+   "latest_period_end": "2026-08-02"
+  },
+  "price": 334.59,
+  "price_date": "2026-10-19",
+  "sector": "Technology",
+  "industry": "Semiconductor"
+ },
+ "TMDX": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 668468000,
+   "operating_income": 81606000,
+   "total_debt": 821920000,
+   "operating_leases": 6887000,
+   "cash": 491113000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     605494000
+    ],
+    [
+     "2024-12-31",
+     441540000
+    ],
+    [
+     "2023-12-31",
+     241623000
+    ]
+   ],
+   "shares_diluted": 36003677,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 71.6,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Healthcare Products"
+ },
+ "HIMS": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 2578112000,
+   "operating_income": -154522000,
+   "total_debt": 1365299000,
+   "operating_leases": 180940000,
+   "cash": 841048000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     2347637000
+    ],
+    [
+     "2024-12-31",
+     1476514000
+    ],
+    [
+     "2023-12-31",
+     872000000
+    ]
+   ],
+   "shares_diluted": 230061076,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 28.15,
+  "price_date": "2026-10-19",
+  "sector": "Healthcare",
+  "industry": "Heathcare Information and Technology"
+ },
+ "RKLB": {
+  "facts": {
+   "currency": "USD",
+   "revenue": 769146000,
+   "operating_income": -223494000,
+   "total_debt": 16184000,
+   "operating_leases": 96007000,
+   "cash": 2302185000,
+   "revenue_annuals_dated": [
+    [
+     "2025-12-31",
+     601799000
+    ],
+    [
+     "2024-12-31",
+     436214000
+    ],
+    [
+     "2023-12-31",
+     244592000
+    ]
+   ],
+   "shares_diluted": 617625210,
+   "latest_period_end": "2026-06-30"
+  },
+  "price": 51.36,
+  "price_date": "2026-10-19",
+  "sector": "Industrials",
+  "industry": "Aerospace/Defense"
+ }
+}

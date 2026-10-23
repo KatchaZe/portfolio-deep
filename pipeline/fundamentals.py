@@ -18,7 +18,7 @@ from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from pipeline import (normalize, validate, rev_track, consensus, surprise_backfill,
                       dataquality, batch)
-from pipeline import lastgood
+from pipeline import lastgood, peers
 from pipeline.cik import resolve_cik
 import store as store_mod
 
@@ -600,12 +600,14 @@ def compute_peer_medians(fetched):
     return out
 
 
-def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_facts=None):
+def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_facts=None,
+                       prev_results=None):
     """NETWORK PHASE, run OUTSIDE store.LOCK. Tickers are analysed in parallel:
     analyze() is network+pure, the SEC throttle is global, and the FMP quota is
     partitioned up front. Returns (fetched {ticker: (FinancialFacts, Valuation)},
     errors, fmp_calls, rf_pct, rf_live). `prev_facts` {ticker: facts dict} is the
-    store's last refresh, read-only, for the 30-day last-good consensus."""
+    store's last refresh, read-only, for the 30-day last-good consensus; `prev_results`
+    the same for the weekly peer fit."""
     rf, rf_live = yahoo.fetch_treasury_10y()
     refresh_implied_erp()
     roc = fetch_roc_table()
@@ -631,7 +633,27 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_fa
         ff, _val = fetched[t]
         ff.set("peer_median_growth", round(med, 4), "sector-cohort")
         fetched[t] = (ff, get_engine().evaluate(ff, rf=rf))
+    calls += _attach_relative(fetched, fmp_key, spare, prev_results or {})
     return fetched, errors, calls, round(rf * 100, 2), rf_live
+
+
+def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
+    """Peer relative valuation on each fetched ticker (cross-check only). One failure
+    never fails the refresh: the ticker gets no block and a log line."""
+    today = today or lastgood.date_of(pricing.ny_today())
+    memo, calls = peers.PointMemo(), 0
+    futs = batch.run_parallel(lambda t: peers.relative_value(
+        fetched[t][0], fmp_key, today, (prev_results.get(t) or {}).get("relative"), budget, memo),
+        list(fetched))
+    for t, fut in futs.items():
+        try:
+            block, c = fut.result()
+        except Exception as e:
+            log.warning("%s relative valuation failed: %s", t, e)
+            continue
+        calls += c
+        fetched[t][1].relative = block
+    return calls
 
 
 def commit_fundamentals(s, fetched, fmp_calls):

@@ -26,7 +26,7 @@ from tests.test_young_dcf import PREPROFIT         # noqa: E402
 # The card modules as index.html ships them. They define functions only (no DOM work at
 # load), so node can run them unmodified.
 CARD_MODULES = ("format.js", "card_signals.js", "card_value.js")
-WANT = ["scenarioPanel", "youngPanel", "pricedInLine", "upsideCell", "methodShort", "anchorCell"]
+WANT = ["relativePanel", "scenarioPanel", "youngPanel", "pricedInLine", "upsideCell", "methodShort", "anchorCell"]
 
 
 def _js(n):

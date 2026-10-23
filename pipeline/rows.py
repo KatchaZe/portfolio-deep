@@ -103,6 +103,7 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         # 25/50/25 Bear/Base/Bull expected value (never the anchor)
         "priced_in": v.get("priced_in") or None,
         "scenarios": v.get("scenarios") or None,
+        "relative": v.get("relative") or None,
         "earn_status": earn_status(eps_surprises, rev_surprises, mgn_trend,
                                    f.get("provenance"), has_new_schema, fmp_on),
         "forward_eps": f.get("forward_eps"), "forward_eps_low": f.get("forward_eps_low"),
