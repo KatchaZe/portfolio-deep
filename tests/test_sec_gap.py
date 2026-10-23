@@ -206,6 +206,22 @@ class SubmissionsFailure(unittest.TestCase):
         self.assertEqual((code, sev), ("sec_filing_list_unchecked", "note"))
 
 
+class Truncation(unittest.TestCase):
+    def test_insider_filings_do_not_push_the_10q_out(self):
+        rows = [("4", f"2026-10-{d:02d}", "", f"F4-{d}") for d in range(1, 23)] * 3
+        rows += [("10-Q", "2026-07-29", "2026-06-30", "Q2"), ("10-Q", "2026-04-29", "2026-03-31", "Q1")]
+        full = subs(*rows)
+
+        class R:
+            def get(self, url, headers=None, timeout=None):
+                if "submissions" in url:
+                    return SimpleNamespace(json=lambda: full, raise_for_status=lambda: None)
+                raise ConnectionError("instance down")
+        out = sec_gap.complete("1", cf_with({"Q1": 300}), "ua", requests_mod=R())
+        self.assertEqual(out["_sec_gap"]["accn"], "Q2")         # found (read fails, flagged)
+        self.assertIs(out["_sec_gap"]["read"], False)
+
+
 class Gaps(unittest.TestCase):
     ROWS = [("10-Q", "2026-10-22", "2026-09-30", "Q3"), ("8-K", "2026-08-01", "", "X"),
             ("10-Q", "2026-07-29", "2026-06-30", "Q2"), ("10-Q", "2026-04-29", "2026-03-31", "Q1"),

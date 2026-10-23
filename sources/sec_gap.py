@@ -234,6 +234,19 @@ def _write(path, obj):
         log.warning("sec_gap cache write failed (%s): %s", path, e)
 
 
+KEYS = ("form", "filingDate", "reportDate", "accessionNumber", "primaryDocument")
+
+
+def _periodic_only(full):
+    """The submissions feed cut to its periodic filings, BEFORE any cap: CTSH's 40 most
+    recent filings since its Q2 10-Q were all Form 4s and 8-Ks, so a cap on the raw
+    list hid the very filing this module looks for (live, 2026-10-23)."""
+    r = (full.get("filings") or {}).get("recent") or {}
+    idx = [i for i, f in enumerate(r.get("form") or []) if f in PERIODIC][:MAX_GAPS * 2]
+    return {"filings": {"recent": {k: [(r.get(k) or [""] * (i + 1))[i] if i < len(r.get(k) or []) else ""
+                                       for i in idx] for k in KEYS}}}
+
+
 def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30, throttle=None):
     """companyfacts with its newest missing filing filled in, or `cf` unchanged.
 
@@ -255,9 +268,7 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
                                  headers=headers, timeout=timeout)
             r.raise_for_status()
             full = r.json()
-            sub = {"filings": {"recent": {k: (full.get("filings") or {}).get("recent", {}).get(k, [])[:40]
-                                          for k in ("form", "filingDate", "reportDate",
-                                                    "accessionNumber", "primaryDocument")}}}
+            sub = _periodic_only(full)
             _write(sub_path, sub)
     except Exception as e:
         # not silent: the card says the filing list could not be checked
