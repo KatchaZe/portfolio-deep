@@ -216,6 +216,8 @@ def build_model(t, symbols, today, memo=None, price_date=None, target_sic=None, 
     excluded += [{"symbol": s, "reason": "EV/Sales outlier (IQR fence)"} for s in model["outliers"]]
     model["as_of"] = today.isoformat()
     model["industry_note"] = note
+    if note and "all kept" in note:
+        model["weak"] = True                    # a fit across industries is not a peer multiple
     model["target_sic"] = target_sic
     return model, excluded, None
 

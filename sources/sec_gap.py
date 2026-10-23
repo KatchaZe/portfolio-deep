@@ -307,6 +307,13 @@ def _fill(cik10, cf, g, headers, cache_dir, requests_mod, timeout, throttle):
             if throttle:
                 throttle()
             r = requests_mod.get(url, headers=headers, timeout=timeout)
+            if getattr(r, "status_code", 200) == 404 and g["primary"]:
+                # the "<primary>_htm.xml" name is a convention, not a rule (York Space
+                # Systems' 10-K, live 2026-10-23): look the instance up in the index
+                url = _instance_url(int(cik10), g["accn"], "", requests_mod, headers, timeout)
+                if not url:
+                    raise ValueError("no XBRL instance in the filing index")
+                r = requests_mod.get(url, headers=headers, timeout=timeout)
             r.raise_for_status()
             patch = parse_facts(r.content, g["accn"], g["form"], g["filed"])
             if not patch:

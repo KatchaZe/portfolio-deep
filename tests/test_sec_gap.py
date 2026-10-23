@@ -242,6 +242,28 @@ class Sic(unittest.TestCase):
         self.assertEqual(len(rq.urls), 1)
 
 
+class InstanceName(unittest.TestCase):
+    def test_404_on_the_conventional_name_falls_back_to_the_index(self):
+        full = subs(("10-K", "2026-09-01", "2026-06-30", "0002086587-26-000001"))
+        xml = instance([("us-gaap", "Revenues", "USD",
+                         {"start": "2025-07-01", "end": "2026-06-30", "val": 5})])
+
+        class R:
+            def get(self, url, headers=None, timeout=None):
+                if "submissions" in url:
+                    return SimpleNamespace(json=lambda: full, raise_for_status=lambda: None)
+                if url.endswith("index.json"):
+                    return SimpleNamespace(json=lambda: {"directory": {"item": [
+                        {"name": "york-20260630.xml"}, {"name": "york-20260630_cal.xml"}]}})
+                if url.endswith("york-20260630.xml"):
+                    return SimpleNamespace(status_code=200, content=xml, raise_for_status=lambda: None)
+                def nf():
+                    raise OSError("404 Not Found")
+                return SimpleNamespace(status_code=404, raise_for_status=nf)
+        out = sec_gap.complete("2086587", cf_with({}), "ua", requests_mod=R())
+        self.assertTrue(out["_sec_gap"]["read"])
+
+
 class Gaps(unittest.TestCase):
     ROWS = [("10-Q", "2026-10-22", "2026-09-30", "Q3"), ("8-K", "2026-08-01", "", "X"),
             ("10-Q", "2026-07-29", "2026-06-30", "Q2"), ("10-Q", "2026-04-29", "2026-03-31", "Q1"),

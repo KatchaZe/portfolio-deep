@@ -298,6 +298,18 @@ class IndustryAndOneTime(unittest.TestCase):
         y, add = peers.normalized(x)
         self.assertEqual((add, y["operating_income"]), (0.0, -2.4e9))   # recurs: an operating cost
 
+    def test_mixed_industry_fit_is_marked_weak(self):
+        pts = [dict(pt(f"C{i}", 1 + 10 * m, m, .1), sic=["2844", "cosmetics"])
+               for i, m in enumerate([.05, .1, .15, .2, .25, .3])]
+        memo = peers.PointMemo()
+        for p in pts:
+            memo.get(p["symbol"], lambda s, p=p: (p, None))
+        model, _, _ = peers.build_model("HIMS", [p["symbol"] for p in pts], TODAY, memo,
+                                        target_sic=["8011", "doctors"])
+        self.assertAlmostEqual(model["r2"], 1.0)
+        self.assertTrue(model["weak"])
+        self.assertIn("only 0 of 6", model["industry_note"])
+
     def test_sic_level(self):
         self.assertEqual(peers.sic_level(["7372", ""], ["7370", ""]), 3)
         self.assertEqual(peers.sic_level(["2844", ""], ["8000", ""]), 0)
