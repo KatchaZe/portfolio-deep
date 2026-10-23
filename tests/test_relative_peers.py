@@ -309,6 +309,15 @@ class IndustryAndOneTime(unittest.TestCase):
         self.assertAlmostEqual(model["r2"], 1.0)
         self.assertTrue(model["weak"])
         self.assertIn("only 0 of 6", model["industry_note"])
+        # GOOGL, live: 4 of 5 share its SIC group (AMZN is retail) - a note, not a weak fit
+        mixed = [dict(p, sic=["7370", "data"]) for p in pts[:4]] + [pts[4]]
+        memo = peers.PointMemo()
+        for p in mixed:
+            memo.get(p["symbol"], lambda s, p=p: (p, None))
+        model, _, _ = peers.build_model("GOOGL", [p["symbol"] for p in mixed], TODAY, memo,
+                                        target_sic=["7370", "data"])
+        self.assertIn("only 4 of 5", model["industry_note"])
+        self.assertFalse(model["weak"])
 
     def test_sic_level(self):
         self.assertEqual(peers.sic_level(["7372", ""], ["7370", ""]), 3)
