@@ -6,6 +6,8 @@ filling a filing companyfacts has not ingested.
 """
 import sys
 
+import requests
+
 import config
 from pipeline.cik import resolve_cik
 from sources import sec_edgar, sec_gap
@@ -14,6 +16,12 @@ for t in (sys.argv[1:] or ["HUM", "F", "CTSH", "BIIB", "NXPI", "UNH", "ELV"]):
     cik, _ = resolve_cik(t)
     cf = sec_edgar.fetch_companyfacts(cik, config.SEC_USER_AGENT, cache_dir=None)
     before = sec_edgar.extract(cf)
+    sub = requests.get(f"https://data.sec.gov/submissions/CIK{cik}.json",
+                       headers={"User-Agent": config.SEC_USER_AGENT}, timeout=30).json()
+    counts = sec_gap.fact_counts(cf)
+    for f in sec_gap.periodic_filings(sub)[:4]:
+        print(f"      {f['form']:5} filed {f['filed']} period {f['period']} {f['accn']} "
+              f"facts in companyfacts {counts.get(f['accn'], 0)}")
     out = sec_gap.complete(cik, cf, config.SEC_USER_AGENT, cache_dir=None)
     after = sec_edgar.extract(out)
     g = out.get("_sec_gap")

@@ -180,5 +180,42 @@ class RoundTrip(unittest.TestCase):
         self.assertIn("lacks the 10-Q filed 2026-08-10", why)
 
 
+def subs(*rows):
+    """A submissions document from (form, filed, period, accn) rows, newest first."""
+    return {"filings": {"recent": {
+        "form": [r[0] for r in rows], "filingDate": [r[1] for r in rows],
+        "reportDate": [r[2] for r in rows], "accessionNumber": [r[3] for r in rows],
+        "primaryDocument": [f"{r[3]}.htm" for r in rows]}}}
+
+
+def cf_with(counts):
+    return {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+        {"end": "2026-01-01", "val": 1, "accn": a} for a, n in counts.items() for _ in range(n)]}}}}}
+
+
+class Gaps(unittest.TestCase):
+    ROWS = [("10-Q", "2026-10-22", "2026-09-30", "Q3"), ("8-K", "2026-08-01", "", "X"),
+            ("10-Q", "2026-07-29", "2026-06-30", "Q2"), ("10-Q", "2026-04-29", "2026-03-31", "Q1"),
+            ("10-K", "2026-02-12", "2025-12-31", "K"), ("10-Q", "2025-07-30", "2025-06-30", "OLD")]
+
+    def test_skipped_quarter_stays_visible_after_the_next_lands(self):
+        g = sec_gap.gaps(subs(*self.ROWS), cf_with({"Q3": 300, "Q1": 280, "K": 600}))
+        self.assertEqual([f["accn"] for f in g], ["Q2"])      # OLD is outside the window
+
+    def test_partly_ingested_filing_counts_as_missing(self):
+        g = sec_gap.gaps(subs(*self.ROWS), cf_with({"Q3": 3, "Q2": 300, "Q1": 280, "K": 600}))
+        self.assertEqual([f["accn"] for f in g], ["Q3"])
+
+    def test_oldest_first_and_failure_is_not_overwritten(self):
+        g = sec_gap.gaps(subs(*self.ROWS), cf_with({"Q1": 280, "K": 600}))
+        self.assertEqual([f["accn"] for f in g], ["Q2", "Q3"])
+        failed = dict(cf_with({}), _sec_gap={"form": "10-Q", "filed": "2026-07-29", "period": "2026-06-30",
+                                             "accn": "Q2", "read": False, "error": "503"})
+        out = sec_gap.merge(failed, {}, {"form": "10-Q", "filed": "2026-10-22", "period": "2026-09-30",
+                                         "accn": "Q3"})
+        self.assertIs(out["_sec_gap"]["read"], False)
+        self.assertEqual(out["_sec_gap"]["accn"], "Q2")
+
+
 if __name__ == "__main__":
     unittest.main()

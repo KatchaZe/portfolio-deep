@@ -28,33 +28,69 @@ log = logging.getLogger("portfolio.sec_gap")
 
 PERIODIC = ("10-Q", "10-K", "20-F", "40-F")
 SUBMISSIONS_TTL_HOURS = 12
+GAP_WINDOW_DAYS = 400      # every periodic filing of the last ~5 quarters is checked
+MAX_GAPS = 6
+PARTIAL_FACTS = 50         # fewer facts than this from one 10-Q/10-K = not ingested
 NAMESPACES = (("us-gaap", "us-gaap"), ("ifrs-full", "ifrs-full"), ("/dei/", "dei"))
 
 
-def latest_filing(sub_json):
-    """Newest periodic filing in an SEC submissions document, or None."""
+def periodic_filings(sub_json):
+    """Periodic filings in an SEC submissions document, newest first."""
     r = ((sub_json or {}).get("filings") or {}).get("recent") or {}
-    for i, form in enumerate(r.get("form") or []):
-        if form in PERIODIC:
-            return {"form": form, "filed": r["filingDate"][i], "period": r["reportDate"][i],
-                    "accn": r["accessionNumber"][i],
-                    "primary": (r.get("primaryDocument") or [""] * (i + 1))[i]}
-    return None
+    prim = r.get("primaryDocument") or []
+    return [{"form": form, "filed": r["filingDate"][i], "period": r["reportDate"][i],
+             "accn": r["accessionNumber"][i], "primary": prim[i] if i < len(prim) else ""}
+            for i, form in enumerate(r.get("form") or []) if form in PERIODIC]
 
 
-def accessions(cf):
-    out = set()
+def latest_filing(sub_json):
+    f = periodic_filings(sub_json)
+    return f[0] if f else None
+
+
+def fact_counts(cf):
+    """{accession: number of facts companyfacts carries from it}."""
+    out = {}
     for ns in (cf.get("facts") or {}).values():
         for node in ns.values():
             for arr in (node.get("units") or {}).values():
-                out.update(x.get("accn") for x in arr)
+                for x in arr:
+                    out[x.get("accn")] = out.get(x.get("accn"), 0) + 1
     return out
 
 
+def accessions(cf):
+    return set(fact_counts(cf))
+
+
+def gaps(sub_json, cf):
+    """Recent periodic filings companyfacts has not (fully) ingested, OLDEST first.
+
+    "Recent" = filed within GAP_WINDOW_DAYS of the newest periodic filing, so a Q2 that
+    was skipped stays visible after Q3 lands. "Not fully" = fewer than PARTIAL_FACTS
+    facts: a 10-Q carries 240-420 (live, 2026-10-23), so a handful means the filing
+    was only partly ingested."""
+    fs = periodic_filings(sub_json)
+    if not fs:
+        return []
+    newest = fs[0]["filed"]
+    counts = fact_counts(cf)
+    recent = [f for f in fs if _days(f["filed"], newest) <= GAP_WINDOW_DAYS][:MAX_GAPS]
+    return [f for f in reversed(recent) if counts.get(f["accn"], 0) < PARTIAL_FACTS]
+
+
 def gap(sub_json, cf):
-    """The newest periodic filing when companyfacts has no fact from it, else None."""
-    f = latest_filing(sub_json)
-    return f if f and f["accn"] not in accessions(cf) else None
+    """The newest filing among gaps(), or None."""
+    g = gaps(sub_json, cf)
+    return g[-1] if g else None
+
+
+def _days(a, b):
+    import datetime as dt
+    try:
+        return abs((dt.date.fromisoformat(a[:10]) - dt.date.fromisoformat(b[:10])).days)
+    except (TypeError, ValueError):
+        return 10 ** 6
 
 
 def _ns(uri):
@@ -151,7 +187,8 @@ def parse_facts(xml_bytes, accn, form, filed):
 
 
 def merge(cf, patch, info):
-    """A copy of companyfacts with the patch's entries appended, marked `_sec_gap`."""
+    """A copy of companyfacts with the patch's entries appended, marked `_sec_gap`
+    (the newest filling; `filled` lists every accession read so far)."""
     out = copy.deepcopy(cf)
     facts = out.setdefault("facts", {})
     n = 0
@@ -161,7 +198,12 @@ def merge(cf, patch, info):
             for unit, arr in node["units"].items():
                 dst.setdefault("units", {}).setdefault(unit, []).extend(arr)
                 n += len(arr)
-    out["_sec_gap"] = dict(info, read=True, facts=n)
+    prev = cf.get("_sec_gap") or {}
+    if prev.get("read") is False:               # an earlier filing stays unread: say so
+        out["_sec_gap"] = dict(prev, filled=list(prev.get("filled") or []) + [info["accn"]])
+        return out
+    out["_sec_gap"] = dict(info, read=True, facts=n,
+                           filled=list(prev.get("filled") or []) + [info["accn"]])
     return out
 
 
@@ -220,9 +262,13 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
     except Exception as e:
         log.warning("%s submissions failed: %s", cik10, e)
         return cf
-    g = gap(sub, cf)
-    if not g:
-        return cf
+    out = cf
+    for g in gaps(sub, cf):                     # oldest first: the newest wins `_sec_gap`
+        out = _fill(cik10, out, g, headers, cache_dir, requests_mod, timeout, throttle)
+    return out
+
+
+def _fill(cik10, cf, g, headers, cache_dir, requests_mod, timeout, throttle):
     info = {k: g[k] for k in ("form", "filed", "period", "accn")}
     patch_path = os.path.join(cache_dir, "sec_gap", f"facts_{g['accn']}.json") if cache_dir else None
     patch = _cached_json(patch_path, None)      # a filing never changes
