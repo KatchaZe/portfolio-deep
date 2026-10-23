@@ -355,6 +355,12 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, univers
     calls, notes = 0, []
     universe = universe or Universe()
     industry, basis = universe.industry_of(f)
+    from sources.industries import FINANCIAL_INDUSTRIES
+    if industry in FINANCIAL_INDUSTRIES:
+        # a lender's debt is its raw material, so EV and EV/Sales mean nothing (SOFI read
+        # 18.9x on the watchlist, live 2026-10-24); the excess-return model values it
+        return {"model": None, "excluded": [], "industry": None, "peer_list_as_of": None,
+                "notes": [f"{industry}: EV/Sales does not apply to a financial firm"]}, 0
     tp, net_debt, t_why = _target(f, today)
     ind = universe.industry_block(f, industry, basis, tp, net_debt) if tp else None
     cache_dir, fetch_list = kw.pop("cache_dir", None), kw.pop("fetch_list", None)

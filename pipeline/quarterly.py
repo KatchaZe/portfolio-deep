@@ -244,7 +244,10 @@ def apply(ff, alt, notes, sec_currency, sec_fx, fetch_rate):
 def run(ff, t, sec_currency, sec_fx, key, cache_dir, fetch_rate):
     """Fetch (cached 7 days), build and apply. Returns AV calls spent. Never raises."""
     from sources import alphavantage, yahoo
-    if not key or not any(d["code"] == "interim_not_used" for d in dataquality.assess(ff)):
+    # any base 6+ months old: interim_not_used (6-15 months) or stale_financials (more,
+    # e.g. TSM on its FY2024 SEC base the day the FMP fallback could not run)
+    if not key or not any(d["code"] in ("interim_not_used", "stale_financials")
+                          for d in dataquality.assess(ff)):
         return 0
     calls, raw = 0, {}
     try:

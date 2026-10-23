@@ -162,14 +162,23 @@ def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
     the row. The +4 calls are optional spend, so they are reserved against the live
     budget at the point of spend: budgeting them up front for every ticker would
     refuse half the portfolio for a branch that fires on almost none of it."""
-    if not (fmp_key and batch.quota_take(quota_left, STALE_FALLBACK_CALLS)
-            and any(d["code"] == "stale_financials" for d in dataquality.assess(ff))):
+    if not (fmp_key and any(d["code"] == "stale_financials" for d in dataquality.assess(ff))):
         return 0
+    bundle = _cached_fallback_bundle(t)
     calls = 0
+    if bundle is None:
+        if not batch.quota_take(quota_left, STALE_FALLBACK_CALLS):
+            # live 2026-10-24: TSM silently fell back to its FY2024 SEC base when the
+            # day's FMP budget ran short
+            ff.flags.append("งบ SEC เก่าและวันนี้โควตา FMP เหลือไม่พอเรียกแหล่งสำรอง — "
+                            "ใช้งบเดิมไปก่อน (refresh วันถัดไปจะลองใหม่)")
+            return 0
+        bundle = fmp.fetch(t, fmp_key)
+        calls = STALE_FALLBACK_CALLS
+        _store_fallback_bundle(t, bundle)
     try:
         alt = FinancialFacts(t, company=name)
-        fmp.parse(fmp.fetch(t, fmp_key), alt)
-        calls = STALE_FALLBACK_CALLS
+        fmp.parse(bundle, alt)
         # The fallback is converted at ITS OWN currency, not SEC's: TSM's 20-F reads
         # USD at SEC while FMP reports TWD, and the policy refuses the fallback when
         # no rate is found (stale-but-coherent beats fresh-but-mixed).
@@ -180,6 +189,45 @@ def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
         log.warning("%s stale-financials fallback failed: %s", t, e)
         ff.flags.append("งบเก่าและดึงแหล่งสำรองไม่สำเร็จ — หัก confidence")
     return calls
+
+
+FALLBACK_TTL_DAYS = 7
+
+
+def _bundle_ok(bundle):
+    """Every FMP endpoint answered with data (an error or a status body is not cached)."""
+    return isinstance(bundle, dict) and all(
+        not (isinstance(v, dict) and ("_error" in v or "_status" in v))
+        for k, v in bundle.items() if not k.startswith("_"))
+
+
+def _cached_fallback_bundle(t):
+    """The FMP statements bundle fetched within FALLBACK_TTL_DAYS, or None. Annual
+    statements change once a year: re-buying them on every refresh spent 4 calls a
+    ticker a day."""
+    import json
+    import time
+    try:
+        with open(os.path.join(config.CACHE_DIR, f"fmp_fallback_{t}.json"), encoding="utf-8") as fh:
+            c = json.load(fh)
+        if time.time() - c.get("at", 0) < FALLBACK_TTL_DAYS * 86400 and _bundle_ok(c.get("data")):
+            return c["data"]
+    except (OSError, ValueError):
+        pass
+    return None
+
+
+def _store_fallback_bundle(t, bundle):
+    import json
+    import time
+    if not _bundle_ok(bundle):
+        return
+    try:
+        os.makedirs(config.CACHE_DIR, exist_ok=True)
+        with open(os.path.join(config.CACHE_DIR, f"fmp_fallback_{t}.json"), "w", encoding="utf-8") as fh:
+            json.dump({"at": time.time(), "data": bundle}, fh)
+    except OSError as e:
+        log.warning("%s FMP fallback cache write failed: %s", t, e)
 
 
 def _quote_fallback(ff, t, fmp_key):

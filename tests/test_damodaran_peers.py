@@ -180,6 +180,16 @@ class Flow(Base):
                                         self.u, cache_dir=tempfile.mkdtemp(), fetch_list=self.fetch_list)
         self.assertIs(again["model"], block["model"])        # same method, same week: reused
 
+    def test_financial_firms_get_no_ev_multiple(self):
+        u = peers.Universe({"SOFI": ["Financial Svcs. (Non-bank & Insurance)", "6199", "United States"]},
+                           {}, PS, as_of="2026-01")
+        f = self.target("ORCL")
+        f.ticker = "SOFI"
+        block, calls = peers.relative_value(f, "k", TODAY, None, None, None, u, cache_dir=tempfile.mkdtemp(),
+                                            fetch_list=self.fetch_list)
+        self.assertEqual((block["model"], block["industry"], calls, self.calls["list"]), (None, None, 0, 0))
+        self.assertIn("does not apply to a financial firm", block["notes"][0])
+
     def test_universe_failure_never_breaks_the_refresh(self):
         def boom():
             raise OSError("stern.nyu.edu down")

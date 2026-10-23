@@ -148,6 +148,27 @@ class Plumbing(unittest.TestCase):
         data, calls = av.cached("earnings", "PFE", "k", lambda s, k: good, tmp, sleep=lambda x: None)
         self.assertEqual((data, calls), (good, 1))
 
+    def test_the_api_key_never_reaches_the_card(self):
+        key = "AQLRI7NYDZVDC1FH"
+        msg = {"Information": f"We have detected your API key as {key} and our standard API "
+                              "rate limit is 25 requests per day."}
+        why = av.refusal(msg)
+        self.assertEqual(why, "Alpha Vantage daily limit reached")
+        self.assertNotIn(key, why)
+
+    def test_a_base_older_than_15_months_also_gets_the_quarterly_path(self):
+        """TSM, live 2026-10-24: FY2024 SEC base (stale_financials, not interim_not_used)."""
+        ff, *_ = load("TSM")
+        ff.fiscal_year = "2024-12-31"
+        orig, seen = av.cached, []
+        av.cached = lambda *a, **k: (seen.append(a[0]) or {"_refused": "Alpha Vantage daily limit reached"}, 0)
+        try:
+            quarterly.run(ff, "TSM", "USD", None, "KEY", "/tmp", lambda c: 0.0307)
+        finally:
+            av.cached = orig
+        self.assertTrue(seen)
+        self.assertTrue(any("daily limit" in f for f in ff.flags))
+
     def test_calls_are_spaced_and_capped_per_day(self):
         import tempfile
         tmp, waits = tempfile.mkdtemp(), []
@@ -184,6 +205,53 @@ class Plumbing(unittest.TestCase):
             av.cached = orig
         self.assertTrue(any("daily limit" in f for f in ff.flags if f.startswith("QUARTERLY")))
         self.assertEqual(ff.fiscal_year, "2025-12-31")
+
+
+class FmpFallbackCache(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pipeline import fundamentals as fu
+        self.fu, self.tmp = fu, tempfile.mkdtemp()
+        self._cd, fu.config.CACHE_DIR = fu.config.CACHE_DIR, self.tmp
+        self._fetch, self._parse, self._apply = fu.fmp.fetch, fu.fmp.parse, fu.dataquality.apply_stale_fallback
+        self.fetched = 0
+
+        def fetch(t, key):
+            self.fetched += 1
+            return {"income": [{"revenue": 1}], "balance": [{}], "_calls": 4}
+        fu.fmp.fetch, fu.fmp.parse = fetch, lambda b, alt: None
+        fu.dataquality.apply_stale_fallback = lambda *a, **k: (True, ["applied"])
+
+    def tearDown(self):
+        fu = self.fu
+        fu.config.CACHE_DIR = self._cd
+        fu.fmp.fetch, fu.fmp.parse, fu.dataquality.apply_stale_fallback = self._fetch, self._parse, self._apply
+
+    def stale(self):
+        ff, *_ = load("TSM")
+        ff.fiscal_year = "2024-12-31"
+        return ff
+
+    def test_budget_short_is_said_not_silent(self):
+        from pipeline import batch
+        ff = self.stale()
+        calls = self.fu._stale_financials_fallback(ff, "TSM", "TSMC", "k", "USD", None, batch.Budget(0))
+        self.assertEqual((calls, self.fetched), (0, 0))
+        self.assertTrue(any("โควตา FMP" in f for f in ff.flags))
+
+    def test_bundle_cached_for_a_week_so_no_budget_is_needed(self):
+        from pipeline import batch
+        self.assertEqual(self.fu._stale_financials_fallback(self.stale(), "TSM", "TSMC", "k", "USD", None,
+                                                            batch.Budget(9)), 4)
+        ff = self.stale()
+        self.assertEqual(self.fu._stale_financials_fallback(ff, "TSM", "TSMC", "k", "USD", None,
+                                                            batch.Budget(0)), 0)
+        self.assertEqual(self.fetched, 1)
+        self.assertIn("applied", ff.flags)
+
+    def test_an_error_bundle_is_not_cached(self):
+        self.fu._store_fallback_bundle("X", {"income": {"_status": 402, "_body": "limit"}})
+        self.assertIsNone(self.fu._cached_fallback_bundle("X"))
 
 
 if __name__ == "__main__":

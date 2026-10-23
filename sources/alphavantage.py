@@ -149,11 +149,24 @@ _last_call = [0.0]
 
 
 def refusal(data):
-    """The refusal text of an AV reply ('Information'/'Note'/'Error Message'), else None."""
+    """Why AV refused ('Information'/'Note'/'Error Message'), in our words, else None.
+
+    Never the reply's own text: the daily-limit reply quotes the API key ("We have
+    detected your API key as ..."), which then sat on the card and in portfolio.json
+    (live 2026-10-24)."""
     if isinstance(data, dict):
         for k in REFUSAL_KEYS:
             if k in data and len(data) <= 2:
-                return str(data[k])[:120]
+                t = str(data[k]).lower()
+                if "per day" in t or "daily" in t:
+                    return "Alpha Vantage daily limit reached"
+                if "per second" in t or "per minute" in t or "sparingly" in t:
+                    return "Alpha Vantage rate limit (1 request per second)"
+                if "premium" in t:
+                    return "Alpha Vantage: premium endpoint"
+                if "invalid" in t or k == "Error Message":
+                    return "Alpha Vantage rejected the request (symbol or key)"
+                return "Alpha Vantage refused the request"
     return None
 
 
