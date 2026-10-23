@@ -128,6 +128,9 @@ class FinancialFacts:
     # shares against a price per ADR worth 5 of them). See pipeline/normalize.py.
     market_cap: Optional[float] = None
     peers: list = field(default_factory=list)    # FMP stock-peers (when fetched)
+    # the newest 10-Q/10-K that SEC companyfacts had not ingested, and whether it was
+    # read from the filing's own XBRL instance instead (sources/sec_gap.py); None = none
+    sec_gap: Optional[dict] = None
     # --- 🟢 round 3: own 5y P/E percentile (re-rating, Price adj) -------------
     own_pe_pctile: Optional[float] = None        # 0=cheapest / 1=richest vs own 5y P/E range
     eps_annuals_dated: list = field(default_factory=list)  # [[FY_end, diluted_EPS], …] newest first

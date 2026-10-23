@@ -25,7 +25,7 @@ import config
 from domain import relative, pricing
 from pipeline import batch, lastgood
 from pipeline.cik import resolve_cik
-from sources import fmp, sec_edgar, stooq, yahoo
+from sources import fmp, sec_edgar, sec_gap, stooq, yahoo
 
 log = logging.getLogger("portfolio.peers")
 
@@ -114,8 +114,14 @@ class PointMemo:
         return v
 
 
-def peer_point(sym, today, fetch_facts=None, fetch_price=None):
-    """(point, reason) for one peer on the common clock."""
+def _complete(cik, cf):
+    return sec_gap.complete(cik, cf, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
+                            throttle=lambda: sec_edgar._throttle(config.SEC_MIN_INTERVAL))
+
+
+def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complete):
+    """(point, reason) for one peer on the common clock. `complete` fills a filing
+    companyfacts has not ingested yet (None = skip, for tests)."""
     fetch_facts = fetch_facts or (lambda cik: sec_edgar.fetch_companyfacts(
         cik, config.SEC_USER_AGENT, cache_dir=None, min_interval=config.SEC_MIN_INTERVAL))
     fetch_price = fetch_price or _t1
@@ -124,11 +130,15 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None):
         return None, "not an SEC filer"
     try:
         cf = fetch_facts(cik)
+        cf = complete(cik, cf) if complete else cf
         x = sec_edgar.extract(cf)
     except Exception as e:
         return None, f"SEC facts unavailable ({str(e)[:40]})"
     if cf.get("_stale_cache"):
         return None, "SEC facts stale"
+    g = cf.get("_sec_gap")
+    if g and not g.get("read"):
+        return None, f"SEC companyfacts lacks the {g['form']} filed {g['filed']} (not read)"
     close, day, src = fetch_price(sym, today.isoformat())
     if not close:
         return None, "no T-1 close (Yahoo and Stooq)"

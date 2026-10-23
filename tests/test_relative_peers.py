@@ -215,7 +215,7 @@ class Pipeline(unittest.TestCase):
 
         def peer_point(sym, today, **_):
             self.cur = sym
-            return orig(sym, today, fetch_facts=facts_by_sym, fetch_price=fetch_price)
+            return orig(sym, today, fetch_facts=facts_by_sym, fetch_price=fetch_price, complete=None)
         peers.peer_point = peer_point
         return {"cache_dir": self.tmp, "fetch_list": fetch_list}
 
@@ -276,7 +276,7 @@ class Pipeline(unittest.TestCase):
         self.assertIn("no FMP key", block["notes"][0])
 
     def test_stale_sec_cache_excluded(self):
-        p, why = self._pp("P1", TODAY, fetch_facts=lambda c: dict(PEER_FACTS["P1"], _stale_cache=True),
+        p, why = self._pp("P1", TODAY, fetch_facts=lambda c: dict(PEER_FACTS["P1"], _stale_cache=True), complete=None,
                                   fetch_price=lambda s, d: (5, "2026-10-19", "yahoo"))
         self.assertIsNone(p)
         self.assertIn("stale", why)

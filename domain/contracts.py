@@ -63,7 +63,7 @@ CLOCK = {
     "fiscal_year": STATIC, "as_of": STATIC, "provenance": STATIC, "confidence": STATIC,
     "confidence_tier": STATIC, "flags": STATIC, "peers": STATIC, "n_analysts": STATIC,
     "per_share_unit_ok": STATIC, "n_analysts_y2": STATIC,
-    "consensus_as_of": STATIC, "forward_eps_as_of": STATIC,
+    "consensus_as_of": STATIC, "forward_eps_as_of": STATIC, "sec_gap": STATIC,
 
     # --- market, observed now ------------------------------------------------
     "price": SPOT, "market_cap": SPOT, "beta": SPOT, "own_pe_pctile": SPOT,
@@ -171,7 +171,7 @@ UNIT = {
     "rev_growth_path": RATIO,
     # text / structures
     "ticker": TEXT, "company": TEXT, "sector": TEXT, "currency": TEXT,
-    "consensus_as_of": TEXT, "forward_eps_as_of": TEXT,
+    "consensus_as_of": TEXT, "forward_eps_as_of": TEXT, "sec_gap": TEXT,
     "fiscal_year": TEXT, "as_of": TEXT, "provenance": TEXT, "confidence_tier": TEXT,
     "per_share_unit_ok": TEXT,          # a verdict, not a quantity — never arithmetic
     "flags": TEXT, "peers": TEXT, "earnings_surprises": TEXT, "rev_surprises_fmp": TEXT,

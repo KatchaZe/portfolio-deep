@@ -81,10 +81,25 @@ def assess(ff, today=None):
     """[{code, severity, message, penalty}] — everything wrong with this row's data.
 
     Reads only what is on the facts object; safe to call before or after the engine."""
-    found = [*_staleness(ff, today), *_series_gaps(ff), *_short_history(ff),
+    found = [*_sec_gap(ff), *_staleness(ff, today), *_series_gaps(ff), *_short_history(ff),
              *_forward_eps(ff), *_currency(ff)]
     return [{"code": code, "severity": severity, "message": message,
              "penalty": PENALTY[severity]} for code, severity, message in found]
+
+
+def _sec_gap(ff):
+    """A filing SEC companyfacts has not ingested (sources/sec_gap.py)."""
+    g = getattr(ff, "sec_gap", None)
+    if not g:
+        return
+    if g.get("read"):
+        yield ("sec_filing_read_direct", "note",
+               f"SEC companyfacts ยังไม่มี {g['form']} งวด {g['period']} (ยื่น {g['filed']}) "
+               f"จึงอ่านตัวเลขจาก XBRL ของฉบับนั้นโดยตรง")
+    else:
+        yield ("sec_filing_missing", "warn",
+               f"มี {g['form']} งวด {g['period']} (ยื่น {g['filed']}) แต่ SEC companyfacts ยังไม่มี "
+               f"และอ่านเองไม่สำเร็จ ({g.get('error', '')}) ตัวเลขจึงล้าหลังงวดนั้น")
 
 
 def _staleness(ff, today):

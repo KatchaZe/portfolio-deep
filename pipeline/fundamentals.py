@@ -12,7 +12,7 @@ import logging
 import os
 
 import config
-from sources import sec_edgar, yahoo, fmp, finnhub, alphavantage, damodaran
+from sources import sec_edgar, sec_gap, yahoo, fmp, finnhub, alphavantage, damodaran
 from domain import one_time, pricing
 from domain.facts import FinancialFacts
 from domain.engine import get_engine
@@ -56,6 +56,8 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     sec_cf = sec_edgar.fetch_companyfacts(
         cik, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
         ttl_hours=config.SEC_CACHE_TTL_HOURS, min_interval=config.SEC_MIN_INTERVAL) if cik else None
+    sec_cf = sec_gap.complete(cik, sec_cf, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
+                              throttle=lambda: sec_edgar._throttle(config.SEC_MIN_INTERVAL))
     fx, sec_ccy = _sec_fx(t, sec_cf)
     profile, fmp_calls = _fmp_profile(t, fmp_key)
     splits = _split_history(t) if sec_cf else None
@@ -73,6 +75,7 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
                         "count only")
     if not rf_live:
         ff.flags.append(f"Rf fallback {round(rf*100,2)}% — live 10Y Treasury yield unavailable")
+    ff.sec_gap = (sec_cf or {}).get("_sec_gap")
     if isinstance(sec_cf, dict) and sec_cf.get("_stale_cache"):
         ff.flags.append("SEC via stale cache (network failed) — figures may lag the latest filing")
 
