@@ -153,15 +153,29 @@ class Flow(Base):
 
     def test_industry_block_survives_when_no_fit(self):
         empty = peers.Universe({"ZZZZ": ["Semiconductor", "3674", "United States"]}, {}, PS, as_of="2026-01")
-        block, _ = peers.relative_value(self.target("NVDA"), "", TODAY, None, None, None, empty)
+        # an empty cache dir: a peer list cached by an earlier live run must not leak in
+        block, _ = peers.relative_value(self.target("NVDA"), "", TODAY, None, None, None, empty,
+                                        cache_dir=tempfile.mkdtemp())
         self.assertIsNone(block["model"])
         self.assertIsNotNone(block["industry"]["value_avg"])
+
+    def test_target_without_fy_series_still_gets_the_industry_multiple(self):
+        """TSM, live 2026-10-24: the FMP fallback cleared its fiscal-year series."""
+        f = self.target("TSM")
+        f.revenue_annuals_dated = []
+        block, _ = peers.relative_value(f, "", TODAY, None, None, None, self.u, cache_dir=tempfile.mkdtemp())
+        self.assertIsNotNone(block["industry"]["value_avg"])
+        self.assertIn("app industry mapping", block["industry"]["basis"])
+        if block["model"] and "growth" in block["model"]["terms"]:
+            self.assertIsNone(block["value_regression"])
+            self.assertIn("no fiscal-year growth", block["flags"][0])
 
     def test_universe_failure_never_breaks_the_refresh(self):
         def boom():
             raise OSError("stern.nyu.edu down")
         u = peers.Universe(loader=boom)
-        block, _ = peers.relative_value(self.target("ORCL"), "", TODAY, None, None, None, u)
+        block, _ = peers.relative_value(self.target("ORCL"), "", TODAY, None, None, None, u,
+                                        cache_dir=tempfile.mkdtemp())
         self.assertIsNone(block["industry"])
         self.assertTrue(any("peer universe unavailable" in n for n in block["notes"]))
 

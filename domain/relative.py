@@ -48,7 +48,8 @@ def fy_growth(annuals_dated):
     return a[0][1] / a[1][1] - 1, str(a[0][0])[:10]
 
 
-def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_base=True):
+def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_base=True,
+          need_growth=True):
     """One peer (or the target) on the common clock, or (None, reason).
 
     `x` is a sec_edgar.extract() dict (or the same keys from FinancialFacts).
@@ -80,8 +81,10 @@ def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_
     if margin < MARGIN_FLOOR:
         return None, f"operating margin {margin:.0%} below {MARGIN_FLOOR:.0%}"
     growth, fy = fy_growth(x.get("revenue_annuals_dated"))
-    if growth is None:
+    if growth is None and need_growth:
         return None, fy
+    # the target may lack a fiscal-year pair (TSM after the stale-SEC fallback cleared
+    # its series): its industry multiple and a margin-only fit still apply
     return {"symbol": sym, "ev_sales": ev / rev, "margin": margin, "growth": growth,
             "revenue": rev, "ev": ev, "market_cap": mcap, "period_end": str(end)[:10] if end else None,
             "fy_end": fy, "price": price, "price_date": str(price_date)[:10]}, None
@@ -197,6 +200,11 @@ def implied(model, target, net_debt, shares):
     `shares` is the count the price is quoted on."""
     if not model or not target or not shares or shares <= 0:
         return {}
+    if "growth" in model["terms"] and target.get("growth") is None:
+        return {"target_ev_sales": round(target["ev_sales"], 3), "target_margin": round(target["margin"], 4),
+                "target_growth": None, "implied_ev_sales": None, "value_regression": None,
+                "value_median": round((model["peer_median_ev_sales"] * target["revenue"] - net_debt) / shares, 2),
+                "flags": ["no fiscal-year growth for the target: the margin + growth fit cannot value it"]}
     x = [target[t] for t in model["terms"]]
     mult = _predict(model["coef"], x)
     lo, hi = model["margin_range"]
@@ -209,7 +217,8 @@ def implied(model, target, net_debt, shares):
             flags.append("target growth outside the peers' range (extrapolated)")
     per_share = lambda m: (m * target["revenue"] - net_debt) / shares
     out = {"target_ev_sales": round(target["ev_sales"], 3),
-           "target_margin": round(target["margin"], 4), "target_growth": round(target["growth"], 4),
+           "target_margin": round(target["margin"], 4),
+           "target_growth": None if target.get("growth") is None else round(target["growth"], 4),
            "implied_ev_sales": round(mult, 3),
            "value_regression": None, "value_median": None, "flags": flags}
     if mult <= 0:

@@ -338,7 +338,7 @@ def _target(f, today):
     # normalize._resolve_shares already put the count in the price's unit (ADRs), so
     # the target is valued exactly like a peer: price x diluted shares
     tp, why = relative.point(f.ticker, x, f.price, today.isoformat(), today,
-                             shares=f.shares_diluted, check_base=False)
+                             shares=f.shares_diluted, check_base=False, need_growth=False)
     net_debt = (f.total_debt or 0) + (f.operating_leases or 0) - (f.cash or 0)
     return tp, net_debt, why
 
