@@ -187,9 +187,9 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, **kw):
                                                      kw.pop("fetch_list", None))
         notes += [note] if note else []
         model, excluded, why = build_model(t, symbols, today, memo, _price_date(f), **kw) if symbols \
-            else (None, [], notes[-1] if notes else "no peers")
+            else (None, [], None if notes else "no peers")
         if model is None:
-            notes.append(why)
+            notes += [why] if why else []
             if prev and prev.get("model") and lastgood.usable(prev["model"].get("as_of"), today):
                 model, excluded = prev["model"], prev.get("excluded", [])
                 notes.append(f"peer fit from {model['as_of']} reused (this week's failed)")
