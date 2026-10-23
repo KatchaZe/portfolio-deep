@@ -92,6 +92,11 @@ def _sec_gap(ff):
     g = getattr(ff, "sec_gap", None)
     if not g:
         return
+    if g.get("checked") is False:
+        yield ("sec_filing_list_unchecked", "note",
+               f"ตรวจรายการงบที่ยื่นกับ SEC ไม่สำเร็จ ({g.get('error', '')}) "
+               f"จึงไม่รู้ว่ามี 10-Q ใหม่ที่ companyfacts ยังไม่มีหรือไม่")
+        return
     if g.get("read"):
         yield ("sec_filing_read_direct", "note",
                f"SEC companyfacts ยังไม่มี {g['form']} งวด {g['period']} (ยื่น {g['filed']}) "

@@ -260,8 +260,11 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
                                                     "accessionNumber", "primaryDocument")}}}
             _write(sub_path, sub)
     except Exception as e:
+        # not silent: the card says the filing list could not be checked
         log.warning("%s submissions failed: %s", cik10, e)
-        return cf
+        out = dict(cf)
+        out["_sec_gap"] = {"checked": False, "error": f"{type(e).__name__}: {str(e)[:70]}"}
+        return out
     out = cf
     for g in gaps(sub, cf):                     # oldest first: the newest wins `_sec_gap`
         out = _fill(cik10, out, g, headers, cache_dir, requests_mod, timeout, throttle)

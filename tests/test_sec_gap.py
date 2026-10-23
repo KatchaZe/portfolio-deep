@@ -193,6 +193,19 @@ def cf_with(counts):
         {"end": "2026-01-01", "val": 1, "accn": a} for a, n in counts.items() for _ in range(n)]}}}}}
 
 
+class SubmissionsFailure(unittest.TestCase):
+    def test_unreadable_filing_list_is_flagged(self):
+        class Down:
+            def get(self, url, headers=None, timeout=None):
+                raise ConnectionError("403 Forbidden")
+        cf = cf_with({"Q1": 300})
+        out = sec_gap.complete("1", cf, "ua", requests_mod=Down())
+        self.assertIs(out["_sec_gap"]["checked"], False)
+        self.assertIn("403", out["_sec_gap"]["error"])
+        code, sev, _ = list(dataquality._sec_gap(SimpleNamespace(sec_gap=out["_sec_gap"])))[0]
+        self.assertEqual((code, sev), ("sec_filing_list_unchecked", "note"))
+
+
 class Gaps(unittest.TestCase):
     ROWS = [("10-Q", "2026-10-22", "2026-09-30", "Q3"), ("8-K", "2026-08-01", "", "X"),
             ("10-Q", "2026-07-29", "2026-06-30", "Q2"), ("10-Q", "2026-04-29", "2026-03-31", "Q1"),

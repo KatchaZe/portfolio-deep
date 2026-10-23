@@ -137,6 +137,8 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
     if cf.get("_stale_cache"):
         return None, "SEC facts stale"
     g = cf.get("_sec_gap")
+    if g and g.get("checked") is False:
+        g = None                                # unchecked, not known stale: the 6-month guard decides
     if g and not g.get("read"):
         return None, f"SEC companyfacts lacks the {g['form']} filed {g['filed']} (not read)"
     close, day, src = fetch_price(sym, today.isoformat())

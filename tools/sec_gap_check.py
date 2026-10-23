@@ -4,6 +4,7 @@ filling a filing companyfacts has not ingested.
     python -m tools.sec_gap_check                 # HUM F CTSH BIIB NXPI UNH ELV
     python -m tools.sec_gap_check HUM
 """
+import logging
 import sys
 
 import requests
@@ -11,6 +12,8 @@ import requests
 import config
 from pipeline.cik import resolve_cik
 from sources import sec_edgar, sec_gap
+
+logging.basicConfig(level=logging.INFO, format="      log %(name)s: %(message)s")
 
 for t in (sys.argv[1:] or ["HUM", "F", "CTSH", "BIIB", "NXPI", "UNH", "ELV"]):
     cik, _ = resolve_cik(t)
