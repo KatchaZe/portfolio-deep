@@ -120,6 +120,15 @@ class RoundTrip(unittest.TestCase):
         diff = [k for k in want if want[k] != got[k]]
         self.assertEqual(diff, [])
 
+    def test_a_read_that_never_reaches_the_base_is_not_called_read(self):
+        """TSM, live: the 20-F came back in TWD, companyfacts' revenue is USD."""
+        twd = [(ns, c, "TWD" if u == "USD" else u, e) for ns, c, u, e in self.removed]
+        rq = FakeRequests(instance(twd).replace(b"iso4217:USD", b"iso4217:TWD"))
+        out = sec_gap.complete("731766", self.gapped, "ua", requests_mod=rq)
+        self.assertIs(out["_sec_gap"]["read"], False)
+        self.assertIn("stayed at 2026-03-31", out["_sec_gap"]["error"])
+        self.assertEqual(list(dataquality._sec_gap(SimpleNamespace(sec_gap=out["_sec_gap"])))[0][1], "warn")
+
     def test_dimensional_nil_and_custom_facts_are_ignored(self):
         bogus = ('<xbrli:context id="dim"><xbrli:entity><xbrli:identifier scheme="s">1</xbrli:identifier>'
                  '<xbrli:segment><xbrldi:explicitMember dimension="us-gaap:StatementBusinessSegmentsAxis">'

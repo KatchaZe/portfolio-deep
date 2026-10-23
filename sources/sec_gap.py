@@ -288,8 +288,32 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
     out = cf
     for g in gaps(sub, cf):                     # oldest first: the newest wins `_sec_gap`
         out = _fill(cik10, out, g, headers, cache_dir, requests_mod, timeout, throttle)
+    out = _confirm_used(out)
     if sic_of(sub):
         out["_sic"] = sic_of(sub)               # the industry code peers are matched on
+    return out
+
+
+def _confirm_used(cf):
+    """A filing read is only "read" once the figures reach its period. TSM (live,
+    2026-10-23): its 20-F facts came back in TWD while companyfacts' revenue tags are
+    in USD, so extract() kept preferring the older USD entries and the base stayed at
+    2024-12-31 under a note saying the 2025 filing had been read."""
+    g = cf.get("_sec_gap") or {}
+    if not g.get("read"):
+        return cf
+    from sources import sec_edgar
+    try:
+        end = sec_edgar.extract(cf).get("latest_period_end")
+    except Exception as e:
+        end, why = None, f"extract failed after the merge ({type(e).__name__})"
+    else:
+        why = (f"read, but the base period stayed at {end} (the filing's units differ "
+               f"from companyfacts')")
+    if end and _days(end, g["period"]) <= 10:
+        return cf
+    out = dict(cf)
+    out["_sec_gap"] = dict(g, read=False, error=why)
     return out
 
 
