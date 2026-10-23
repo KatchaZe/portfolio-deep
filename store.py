@@ -208,6 +208,15 @@ def remove_watch(s, ticker):
 
 
 # --- FMP quota counter ----------------------------------------------------- #
+def commit_watch_cache(s, entries):
+    """Merge the watchlist's last-good subset + weekly peer fit, and drop entries for
+    names no longer watched. An app write, not a user edit (not marked dirty)."""
+    wc = s.setdefault("watch_cache", {})
+    wc.update(entries or {})
+    for t in [t for t in wc if t not in (s.get("watchlist") or [])]:
+        del wc[t]
+
+
 def add_fmp_calls(s, n):
     d = today()
     s["fmp_usage"][d] = s["fmp_usage"].get(d, 0) + n

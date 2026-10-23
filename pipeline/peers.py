@@ -18,6 +18,7 @@ A model older than lastgood.MAX_AGE_DAYS is dropped, never shown as current.
 """
 import json
 import logging
+import math
 import os
 import threading
 
@@ -199,28 +200,128 @@ def match_industry(pts, target_sic):
                      f"({target_sic[1] or ''}); all kept")
 
 
-def build_model(t, symbols, today, memo=None, price_date=None, target_sic=None, **kw):
-    """(model, excluded[{symbol, reason}]) from up to MAX_PEERS symbols."""
+def collect_points(symbols, today, memo=None, price_date=None, source="fmp", **kw):
+    """(points, excluded) for up to MAX_PEERS symbols, each point tagged with its source."""
     memo = memo or PointMemo()
     pts, excluded = [], []
     for sym in symbols[:MAX_PEERS]:
         p, why = memo.get(sym, lambda s: peer_point(s, today, **kw))
         if p and price_date and relative._days(p["price_date"], price_date) > relative.PRICE_LAG_DAYS:
             p, why = None, f"close {p['price_date']} not within {relative.PRICE_LAG_DAYS} days of {price_date}"
-        (pts.append(p) if p else excluded.append({"symbol": sym, "reason": why}))
-    pts, dropped, note = match_industry(pts, target_sic)
-    excluded += dropped
+        if p:
+            pts.append(dict(p, source=source))
+        else:
+            excluded.append({"symbol": sym, "reason": why, "source": source})
+    return pts, excluded
+
+
+def fit_points(pts, excluded, today, target_sic=None):
+    """(model, excluded, why). Damodaran-list peers are his industry by construction;
+    the SIC match applies to the FMP fill-ins only."""
+    ours = [p for p in pts if p.get("source") == "damodaran"]
+    fmp_pts = [p for p in pts if p.get("source") != "damodaran"]
+    fmp_pts, dropped, note = match_industry(fmp_pts, target_sic) if fmp_pts else (fmp_pts, [], None)
+    pts = ours + fmp_pts
+    excluded = excluded + dropped
     model, why = relative.fit(pts)
     if model is None:
         return None, excluded, "; ".join(w for w in (why, note) if w)
     excluded += [{"symbol": s, "reason": "EV/Sales outlier (IQR fence)"} for s in model["outliers"]]
     model["as_of"] = today.isoformat()
     model["industry_note"] = note
-    same = sum(1 for p in pts if (sic_level(p.get("sic"), target_sic) or 0) >= SIC_MATCH_MIN)
+    same = len(ours) + sum(1 for p in fmp_pts if (sic_level(p.get("sic"), target_sic) or 0) >= SIC_MATCH_MIN)
     if note and "all kept" in note and same < len(pts) / 2:
         model["weak"] = True                    # mostly other industries: not a peer multiple
     model["target_sic"] = target_sic
     return model, excluded, None
+
+
+def build_model(t, symbols, today, memo=None, price_date=None, target_sic=None, **kw):
+    """(model, excluded, why) from FMP-listed symbols alone (the fallback path)."""
+    pts, excluded = collect_points(symbols, today, memo, price_date, "fmp", **kw)
+    return fit_points(pts, excluded, today, target_sic)
+
+
+class Universe:
+    """Damodaran's company list, SEC revenue frames and psdata, loaded once per run.
+    Every part is optional: a missing part only removes what it feeds, with a note."""
+
+    def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None):
+        self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
+                                          [n for n in notes if n], as_of)
+        self._loader, self._lock = loader, threading.Lock()
+
+    def _get(self):
+        with self._lock:
+            if self._data is None:
+                try:
+                    self._data = self._loader()
+                except Exception as e:          # never fails the refresh
+                    log.warning("peer universe failed to load: %s", e)
+                    self._data = ({}, {}, {}, [f"peer universe unavailable ({type(e).__name__})"], None)
+            return self._data
+
+    rows = property(lambda self: self._get()[0])
+    rev = property(lambda self: self._get()[1])
+    psdata = property(lambda self: self._get()[2])
+    notes = property(lambda self: self._get()[3])
+    as_of = property(lambda self: self._get()[4])
+
+    @classmethod
+    def lazy(cls, today, cache_dir=None, user_agent=None):
+        """Loaded on first use (one download shared by every ticker in the run)."""
+        def load():
+            from sources import damodaran, damodaran_companies as dc
+            cd = cache_dir or config.CACHE_DIR
+            ua = user_agent or config.SEC_USER_AGENT
+            rows, n1 = dc.load_indname(cd, ua)
+            rev, n2 = dc.load_revenue_frames(cd, dc.frames_year(today), ua)
+            # Damodaran republishes every January: the vintage is this year's January
+            # once February starts (his update lands in the first week)
+            ps = damodaran.fetch_psdata(cd)
+            vintage = (f"{damodaran._snap.AS_OF} (bundled)" if ps.get("snapshot") else
+                       f"{today.year if today.month >= 2 else today.year - 1}-01")
+            return rows or {}, rev or {}, ps, [n for n in (n1, n2) if n], vintage
+        return cls(loader=load)
+
+    def industry_of(self, f):
+        """(Damodaran industry, basis): his own classification when he lists the
+        ticker in the US, else the app's mapping (ADRs list on their home exchange)."""
+        row = self.rows.get(f.ticker.upper())
+        if row:
+            return row[0], "Damodaran company list"
+        ind = getattr(f, "damodaran_industry", None)
+        return (ind, "app industry mapping (not US-listed in Damodaran's list)") if ind else (None, None)
+
+    def candidates(self, f, industry, k=MAX_PEERS):
+        """(tickers nearest the target's revenue, band note). 0.1-10x first; a firm
+        too large or small for that band widens to 0.02-50x, and the card says so."""
+        if not (industry and self.rows and self.rev and f.revenue):
+            return [], None
+        from sources import damodaran_companies as dc
+        sized = []
+        for tk in dc.members(self.rows, industry, exclude=(f.ticker,)):
+            cik, _ = resolve_cik(tk)
+            r = self.rev.get(int(cik)) if cik else None
+            if r and r > 0:
+                sized.append((abs(math.log(r / f.revenue)), tk, r))
+        sized.sort()
+        for lo, hi, note in ((0.1, 10, None), (0.02, 50, "size band widened to 0.02-50x revenue")):
+            pick = [tk for d, tk, r in sized if lo <= r / f.revenue <= hi][:k]
+            if len(pick) >= relative.MIN_PEERS:
+                return pick, note
+        return [tk for d, tk, r in sized if 0.02 <= r / f.revenue <= 50][:k], \
+            "fewer than 5 Damodaran peers within 0.02-50x revenue"
+
+    def industry_block(self, f, industry, basis, target, net_debt):
+        """The target valued at its industry's EV/Sales (psdata), or None."""
+        from sources import damodaran
+        m = damodaran.industry_multiple(self.psdata, industry)
+        if not m or not target:
+            return None
+        out = relative.industry_implied(target, m["ev_sales"], m["margin"], net_debt,
+                                        f.shares_diluted)
+        return dict(out, industry=industry, basis=basis, n=m["n"], as_of=self.as_of)
 
 
 def _price_date(f):
@@ -229,44 +330,61 @@ def _price_date(f):
     return prov.split(" ")[2] if prov.startswith("yahoo close ") else None
 
 
-def _target_side(f, model, today):
-    """The target's implied values from its CURRENT facts (`f` = FinancialFacts)."""
+def _target(f, today):
+    """(point, net_debt, why) for the target from its CURRENT facts."""
     x = {k: getattr(f, k, None) for k in ("currency", "revenue", "operating_income",
                                           "total_debt", "operating_leases", "cash",
                                           "revenue_annuals_dated", "shares_diluted")}
     # normalize._resolve_shares already put the count in the price's unit (ADRs), so
     # the target is valued exactly like a peer: price x diluted shares
-    shares = f.shares_diluted
     tp, why = relative.point(f.ticker, x, f.price, today.isoformat(), today,
-                             shares=shares, check_base=False)
-    if tp is None:
-        return {"target_excluded": why}
+                             shares=f.shares_diluted, check_base=False)
     net_debt = (f.total_debt or 0) + (f.operating_leases or 0) - (f.cash or 0)
-    return relative.implied(model, tp, net_debt, shares)
+    return tp, net_debt, why
 
 
-def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, **kw):
-    """(block, fmp_calls). `prev` = last stored block for this ticker (read-only)."""
+def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, universe=None, **kw):
+    """(block, fmp_calls). `prev` = last stored block for this ticker (read-only).
+    `universe` = Universe.load(...) in production; None = FMP peers only (tests)."""
     t = f.ticker
     calls, notes = 0, []
-    model = None
+    universe = universe or Universe()
+    industry, basis = universe.industry_of(f)
+    tp, net_debt, t_why = _target(f, today)
+    ind = universe.industry_block(f, industry, basis, tp, net_debt) if tp else None
+    cache_dir, fetch_list = kw.pop("cache_dir", None), kw.pop("fetch_list", None)
+    model, excluded, list_as_of = None, [], None
     if prev and prev.get("model") and lastgood.usable(prev["model"].get("as_of"), today, MODEL_TTL_DAYS):
         model, excluded = prev["model"], prev.get("excluded", [])
         list_as_of, notes = prev.get("peer_list_as_of"), list(prev.get("notes") or [])
     else:
-        symbols, list_as_of, note, calls = peer_list(t, fmp_key, today, budget, kw.pop("cache_dir", None),
-                                                     kw.pop("fetch_list", None))
-        notes += [note] if note else []
-        model, excluded, why = build_model(t, symbols, today, memo, _price_date(f),
-                                                     getattr(f, "sic", None), **kw) if symbols \
-            else (None, [], None if notes else "no peers")
+        notes += universe.notes
+        cands, band = universe.candidates(f, industry)
+        notes += [band] if band else []
+        pts, excluded = collect_points(cands, today, memo, _price_date(f), "damodaran", **kw)
+        usable = len(relative.drop_outliers(pts)[0])
+        if usable < relative.MIN_PEERS:
+            symbols, list_as_of, note, calls = peer_list(t, fmp_key, today, budget, cache_dir, fetch_list)
+            notes += [note] if note else []
+            have = {p["symbol"] for p in pts} | {e["symbol"] for e in excluded}
+            more, ex2 = collect_points([s for s in symbols if s not in have], today, memo,
+                                       _price_date(f), "fmp", **kw)
+            if cands:
+                notes.append(f"{usable} usable Damodaran peers: filled from the FMP list")
+            pts, excluded = pts + more, excluded + ex2
+        if pts or excluded:
+            model, excluded, why = fit_points(pts, excluded, today, getattr(f, "sic", None))
+        else:
+            why = None if notes else "no peers"
         if model is None:
             notes += [why] if why else []
             if prev and prev.get("model") and lastgood.usable(prev["model"].get("as_of"), today):
                 model, excluded = prev["model"], prev.get("excluded", [])
                 notes.append(f"peer fit from {model['as_of']} reused (this week's failed)")
-    if model is None:
-        return {"model": None, "excluded": excluded, "notes": notes,
-                "peer_list_as_of": list_as_of}, calls
-    return {"model": model, "excluded": excluded, "notes": notes,
-            "peer_list_as_of": list_as_of, **_target_side(f, model, today)}, calls
+    block = {"model": model, "excluded": excluded, "notes": notes, "peer_list_as_of": list_as_of,
+             "industry": ind}
+    if tp is None:
+        block["target_excluded"] = t_why
+    elif model is not None:
+        block.update(relative.implied(model, tp, net_debt, f.shares_diluted))
+    return block, calls

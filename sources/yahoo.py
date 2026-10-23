@@ -410,3 +410,39 @@ def fetch_fx_to_usd(currency, requests_mod=None, timeout=12):
         except Exception:
             continue
     return None
+
+
+QUARTERLY_TYPES = ("quarterlyTotalRevenue", "quarterlyOperatingIncome")
+
+
+def parse_quarterly_timeseries(j):
+    """{asOfDate: {'revenue', 'operating_income', 'currency'}} from Yahoo's
+    fundamentals-timeseries answer (the second source for a quarterly base)."""
+    out = {}
+    name = {"quarterlyTotalRevenue": "revenue", "quarterlyOperatingIncome": "operating_income"}
+    for e in ((j or {}).get("timeseries") or {}).get("result") or []:
+        t = ((e.get("meta") or {}).get("type") or [None])[0]
+        if t not in name:
+            continue
+        for x in e.get(t) or []:
+            if not x or not x.get("asOfDate"):
+                continue
+            v = (x.get("reportedValue") or {}).get("raw")
+            row = out.setdefault(x["asOfDate"], {})
+            row[name[t]] = float(v) if v is not None else None
+            row["currency"] = x.get("currencyCode") or row.get("currency")
+    return out
+
+
+def fetch_quarterly_timeseries(ticker, requests_mod=None, timeout=20, years=3):
+    """Raw fundamentals-timeseries JSON for revenue + operating income, quarterly."""
+    import time as _t
+    import requests as _r
+    requests_mod = requests_mod or _r
+    s, crumb = _get_session(requests_mod)
+    now = int(_t.time())
+    r = s.get(f"https://query2.finance.yahoo.com/ws/fundamentals-timeseries/v1/finance/timeseries/{ticker}",
+              params={"type": ",".join(QUARTERLY_TYPES), "period1": now - years * 365 * 86400,
+                      "period2": now, "crumb": crumb}, timeout=timeout)
+    r.raise_for_status()
+    return r.json()

@@ -519,3 +519,107 @@ ERP_HISTORY = {
     2015: 0.0612, 2016: 0.0569, 2017: 0.0508, 2018: 0.0596, 2019: 0.0520, 2020: 0.0472,
     2021: 0.0424, 2022: 0.0594, 2023: 0.0460, 2024: 0.0433, 2025: 0.0423,
 }
+
+
+# Price and Value to Sales Ratios and Margins by Industry Sector (US), January 2026
+#   https://pages.stern.nyu.edu/adamodar/New_Home_Page/datafile/psdata.html
+# Collected 2026-10-24 (via a page read; the relative-valuation industry multiple).
+PSDATA_HEADER = ['Industry Name', 'Number of firms', 'Price/Sales', 'Net Margin', 'EV/Sales', 'Pre-tax Operating Margin']
+PSDATA = """
+Advertising|52|1.64|-0.30%|2.12|10.05%
+Aerospace/Defense|79|3.17|4.99%|3.57|8.70%
+Air Transport|23|0.58|2.51%|1.03|4.88%
+Apparel|35|1.27|3.85%|1.59|9.89%
+Auto & Truck|33|3.34|1.29%|3.88|2.38%
+Auto Parts|35|0.64|0.72%|0.82|5.80%
+Bank (Money Center)|15|4.09|28.89%|8.31|0.08%
+Banks (Regional)|568|3.67|27.49%|4.28|-0.12%
+Beverage (Alcoholic)|14|1.75|0.56%|2.45|22.79%
+Beverage (Soft)|27|3.57|13.40%|4.16|20.63%
+Broadcasting|24|0.83|2.06%|1.40|12.35%
+Brokerage & Investment Banking|32|2.87|14.45%|5.78|-0.12%
+Building Materials|41|1.68|7.42%|2.05|12.80%
+Business & Consumer Services|155|2.20|7.03%|2.53|12.32%
+Cable TV|9|0.86|7.08%|2.06|18.24%
+Chemical (Basic)|29|0.47|-3.73%|0.85|2.86%
+Chemical (Diversified)|4|0.34|-5.35%|0.84|3.41%
+Chemical (Specialty)|59|2.12|2.91%|2.65|12.41%
+Coal & Related Energy|16|2.75|-2.13%|2.54|-3.82%
+Computer Services|64|1.24|4.45%|1.48|7.63%
+Computers/Peripherals|36|6.43|17.78%|6.63|22.49%
+Construction Supplies|40|2.83|10.78%|3.23|15.27%
+Diversified|20|2.85|16.37%|3.08|22.82%
+Drugs (Biotechnology)|496|7.31|-5.00%|7.92|8.76%
+Drugs (Pharmaceutical)|228|5.63|18.54%|6.24|29.54%
+Education|32|1.74|8.79%|1.99|13.54%
+Electrical Equipment|112|4.09|0.94%|4.42|9.75%
+Electronics (Consumer & Office)|8|0.96|-9.42%|0.91|-4.25%
+Electronics (General)|114|3.02|6.47%|3.21|10.52%
+Engineering/Construction|48|1.58|5.94%|1.74|6.75%
+Entertainment|92|3.87|4.43%|4.33|10.38%
+Environmental & Waste Services|53|3.09|8.24%|3.70|14.85%
+Farming/Agriculture|35|0.92|3.91%|1.34|5.61%
+Financial Svcs. (Non-bank & Insurance)|176|5.22|22.19%|18.91|18.54%
+Food Processing|78|1.05|2.82%|1.47|10.77%
+Food Wholesalers|13|0.31|1.17%|0.46|2.55%
+Furn/Home Furnishings|27|0.98|1.10%|1.33|6.88%
+Green & Renewable Energy|15|3.76|-10.83%|7.87|18.39%
+Healthcare Products|204|4.36|9.61%|4.76|15.47%
+Healthcare Support Services|104|0.37|1.25%|0.46|2.99%
+Heathcare Information and Technology|115|4.70|7.45%|5.31|14.75%
+Homebuilding|30|1.07|9.47%|1.19|12.63%
+Hospitals/Healthcare Facilities|31|1.08|6.30%|1.69|12.86%
+Hotel/Gaming|63|3.26|10.38%|4.33|16.44%
+Household Products|110|2.67|11.68%|3.06|18.79%
+Information Services|15|1.70|6.53%|2.21|12.45%
+Insurance (General)|21|3.53|12.37%|4.32|21.46%
+Insurance (Life)|20|0.95|7.80%|1.28|10.65%
+Insurance (Prop/Cas.)|57|1.36|11.13%|1.49|15.30%
+Investments & Asset Management|283|4.59|18.36%|5.49|25.18%
+Machinery|105|3.08|10.58%|3.43|16.06%
+Metals & Mining|73|3.81|10.52%|4.03|23.76%
+Office Equipment & Services|14|1.02|4.38%|1.43|10.88%
+Oil/Gas (Integrated)|4|1.58|8.30%|1.75|11.57%
+Oil/Gas (Production and Exploration)|142|2.00|14.63%|2.68|25.82%
+Oil/Gas Distribution|23|2.78|13.35%|4.37|26.06%
+Oilfield Svcs/Equip.|97|0.57|2.34%|0.74|4.85%
+Packaging & Container|19|1.03|4.48%|1.55|9.79%
+Paper/Forest Products|6|0.76|3.44%|1.02|6.58%
+Power|46|2.74|12.73%|4.70|21.36%
+Precious Metals|56|5.84|28.59%|5.98|40.43%
+Publishing & Newspapers|19|1.47|8.19%|1.70|9.84%
+R.E.I.T.|190|5.89|13.23%|10.65|22.21%
+Real Estate (Development)|14|1.77|7.01%|3.03|21.19%
+Real Estate (General/Diversified)|12|4.82|23.77%|6.83|22.09%
+Real Estate (Operations & Services)|54|1.24|1.19%|1.46|2.76%
+Recreation|49|1.26|-4.72%|1.94|8.06%
+Reinsurance|1|0.60|3.89%|0.65|7.23%
+Restaurant/Dining|64|3.34|9.37%|4.17|13.79%
+Retail (Automotive)|34|0.89|3.36%|1.27|5.84%
+Retail (Building Supply)|14|1.85|7.84%|2.26|11.82%
+Retail (Distributors)|62|1.51|6.05%|1.89|10.32%
+Retail (General)|23|2.01|5.61%|2.11|6.50%
+Retail (Grocery and Food)|15|0.34|1.32%|0.49|1.85%
+Retail (REITs)|26|7.82|23.00%|12.04|38.64%
+Retail (Special Lines)|94|1.43|5.19%|1.63|8.08%
+Rubber& Tires|3|0.14|-9.49%|0.59|2.57%
+Semiconductor|66|15.46|30.45%|15.70|35.31%
+Semiconductor Equip|31|7.49|21.32%|7.61|26.29%
+Shipbuilding & Marine|8|1.45|9.48%|1.74|13.52%
+Shoe|11|1.95|6.27%|2.04|9.14%
+Software (Entertainment)|77|9.01|29.93%|9.13|33.67%
+Software (Internet)|29|8.76|-0.93%|9.56|3.74%
+Software (System & Application)|309|11.01|25.49%|11.41|33.21%
+Steel|19|0.99|1.93%|1.17|4.11%
+Telecom (Wireless)|12|2.48|12.24%|3.72|19.74%
+Telecom. Equipment|57|6.13|16.09%|6.52|20.92%
+Telecom. Services|39|1.39|14.20%|2.61|20.82%
+Tobacco|10|5.30|26.65%|6.40|43.68%
+Transportation|19|1.27|8.23%|1.64|7.64%
+Transportation (Railroads)|4|5.26|24.73%|6.67|37.43%
+Trucking|26|1.42|3.79%|1.74|7.31%
+Utility (General)|14|2.90|14.18%|5.25|23.21%
+Utility (Water)|14|4.43|21.16%|7.16|33.65%
+Total Market|5994|3.07|9.74%|3.97|12.75%
+Total Market (without financials)|4822|3.03|8.56%|3.46|13.06%
+"""

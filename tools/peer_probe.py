@@ -19,7 +19,7 @@ import store
 from domain import pricing
 from pipeline import batch, peers
 
-FIELDS = ("sic", "ticker", "currency", "revenue", "operating_income", "total_debt", "operating_leases",
+FIELDS = ("sic", "damodaran_industry", "ticker", "currency", "revenue", "operating_income", "total_debt", "operating_leases",
           "cash", "shares_diluted", "market_cap", "price", "provenance", "revenue_annuals_dated")
 
 
@@ -43,6 +43,7 @@ def main(argv):
     tickers = [t.upper() for t in argv] or sorted(s.get("holdings", {}))
     today = dt.date.fromisoformat(pricing.ny_today())
     budget, memo, out = batch.Budget(len(tickers) + 1), peers.PointMemo(), {}
+    universe = peers.Universe.lazy(today)
     print(f"FMP key: {'set' if config.FMP_API_KEY else 'MISSING (peer lists will be empty)'}")
     t0 = time.time()
     for t in tickers:
@@ -55,16 +56,21 @@ def main(argv):
             ff.sic = _sic(t)
         t1 = time.time()
         try:
-            block, calls = peers.relative_value(ff, config.FMP_API_KEY, today, None, budget, memo)
+            block, calls = peers.relative_value(ff, config.FMP_API_KEY, today, None, budget, memo,
+                                                  universe)
         except Exception as e:
             print(f"{t:6} ERROR {e}"); continue
         block["_fmp_calls"], block["_secs"] = calls, round(time.time() - t1, 1)
         out[t] = block
         m = block.get("model")
         px = f.get("price")
+        ind = block.get("industry") or {}
+        print(f"{t:6} industry {ind.get('industry')} ({ind.get('basis')}) EV/S {ind.get('ev_sales')} "
+              f"-> ${ind.get('value_avg')} adj ${ind.get('value_margin_adj')}")
         if m:
             vr = block.get("value_regression")
-            print(f"{t:6} SIC {(ff.sic or ['?'])[0]} n={m['n']} R2={m['r2']} LOO={m['loo_median_err']} "
+            src = sorted({p.get("source") for p in m["peers"]})
+            print(f"{t:6} SIC {(ff.sic or ['?'])[0]} peers {src} n={m['n']} R2={m['r2']} LOO={m['loo_median_err']} "
                   f"reg=${vr} median=${block.get('value_median')} price=${px} "
                   f"excl={len(block['excluded'])} {block['_secs']}s")
         else:

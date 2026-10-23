@@ -76,3 +76,17 @@ def market_pe(prev_market, today=None):
     if not usable(as_of, today):
         return None
     return val["market_pe"], str(as_of)[:10]
+
+
+def subset(facts):
+    """The part of a facts dict the two last-good readers above use: what the
+    watchlist keeps between runs (it stores no full facts)."""
+    if not isinstance(facts, dict):
+        return {}
+    out = {k: facts.get(k) for k in ("rev_growth_path", "consensus_as_of", "fwd_growth_y1",
+                                     "n_analysts", "fwd_growth_near", "n_analysts_y2",
+                                     "fwd_growth_far", "forward_eps", "forward_eps_as_of")}
+    out["revenue_annuals_dated"] = sorted(facts.get("revenue_annuals_dated") or [], reverse=True)[:1]
+    prov = facts.get("provenance") or {}
+    out["provenance"] = {k: prov[k] for k in ("rev_growth_path", "forward_eps") if k in prov}
+    return out

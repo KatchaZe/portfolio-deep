@@ -185,7 +185,7 @@ def fit(peers):
                              round(max(p["growth"] for p in kept), 4)],
             "peers": [{k: (round(v, 4) if isinstance(v, float) else v)
                        for k, v in p.items() if k in ("symbol", "ev_sales", "margin", "growth",
-                                                      "period_end", "price_date", "sic",
+                                                      "period_end", "price_date", "sic", "source",
                                                       "addback")} for p in kept],
             "outliers": [p["symbol"] for p in dropped]}, None
 
@@ -221,4 +221,42 @@ def implied(model, target, net_debt, shares):
         if out[k] is not None and out[k] <= 0:
             flags.append(f"{k.split('_')[1]} value not positive: net debt exceeds the implied EV")
             out[k] = None
+    return out
+
+
+MARGIN_ADJ_BAND = (0.5, 2.0)    # beyond this the margin-scaled multiple is extrapolation
+
+
+def industry_implied(target, ev_sales, margin, net_debt, shares):
+    """The target at its industry's aggregate EV/Sales (Damodaran psdata), raw and
+    scaled by the ratio of its operating margin to the industry's.
+
+    The scaling is the first-order version of Damodaran's EV/Sales ~ margin relation:
+    it is applied only when both margins are positive and the ratio sits inside
+    MARGIN_ADJ_BAND (GOOGL vs Advertising read 3.3x, REGN vs Biotechnology 2.8x,
+    AXON at 0.7% margin a negative value, live 2026-10-24)."""
+    out = {"ev_sales": ev_sales, "margin": margin, "target_ev_sales": round(target["ev_sales"], 3),
+           "target_margin": round(target["margin"], 4), "value_avg": None,
+           "value_margin_adj": None, "margin_ratio": None, "flags": []}
+    if not shares or shares <= 0 or not ev_sales or ev_sales <= 0:
+        out["flags"].append("no industry multiple or share count")
+        return out
+    per_share = lambda m: (m * target["revenue"] - net_debt) / shares    # noqa: E731
+    v = per_share(ev_sales)
+    if v > 0:
+        out["value_avg"] = round(v, 2)
+    else:
+        out["flags"].append("industry multiple x revenue is below net debt")
+    tm = target["margin"]
+    if tm > 0 and margin and margin > 0:
+        ratio = tm / margin
+        out["margin_ratio"] = round(ratio, 2)
+        lo, hi = MARGIN_ADJ_BAND
+        if lo <= ratio <= hi:
+            va = per_share(ev_sales * ratio)
+            out["value_margin_adj"] = round(va, 2) if va > 0 else None
+        else:
+            out["flags"].append(f"margin {ratio:.1f}x the industry's: not margin-adjusted")
+    else:
+        out["flags"].append("negative margin: not margin-adjusted")
     return out

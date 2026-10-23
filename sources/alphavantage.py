@@ -152,3 +152,36 @@ def cached(kind, symbol, key, fetch, cache_dir, ttl_days=ESTIMATES_TTL_DAYS, now
         except OSError:
             pass
     return data, 1
+
+
+# --------------------------------------------------------------------------- #
+#  Quarterly statements (INCOME_STATEMENT / BALANCE_SHEET / CASH_FLOW)         #
+# --------------------------------------------------------------------------- #
+# For a foreign filer whose SEC base is a year-old 20-F (its quarters arrive as 6-K
+# with no XBRL). Live check 2026-10-24: ASML and TSM to Q3 2026, NVO to Q2 2026; the
+# FY2025 quarters sum to the filed 20-F figures exactly for ASML and NVO.
+STATEMENTS = ("INCOME_STATEMENT", "BALANCE_SHEET", "CASH_FLOW")
+STATEMENT_TTL_DAYS = 7
+
+
+def fetch_statement(function, symbol, key, requests_mod=None, timeout=30):
+    """Raw AV statement, or {} when the answer has no quarterly reports (a throttle
+    'Note'/'Information' reply must never be cached as data)."""
+    import requests as _r
+    j = get_json(BASE, requests_mod or _r, timeout=timeout,
+                 params={"function": function, "symbol": symbol, "apikey": key}) or {}
+    return j if isinstance(j, dict) and j.get("quarterlyReports") else {}
+
+
+def parse_quarters(raw):
+    """{fiscalDateEnding: {AV field: float or None, 'currency': str or None}}."""
+    out = {}
+    for q in (raw or {}).get("quarterlyReports") or []:
+        end = q.get("fiscalDateEnding")
+        if not end:
+            continue
+        cur = q.get("reportedCurrency")
+        row = {k: _f(v) for k, v in q.items() if k not in ("fiscalDateEnding", "reportedCurrency")}
+        row["currency"] = cur if cur not in (None, "", "None") else None
+        out[end] = row
+    return out

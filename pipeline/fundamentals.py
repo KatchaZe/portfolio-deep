@@ -18,7 +18,7 @@ from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from pipeline import (normalize, validate, rev_track, consensus, surprise_backfill,
                       dataquality, batch)
-from pipeline import lastgood, peers
+from pipeline import lastgood, peers, quarterly
 from pipeline.cik import resolve_cik
 import store as store_mod
 
@@ -82,6 +82,8 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
 
     fmp_calls += _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left)
     fmp_calls += _quote_fallback(ff, t, fmp_key)
+    quarterly.run(ff, t, sec_ccy, fx, config.ALPHAVANTAGE_API_KEY, config.CACHE_DIR,
+                  yahoo.fetch_fx_to_usd)
     fmp_calls += _earnings_surprises(ff, t, fmp_key)
     estimates, calls = _estimate_path(ff, t, fmp_key, prev)
     fmp_calls += calls
@@ -646,9 +648,10 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
     never fails the refresh: the ticker gets no block and a log line."""
     today = today or lastgood.date_of(pricing.ny_today())
     memo, calls = peers.PointMemo(), 0
+    universe = peers.Universe.lazy(today)
     futs = batch.run_parallel(lambda t: peers.relative_value(
-        fetched[t][0], fmp_key, today, (prev_results.get(t) or {}).get("relative"), budget, memo),
-        list(fetched))
+        fetched[t][0], fmp_key, today, (prev_results.get(t) or {}).get("relative"), budget, memo,
+        universe), list(fetched))
     for t, fut in futs.items():
         try:
             block, c = fut.result()

@@ -250,7 +250,7 @@ def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):
         return None
 
 
-def apply_stale_fallback(ff, alt, sec_currency, sec_fx, fetch_rate):
+def apply_stale_fallback(ff, alt, sec_currency, sec_fx, fetch_rate, keep_series=False):
     """The whole stale-financials decision in one testable place: get the right rate,
     apply the fallback only if it is genuinely newer, convert what it moved, and say
     what happened. Returns (applied, [notes]) — the caller attaches the notes."""
@@ -274,7 +274,7 @@ def apply_stale_fallback(ff, alt, sec_currency, sec_fx, fetch_rate):
             v = getattr(alt, k, None)
             if isinstance(v, (int, float)):
                 setattr(alt, k, v * fx_rate)
-    applied, note = refresh_from_fallback(ff, alt)
+    applied, note = refresh_from_fallback(ff, alt, keep_series)
     notes.append(note)
     if fx_rate != 1.0:
         notes.append(f"converted {ccy}->USD @ {round(fx_rate, 4)} "
@@ -292,7 +292,7 @@ def fallback_is_fresher(sec_fiscal_year, alt_fiscal_year):
     return bool(b and (a is None or b > a))
 
 
-def refresh_from_fallback(ff, alt_facts):
+def refresh_from_fallback(ff, alt_facts, keep_series=False):
     """Replace stale SEC scalars with a fresher source's, and DROP the SEC series that
     those scalars no longer belong with. Returns (applied, note).
 
@@ -300,7 +300,10 @@ def refresh_from_fallback(ff, alt_facts):
     another. A blank strip that says why is correct; a strip drawn from two different
     years of the same company is not.
 
-    `alt_facts` is a FinancialFacts already populated by the fallback source."""
+    `alt_facts` is a FinancialFacts already populated by the fallback source.
+    `keep_series` (pipeline/quarterly.py): the scalars are a TTM ending AFTER the filed
+    fiscal year whose series stay correct as fiscal-year history, the shape every US
+    10-Q filer has (TTM scalars, FY series), so the series are kept."""
     if not fallback_is_fresher(getattr(ff, "fiscal_year", None),
                                getattr(alt_facts, "fiscal_year", None)):
         return False, None
@@ -322,13 +325,17 @@ def refresh_from_fallback(ff, alt_facts):
             (ff.provenance or {}).pop(name, None)
             cleared.append(name)
     dropped = []
-    for name in FALLBACK_INVALIDATES:
+    for name in (() if keep_series else FALLBACK_INVALIDATES):
         if getattr(ff, name, None):
             setattr(ff, name, [] if not isinstance(getattr(ff, name), dict) else {})
             dropped.append(name)
-    if getattr(ff, "ic_components_dated", None):
+    if getattr(ff, "ic_components_dated", None) and not keep_series:
         ff.ic_components_dated = {}
         dropped.append("ic_components_dated")
+    if keep_series:
+        return True, (f"ฐานตัวเลขเลื่อนจากงวด {old_fy} เป็น TTM ถึง {alt_facts.fiscal_year} "
+                      f"({len(moved)} รายการ) · ค่างวดเก่าที่ไม่มีตัวแทน {len(cleared)} รายการถูกล้าง "
+                      f"· ซีรีส์รายปีคงไว้ (เป็นข้อมูลปีงบ)")
     note = (f"งบจาก SEC เก่า ({old_fy}) — ใช้ตัวเลขจากแหล่งสำรองงวด {alt_facts.fiscal_year} แทน "
             f"{len(moved)} รายการ · ซีรีส์ย้อนหลังของ SEC ถูกล้าง {len(dropped)} ชุด "
             f"และค่างวดเก่าที่ไม่มีตัวแทน {len(cleared)} รายการ "

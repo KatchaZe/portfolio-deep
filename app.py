@@ -380,8 +380,11 @@ def api_watch_run(ticker: str = None):
     s0 = st.load()
     names = [st.clean_ticker(ticker)] if ticker else list(s0.get("watchlist", []))
     res = watchlist.fetch_watchlist([n for n in names if n], config.FMP_API_KEY,
-                                  st.fmp_used_today(s0), config.QUOTA_CAP)
-    s = _commit_fmp_calls(res["fmp_calls"])
+                                  st.fmp_used_today(s0), config.QUOTA_CAP,
+                                  prev=s0.get("watch_cache"))
+    with st.transaction() as s:
+        st.add_fmp_calls(s, res["fmp_calls"])
+        st.commit_watch_cache(s, res.pop("cache", {}))
     res["names"] = s.get("watchlist", [])
     res["quota"] = _quota(s)
     return JSONResponse(res)

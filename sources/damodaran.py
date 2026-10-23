@@ -631,3 +631,44 @@ def fetch_implied_erp(cache_dir=None, ttl_days=ERP_TTL_DAYS, requests_mod=None, 
         except Exception as e:
             log.warning("damodaran implied ERP cache write failed: %s", e)
     return live
+
+
+# --------------------------------------------------------------------------- #
+#  EV/Sales by industry (psdata) — the relative-valuation industry multiple     #
+# --------------------------------------------------------------------------- #
+PSDATA_URL = "https://pages.stern.nyu.edu/adamodar/New_Home_Page/datafile/psdata.html"
+PSDATA_TTL_DAYS = 120          # an annual dataset; re-read a few times a year
+PSDATA_COLUMNS = {             # field -> (header test, converter, plausible)
+    "ev_sales": (lambda h: h == "ev/sales", _num, lambda v: 0 < v < 100),
+    "margin": (lambda h: h == "pre-tax operating margin", _pct_signed, lambda v: True),
+    "n": (lambda h: h == "number of firms", _num, lambda v: v >= 1),
+}
+
+
+def _psdata_fallback(field):
+    test, conv, _ = PSDATA_COLUMNS[field]
+    return _snapshot_column(_snap.PSDATA, _snap.PSDATA_HEADER, test, conv)
+
+
+def fetch_psdata(cache_dir=None, ttl_days=PSDATA_TTL_DAYS, requests_mod=None, timeout=12,
+                 user_agent="PortfolioDeepApp"):
+    """{field: {industry: value}} for ev_sales, margin and n. Never raises: live page,
+    then cache, then the bundled January 2026 snapshot."""
+    out = {}
+    for field, (test, conv, ok) in PSDATA_COLUMNS.items():
+        parse = lambda html, test=test, conv=conv, ok=ok: _parse_by_header(html, test, conv, ok)  # noqa: E731
+        go = lambda field=field, parse=parse: _fetch_table(  # noqa: E731
+            PSDATA_URL, f"damodaran_psdata_{field}.json", parse, _psdata_fallback(field),
+            f"psdata {field}", cache_dir, ttl_days, requests_mod, timeout, user_agent)
+        out[field] = go() if requests_mod is not None else _memo_fetch(f"psdata_{field}", cache_dir, go)
+    # the bundled table is a fixed vintage: say so, so a later year never labels it as new
+    out["snapshot"] = out["ev_sales"] == _psdata_fallback("ev_sales")
+    return out
+
+
+def industry_multiple(psdata, industry):
+    """{'ev_sales', 'margin', 'n'} for one Damodaran industry, or None."""
+    k = _norm(industry)
+    if not psdata or k not in (psdata.get("ev_sales") or {}):
+        return None
+    return {f: (psdata.get(f) or {}).get(k) for f in ("ev_sales", "margin", "n")}
