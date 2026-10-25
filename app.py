@@ -122,43 +122,54 @@ async def _auth_middleware(request: Request, call_next):
 #  Helpers                                                                     #
 # --------------------------------------------------------------------------- #
 def _quota(s):
+    from sources import fmp
     cap = config.QUOTA_CAP
     used = st.fmp_used_today(s)
+    left = batch.usable_quota(used, cap)
     return {"used": used, "cap": cap, "pct": round(used / cap * 100),
             "warn": used >= 0.9 * cap,
+            "exhausted": fmp.LEDGER.exhausted(),
             "holdings": len(s.get("holdings", {})),
             "reserved": config.QUOTA_RESERVE,
-            "headroom_tickers": batch.usable_quota(used, cap)}
+            # calls, and how many full ticker refreshes they pay for (5 calls each):
+            # the banner used to call 18 calls "18 ticker-fetches"
+            "headroom_calls": left,
+            "headroom_tickers": left // batch.FMP_CALLS_PER_TICKER}
 
 
 def _holding_tickers():
     return list(st.load().get("holdings", {}).keys())
 
 
-def _commit_fmp_calls(calls):
-    """Persist only the FMP quota counter; returns the saved store."""
+def _commit_fmp_usage():
+    """Persist only the FMP counter (from the request ledger); returns the saved store."""
     with st.transaction() as s:
-        st.add_fmp_calls(s, calls)
+        st.sync_fmp_usage(s)
     return s
 
 
 def _fetch_and_commit(tickers):
     """Fundamentals + daily momentum for `tickers`: slow fetch with no lock, then a
     locked merge into a freshly loaded store. Returns (result_meta, saved_store)."""
+    from sources import fmp
     before = st.load()
     used = st.fmp_used_today(before)
+    sent0 = fmp.LEDGER.used()
     fetched, errors, calls, rf_pct, rf_live = fundamentals.fetch_fundamentals(
         tickers, config.FMP_API_KEY, used, config.QUOTA_CAP, prev_facts=before.get("facts"),
         prev_results=before.get("results"), refreshed_at=before.get("refreshed_at"))
     daily = daily_mod.fetch_daily(tickers, config.FMP_API_KEY, prev_market=before.get("market"))
     with st.transaction() as s:
-        fundamentals.commit_fundamentals(s, fetched, calls,
+        fundamentals.commit_fundamentals(s, fetched,
                                          skipped={t: "FMP quota" if f"{t} (quota)" in errors
                                                   else "fetch failed"
                                                   for t in tickers if t not in fetched})
         daily_mod.commit_daily(s, daily)
+    if fmp.LEDGER.exhausted():
+        errors.append("FMP เกินโควตาวันนี้ — ช่องที่มาจาก FMP ใช้ Yahoo/ข้อมูลรอบก่อนแทน")
     meta = {"refreshed": sorted(fetched.keys()), "errors": errors,
-            "fmp_calls": calls, "fmp_used_today": st.fmp_used_today(s),
+            # what FMP saw this run (the ledger), not the pipeline's own tally
+            "fmp_calls": fmp.LEDGER.used() - sent0, "fmp_used_today": st.fmp_used_today(s),
             "rf_pct": rf_pct, "rf_live": rf_live}
     return meta, s
 
@@ -246,7 +257,7 @@ def api_risk(risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0, enric
         log.exception("risk analysis failed")
         return JSONResponse({"status": "error", "snapshot": None,
                              "message": f"Risk analysis failed: {type(e).__name__}: {e}"})
-    payload["quota"] = _quota(_commit_fmp_calls(calls) if calls else s)
+    payload["quota"] = _quota(_commit_fmp_usage())
     return JSONResponse(payload)
 
 
@@ -358,6 +369,7 @@ def api_daily():
                                   prev_market=st.load().get("market"))
     with st.transaction() as s:
         daily_mod.commit_daily(s, daily)
+        st.sync_fmp_usage(s)
     return JSONResponse(portfolio.view(s))
 
 
@@ -386,8 +398,12 @@ def api_watch_run(ticker: str = None):
                                   st.fmp_used_today(s0), config.QUOTA_CAP,
                                   prev=s0.get("watch_cache"))
     with st.transaction() as s:
-        st.add_fmp_calls(s, res["fmp_calls"])
+        st.sync_fmp_usage(s)
         st.commit_watch_cache(s, res.pop("cache", {}))
+    from sources import fmp
+    if fmp.LEDGER.exhausted():
+        res["errors"] = list(res.get("errors") or []) + [
+            "FMP เกินโควตาวันนี้ — ช่องที่มาจาก FMP ใช้ Yahoo/ข้อมูลรอบก่อนแทน"]
     res["names"] = s.get("watchlist", [])
     res["quota"] = _quota(s)
     return JSONResponse(res)
@@ -421,5 +437,5 @@ def api_whatif(items: List[WhatIfBuy]):
     body = [{"ticker": i.ticker, "amount": i.amount} for i in items]
     s = st.load()
     res, calls = allocation.build(s, body, config.FMP_API_KEY)  # may hit FMP: no lock
-    res["quota"] = _quota(_commit_fmp_calls(calls) if calls else s)
+    res["quota"] = _quota(_commit_fmp_usage())
     return JSONResponse(res)

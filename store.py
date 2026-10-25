@@ -223,9 +223,15 @@ def commit_watch_cache(s, entries):
         del wc[t]
 
 
-def add_fmp_calls(s, n):
+def sync_fmp_usage(s):
+    """Copy today's FMP count from the request ledger (sources.fmp.LEDGER, every
+    request FMP saw) into the store, which keeps the last week for the dashboard.
+    The ledger is never lowered: a store restored from an older Drive copy brings
+    its own figure up to the ledger, and a higher stored figure raises the ledger."""
+    from sources import fmp
     d = today()
-    s["fmp_usage"][d] = s["fmp_usage"].get(d, 0) + n
+    fmp.LEDGER.raise_to(s["fmp_usage"].get(d, 0))
+    s["fmp_usage"][d] = fmp.LEDGER.used()
     # keep only ~the last week (8 dated entries incl. today)
     cutoff = (dt.date.today() - dt.timedelta(days=7)).isoformat()
     s["fmp_usage"] = {k: v for k, v in s["fmp_usage"].items() if k >= cutoff}
@@ -233,4 +239,5 @@ def add_fmp_calls(s, n):
 
 
 def fmp_used_today(s):
-    return s["fmp_usage"].get(today(), 0)
+    from sources import fmp
+    return max(s["fmp_usage"].get(today(), 0), fmp.LEDGER.used())

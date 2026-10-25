@@ -74,11 +74,11 @@ def test_commit_split_merges_store():
     ff = FinancialFacts("NVDA", company="NVIDIA")
     ff.revenue_quarters = {}
     val = Valuation(version="7.3", composite=4.2)
-    fundamentals.commit_fundamentals(s, {"NVDA": (ff, val)}, fmp_calls=3)
+    fundamentals.commit_fundamentals(s, {"NVDA": (ff, val)})
     assert s["facts"]["NVDA"]["company"] == "NVIDIA"
     assert s["results"]["NVDA"]["composite"] == 4.2
     assert "NVDA" in s["updated"]
-    assert store.fmp_used_today(s) == 3
+    assert store.fmp_used_today(s) == s["fmp_usage"][store.today()]   # synced from the ledger
     n = daily.commit_daily(s, {"NVDA": {"price": 100.0, "momentum_signal": "Bullish"}})
     assert n == ["NVDA"] and s["momentum"]["NVDA"]["price"] == 100.0
     print("commit split merges store OK")

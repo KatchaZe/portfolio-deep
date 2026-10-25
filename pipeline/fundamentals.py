@@ -688,6 +688,12 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_fa
         except Exception as e:
             log.warning("%s fundamentals failed: %s", t, e)
             errors.append(f"{t}: {str(e)[:60]}")
+    if fmp.LEDGER.exhausted():
+        # live 2026-10-25: past the limit FMP answers 429 and every FMP field went
+        # quietly to its Yahoo or last-good fallback
+        for ff, _v in fetched.values():
+            ff.flags.append("FMP เกินโควตาวันนี้ระหว่างรอบนี้ — ช่องที่มาจาก FMP ใช้ Yahoo/ข้อมูลรอบก่อน "
+                            "(ดูแหล่งในวงเล็บของแต่ละช่อง) " + batch.RETRY_MARK)
     # peer-median injection re-scores the affected names; the engine is pure
     for t, med in compute_peer_medians(fetched).items():
         ff, _val = fetched[t]
@@ -717,7 +723,7 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
     return calls
 
 
-def commit_fundamentals(s, fetched, fmp_calls, skipped=None, now=None):
+def commit_fundamentals(s, fetched, skipped=None, now=None):
     """STORE PHASE, fast merge of fetched results. Caller must hold store.LOCK.
     `skipped` {ticker: reason} this run did not reach: their card keeps the
     last run's figures and says so, instead of showing them as today's."""
@@ -735,5 +741,5 @@ def commit_fundamentals(s, fetched, fmp_calls, skipped=None, now=None):
     for t, why in (skipped or {}).items():
         if t in s["facts"]:
             skip[t] = {"at": now, "reason": why}
-    store_mod.add_fmp_calls(s, fmp_calls)
+    store_mod.sync_fmp_usage(s)
     return s

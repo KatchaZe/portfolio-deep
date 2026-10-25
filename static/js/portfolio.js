@@ -13,7 +13,8 @@ async function load(){
 function renderQuota(q){
   if(!q)return; const el=document.getElementById('quota');
   el.className='quota'+(q.warn?' warn':'');
-  el.textContent=`FMP today ${q.used}/${q.cap} (${q.pct}%) · holdings ${q.holdings} · ~${q.headroom_tickers} ticker-fetches left`+(q.reserved?` (${q.reserved} reserved)`:'')+(q.warn?' · ⚠ near quota — add fewer / refresh later':'');
+  el.textContent=q.exhausted?`FMP today ${q.used}/${q.cap} · ⛔ FMP เกินโควตาวันนี้ — refresh จะใช้ Yahoo/ข้อมูลรอบก่อน (FMP ตัดสิทธิ์จนถึงวันใหม่)`
+    :`FMP today ${q.used}/${q.cap} (${q.pct}%) · holdings ${q.holdings} · เหลือ ${q.headroom_calls} call ≈ ${q.headroom_tickers} หุ้น`+(q.reserved?` (${q.reserved} reserved)`:'')+(q.warn?' · ⚠ near quota — add fewer / refresh later':'');
 }
 
 // momCell / rankCell build table cells; a card keeps only what is inside the <td>

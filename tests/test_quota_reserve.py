@@ -28,7 +28,7 @@ def test_fundamentals_partition_keeps_the_reserve():
 def test_quota_badge_reports_the_reserve():
     import app
     q = app._quota({"holdings": {}, "fmp_usage": {}})
-    assert q["reserved"] == 1 and q["headroom_tickers"] == 249, q
+    assert q["reserved"] == 1 and q["headroom_calls"] == 249 and q["headroom_tickers"] == 49, q
 
 
 if __name__ == "__main__":

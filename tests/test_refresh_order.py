@@ -51,7 +51,7 @@ class Skipped(unittest.TestCase):
 
     def test_skip_is_recorded_and_cleared(self):
         s = self.store()
-        fundamentals.commit_fundamentals(s, {}, 0, skipped={"ASML": "FMP quota"},
+        fundamentals.commit_fundamentals(s, {}, skipped={"ASML": "FMP quota"},
                                          now="2026-10-25T03:29Z")
         self.assertEqual(s["skipped"]["ASML"]["reason"], "FMP quota")
         self.assertEqual(s["refreshed_at"]["ASML"], "2026-10-25T02:51Z")   # not bumped
@@ -66,7 +66,7 @@ class Skipped(unittest.TestCase):
         class V:
             def to_dict(self):
                 return {}
-        fundamentals.commit_fundamentals(s, {"ASML": (FinancialFacts("ASML"), V())}, 0,
+        fundamentals.commit_fundamentals(s, {"ASML": (FinancialFacts("ASML"), V())},
                                          now="2026-10-26T01:00Z")
         self.assertNotIn("ASML", s["skipped"])
         self.assertEqual(s["refreshed_at"]["ASML"], "2026-10-26T01:00Z")

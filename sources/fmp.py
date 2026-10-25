@@ -2,10 +2,13 @@
 FMP source adapter — fetch (network) separated from parse (pure).
 Includes historical-price (adjClose) for the momentum composite.
 """
+import datetime as dt
+import json
+import os
+import threading
 import time
 
 import config
-from sources.jsonapi import get_json
 from sources.surprise import grade
 
 BASE = config.FMP_BASE
@@ -24,6 +27,102 @@ def _http(requests_mod=None):
     return _session_cached
 
 
+class Ledger:
+    """Today's FMP requests as FMP counts them: every request sent, a refused one
+    and a 4xx included. Live 2026-10-25: the app said 231/250 while FMP's dashboard
+    said 274, because a /stable miss went on to /api/v3 (1-2 uncounted calls) and
+    the store's counter came back lower after a restart. One small file, max-only:
+    it never goes down within a day."""
+
+    def __init__(self, path):
+        self.path = path
+        self._lock = threading.Lock()
+
+    def _read(self):
+        try:
+            with open(self.path, encoding="utf-8") as fh:
+                u = json.load(fh)
+        except (OSError, ValueError):
+            u = {}
+        return u if u.get("date") == dt.date.today().isoformat() else {}
+
+    def _write(self, u):
+        try:
+            os.makedirs(os.path.dirname(self.path), exist_ok=True)
+            tmp = f"{self.path}.{os.getpid()}.tmp"
+            with open(tmp, "w", encoding="utf-8") as fh:
+                json.dump(u, fh)
+            os.replace(tmp, self.path)
+        except OSError:
+            pass
+
+    def used(self):
+        return self._read().get("n", 0)
+
+    def exhausted(self):
+        return bool(self._read().get("exhausted"))
+
+    def take(self):
+        """True and counted when one more request may go out."""
+        with self._lock:
+            u = self._read()
+            if u.get("exhausted") or u.get("n", 0) >= config.QUOTA_CAP:
+                return False
+            self._write({"date": dt.date.today().isoformat(), "n": u.get("n", 0) + 1,
+                         "exhausted": False})
+            return True
+
+    def exhaust(self):
+        """FMP said the day's limit is reached: nothing more goes out today."""
+        with self._lock:
+            u = self._read()
+            self._write({"date": dt.date.today().isoformat(),
+                         "n": max(u.get("n", 0), config.QUOTA_CAP), "exhausted": True})
+
+    def raise_to(self, n):
+        """Never below a figure the store already recorded for today."""
+        with self._lock:
+            u = self._read()
+            if n > u.get("n", 0):
+                self._write({"date": dt.date.today().isoformat(), "n": n,
+                             "exhausted": bool(u.get("exhausted"))})
+
+
+LEDGER = Ledger(os.path.join(config.CACHE_DIR, "fmp_ledger.json"))
+
+
+def _over_limit(r):
+    return r.status_code == 429 or "limit reach" in (getattr(r, "text", "") or "")[:300].lower()
+
+
+def _send(http, url, params, timeout):
+    """The one place a request goes to FMP. Counts it on LEDGER when it goes through
+    the real session (an injected fake sends nothing to FMP). None when the day is
+    used up, on a network error, or on an over-limit answer (which ends the day)."""
+    ledger = LEDGER if http is _session_cached else None
+    if ledger is not None and not ledger.take():
+        return None
+    try:
+        r = http.get(url, params=params, timeout=timeout)
+    except Exception:
+        return None
+    if _over_limit(r):
+        if ledger is not None:
+            ledger.exhaust()
+        return None
+    return r
+
+
+def _get_json(http, url, params, timeout):
+    r = _send(http, url, params, timeout)
+    if r is None or r.status_code != 200:
+        return None
+    try:
+        return r.json()
+    except Exception:
+        return None
+
+
 def _nonempty_list(j):
     return j if isinstance(j, list) and j else None
 
@@ -32,7 +131,7 @@ def _first_accepted(http, attempts, timeout, accept):
     """`accept(json)` of the first (url, params) attempt that answers 200 with a body
     `accept` does not reject (None) or choke on; None when every attempt fails."""
     for url, params in attempts:
-        j = get_json(url, http, params=params, timeout=timeout)
+        j = _get_json(http, url, params, timeout)
         try:
             out = accept(j)
         except Exception:
@@ -48,7 +147,6 @@ def fetch_profile(ticker, key, requests_mod=None, timeout=15):
     requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/profile", {"symbol": ticker, "apikey": key}),
-        (f"{config.FMP_LEGACY}/profile/{ticker}", {"apikey": key}),
     ]
     return _first_accepted(requests_mod, attempts, timeout,
                            lambda j: j if isinstance(j, (list, dict)) and j else None) or []
@@ -73,25 +171,17 @@ def fetch(ticker, key, sleep=1.2, requests_mod=None):
         ep = spec.get("_ep", name)
         params = {k: v for k, v in spec.items() if not k.startswith("_")}
         params.update({"symbol": ticker, "apikey": key})
-        data = None
-        for attempt in (1, 2):
-            calls += 1
-            try:
-                r = requests_mod.get(f"{BASE}/{ep}", params=params, timeout=25)
-            except Exception as e:
-                data = {"_error": str(e)[:160]}
-                break
-            if r.status_code == 429:
-                time.sleep(6)
-                continue
-            if r.status_code != 200:
-                data = {"_status": r.status_code, "_body": r.text[:200]}
-                break
+        calls += 1
+        r = _send(requests_mod, f"{BASE}/{ep}", params, 25)
+        if r is None:
+            data = {"_error": "no answer (network, or FMP's daily limit)"}
+        elif r.status_code != 200:
+            data = {"_status": r.status_code, "_body": (getattr(r, "text", "") or "")[:200]}
+        else:
             try:
                 data = r.json()
             except Exception:
-                data = {"_status": 200, "_body": r.text[:200]}
-            break
+                data = {"_status": 200, "_body": (getattr(r, "text", "") or "")[:200]}
         bundle[name] = data
         time.sleep(sleep)
     bundle["_calls"] = calls
@@ -103,13 +193,13 @@ def fetch_earnings(ticker, key, requests_mod=None, timeout=20, limit=5):
     2026-07): 'limit' must be <= 5 or the stable endpoint 402s, and legacy
     /api/v3 endpoints 403 for accounts created after Aug 2025 (kept last for
     grandfathered users). The stable response carries epsActual/epsEstimated
-    AND revenueActual/revenueEstimated, so it feeds BOTH circle rows."""
+    AND revenueActual/revenueEstimated, so it feeds BOTH circle rows. The /api/v3
+    fallbacks are gone: they answered 403 to this account and each one cost a call
+    (live 2026-10-25)."""
     requests_mod = _http(requests_mod)
     limit = min(limit, 5)                      # free tier caps 'limit' at 5 (402 above)
     attempts = [
         (f"{BASE}/earnings", {"symbol": ticker, "limit": limit, "apikey": key}),
-        (f"{config.FMP_LEGACY}/earnings-surprises/{ticker}", {"apikey": key}),
-        (f"{config.FMP_LEGACY}/historical/earning_calendar/{ticker}", {"apikey": key}),
     ]
     return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
@@ -118,7 +208,6 @@ def fetch_quote(ticker, key, requests_mod=None, timeout=15):
     requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/quote", {"symbol": ticker, "apikey": key}),
-        (f"{config.FMP_LEGACY}/quote/{ticker}", {"apikey": key}),
     ]
     return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
@@ -130,11 +219,8 @@ def fetch_history(ticker, key, requests_mod=None, timeout=25, days=400):
     Returns the raw json (dict or list); {} if all attempts fail. Costs 1 FMP call
     (tier-2 fallback, used only when Yahoo is short/blocked)."""
     requests_mod = _http(requests_mod)
-    # stable FIRST: legacy /api/v3 403s for post-Aug-2025 accounts (kept as a
-    # fallback for grandfathered keys only).
     attempts = [
         (f"{BASE}/historical-price-eod/full", {"symbol": ticker, "apikey": key}),
-        (f"{config.FMP_LEGACY}/historical-price-full/{ticker}", {"timeseries": days, "apikey": key}),
     ]
     return _first_accepted(requests_mod, attempts, timeout,
                            lambda j: j if parse_history(j)["closes"] else None) or {}
@@ -179,7 +265,6 @@ def fetch_estimates(ticker, key, requests_mod=None, timeout=20, limit=5):
     limit = min(limit, 5)                      # free tier caps 'limit' at 5 (402 above)
     attempts = [
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "annual", "limit": limit, "apikey": key}),
-        (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "annual", "limit": limit, "apikey": key}),
     ]
     return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
@@ -194,7 +279,6 @@ def fetch_estimates_quarter(ticker, key, requests_mod=None, timeout=20, limit=12
     requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/analyst-estimates", {"symbol": ticker, "period": "quarter", "limit": limit, "apikey": key}),
-        (f"{config.FMP_LEGACY}/analyst-estimates/{ticker}", {"period": "quarter", "limit": limit, "apikey": key}),
     ]
     return _first_accepted(requests_mod, attempts, timeout, _nonempty_list) or []
 
@@ -223,7 +307,6 @@ def fetch_peers(ticker, key, requests_mod=None, timeout=15):
     requests_mod = _http(requests_mod)
     attempts = [
         (f"{BASE}/stock-peers", {"symbol": ticker, "apikey": key}),
-        (f"{config.FMP_LEGACY}/stock_peers", {"symbol": ticker, "apikey": key}),
     ]
     def peers(j):
         if not (isinstance(j, list) and j):
