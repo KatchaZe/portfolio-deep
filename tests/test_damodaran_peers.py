@@ -180,6 +180,15 @@ class Flow(Base):
                                         self.u, cache_dir=tempfile.mkdtemp(), fetch_list=self.fetch_list)
         self.assertIs(again["model"], block["model"])        # same method, same week: reused
 
+    def test_deep_loss_maker_target_still_gets_its_industry_line(self):
+        """EOSE/IREN/OKLO, watchlist 2026-10-25: a margin below -50% removed the target
+        point and with it the industry line, with no word on the card."""
+        f = self.target("RKLB")
+        f.operating_income = -0.8 * f.revenue
+        block, _ = peers.relative_value(f, "", TODAY, None, None, None, self.u, cache_dir=tempfile.mkdtemp())
+        self.assertIsNotNone(block["industry"])
+        self.assertIn("negative margin", block["industry"]["flags"][-1])
+
     def test_financial_firms_get_no_ev_multiple(self):
         u = peers.Universe({"SOFI": ["Financial Svcs. (Non-bank & Insurance)", "6199", "United States"]},
                            {}, PS, as_of="2026-01")

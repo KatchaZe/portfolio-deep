@@ -212,7 +212,7 @@ def cached(kind, symbol, key, fetch, cache_dir, ttl_days=ESTIMATES_TTL_DAYS, now
     except (OSError, ValueError):
         pass
     if not key:
-        return {}, 0
+        return {"_refused": "ALPHAVANTAGE_API_KEY is not set"}, 0
     with _gate:                                    # one AV request at a time, spaced
         if not _take_daily(cache_dir, now, priority):
             return {"_refused": f"Alpha Vantage daily limit ({DAILY_CAP}) reached"}, 0

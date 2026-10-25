@@ -126,11 +126,26 @@ class Refusals(unittest.TestCase):
 
 
 class Plumbing(unittest.TestCase):
-    def test_run_spends_nothing_without_a_key_or_when_current(self):
+    def test_run_spends_nothing_when_current_and_says_so_without_a_key(self):
+        import tempfile
         ff, *_ = load("ASML")
-        self.assertEqual(quarterly.run(ff, "ASML", "EUR", 1.1199, "", "/nonexistent", lambda c: 1), 0)
-        ff.fiscal_year = "2026-09-30"           # current base: no interim warning
-        self.assertEqual(quarterly.run(ff, "ASML", "EUR", 1.1199, "KEY", "/nonexistent", lambda c: 1), 0)
+        self.assertEqual(quarterly.run(ff, "ASML", "EUR", 1.1199, "", tempfile.mkdtemp(), lambda c: 1), 0)
+        self.assertTrue(any("ALPHAVANTAGE_API_KEY is not set" in f for f in ff.flags))
+        ff2, *_ = load("ASML")
+        ff2.fiscal_year = "2026-09-30"          # current base: nothing to do, no flag
+        self.assertEqual(quarterly.run(ff2, "ASML", "EUR", 1.1199, "KEY", "/nonexistent", lambda c: 1), 0)
+        self.assertFalse(any(f.startswith("QUARTERLY") for f in ff2.flags))
+
+    def test_a_cached_answer_serves_without_a_key(self):
+        import tempfile
+        tmp = tempfile.mkdtemp()
+        with open(os.path.join(FIX, "ASML.json"), encoding="utf-8") as fh:
+            raw = json.load(fh)
+        for fn, name in (("INCOME_STATEMENT", "q_income_statement"), ("BALANCE_SHEET", "q_balance_sheet")):
+            with open(os.path.join(tmp, f"av_{name}_ASML.json"), "w") as fh:
+                json.dump({"at": 9e12, "data": raw[fn]}, fh)
+        data, calls = av.cached("q_income_statement", "ASML", "", lambda s, k: {}, tmp)
+        self.assertEqual((bool(data.get("quarterlyReports")), calls), (True, 0))
 
     def test_throttle_reply_is_never_cached_as_data(self):
         """Live 2026-10-24: 12 tickers had AV's '1 request per second' reply cached as
@@ -218,7 +233,8 @@ class FmpFallbackCache(unittest.TestCase):
 
         def fetch(t, key):
             self.fetched += 1
-            return {"income": [{"revenue": 1}], "balance": [{}], "_calls": 4}
+            return {"income_annual": [{"revenue": 1}], "balance_annual": [{}], "cashflow_annual": [{}],
+                    "income_ttm": {"_status": 402, "_body": "premium"}, "_calls": 8}
         fu.fmp.fetch, fu.fmp.parse = fetch, lambda b, alt: None
         fu.dataquality.apply_stale_fallback = lambda *a, **k: (True, ["applied"])
 
@@ -241,8 +257,10 @@ class FmpFallbackCache(unittest.TestCase):
 
     def test_bundle_cached_for_a_week_so_no_budget_is_needed(self):
         from pipeline import batch
+        # 8 calls really made are counted, and a premium-refused TTM endpoint does not
+        # stop the core statements being cached
         self.assertEqual(self.fu._stale_financials_fallback(self.stale(), "TSM", "TSMC", "k", "USD", None,
-                                                            batch.Budget(9)), 4)
+                                                            batch.Budget(9)), 8)
         ff = self.stale()
         self.assertEqual(self.fu._stale_financials_fallback(ff, "TSM", "TSMC", "k", "USD", None,
                                                             batch.Budget(0)), 0)
@@ -250,7 +268,8 @@ class FmpFallbackCache(unittest.TestCase):
         self.assertIn("applied", ff.flags)
 
     def test_an_error_bundle_is_not_cached(self):
-        self.fu._store_fallback_bundle("X", {"income": {"_status": 402, "_body": "limit"}})
+        self.fu._store_fallback_bundle("X", {"income_annual": {"_status": 402, "_body": "limit"},
+                                             "balance_annual": [{}], "cashflow_annual": [{}]})
         self.assertIsNone(self.fu._cached_fallback_bundle("X"))
 
 

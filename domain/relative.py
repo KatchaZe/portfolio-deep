@@ -49,7 +49,7 @@ def fy_growth(annuals_dated):
 
 
 def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_base=True,
-          need_growth=True):
+          need_growth=True, margin_floor=True):
     """One peer (or the target) on the common clock, or (None, reason).
 
     `x` is a sec_edgar.extract() dict (or the same keys from FinancialFacts).
@@ -78,7 +78,7 @@ def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_
     if ev <= 0:
         return None, "enterprise value not positive (cash above market cap + debt)"
     margin = oi / rev
-    if margin < MARGIN_FLOOR:
+    if margin_floor and margin < MARGIN_FLOOR:
         return None, f"operating margin {margin:.0%} below {MARGIN_FLOOR:.0%}"
     growth, fy = fy_growth(x.get("revenue_annuals_dated"))
     if growth is None and need_growth:

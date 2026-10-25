@@ -492,8 +492,8 @@ def test_optional_fmp_spend_is_budget_gated():
     import inspect
     src = inspect.getsource(fundamentals._stale_financials_fallback)
     check("batch.quota_take(quota_left, STALE_FALLBACK_CALLS)" in src
-          and fundamentals.STALE_FALLBACK_CALLS == 4,
-          "analyze() reserves the +4 BEFORE spending it")
+          and fundamentals.STALE_FALLBACK_CALLS == len(fundamentals.fmp.ENDPOINTS),
+          "analyze() reserves every endpoint fmp.fetch calls BEFORE spending it")
 
 
 def test_forward_eps_spread_is_not_a_currency_artefact():

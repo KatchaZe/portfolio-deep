@@ -24,7 +24,11 @@ import store as store_mod
 
 log = logging.getLogger("portfolio.fundamentals")
 
-STALE_FALLBACK_CALLS = 4           # income annual+ttm, balance, cashflow
+# fmp.fetch calls every endpoint in fmp.ENDPOINTS (8), not 4: the old figure under-
+# reserved and under-counted the day's FMP use (live 2026-10-24: the app read 242/250
+# while FMP itself had already refused)
+STALE_FALLBACK_CALLS = len(fmp.ENDPOINTS)
+FALLBACK_CORE = ("income_annual", "balance_annual", "cashflow_annual")
 
 
 def fetch_roc_table():
@@ -174,7 +178,7 @@ def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
                             "ใช้งบเดิมไปก่อน (refresh วันถัดไปจะลองใหม่)")
             return 0
         bundle = fmp.fetch(t, fmp_key)
-        calls = STALE_FALLBACK_CALLS
+        calls = bundle.get("_calls", STALE_FALLBACK_CALLS)
         _store_fallback_bundle(t, bundle)
     try:
         alt = FinancialFacts(t, company=name)
@@ -195,10 +199,11 @@ FALLBACK_TTL_DAYS = 7
 
 
 def _bundle_ok(bundle):
-    """Every FMP endpoint answered with data (an error or a status body is not cached)."""
+    """The three statements the fallback is for answered with data. The free tier
+    refuses some of the other endpoints (TTM, key metrics) for some symbols; requiring
+    those too meant TSM's bundle was never cached and was bought again every refresh."""
     return isinstance(bundle, dict) and all(
-        not (isinstance(v, dict) and ("_error" in v or "_status" in v))
-        for k, v in bundle.items() if not k.startswith("_"))
+        isinstance(bundle.get(k), list) and bundle[k] for k in FALLBACK_CORE)
 
 
 def _cached_fallback_bundle(t):

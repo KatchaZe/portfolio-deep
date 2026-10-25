@@ -246,9 +246,11 @@ def run(ff, t, sec_currency, sec_fx, key, cache_dir, fetch_rate):
     from sources import alphavantage, yahoo
     # any base 6+ months old: interim_not_used (6-15 months) or stale_financials (more,
     # e.g. TSM on its FY2024 SEC base the day the FMP fallback could not run)
-    if not key or not any(d["code"] in ("interim_not_used", "stale_financials")
-                          for d in dataquality.assess(ff)):
+    if not any(d["code"] in ("interim_not_used", "stale_financials") for d in dataquality.assess(ff)):
         return 0
+    # no key is not a reason to stay silent (live 2026-10-25: the app was started
+    # without ALPHAVANTAGE_API_KEY and NVO fell back to its FY2025 base with no word);
+    # a cached answer still serves, and `cached` names the missing key otherwise
     calls, raw = 0, {}
     try:
         for fn in alphavantage.STATEMENTS:
