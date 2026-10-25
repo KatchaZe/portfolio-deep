@@ -59,6 +59,8 @@ function rankCell(x){
     +`${tag(m.mom_bucket,RANK_COLOR[m.mom_bucket])}${sub}</td>`;
 }
 function flagIcon(x){const fl=x.flags||[];if(!fl.length)return '';return ` <span title="${esc(fl.join('\n'))}" style="cursor:help;color:#d97706;font-size:calc(11px*var(--fs));font-weight:700">⚑${fl.length}</span>`}
+// a ticker the last refresh skipped (FMP quota): say so on the card, not only in a toast
+function skippedBadge(x){if(!x.skipped)return '';return ` <span title="${esc((x.flags||[])[0]||'')}" style="cursor:help;background:#fef3c7;color:#92400e;border-radius:4px;padding:0 4px;font-size:calc(10px*var(--fs));font-weight:700">⏸ ข้อมูลรอบก่อน</span>`}
 
 const EARN_COLOR={beat:'#16a34a',meet:'#f59e0b',miss:'#dc2626',
                   expand:'#16a34a',flat:'#f59e0b',contract:'#dc2626'};

@@ -33,7 +33,8 @@ _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
             # manual monthly ERP / MARKET_PE from the dashboard form
             "assumptions": {}}
 
-_PER_TICKER = ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises")
+_PER_TICKER = ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises",
+               "refreshed_at", "skipped")
 
 
 def clean_ticker(t):
@@ -44,6 +45,11 @@ def clean_ticker(t):
 
 def today():
     return dt.date.today().isoformat()
+
+
+def now_iso():
+    """UTC, to the minute: orders refreshes and labels a card's last run."""
+    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%MZ")
 
 
 # --- file ------------------------------------------------------------------ #

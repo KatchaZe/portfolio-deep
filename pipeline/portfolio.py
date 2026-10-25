@@ -56,6 +56,29 @@ def weighted_trailing_return(view_rows, key="roc_12m"):
     return (num / den) if den else None
 
 
+_BKK = dt.timezone(dt.timedelta(hours=7))          # Thailand, no DST
+
+
+def _local(iso):
+    try:
+        return dt.datetime.strptime(iso, "%Y-%m-%dT%H:%MZ").replace(
+            tzinfo=dt.timezone.utc).astimezone(_BKK).strftime("%Y-%m-%d %H:%M")
+    except (TypeError, ValueError):
+        return None
+
+
+def skipped_note(s, t):
+    """Card line for a ticker the last refresh did not reach, or None. Live
+    2026-10-25: ASML kept a 'key is not set' flag from an earlier run and nothing
+    said the figures were not from the refresh just made."""
+    sk = (s.get("skipped") or {}).get(t)
+    if not sk:
+        return None
+    last = _local((s.get("refreshed_at") or {}).get(t)) or s["updated"].get(t) or "?"
+    return (f"⏸ ตัวเลขจากรอบ {last} (เวลาไทย) — refresh {_local(sk.get('at')) or '?'} "
+            f"ข้ามหุ้นนี้ ({sk.get('reason')}); flag ด้านล่างเป็นของรอบเดิม")
+
+
 def _holding_row(s, t, h, regime):
     f = s["facts"].get(t, {})
     mom = s["momentum"].get(t, {})
@@ -85,6 +108,10 @@ def _holding_row(s, t, h, regime):
         "earnings_surprises": row["earnings_surprises"] or [],
         "rev_surprises": stored_rev.get(t, []) or f.get("rev_surprises_fmp", []),
     })
+    note = skipped_note(s, t)
+    if note:
+        row["flags"] = [note] + list(row.get("flags") or [])
+    row["skipped"] = bool(note)
     row["advice"] = advice.build(row)
     return row
 

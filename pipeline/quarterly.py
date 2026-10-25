@@ -33,7 +33,7 @@ import datetime as dt
 import logging
 
 from domain.facts import FinancialFacts
-from pipeline import dataquality
+from pipeline import batch, dataquality
 
 log = logging.getLogger("portfolio.quarterly")
 
@@ -266,7 +266,7 @@ def run(ff, t, sec_currency, sec_fx, key, cache_dir, fetch_rate):
         refused = next((raw[fn]["_refused"] for fn in alphavantage.STATEMENTS
                         if isinstance(raw[fn], dict) and raw[fn].get("_refused")), None)
         if refused:
-            ff.flags.append(f"QUARTERLY not used: {refused} (retried on a later refresh)")
+            ff.flags.append(f"QUARTERLY not used: {refused} {batch.RETRY_MARK}")
             return calls
         inc = alphavantage.parse_quarters(raw["INCOME_STATEMENT"])
         ccy = next((q["currency"] for _, q in sorted(inc.items(), reverse=True) if q.get("currency")), None)

@@ -175,7 +175,7 @@ def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
             # live 2026-10-24: TSM silently fell back to its FY2024 SEC base when the
             # day's FMP budget ran short
             ff.flags.append("งบ SEC เก่าและวันนี้โควตา FMP เหลือไม่พอเรียกแหล่งสำรอง — "
-                            "ใช้งบเดิมไปก่อน (refresh วันถัดไปจะลองใหม่)")
+                            f"ใช้งบเดิมไปก่อน {batch.RETRY_MARK}")
             return 0
         bundle = fmp.fetch(t, fmp_key)
         calls = bundle.get("_calls", STALE_FALLBACK_CALLS)
@@ -660,7 +660,7 @@ def compute_peer_medians(fetched):
 
 
 def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_facts=None,
-                       prev_results=None):
+                       prev_results=None, refreshed_at=None):
     """NETWORK PHASE, run OUTSIDE store.LOCK. Tickers are analysed in parallel:
     analyze() is network+pure, the SEC throttle is global, and the FMP quota is
     partitioned up front. Returns (fetched {ticker: (FinancialFacts, Valuation)},
@@ -672,6 +672,7 @@ def fetch_fundamentals(tickers, fmp_key="", quota_used=0, quota_cap=250, prev_fa
     roc = fetch_roc_table()
     fetched, calls = {}, 0
     cost = batch.guaranteed_cost(fmp_key)
+    tickers = batch.refresh_order(tickers, prev_facts or {}, refreshed_at or {})
     todo, errors = batch.partition_by_quota(tickers, cost, quota_used, quota_cap)
     # whatever the guaranteed spend does not claim, the optional fallback may draw on
     spare = batch.Budget(max(0, batch.usable_quota(quota_used, quota_cap) - len(todo) * cost)) if fmp_key else None
@@ -716,14 +717,23 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
     return calls
 
 
-def commit_fundamentals(s, fetched, fmp_calls):
-    """STORE PHASE, fast merge of fetched results. Caller must hold store.LOCK."""
+def commit_fundamentals(s, fetched, fmp_calls, skipped=None, now=None):
+    """STORE PHASE, fast merge of fetched results. Caller must hold store.LOCK.
+    `skipped` {ticker: reason} this run did not reach: their card keeps the
+    last run's figures and says so, instead of showing them as today's."""
     today = store_mod.today()
+    now = now or store_mod.now_iso()
+    at, skip = s.setdefault("refreshed_at", {}), s.setdefault("skipped", {})
     for t, (ff, val) in fetched.items():
         s["facts"][t] = ff.to_dict()
         s["results"][t] = val.to_dict()
         s["updated"][t] = today
+        at[t] = now
+        skip.pop(t, None)
         # build-forward revenue beat/miss history (persisted, holdings only)
         rev_track.update(s, t, ff.rev_estimate_curq, ff.revenue_quarters, today)
+    for t, why in (skipped or {}).items():
+        if t in s["facts"]:
+            skip[t] = {"at": now, "reason": why}
     store_mod.add_fmp_calls(s, fmp_calls)
     return s

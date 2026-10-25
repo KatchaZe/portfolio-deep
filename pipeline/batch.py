@@ -14,6 +14,24 @@ import config
 MAX_WORKERS = 4                    # parallel ticker fetches (SEC throttle is global)
 # profile + quote-fallback + earnings + estimates + quarterly-est backfill
 FMP_CALLS_PER_TICKER = 5
+# A flag ending in RETRY_MARK means "this run fell back; try again next refresh".
+# refresh_order puts those tickers first, so a short FMP day does not starve them.
+RETRY_MARK = "(retried on a later refresh)"
+# the same flag as written before 2026-10-25b (TSM's stored facts still carry it)
+_LEGACY_RETRY = ("refresh วันถัดไปจะลองใหม่",)
+
+
+def refresh_order(tickers, facts, refreshed_at):
+    """Tickers to admit first when the quota is short. Live 2026-10-25: 44 calls left
+    admitted the first 8 holdings, and ASML (19th, waiting on its quarterly base) was
+    skipped on every refresh. Order: a pending retry, then the oldest refresh, then
+    the list order."""
+    def key(i_t):
+        i, t = i_t
+        retry = any(m in x for x in (facts.get(t) or {}).get("flags") or []
+                    for m in (RETRY_MARK,) + _LEGACY_RETRY)
+        return (not retry, refreshed_at.get(t, ""), i)
+    return [t for _, t in sorted(enumerate(tickers), key=key)]
 
 
 def run_parallel(fn, items):
