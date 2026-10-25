@@ -337,6 +337,11 @@ def _estimate_path(ff, t, fmp_key, prev=None):
     return estimates, calls
 
 
+# tools/consensus_check 2026-10-25: AV's growth matched Yahoo's to the 4th decimal on
+# NVDA, ABBV, GOOGL and UNH (FMP differed), so AV is one consensus feed with Yahoo
+AV_SAME_FEED = ("ไม่มีแหล่งอิสระยืนยัน (Alpha Vantage ใช้ consensus ชุดเดียวกับ Yahoo)")
+
+
 def _av_estimates(t):
     """Alpha Vantage EARNINGS_ESTIMATES through its 7-day cache: (raw, calls)."""
     try:
@@ -364,7 +369,8 @@ def _alphavantage_path(ff, t):
     if len(path) > 1:
         ff.set("fwd_growth_near", path[1][0], "alphavantage/estimates")
         ff.set("n_analysts_y2", path[1][1], "alphavantage/estimates")
-    ff.flags.append("consensus revenue path from Alpha Vantage (FMP and Yahoo returned none)")
+    ff.flags.append("consensus revenue path from Alpha Vantage (FMP and Yahoo returned none) — "
+                    + AV_SAME_FEED)
 
 
 def _last_good_path(ff, prev):
@@ -476,7 +482,13 @@ def _blend_forward_eps(ff, t, fmp_estimates, prev=None):
                 candidates["finnhub"] = fh_fwd
         except Exception as e:
             log.warning("%s Finnhub eps-estimate failed: %s", t, e)
-    if not candidates and config.ALPHAVANTAGE_API_KEY:
+    if not candidates and config.ALPHAVANTAGE_API_KEY and ff.provenance.get("fx"):
+        # AV's estimates carry no currency and come in the reporting one: ASML read
+        # 53.23 (EUR) beside Yahoo's 59.80 (USD) on 2026-10-25, an 11% cut whose
+        # 29.5x P/E the unit band lets through. The revenue path skips these too.
+        ff.flags.append("forward EPS: Alpha Vantage not used for a non-USD filer "
+                        "(its estimates are in the reporting currency, unlabelled)")
+    elif not candidates and config.ALPHAVANTAGE_API_KEY:
         raw, _ = _av_estimates(t)
         av = alphavantage.parse_ntm_eps(raw, ff.fiscal_year)
         if av:
@@ -508,6 +520,8 @@ def _blend_forward_eps(ff, t, fmp_estimates, prev=None):
         return
     for src, why in (blend.get("rejected") or {}).items():
         ff.flags.append(f"forward EPS from {src} dropped before the blend: {why}")
+    if "alphavantage" in blend["sources"]:
+        ff.flags.append(f"forward EPS from Alpha Vantage only — {AV_SAME_FEED}")
     ff.set("forward_eps", blend["value"], "consensus-blend(" + "+".join(blend["sources"]) + ")")
     ff.forward_eps_as_of = store_mod.today()
     ff.forward_eps_sources = blend["sources"]
