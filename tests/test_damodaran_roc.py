@@ -286,10 +286,12 @@ def test_forward_eps_gate_shared():
     assert rej(forward_eps=None, revenue=1e9, shares=1e9, price=10.0, growth_lt=0.1) is None
     assert rej(forward_eps=5.0, revenue=None, shares=None, price=None, growth_lt=None) is None
 
-    # R1: normalize._score must call the shared gate, not a private copy
+    # R1: one gate. Since 2026-10-26 normalize._score judges forward EPS not at all (it
+    # ran before the blend and the consensus path, and validate rescores from 100);
+    # it must not grow a private copy either
     src = inspect.getsource(normalize._score)
     code = "\n".join(ln.split("#")[0] for ln in src.splitlines())   # ignore comments
-    assert "forward_eps_rejection" in code, "normalize._score re-implemented the gate"
+    assert "forward_eps_rejection" not in code, "normalize._score judges forward EPS again"
     assert "0.65" not in code, "normalize._score still hardcodes its own margin ceiling"
     print("shared forward-EPS gate OK")
 

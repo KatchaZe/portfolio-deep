@@ -20,12 +20,21 @@ MAX_NET_MARGIN = 0.65
 FWD_PE_MIN, FWD_PE_MAX = 3.0, 600.0
 FWD_PE_EXTREME = 200.0      # keep the value above this, but never silently
 # The capacity ceiling is built on FORWARD revenue, since the EPS tested is forward;
-# current revenue rejected NVDA's real consensus. Growth is capped so a wild estimate
-# cannot inflate the ceiling.
+# current revenue rejected NVDA's real consensus. Its growth is the consensus revenue
+# growth for year 1 as reported, bounded by the same sanity cap the DCF uses (round 8
+# took the 30% cap off reported consensus years). Live 2026-10-26: the 30% cap left
+# here rejected NVDA 14.16 (Yahoo and FMP 0.0% apart; consensus revenue +90%), AVGO
+# and TSM. Without a consensus year the long-term EPS growth keeps the 30% cap.
 CEILING_GROWTH_CAP = 0.30
+CEILING_CONSENSUS_CAP = 1.0           # = deep_v82.CONSENSUS_SANITY_CAP
+# Two independent consensus sources this close agree on the number: a ceiling breach
+# is then a flag (the ceiling is a heuristic), never a rejection. The P/E band, which
+# catches a currency or unit fault, still rejects.
+AGREE_SPREAD_PCT = 10.0
 
 
-def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt):
+def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt, rev_growth_y1=None,
+                          sources_agree=False):
     """Why this consensus forward EPS is not credible, or None if it is.
 
     ONE gate, used by both normalize._score (confidence) and _resolve_forward_eps
@@ -33,8 +42,11 @@ def forward_eps_rejection(forward_eps, revenue, shares, price, growth_lt):
     scoring as trustworthy."""
     if not forward_eps or forward_eps <= 0:
         return None
-    if revenue and shares:
-        g = min(max(growth_lt or 0.0, 0.0), CEILING_GROWTH_CAP)
+    if revenue and shares and not sources_agree:
+        if rev_growth_y1 is not None:
+            g = min(max(rev_growth_y1, 0.0), CEILING_CONSENSUS_CAP)
+        else:
+            g = min(max(growth_lt or 0.0, 0.0), CEILING_GROWTH_CAP)
         ceiling = revenue / shares * (1 + g) * MAX_NET_MARGIN
         if forward_eps > ceiling:
             return f"> revenue-capacity ceiling {round(ceiling, 2)} (fwd revenue x {MAX_NET_MARGIN:.0%} margin)"
@@ -184,7 +196,17 @@ def _resolve_forward_eps(ff):
         sec_eps = ff.eps_gaap
     sec_fwd = sec_eps * (1 + min(ff.growth_lt or 0.0, 0.25)) if sec_eps else None
     y = ff.forward_eps
-    reason = forward_eps_rejection(y, ff.revenue, ff.shares_diluted, ff.price, ff.growth_lt)
+    g1 = _consensus_y1(ff)
+    agree = _sources_agree(ff)
+    reason = forward_eps_rejection(y, ff.revenue, ff.shares_diluted, ff.price, ff.growth_lt,
+                                   rev_growth_y1=g1, sources_agree=agree)
+    if agree and y and y > 0 and reason is None:
+        over = forward_eps_rejection(y, ff.revenue, ff.shares_diluted, None, ff.growth_lt,
+                                     rev_growth_y1=g1)
+        if over:
+            ff.flags.append(f"forward_eps {round(y, 2)} kept: {over}, but "
+                            f"{'+'.join(ff.forward_eps_sources)} agree within "
+                            f"{ff.forward_eps_spread_pct}%")
     if y and y > 0 and reason is None:
         _flag_extreme(ff, y)
         return
@@ -192,7 +214,8 @@ def _resolve_forward_eps(ff):
     # unchecked SEC substitute was worse than the rejected consensus (1.09x P/E) and
     # produced an $8,612 fair value against a $422 price.
     sec_reason = (forward_eps_rejection(sec_fwd, ff.revenue, ff.shares_diluted,
-                                        ff.price, ff.growth_lt) if sec_fwd else None)
+                                        ff.price, ff.growth_lt, rev_growth_y1=g1)
+                  if sec_fwd else None)
     usable = sec_fwd if (sec_fwd and sec_reason is None) else None
     if reason and usable:
         ff.forward_eps = round(usable, 2)
@@ -215,6 +238,24 @@ def _resolve_forward_eps(ff):
         ff.provenance["forward_eps"] = "rejected (sec-derived failed the gate)"
         ff.flags.append(f"no consensus, and SEC-derived {round(sec_fwd, 2)} rejected "
                         f"({sec_reason}) - PEG valuation skipped")
+
+
+def _consensus_y1(ff):
+    """Consensus revenue growth for the next fiscal year, as reported, or None."""
+    y1 = getattr(ff, "fwd_growth_y1", None)
+    if y1 is not None:
+        return y1
+    path = getattr(ff, "rev_growth_path", None) or []
+    return path[0][0] if path and path[0] and path[0][0] is not None else None
+
+
+def _sources_agree(ff):
+    """Two or more INDEPENDENT forward-EPS sources within AGREE_SPREAD_PCT. Alpha
+    Vantage carries Yahoo's consensus (tools/consensus_check 2026-10-25), and a
+    last-good value is not a second source."""
+    src = set(getattr(ff, "forward_eps_sources", None) or []) - {"alphavantage", "last-good"}
+    sp = getattr(ff, "forward_eps_spread_pct", None)
+    return len(src) >= 2 and sp is not None and sp <= AGREE_SPREAD_PCT
 
 
 def _flag_extreme(ff, eps):

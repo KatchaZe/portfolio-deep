@@ -101,6 +101,13 @@ def _sec_gap(ff):
         yield ("sec_filing_read_direct", "note",
                f"SEC companyfacts ยังไม่มี {g['form']} งวด {g['period']} (ยื่น {g['filed']}) "
                f"จึงอ่านตัวเลขจาก XBRL ของฉบับนั้นโดยตรง")
+    elif str(getattr(ff, "fiscal_year", "") or "")[:10] > str(g.get("period") or "")[:10]:
+        # live 2026-10-26: TSM's unread 20-F (2025-12-31) still warned "the figures lag
+        # that period" and cost confidence while its base was the quarterly TTM to
+        # 2026-09-30, which already covers it
+        yield ("sec_filing_superseded", "note",
+               f"SEC companyfacts ยังไม่มี {g['form']} งวด {g['period']} และอ่านเองไม่สำเร็จ "
+               f"แต่ฐานตัวเลขเป็นงวด {str(ff.fiscal_year)[:10]} ที่ครอบคลุมงวดนั้นแล้ว")
     else:
         yield ("sec_filing_missing", "warn",
                f"มี {g['form']} งวด {g['period']} (ยื่น {g['filed']}) แต่ SEC companyfacts ยังไม่มี "

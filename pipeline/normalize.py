@@ -284,13 +284,9 @@ def _score(ff):
         ff.flags.append("missing forward_eps")
     if any(f.startswith("converted") for f in ff.flags):
         score -= 15            # FX uncertainty
-    # forward EPS plausibility: the SAME gate validate uses to substitute the value,
-    # so a rejected consensus can never still score as trustworthy
-    from pipeline.validate import forward_eps_rejection      # local: avoids an import cycle
-    _why = forward_eps_rejection(ff.forward_eps, ff.revenue, ff.shares_diluted,
-                                 ff.price, ff.growth_lt)
-    if _why:
-        score -= 15
-        ff.flags.append(f"forward_eps {round(ff.forward_eps, 2)} implausible: {_why}")
+    # forward-EPS plausibility is judged once, in validate._resolve_forward_eps, after
+    # the blend and the consensus path exist (validate rescores confidence from 100).
+    # Judged here too, it flagged NVDA's agreed consensus "implausible" on 2026-10-26
+    # before the revenue path that clears it had been read.
     ff.confidence = max(0, min(100, score))
     return ff
