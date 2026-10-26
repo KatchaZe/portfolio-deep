@@ -69,7 +69,7 @@ CLOCK = {
     "price": SPOT, "market_cap": SPOT, "beta": SPOT, "own_pe_pctile": SPOT,
     "beta_unlevered_industry": SPOT, "beta_industry": STATIC,
     "industry": STATIC, "country": STATIC, "damodaran_industry": STATIC, "industry_basis": STATIC,
-    "industry_margin": STATIC, "industry_sales_to_capital": STATIC, "crp": SPOT, "crp_basis": STATIC, "accounting_standard": STATIC,
+    "industry_margin": STATIC, "industry_sales_to_capital": STATIC, "crp": SPOT, "crp_basis": STATIC, "crp_mix": STATIC, "crp_mix_source": STATIC, "accounting_standard": STATIC,
 
     # --- income statement, TTM (sec_edgar.ttm sums the last four quarters) ----
     "revenue": TTM, "operating_income": TTM, "net_income": TTM, "eps_gaap": TTM,
@@ -163,7 +163,7 @@ UNIT = {
     # dimensionless
     "beta": RATIO, "beta_unlevered_industry": RATIO, "beta_industry": TEXT,
     "industry": TEXT, "country": TEXT, "damodaran_industry": TEXT, "industry_basis": TEXT,
-    "industry_margin": RATIO, "industry_sales_to_capital": RATIO, "crp": RATIO, "crp_basis": TEXT, "accounting_standard": TEXT, "growth_lt": RATIO, "fwd_growth_near": RATIO, "fwd_growth_far": RATIO,
+    "industry_margin": RATIO, "industry_sales_to_capital": RATIO, "crp": RATIO, "crp_basis": TEXT, "crp_mix": TEXT, "crp_mix_source": TEXT, "accounting_standard": TEXT, "growth_lt": RATIO, "fwd_growth_near": RATIO, "fwd_growth_far": RATIO,
     "peer_median_growth": RATIO, "terminal_roic_sector": RATIO, "own_pe_pctile": RATIO,
     "forward_eps_spread_pct": RATIO, "confidence": RATIO,
     # counts

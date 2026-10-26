@@ -119,6 +119,11 @@ class FinancialFacts:
     # the weights were set (revenue-mix override, or the domicile alone).
     crp: Optional[float] = None
     crp_basis: Optional[str] = None
+    # The revenue mix the CRP was priced on ({market: weight}) and where it came from
+    # (config / dashboard / 10-K note). None = priced on the domicile. Stored so the
+    # Risk Desk reads the same mix without the 10-K cache (wiped on every Render deploy).
+    crp_mix: Optional[dict] = None
+    crp_mix_source: Optional[str] = None
     # "us-gaap" or "ifrs" (SEC companyfacts namespace). Under US GAAP the whole
     # operating-lease cost sits in EBIT; under IFRS 16 its interest is below EBIT.
     accounting_standard: Optional[str] = None

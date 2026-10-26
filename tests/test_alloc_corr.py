@@ -267,6 +267,53 @@ def test_exposure_mix_is_the_one_the_crp_was_priced_on():
     print("D4 exposure mix = CRP mix on", len(tks), "holdings")
 
 
+
+def test_exposure_reads_the_stored_crp_mix_without_any_cache():
+    """Render wipes the 10-K cache on every deploy while the facts (and their CRP)
+    survive on Drive: the Risk Desk must read the mix stored beside the CRP, not
+    fall back to the domicile. Live 2026-10-26: GOOGL CRP +0.71% beside 'non-US 0%'."""
+    import tempfile
+    import config
+    s = _store({"GOOGL": dict(sector="Technology")})
+    s["facts"]["GOOGL"].update(country="US", accounting_standard="us-gaap", crp=0.0071,
+                               crp_mix={"US": 0.48, "emea": 0.29, "asia pacific": 0.17,
+                                        "americas ex us": 0.06},
+                               crp_mix_source="10-K FY2025")
+    old = config.CACHE_DIR
+    config.CACHE_DIR = tempfile.mkdtemp()
+    try:
+        mixes, src = risk_report._revenue_mixes(s, ["GOOGL"])
+    finally:
+        config.CACHE_DIR = old
+    assert src["GOOGL"] == "10-K FY2025", src
+    assert mixes["GOOGL"]["emea"] == 0.29, mixes
+    print("stored crp_mix read with an empty cache OK")
+
+
+def test_refresh_stores_the_mix_the_crp_was_priced_on():
+    from domain.facts import FinancialFacts
+    from pipeline import fundamentals
+    from sources import country_risk as cr
+    orig = cr.fetch_crp_table
+    cr.fetch_crp_table = lambda **kw: cr.CRP_FALLBACK
+    try:
+        ff = FinancialFacts("MELI", company="MercadoLibre")
+        ff.country = "UY"
+        fundamentals._country_risk(ff, "MELI")
+        dom = FinancialFacts("ELV", company="Elevance")
+        dom.country = "US"
+        dom.accounting_standard = "ifrs"                       # no 10-K lookup
+        fundamentals._country_risk(dom, "ELV")
+    finally:
+        cr.fetch_crp_table = orig
+    import config
+    assert ff.crp_mix == config.REVENUE_MIX["MELI"] and ff.crp_mix_source == "config", ff.crp_mix
+    c, _ = cr.crp_for("MELI", "UY", cr.CRP_FALLBACK, mix=ff.crp_mix, source=ff.crp_mix_source)
+    assert abs(round(c, 5) - ff.crp) < 1e-9, (c, ff.crp)
+    assert dom.crp_mix is None and dom.crp == 0.0, (dom.crp_mix, dom.crp)
+    print("refresh stores crp_mix OK:", ff.crp_mix_source)
+
+
 # --------------------------------------------------------------------------- A4 / D3
 def _one_factor(n=500, crisis=(200, 260), seed=3):
     """market + idiosyncratic noise; inside `crisis` the market falls hard and its

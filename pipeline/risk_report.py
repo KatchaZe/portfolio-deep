@@ -131,14 +131,18 @@ def _offline_cik(ticker):
 
 
 def _revenue_mixes(s, tickers):
-    """({ticker: mix}, {ticker: source}) in the valuation's own order (config ->
-    dashboard -> latest 10-K, US-GAAP only -> domicile), read offline, so currency and
-    country exposure sit on the mix the CRP was priced on."""
+    """({ticker: mix}, {ticker: source}): the mix the stored CRP was priced on
+    (facts.crp_mix, saved at refresh), else re-derived offline in the valuation's own
+    order (config -> dashboard -> latest 10-K, US-GAAP only -> domicile) for facts
+    refreshed before crp_mix existed."""
     from sources import country_risk, revenue_geo
     facts = s.get("facts", {})
     mixes, src = {}, {}
     for t in tickers:
         ff = facts.get(t) or {}
+        if isinstance(ff.get("crp_mix"), dict) and ff["crp_mix"]:
+            mixes[t], src[t] = ff["crp_mix"], ff.get("crp_mix_source") or "stored"
+            continue
         mix, source = country_risk.revenue_mix(t)
         if mix is None and ff.get("accounting_standard", "us-gaap") == "us-gaap":
             cik = _offline_cik(t)

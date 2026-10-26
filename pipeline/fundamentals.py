@@ -639,6 +639,8 @@ def _country_risk(ff, t, cik=None):
         if crp is not None:
             ff.set("crp", round(crp, 5), "damodaran-ctryprem")
             ff.set("crp_basis", basis, "damodaran-ctryprem")
+            ff.set("crp_mix", dict(mix) if mix else None, "damodaran-ctryprem")
+            ff.set("crp_mix_source", source if mix else None, "damodaran-ctryprem")
         if crp is None or "holding jurisdiction" in basis:
             ff.flags.append(f"country risk: {basis}")
     except Exception as e:
