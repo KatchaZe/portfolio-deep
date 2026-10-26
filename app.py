@@ -350,6 +350,18 @@ def api_set_holding(ticker: str, shares: float = None, avg_cost: float = None):
                          "quota": _quota(s), "result": meta})
 
 
+@app.post("/api/cash")
+def api_set_cash(usd: float):
+    """Uninvested cash (USD): the Risk Desk measures loss and volatility on the whole
+    portfolio, invested names plus this cash."""
+    try:
+        with st.transaction() as s:
+            st.set_cash(s, usd)
+    except ValueError as e:
+        return _invalid(str(e))
+    return JSONResponse({"view": portfolio.view(s)})
+
+
 @app.post("/api/holding/remove")
 def api_remove_holding(ticker: str):
     with st.transaction() as s:
@@ -433,9 +445,15 @@ class WhatIfBuy(BaseModel):
 
 
 @app.post("/api/allocation/whatif")
-def api_whatif(items: List[WhatIfBuy]):
+def api_whatif(items: List[WhatIfBuy], risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0):
     body = [{"ticker": i.ticker, "amount": i.amount} for i in items]
     s = st.load()
     res, calls = allocation.build(s, body, config.FMP_API_KEY)  # may hit FMP: no lock
+    try:                                   # S2: the risk the buys ADD, at market value
+        res["risk"] = (risk_report.whatif(s, res["added"], risk_tolerance_pct, horizon_years)
+                       if res.get("added") else None)
+    except Exception as e:
+        log.exception("what-if risk failed")
+        res["risk"] = {"error": f"{type(e).__name__}: {e}"}
     res["quota"] = _quota(_commit_fmp_usage())
     return JSONResponse(res)

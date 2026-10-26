@@ -27,11 +27,14 @@ HISTORICAL = [
 ]
 
 
-def _position_shock(beta, sector, scn, default_beta=1.0):
-    """Estimated single-position loss for a scenario (fraction, negative)."""
+def _position_shock(beta, sector, scn, default_beta=1.0, industry=None):
+    """Estimated single-position loss for a scenario (fraction, negative). A multiplier
+    keyed on the industry wins over the sector's: FMP files "Semiconductors" as an
+    industry inside the "Technology" sector."""
     b = beta if beta is not None else default_beta
     loss = b * scn["mkt"]
-    mult = (scn.get("sector_mult") or {}).get(sector)
+    sm = scn.get("sector_mult") or {}
+    mult = sm.get(industry) if industry in sm else sm.get(sector)
     if mult:
         loss = b * scn["mkt"] * mult
     if scn.get("highbeta_extra") and b >= 1.3:
@@ -39,12 +42,14 @@ def _position_shock(beta, sector, scn, default_beta=1.0):
     return max(loss, -0.95)         # floor a single name at -95%
 
 
-def stress_test(weights, betas, sectors, scenarios=None, default_beta=1.0):
+def stress_test(weights, betas, sectors, scenarios=None, default_beta=1.0, industries=None):
     """Portfolio loss per scenario = Σ w_i * shock_i, most negative first."""
     scenarios = scenarios or SCENARIOS
+    industries = industries or {}
     out = []
     for scn in scenarios:
-        contrib = {t: w * _position_shock(betas.get(t), sectors.get(t), scn, default_beta)
+        contrib = {t: w * _position_shock(betas.get(t), sectors.get(t), scn, default_beta,
+                                          industries.get(t))
                    for t, w in weights.items()}
         loss = sum(contrib.values())
         worst = min(contrib.items(), key=lambda kv: kv[1])[0] if contrib else None

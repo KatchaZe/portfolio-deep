@@ -36,6 +36,13 @@ function renderCorr(d){
     + corrBenchHTML(co) + corrLegendHTML(co);
 }
 
+// where the Crisis numbers come from: a measured market episode, or the assumed floor
+function crisisSourceText(co){
+  const c=(((co||{}).meta||{}).crisis)||{};
+  if(c.method==='measured'||c.method==='mixed')
+    return `Crisis = วัดจริงช่วง ${esc(c.first_day||'')} → ${esc(c.last_day||'')} (S&amp;P ${c.market_drawdown_pct}% , ${c.window_days} วันทำการ)${c.assumed_pairs?` · ${c.assumed_pairs} คู่ข้อมูลไม่พอ: ใช้ค่าสมมติ (equity↔equity ≥ 0.9, คู่อื่นใช้ค่าปกติ)`:''}`;
+  return 'Crisis = ค่าสมมติ: คู่ equity↔equity ≥ 0.9 (ไม่มีราคาย้อนหลังช่วงวิกฤตให้วัด)';
+}
 function corrProxyBadge(co){
   const cm=((co||{}).meta||{}).cov_mode;
   if(!cm||cm==='realized')return '';
@@ -89,6 +96,7 @@ function corrHeatHTML(co){
   });
   h+='</table>';
   return `<div class="cqcard"><div style="display:flex;justify-content:space-between;align-items:baseline"><div><b style="font-size:calc(13px*var(--fs))">Correlation Heatmap — รายตัว</b> <span class="muted" style="font-size:calc(10px*var(--fs))">(จัดกลุ่มตาม sector)</span></div><span>${corrProxyBadge(co)}<span class="tag" style="background:${mode==='crisis'?'#dc2626':'#0d9488'}">${mode.toUpperCase()}</span></span></div>
+    <div class="muted" style="font-size:calc(10px*var(--fs));margin-top:4px">${crisisSourceText(co)}</div>
     <div style="overflow-x:auto;margin-top:8px">${h}</div>
     <div style="display:flex;align-items:center;gap:0;margin-top:8px;font-size:calc(10px*var(--fs));color:#64748b"><span>ต่ำ</span>
       <i style="width:24px;height:11px;display:inline-block;background:#22c55e"></i><i style="width:24px;height:11px;display:inline-block;background:#84cc16"></i><i style="width:24px;height:11px;display:inline-block;background:#eab308"></i><i style="width:24px;height:11px;display:inline-block;background:#f59e0b"></i><i style="width:24px;height:11px;display:inline-block;background:#f97316"></i><i style="width:24px;height:11px;display:inline-block;background:#dc2626"></i>
@@ -117,8 +125,9 @@ function corrBenchHTML(co){
   const b=co.benchmark; if(!b)return '';
   const mode=corrMode, refs=b.refs||[], order=co.order||[];
   const pv=(o)=>o?(mode==='crisis'?o.crisis:o.normal):null;
+  const star=(o)=>(mode==='crisis'&&o&&o.crisis_measured===false)?'*':'';
   const chips=refs.map(r=>{const v=pv((b.portfolio||{})[r.sym]); const c=corrColor(v);
-    return `<div style="flex:1 1 130px;min-width:130px;background:${c[0]};color:${c[1]};border-radius:10px;padding:8px 12px" title="พอร์ต × ${esc(r.name)} = ${plainNum(v,2)} (${mode})"><div style="font-size:calc(10px*var(--fs));opacity:.9">${esc(r.name)} · ${esc(r.sym)}</div><b style="font-size:calc(19px*var(--fs))">${plainNum(v,2)}</b></div>`;}).join('');
+    return `<div style="flex:1 1 130px;min-width:130px;background:${c[0]};color:${c[1]};border-radius:10px;padding:8px 12px" title="พอร์ต × ${esc(r.name)} = ${plainNum(v,2)} (${mode})"><div style="font-size:calc(10px*var(--fs));opacity:.9">${esc(r.name)} · ${esc(r.sym)}</div><b style="font-size:calc(19px*var(--fs))">${plainNum(v,2)}${star((b.portfolio||{})[r.sym])}</b></div>`;}).join('');
   let hb=`<table class="cqhm"><tr><th></th>${refs.map(r=>`<th class="col">${esc(r.sym)}</th>`).join('')}</tr>`;
   order.forEach(t=>{hb+=`<tr><th class="row">${esc(t)}</th>${refs.map(r=>corrCell(pv(((b.holdings||{})[t]||{})[r.sym])) ).join('')}</tr>`;});
   hb+='</table>';
@@ -129,16 +138,16 @@ function corrBenchHTML(co){
     <div class="cqlbl" style="margin-top:10px">A · พอร์ตทั้งก้อน vs benchmark</div><div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px">${chips}</div>
     <div class="cqgrid" style="margin-top:12px"><div><div class="cqlbl">B · แต่ละหุ้น vs benchmark</div><div style="overflow-x:auto;margin-top:4px">${hb}</div></div>
     <div><div class="cqlbl">C · สินทรัพย์ vs สินทรัพย์</div><div style="overflow-x:auto;margin-top:4px">${rr}</div></div></div>
-    <div class="cqleg" style="background:#fffbeb;border-color:#fde68a;color:#78350f;margin-top:12px"><b>อ่านการ์ดนี้</b> — Crisis floor เฉพาะคู่ equity↔equity (รวม SPY/QQQ/IBIT) เข้า ~0.9 · <b>Gold ไม่ถูก floor</b> (non-equity) → ถ้ายังต่ำตอน Crisis = ตัวถ่วงจริง · IBIT = spot-BTC ETF (แทน BTC-USD, ปฏิทินตรงวันหุ้น) และถูก floor เพราะ engine นับ crypto เป็น equity-beta ตอนวิกฤต.</div></div>`;
+    <div class="cqleg" style="background:#fffbeb;border-color:#fde68a;color:#78350f;margin-top:12px"><b>อ่านการ์ดนี้</b> — ${crisisSourceText(co)} · ค่าที่มี * = ข้อมูลช่วงวิกฤตไม่พอ จึงใช้ค่าสมมติ · ตัวที่ crisis corr ต่ำกว่า 0.30 = ตัวถ่วงจริง (S38–41) · IBIT = spot-BTC ETF (แทน BTC-USD, ปฏิทินตรงวันหุ้น).</div></div>`;
 }
 
 function corrLegendHTML(co){
-  const roll=((co.rolling||{}).port_vs_spy)||[]; let spark='';
+  const rollAll=((co.rolling||{}).port_vs_spy)||[], roll=rollAll.filter(v=>v!=null); let spark='';
   if(roll.length>2){const w=180,h=28,mn=Math.min(...roll),mx=Math.max(...roll),rg=(mx-mn)||1;
-    const pts=roll.map((v,i)=>`${(i/(roll.length-1)*w).toFixed(1)},${(h-((v-mn)/rg)*h).toFixed(1)}`).join(' ');
+    const pts=rollAll.map((v,i)=>v==null?null:`${(i/(rollAll.length-1)*w).toFixed(1)},${(h-((v-mn)/rg)*h).toFixed(1)}`).filter(p=>p).join(' ');
     spark=`<div style="margin-top:6px"><span class="muted" style="font-size:calc(11px*var(--fs))">A7 · Rolling 60d corr พอร์ต vs S&amp;P (${plainNum(roll[0],2)}→${plainNum(roll[roll.length-1],2)}):</span>
       <svg width="${w}" height="${h}" style="vertical-align:middle;margin-left:6px"><polyline points="${pts}" fill="none" stroke="#2563eb" stroke-width="1.5"/></svg>
       <span class="muted" style="font-size:calc(10px*var(--fs))"> ${roll[roll.length-1]>roll[0]?'▲ กำลังไต่ขึ้น (เตือน)':'▼/flat'}</span></div>`;}
   return `<div class="cqleg" style="background:#f1f5f9;border-color:#e2e8f0;color:#334155;margin-top:2px">
-    <b>Damodaran S2–4:</b> heatmap = marginal risk เชิงภาพ (ยิ่งแดง=วิ่งตามกัน) · ปุ่ม <b>Crisis</b> = correlation วิ่งเข้า ~0.9 ตอนตลาดพัง (การกระจายหาย) · ENB ต่ำกว่า Eff N เพราะ correlation กินการกระจาย.${spark}</div>`;
+    <b>Damodaran S2–4 · S41:</b> heatmap = marginal risk เชิงภาพ (ยิ่งแดง=วิ่งตามกัน) · ปุ่ม <b>Crisis</b> = correlation ที่วัดในช่วงตลาดพังจริง (ไม่ใช่ค่าเฉลี่ยปกติ) · ${crisisSourceText(co)} · ENB ต่ำกว่า Eff N เพราะ correlation กินการกระจาย.${spark}</div>`;
 }

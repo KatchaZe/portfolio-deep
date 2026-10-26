@@ -52,13 +52,17 @@ def downside_corr(a, b, market, threshold=0.0):
 
 
 def rolling_corr(a, b, window=60):
-    """Trailing-window correlation, one value per step once the window is full."""
+    """Trailing-window correlation, one value per step once the window is full. A window
+    that cannot be computed (a flat series) is None, never a fake 0."""
     n = min(len(a or []), len(b or []))
     if n < window or window < 2:
         return []
     a, b = a[-n:], b[-n:]
-    return [round(pair_corr(a[e - window:e], b[e - window:e]) or 0.0, 3)
-            for e in range(window, n + 1)]
+    out = []
+    for e in range(window, n + 1):
+        rho = pair_corr(a[e - window:e], b[e - window:e])
+        out.append(round(rho, 3) if rho is not None else None)
+    return out
 
 
 def semideviation(returns, mar=0.0):

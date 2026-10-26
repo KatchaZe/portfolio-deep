@@ -2366,8 +2366,10 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "terminal_wacc_pct": round(cap.wacc_term * 100, 2),
             "growth_pct": round(gr.growth * 100, 1), "beta": round(cap.beta, 2),
             "beta_regression": round(f.beta, 2) if f.beta else None,
-            "beta_source": ("bottom-up: " + (f.beta_industry or "industry"))
-                           if f.beta_unlevered_industry else ("regression" if f.beta else "default 1.0"),
+            "beta_source": (("regression (early stage: higher than the industry beta)"
+                             if (f.beta and f.beta_unlevered_industry and cap.beta == f.beta)
+                             else "bottom-up: " + (f.beta_industry or "industry"))
+                            if f.beta_unlevered_industry else ("regression" if f.beta else "default 1.0")),
             # consensus growth drives the FV, realised growth drives Demand: both
             # published so a reader sees which story the price needs
             "growth_realised_pct": _pct(pv.g_realised, 1),

@@ -11,7 +11,8 @@ async function fetchRiskPayload(en,force){
   const tol=(document.getElementById('riskTol')||{}).value||20, hz=(document.getElementById('riskHorizon')||{}).value||1;
   // the holdings are part of the key: adding, removing or resizing a position (any
   // path, including the watchlist promote) must not serve the old portfolio's desk
-  const hold=((window.__last||{}).rows||[]).map(r=>r.ticker+':'+(r.shares??'')).sort().join(',');
+  const hold=((window.__last||{}).rows||[]).map(r=>r.ticker+':'+(r.shares??'')).sort().join(',')
+    +'|cash:'+(((window.__last||{}).totals||{}).cash??'');
   const key=`${tol}|${hz}|${en}|${hold}`;
   if(!force&&__riskCache&&__riskCache.key===key)return __riskCache.data;
   const r=await fetch(`/api/risk?risk_tolerance_pct=${encodeURIComponent(tol)}&horizon_years=${encodeURIComponent(hz)}&enrich=${en}`);
@@ -40,23 +41,26 @@ function capRiskRows(cv){
   if(cov.length && cov[0].signed_risk_pct!=null) return cov.map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.signed_risk_pct,diff:x.diff_pp,abs:x.abs_risk_share_pct}));
   return (cv.beta_based||[]).map(x=>({ticker:x.ticker,cap:x.capital_pct,risk:x.risk_pct,diff:x.diff_pp,abs:x.risk_pct}));
 }
-// S4 portfolio margin of safety: market-value-weighted MoS (V − P)/V of the holdings
-// that have a fair value — the same definition each card shows
+// S4 portfolio margin of safety on the card's own definition (V − P)/V, applied to the
+// WHOLE book: total fair value of the holdings that have one against what they cost at
+// today's price. Averaging each name's ratio let one tiny fair value swamp the book
+// (TMDX at −920% put the portfolio at −190.7%). Net upside is a return on price, so its
+// market-value-weighted average is the portfolio's.
 function portMoS(){
   const rows=(window.__last&&window.__last.rows)||[];
-  let ws=0,g=0,n=0,wn=0,nets=0;
+  let P=0,V=0,n=0,wn=0,nets=0;
   for(const r of rows){
     const mv=r.market_value,u=mosOf(r);
-    if(mv&&u!=null){ws+=mv;g+=mv*u;n++;if(r.net_upside_pct!=null){nets+=mv*r.net_upside_pct;wn+=mv;}}
+    if(mv&&u!=null&&u<100){P+=mv;V+=mv*100/(100-u);n++;if(r.net_upside_pct!=null){nets+=mv*r.net_upside_pct;wn+=mv;}}
   }
-  if(!ws||!n)return null;
-  return {gross:Math.round(g/ws*10)/10,net:wn?Math.round(nets/wn*10)/10:null,n,of:rows.length};
+  if(!V||!n)return null;
+  return {gross:Math.round((V-P)/V*1000)/10,net:wn?Math.round(nets/wn*10)/10:null,n,of:rows.length};
 }
 function portMoSCard(){
   const m=portMoS();
   if(!m)return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:calc(160px*var(--fs));flex:1 1 160px"><div style="${TILE_LABEL}">Portfolio MoS (S4)</div><div style="font-size:calc(15px*var(--fs));font-weight:800" class="muted">&mdash;</div><div class="muted" style="font-size:calc(10px*var(--fs))">ต้องมี Fair Value ต่อหุ้นก่อน (Run Fundamental Refresh)</div></div>`;
   const col=m.gross>=15?'#166534':m.gross>=0?'#475569':'#991b1b';
-  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:calc(160px*var(--fs));flex:1 1 160px" title="margin of safety ระดับพอร์ต = ค่าเฉลี่ยถ่วงน้ำหนัก MV ของ MoS (FV − ราคา)/FV รายตัว (${m.n}/${m.of} ตัวที่มี FV) · net = upside หลังค่าเทรด/ภาษี — ส่วนเผื่อรวมของพอร์ตต่อความผิดพลาดในการประเมิน (S4)">
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:calc(160px*var(--fs));flex:1 1 160px" title="margin of safety ระดับพอร์ต = (Σ fair value − Σ มูลค่าตลาด) / Σ fair value ของ ${m.n}/${m.of} ตัวที่มี FV · net = upside หลังค่าเทรด/ภาษี — ส่วนเผื่อรวมของพอร์ตต่อความผิดพลาดในการประเมิน (S4)">
     <div style="${TILE_LABEL}">Portfolio MoS (S4)</div>
     <div style="font-size:calc(17px*var(--fs));font-weight:800;color:${col}">${signed(m.gross)}%</div>
     <div class="muted" style="font-size:calc(10px*var(--fs))">${m.net!=null?`net upside หลัง cost/tax ${signed(m.net)}% · `:''}${m.n}/${m.of} ตัวมี FV</div></div>`;
@@ -106,8 +110,8 @@ function storyCosts(reb){
   let t;
   if(reb.no_trade)t='NO TRADE — ไม่มีต้นทุน/ภาษีต้องจ่าย พอร์ตอยู่ใน policy band';
   else{
-    const turn=(reb.trades||[]).reduce((a2,x2)=>a2+Math.abs(x2.amount_pct||0),0)/2;
-    t=`แผน rebalance ขยับ ~<b>${turn.toFixed(1)}%</b> ของพอร์ต — ค่าเทรด ~${(turn/100*0.2).toFixed(2)}% + ภาษีกำไรที่ realize (15%) &rarr; <b>ทำเป็นขั้น</b> เริ่มจาก Must ก่อน อย่ารวดเดียว`;
+    const c=reb.costs||{}, turn=c.turnover_pct??(reb.trades||[]).reduce((a2,x2)=>a2+Math.abs(x2.amount_pct||0),0)/2;
+    t=`แผน rebalance ขยับ ~<b>${Number(turn).toFixed(1)}%</b> ของพอร์ต — ภาษีกำไร <b>${money(c.tax_usd)}</b> + ค่าเทรด ${money(c.trading_usd)} &rarr; <b>ทำเป็นขั้น</b> เริ่มจาก Must ก่อน อย่ารวดเดียว`;
   }
   return storyRow('&#9316; หัก cost/tax ก่อนเชื่อ','S6 · ส่วน 7',t,!reb.no_trade);
 }
@@ -117,7 +121,7 @@ function renderRisk(d){
   const cv=d.capital_vs_risk||{},m=d.meta||{};
   body.innerHTML = riskSection('&#128214; Portfolio Story — สรุปตาม 5 หลัก Damodaran','<div>'+riskStory(d)+'</div>','อ่านก่อน 1 นาที')
     + riskSection('1 · Portfolio Snapshot',riskSnapshotHTML(d))
-    + riskSection('2 · Capital Allocation (by risk driver)',riskAllocationHTML())
+    + riskSection('2 · Capital Allocation (by risk driver)',riskAllocationHTML(d))
     + riskSection('3 · Capital Weight vs Risk Weight',capitalVsRiskHTML(cv),m.cov_tag||'')
     + riskSection('4 · Concentration Map',concentrationHTML(d,cv))
     + riskSection('5 · Stress Test',stressHTML(d),'[JUDG-SCENARIO]')
@@ -133,16 +137,34 @@ function riskSnapshotHTML(d){
   return `<div style="display:flex;gap:8px;flex-wrap:wrap">
     ${riskCard('Value','$'+Math.round(s.total_value).toLocaleString())}
     ${riskCard('Positions',s.n_positions)}
-    ${riskCard('Est. Vol (annual)',pctFixed(s.port_vol_pct),'#0f172a')}
+    ${riskCard(s.cash_pct?'Est. Vol (ทั้งพอร์ต)':'Est. Vol (annual)',pctFixed(s.port_vol_pct),'#0f172a')}
+    ${s.cash_pct?riskCard('Cash',pctFixed(s.cash_pct)+' · '+money(s.cash_value)):''}
     ${riskCard('Severe drawdown',pctFixed(s.severe_drawdown_pct),lossColor(s.severe_drawdown_pct))}
-    ${riskCard('Portfolio β',s.port_beta)}
+    ${riskCard('Portfolio β (valuation)',s.port_beta)}
     ${riskCard('Diversification',s.diversification_score+'/100',scoreColor(s.diversification_score))}</div>
     <div class="muted" style="font-size:calc(11px*var(--fs));margin-top:5px">${esc(s.scope||'')} · DR normal <b>${dv.dr_normal??'—'}</b> / crisis <b>${dv.dr_crisis??'—'}</b> — ${esc((dv.score&&dv.score.band)||'')}</div>`;
 }
-function riskAllocationHTML(){
+function riskAllocationHTML(d){
   return `<div style="display:flex;gap:24px;flex-wrap:wrap">
     <div style="width:280px;height:290px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center">By risk sleeve</div><div style="height:270px;position:relative"><canvas id="rcSleeve"></canvas></div></div>
-    <div style="width:280px;height:290px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center">By currency</div><div style="height:270px;position:relative"><canvas id="rcCcy"></canvas></div></div></div>`;
+    <div style="width:280px;height:290px"><div class="muted" style="font-size:calc(11px*var(--fs));text-align:center" title="ตามแหล่งรายได้ (revenue mix ชุดเดียวกับที่ valuation ใช้คิด CRP) ไม่ใช่สกุลที่หุ้นซื้อขาย — ADR อย่าง ASML/TSM/NVO ซื้อขายเป็น USD แต่หาเงินเป็น EUR/TWD/DKK (S2 cash-flow risk)">By currency (ตามรายได้)</div><div style="height:270px;position:relative"><canvas id="rcCcy"></canvas></div></div>
+    ${countryRiskHTML(d)}</div>`;
+}
+// slices under 1.5% folded into one, so a 19-currency donut stays readable
+function foldSmall(rows,min=1.5){
+  const big=(rows||[]).filter(r=>r.value>=min), rest=(rows||[]).filter(r=>r.value<min).reduce((a,r)=>a+r.value,0);
+  return rest>0?[...big,{label:'อื่น ๆ (<'+min+'%)',value:Math.round(rest*10)/10}]:big;
+}
+// portfolio country risk premium, weighted by where each holding earns (the CRP its valuation used)
+function countryRiskHTML(d){
+  const cr=(((d||{}).allocation||{}).country_risk)||null; if(!cr)return '';
+  const rows=(cr.rows||[]).filter(r=>(r.crp_pct||0)>0).slice(0,6);
+  const miss=cr.weight_without_crp_pct?` · ${pctFixed(cr.weight_without_crp_pct)} ของพอร์ตไม่มี CRP`:'';
+  return `<div style="background:#fff;border:1px solid #e2e8f0;border-radius:8px;padding:8px 11px;min-width:220px;flex:1 1 220px;align-self:flex-start">
+    <div style="${TILE_LABEL}">Country risk ของพอร์ต (CRP)</div>
+    <div style="font-size:calc(17px*var(--fs));font-weight:800">+${plainNum(cr.crp_pct,2)}%</div>
+    <div class="muted" style="font-size:calc(10px*var(--fs))">Σ น้ำหนัก × CRP ที่ valuation ใช้ (ถ่วงตามรายได้รายประเทศ)${miss}</div>
+    <table style="font-size:calc(11px*var(--fs));margin-top:4px">${rows.map(r=>`<tr><td class="l"><b>${esc(r.ticker)}</b></td><td>+${plainNum(r.crp_pct,2)}%</td><td class="l muted" title="${esc(r.basis||'')}">นอกสหรัฐ ${r.non_us_pct??'—'}%</td></tr>`).join('')}</table></div>`;
 }
 function capitalVsRiskHTML(cv){
   return `<div style="max-width:760px;height:${Math.max(90,capRiskRows(cv).length*22)}px;position:relative"><canvas id="rcCapRisk"></canvas></div>
@@ -160,7 +182,16 @@ function stressHTML(d){
   return `<div style="max-width:760px;height:${Math.max(100,(((st.historical||[]).length)+((st.hypothetical||[]).length))*20)}px;position:relative"><canvas id="rcStress"></canvas></div>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">${riskCard('VaR 95%',pctFixed(vr.var95_pct),'#dc2626')}${riskCard('VaR 99%',pctFixed(vr.var99_pct),'#dc2626')}${riskCard('CVaR 95%',pctFixed(vr.cvar95_pct),'#991b1b')}</div>
     ${(st.var_hist&&st.var_hist.var95_pct!=null)?`<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px">${riskCard('Hist VaR 95%',pctFixed(st.var_hist.var95_pct),'#7c3aed')}${riskCard('Hist VaR 99%',pctFixed(st.var_hist.var99_pct),'#7c3aed')}${riskCard('Hist CVaR 95%',pctFixed(st.var_hist.cvar95_pct),'#6d28d9')}</div><div class="muted" style="font-size:calc(10px*var(--fs));margin-top:2px">Historical VaR (P1-7, S2/S4): จาก returns จริง ${st.var_hist.n} วัน — เห็น fat tail ตามที่เคยเกิด ไม่สมมุติ normal</div>`:''}
-    <div class="muted" style="font-size:calc(11px*var(--fs));margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')}</div>`;
+    <div class="muted" style="font-size:calc(11px*var(--fs));margin-top:5px">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')} · β = ตัวเดียวกับที่ valuation ใช้ (bottom-up; หุ้นระยะเริ่มต้นใช้ regression ที่สูงกว่า) (business risk, S4)</div>
+    ${betaTableHTML((d.meta||{}).beta_check)}`;
+}
+// the beta each stress runs on, beside the measured ones: information, not a warning
+function betaTableHTML(bc){
+  const ks=Object.keys(bc||{}); if(!ks.length)return '';
+  const rows=ks.sort().map(t=>{const b=bc[t];return `<tr><td class="l"><b>${esc(t)}</b></td><td>${plainNum(b.used,2)}</td><td>${plainNum(b.fmp,2)}</td><td>${plainNum(b.calc,2)}</td><td>${plainNum(b.downside,2)}</td><td class="l muted" style="font-size:calc(10px*var(--fs))">${esc(b.source||'')}</td></tr>`;}).join('');
+  return `<details style="margin-top:6px;font-size:calc(11px*var(--fs))"><summary class="muted" style="cursor:pointer">β ที่ stress ใช้ เทียบ β ที่วัดจากราคา (${ks.length} ตัว)</summary>
+    <div class="muted" style="margin:4px 0">Damodaran S4: regression β ของหุ้นตัวเดียวคลาดเคลื่อนสูง จึงใช้ bottom-up β ของอุตสาหกรรม (re-lever ตาม D/E) · downside β = วัดเฉพาะวันที่ S&amp;P ลง (S2) ใช้ดูว่าขาลงจริงแรงกว่าที่สมมติไหม</div>
+    <table style="font-size:calc(11px*var(--fs))"><thead><tr><th class="l">Ticker</th><th>ใช้ (bottom-up)</th><th>FMP</th><th>daily vs SPY</th><th>downside</th><th class="l">ที่มา</th></tr></thead><tbody>${rows}</tbody></table></details>`;
 }
 // S2/S4: total risk paired with its downside, next to the portfolio margin of safety
 function downsideHTML(d){
@@ -187,15 +218,19 @@ function suitabilityHTML(d){
 }
 function rebalanceHTML(d,cv){
   const reb=d.rebalance||{};
-  if(reb.no_trade)return `<div style="border-radius:9px;padding:10px 13px;background:#dcfce7;color:#166534;border:1px solid #86efac;font-size:calc(12.5px*var(--fs));font-weight:700">NO TRADE — พอร์ตยังอยู่ใน policy band</div>`;
-  const af=reb.after||{};
+  const blocked=(d.position_sizing||[]).filter(r=>r.add_blocker&&String(r.action).startsWith('HOLD (ไม่เพิ่ม'));
+  const rule=reb.rule?`<div class="muted" style="font-size:calc(11px*var(--fs));margin-top:6px">กฎ: ${esc(reb.rule)} (S4/S12 · S35 · S6)${blocked.length?` · ไม่เพิ่ม ${blocked.length} ตัว: `+blocked.map(r=>`<span title="${esc(r.add_blocker)}">${esc(r.ticker)}</span>`).join(', '):''}</div>`:'';
+  if(reb.no_trade)return `<div style="border-radius:9px;padding:10px 13px;background:#dcfce7;color:#166534;border:1px solid #86efac;font-size:calc(12.5px*var(--fs));font-weight:700">NO TRADE — พอร์ตยังอยู่ใน policy band</div>${rule}`;
+  const af=reb.after||{}, c=reb.costs||{};
   return `<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">
-      ${riskCard('Vol now',pctFixed(cv.port_vol_pct))}${riskCard('Vol after',pctFixed(af.port_vol_pct),'#16a34a')}
+      ${riskCard('Vol now',pctFixed(reb.vol_now_pct??cv.port_vol_pct))}${riskCard('Vol after',pctFixed(af.port_vol_pct),'#16a34a')}
+      ${riskCard('Cash after',pctFixed(reb.cash_pct_after))}${riskCard('ภาษี + ค่าเทรด',money(c.total_usd))}
       ${riskCard('Top risk now',(capRiskRows(cv)[0]||{}).ticker||'—')}${riskCard('Top risk after',af.top_risk||'—')}
       ${riskCard('Stress worst after',pctFixed(af.stress_worst_pct),lossColor(af.stress_worst_pct))}</div>
-      <table style="font-size:calc(12px*var(--fs))"><thead><tr><th class="l">Ticker</th><th>Action</th><th>From</th><th>To</th><th>Δ</th><th class="l">Priority</th></tr></thead><tbody>
-      ${(reb.trades||[]).map(t=>`<tr><td class="l"><b>${t.ticker}</b></td><td><span class="tag" style="background:${t.action==='TRIM'?'#ea580c':'#0d9488'}">${t.action}</span></td><td>${pctFixed(t.from_pct)}</td><td>${pctFixed(t.to_pct)}</td><td>${pctFixed(t.amount_pct)}</td><td class="l">${t.priority}</td></tr>`).join('')}
-      </tbody></table>`;
+      <table style="font-size:calc(12px*var(--fs))"><thead><tr><th class="l">Ticker</th><th>Action</th><th>From</th><th>To</th><th>Δ</th><th>$</th><th title="กำไรที่ realize จาก avg cost">กำไร realize</th><th>ภาษี</th><th>ค่าเทรด</th><th class="l">Priority</th></tr></thead><tbody>
+      ${(reb.trades||[]).map(t=>`<tr><td class="l"><b>${t.ticker}</b></td><td><span class="tag" style="background:${t.action==='TRIM'?'#ea580c':'#0d9488'}">${t.action}</span></td><td>${pctFixed(t.from_pct)}</td><td>${pctFixed(t.to_pct)}</td><td>${pctFixed(t.amount_pct)}</td><td>${money(t.amount_usd)}</td><td>${t.action==='TRIM'?money(t.realized_gain_usd):'—'}</td><td>${money(t.tax_usd)}</td><td>${money(t.cost_usd)}</td><td class="l">${t.priority}</td></tr>`).join('')}
+      </tbody></table>
+      <div class="muted" style="font-size:calc(11px*var(--fs));margin-top:4px">เงินที่ไม่มีตัวไหนผ่านเกณฑ์รับ → cash ${pctFixed(reb.to_cash_pct)} · turnover ${pctFixed(c.turnover_pct)} · ภาษีกำไร ${money(c.tax_usd)} + ค่าเทรด ${money(c.trading_usd)} (S6)</div>${rule}`;
 }
 function capRiskHint(cv){const r=capRiskRows(cv);const big=r.filter(x=>x.diff!=null&&x.diff>=3).sort((a,b)=>b.diff-a.diff)[0];return big?`${big.ticker} ถือเงิน ${pctFixed(big.cap)} แต่สร้างความเสี่ยง ${pctFixed(big.risk)} (มากกว่าน้ำหนักเงิน +${big.diff}pp).`:'';}
 function hiddenConc(alloc,cv){
@@ -228,7 +263,7 @@ function panelLegend(m){
 }
 function drawRiskCharts(d){
   const al=d.allocation||{};
-  makePie('rcSleeve',al.by_sleeve||[]); makePie('rcCcy',al.by_currency||[]);
+  makePie('rcSleeve',al.by_sleeve||[]); makePie('rcCcy',foldSmall(al.by_currency||[]));
   const r=capRiskRows(d.capital_vs_risk||{}).slice(0,10);
   percentBarChart('rcCapRisk',r.map(x=>x.ticker),[
     {label:'%Capital',data:r.map(x=>x.cap),backgroundColor:'#94a3b8',maxBarThickness:9},

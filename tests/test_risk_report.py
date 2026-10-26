@@ -42,7 +42,7 @@ def _fake_provider(nmap):
 def test_realized_mode():
     tks = ["AAA", "BBB", "CCC"]
     payload, calls = risk_report.build(_store(tks), "", 0, 250, 20.0, 1.0, False,
-                                       fetch_returns=_fake_provider({}))
+                                       fetch_returns=_fake_provider({}), fetch_long=lambda t: {})
     assert payload["status"] == "ok"
     assert calls == 0
     co = payload["correlation"]
@@ -58,7 +58,7 @@ def test_mixed_mode_regression_060():
     """THE regression: one thin ticker must NOT drag every pair to 0.60."""
     tks = ["AAA", "BBB", "THIN"]
     payload, _ = risk_report.build(_store(tks), "", 0, 250, 20.0, 1.0, False,
-                                   fetch_returns=_fake_provider({"THIN": 0}))
+                                   fetch_returns=_fake_provider({"THIN": 0}), fetch_long=lambda t: {})
     co = payload["correlation"]
     assert co["meta"]["cov_mode"] == "mixed"
     assert co["meta"]["proxy_tickers"] == ["THIN"]
@@ -72,7 +72,7 @@ def test_mixed_mode_regression_060():
 def test_insufficient():
     payload, calls = risk_report.build({"holdings": {}, "facts": {}, "momentum": {}},
                                        "", 0, 250, 20.0, 1.0, False,
-                                       fetch_returns=_fake_provider({}))
+                                       fetch_returns=_fake_provider({}), fetch_long=lambda t: {})
     assert payload["status"] == "insufficient" and calls == 0
     print("insufficient OK")
 

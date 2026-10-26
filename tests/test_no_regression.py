@@ -48,6 +48,7 @@ def _patch_offline():
                 for t in tickers}
         return data, 0, {"cache": "test", "quota_degraded": False}
     app.risk_report.prices.fetch_returns = fake
+    app.risk_report.prices.fetch_long_returns = lambda *a, **kw: {}   # crisis history: offline too
 
 
 def test_existing_endpoint_contracts():

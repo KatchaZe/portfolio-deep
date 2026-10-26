@@ -6,6 +6,7 @@ import os
 import datetime as dt
 
 import config
+import store as store_mod
 from domain import momentum, philosophy, advice
 from pipeline import rows
 
@@ -124,9 +125,13 @@ def view(s):
     mom_meta = _momentum_meta(view_rows)
     tot_cost = sum(r["cost_basis"] or 0 for r in view_rows)
     tot_mv = sum(r["market_value"] or 0 for r in view_rows)
+    cash = store_mod.cash_usd(s)
     totals = {"cost_basis": round(tot_cost, 2), "market_value": round(tot_mv, 2),
               "pl": round(tot_mv - tot_cost, 2),
-              "pl_pct": round((tot_mv - tot_cost) / tot_cost * 100, 1) if tot_cost else None}
+              "pl_pct": round((tot_mv - tot_cost) / tot_cost * 100, 1) if tot_cost else None,
+              "cash": round(cash, 2), "cash_updated": (s.get("cash") or {}).get("updated"),
+              "total_value": round(tot_mv + cash, 2),
+              "cash_pct": round(cash / (tot_mv + cash) * 100, 1) if (tot_mv + cash) > 0 else None}
     mkt_ret = market.get("ret_12m")
     port_ret = weighted_trailing_return(view_rows)
     benchmark = {

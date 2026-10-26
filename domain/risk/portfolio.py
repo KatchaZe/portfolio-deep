@@ -148,9 +148,17 @@ def risk_contributions(tickers, weights_vec, cov):
 _GAP_DIVERSIFIERS = {"bond", "gold", "intl", "defensive", "cash"}
 
 
-def gap_coverage(weights, asset_class):
-    """Fraction (0..1) of the desirable non-equity-like diversifiers actually held."""
+INTL_REVENUE_MIN = 0.50        # a holding earning half its revenue abroad is international
+
+
+def gap_coverage(weights, asset_class, non_us_revenue=None):
+    """Fraction (0..1) of the desirable non-equity-like diversifiers actually held. An
+    operating company counts as 'intl' by where it EARNS (non-US revenue share), not
+    by its listing: a TSM ADR is a Taiwanese business."""
     have = set()
+    if any(w > 0 and (non_us_revenue or {}).get(t) is not None
+           and non_us_revenue[t] >= INTL_REVENUE_MIN for t, w in weights.items()):
+        have.add("intl")
     for t, w in weights.items():
         if w <= 0:
             continue
@@ -200,6 +208,7 @@ def diversification_score(dr_normal, dr_crisis, enb_abs, eff_n, n_holdings,
             "concentration": round(conc),
         },
         "band": _score_band(total),
+        "tag": "[JUDG] app heuristic (weights 35/30/20/15), not a Damodaran formula",
     }
 
 
@@ -220,19 +229,45 @@ def _hard_cap(w, arc, asset_class, single_name_cap, risk_share_cap, pricing_cap)
     return hard, binding
 
 
-def _sizing_action(w, hard, soft):
+SELL_RATINGS = ("SELL", "AVOID")
+ADD_MIN_NET_MOS = 0.15          # S4/S12: add only with a margin of safety that is "enough"
+
+
+def _sells(rating):
+    r = (rating or "").upper()
+    return any(k in r for k in SELL_RATINGS)
+
+
+def add_blocker(v, add_min_mos=ADD_MIN_NET_MOS):
+    """Why a holding may NOT be added to (None = it may): a SELL rating, no fair value,
+    or a margin of safety after trading cost and tax below the bar."""
+    v = v or {}
+    if _sells(v.get("rating")):
+        return f"rating {v.get('rating')}"
+    m = v.get("net_mos")
+    if m is None:
+        return "ไม่มี fair value"
+    if m < add_min_mos:
+        nu = v.get("net_upside_pct")
+        return (f"MoS หลังหักต้นทุน+ภาษี {m * 100:.1f}% < {add_min_mos * 100:.0f}%"
+                + (f" (net upside {nu:.1f}%)" if nu is not None else ""))
+    return None
+
+
+def _sizing_action(w, hard, soft, blocker=None):
     if w > hard * 1.001:
         return "TRIM"
     if w < soft * 0.5:
-        return "ADD ได้ (ถ้า thesis ยังดี)"
+        return "ADD ได้ (ถ้า thesis ยังดี)" if blocker is None else f"HOLD (ไม่เพิ่ม: {blocker})"
     return "HOLD"
 
 
 def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
-                    risk_share_cap=0.30, asset_class=None, pricing_cap=0.05):
+                    risk_share_cap=0.30, asset_class=None, pricing_cap=0.05, value=None):
     """Per holding: a soft/hard target band from the binding cap, current vs target,
-    and an action verdict. `sectors` and `sector_cap` are accepted, but no sector cap
-    is applied."""
+    and an action verdict. `value` ({ticker: {rating, net_mos}}) withholds "ADD" from a
+    name the valuation does not support; without it every name is judged on risk only
+    (legacy). `sectors` and `sector_cap` are accepted, but no sector cap is applied."""
     asset_class = asset_class or {}
     out = []
     for r in rc_rows:
@@ -241,6 +276,7 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
         ac = (asset_class.get(r["ticker"]) or "equity").lower()
         hard, binding = _hard_cap(w, arc, ac, single_name_cap, risk_share_cap, pricing_cap)
         soft = hard * 0.8
+        blocker = add_blocker((value or {}).get(r["ticker"])) if value is not None else None
         out.append({
             "ticker": r["ticker"],
             "current_pct": round(w * 100, 1),
@@ -248,47 +284,113 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
             "hard_max_pct": round(hard * 100, 1),
             "binding_cap": binding,
             "abs_risk_share_pct": r.get("abs_risk_share_pct"),
-            "action": _sizing_action(w, hard, soft),
+            "add_blocker": blocker,
+            "action": _sizing_action(w, hard, soft, blocker),
         })
     return out
 
 
-def rebalance(weights, sizing_rows, min_cash_pct=0.0):
-    """Trim over-cap names to their hard cap, hand the freed weight to names below their
-    soft max in proportion to their room, renormalize. Capital-only: the caller re-runs
-    the full risk engine on the proposed weights."""
-    proposed = dict(weights)
-    trades = []
-    freed = 0.0
+def _trade_costs(t, cut_w, side, value, total_value, cost_bps):
+    """(dollars, realized gain, tax, trading cost) of moving weight `cut_w` of the
+    whole portfolio. The round-trip bps is split over the two sides; tax falls only on
+    a sale's gain over the average cost."""
+    v = (value or {}).get(t) or {}
+    dollars = cut_w * (total_value or 0)
+    cost = dollars * (cost_bps or 0) / 2 / 10000.0
+    gain = tax = 0.0
+    price, avg = v.get("price"), v.get("avg_cost")
+    if side == "sell" and price and avg and price > 0:
+        gain = (price - avg) * (dollars / price)
+        tax = max(gain, 0.0) * (v.get("tax_rate") or 0.0)
+    return round(dollars, 2), round(gain, 2), round(tax, 2), round(cost, 2)
+
+
+def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
+              total_value=None, cost_bps=0, add_min_mos=ADD_MIN_NET_MOS):
+    """Trim over-cap names to their hard cap and SELL-rated names above their soft max.
+    With `value` the freed weight goes only to names whose margin of safety after cost
+    and tax clears `add_min_mos`, in proportion to that MoS and within each name's soft
+    max; what nobody can take stays CASH (S35: no diluting into names the valuation
+    does not back; S6: fewer trades). Without `value` the legacy risk-only spread is
+    kept. `weights` are of the invested book and are scaled to the WHOLE portfolio
+    (cash = `cash_frac`); the caps in `sizing_rows` must already be on that whole-
+    portfolio basis, or cash freed by one run lifts every name over its cap on the next.
+    Every trade carries its dollars, realized gain, tax and trading cost."""
+    scale = 1.0 - (cash_frac or 0.0)
+    cur = {t: w * scale for t, w in weights.items()}
+    proposed = dict(cur)
+    trades, freed = [], 0.0
     for s in sizing_rows:
         t = s["ticker"]
-        cur = weights.get(t, 0.0)
+        w = cur.get(t, 0.0)
         cap = (s["hard_max_pct"] or 100) / 100.0
-        if cur > cap + 1e-6:
-            cut = cur - cap
-            proposed[t] = cap
+        soft = (s["soft_max_pct"] or 100) / 100.0
+        target, why = None, None
+        if w > cap + 1e-6:
+            target, why = cap, "Must"
+        elif value is not None and _sells(((value or {}).get(t) or {}).get("rating")) and w > soft + 1e-6:
+            target, why = soft, "Should (rating SELL)"
+        if target is not None:
+            cut = w - target
+            proposed[t] = target
             freed += cut
-            trades.append({"ticker": t, "action": "TRIM",
-                           "from_pct": round(cur * 100, 1), "to_pct": round(cap * 100, 1),
-                           "amount_pct": round(cut * 100, 1), "priority": "Must"})
+            trades.append({"ticker": t, "action": "TRIM", "from_pct": round(w * 100, 1),
+                           "to_pct": round(target * 100, 1), "amount_pct": round(cut * 100, 1),
+                           "priority": why, "_w": cut, "_side": "sell"})
+    to_cash = 0.0
     if freed > 1e-6:
-        room = [(s["ticker"], (s["soft_max_pct"] or 0) / 100.0 - proposed.get(s["ticker"], 0))
-                for s in sizing_rows]
-        room = [(t, r) for t, r in room if r > 0]
-        room_tot = sum(r for _, r in room)
-        for t, r in room:
-            add = freed * (r / room_tot) if room_tot else 0
+        if value is None:                     # legacy: spread over every name with room
+            room = {s["ticker"]: (s["soft_max_pct"] or 0) / 100.0 - proposed.get(s["ticker"], 0)
+                    for s in sizing_rows}
+            room = {t: r for t, r in room.items() if r > 0}
+            score = {t: r for t, r in room.items()}
+        else:
+            room, score = {}, {}
+            for s in sizing_rows:
+                t = s["ticker"]
+                if add_blocker((value or {}).get(t), add_min_mos) is None:
+                    r = (s["soft_max_pct"] or 0) / 100.0 - proposed.get(t, 0)
+                    if r > 0:
+                        room[t], score[t] = r, value[t]["net_mos"]
+        left = freed
+        while left > 1e-9 and room:           # water-fill in proportion to the score
+            tot = sum(score[t] for t in room)
+            if tot <= 0:
+                break
+            give = {t: min(room[t], left * score[t] / tot) for t in room}
+            for t, g in give.items():
+                proposed[t] = proposed.get(t, 0) + g
+                room[t] -= g
+                left -= g
+            room = {t: r for t, r in room.items() if r > 1e-9}
+        for t in sorted(proposed, key=lambda x: -(proposed[x] - cur.get(x, 0))):
+            add = proposed[t] - cur.get(t, 0)
             if add > 1e-6:
-                proposed[t] = proposed.get(t, 0) + add
-                trades.append({"ticker": t, "action": "ADD",
-                               "from_pct": round(weights.get(t, 0) * 100, 1),
-                               "to_pct": round(proposed[t] * 100, 1),
-                               "amount_pct": round(add * 100, 1), "priority": "Should"})
-    tot = sum(proposed.values())
-    if tot > 0:
-        proposed = {t: w / tot for t, w in proposed.items()}
+                trades.append({"ticker": t, "action": "ADD", "from_pct": round(cur.get(t, 0) * 100, 1),
+                               "to_pct": round(proposed[t] * 100, 1), "amount_pct": round(add * 100, 1),
+                               "priority": "Should", "_w": add, "_side": "buy"})
+        if value is None:                     # legacy renormalizes over the invested book
+            tot = sum(proposed.values())
+            proposed = {t: w / tot * scale for t, w in proposed.items()} if tot > 0 else proposed
+        else:
+            to_cash = max(0.0, left)
+    tax = cost = 0.0
+    for tr in trades:
+        d, g, tx, c = _trade_costs(tr["ticker"], tr.pop("_w"), tr.pop("_side"), value,
+                                   total_value, cost_bps)
+        tr.update({"amount_usd": d, "realized_gain_usd": g, "tax_usd": tx, "cost_usd": c})
+        tax += tx
+        cost += c
+    cash_after = (cash_frac or 0.0) + to_cash
     return {
         "no_trade": len(trades) == 0,
         "proposed_weights": {t: round(w, 4) for t, w in proposed.items()},
+        "cash_pct_after": round(cash_after * 100, 1),
+        "to_cash_pct": round(to_cash * 100, 1),
         "trades": trades,
+        "costs": {"tax_usd": round(tax, 2), "trading_usd": round(cost, 2),
+                  "total_usd": round(tax + cost, 2),
+                  "turnover_pct": round(sum(t["amount_pct"] for t in trades) / 2, 1)},
+        "rule": (None if value is None else
+                 f"ADD เฉพาะ MoS หลังหักต้นทุน+ภาษี ≥ {add_min_mos * 100:.0f}% ตามสัดส่วน MoS · ที่เหลือเป็น cash"),
     }

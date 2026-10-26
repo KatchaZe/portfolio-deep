@@ -74,7 +74,7 @@ function cardHead(x,watch){
 const CARD_GRID='display:grid;grid-template-columns:repeat(auto-fit,minmax(calc(330px*var(--fs)),1fr));gap:12px';
 function renderPortfolio(d){
   // Allocation and the Risk Desk read this for Portfolio MoS, the story and the cash stance
-  window.__last={rows:d.rows||[],market:d.market,benchmark:d.benchmark,philosophy:d.philosophy};
+  window.__last={rows:d.rows||[],market:d.market,benchmark:d.benchmark,philosophy:d.philosophy,totals:d.totals||{}};
   renderMomBanner(d.momentum_meta);
   renderAssumptions(d.market);
   renderMarket(d.market);
@@ -87,7 +87,19 @@ function renderPortfolio(d){
 }
 function portfolioTotals(t){
   const pl=t.pl==null?MUTED_DASH:`<b class="${t.pl>=0?'up':'down'}">${t.pl>=0?'+':''}${money(Math.abs(t.pl))} ${upDownPct(t.pl_pct)}</b>`;
-  return `<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:calc(13px*var(--fs))"><div><span class="muted" style="font-size:calc(11px*var(--fs))">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:calc(11px*var(--fs))">P/L</span> ${pl}</div></div>`;
+  const cash=t.cash?`<div><span class="muted" style="font-size:calc(11px*var(--fs))">Cash</span> <b>${money(t.cash)}</b> <span class="muted" style="font-size:calc(11px*var(--fs))">(${t.cash_pct}% · ${esc(t.cash_updated||'')})</span></div><div><span class="muted" style="font-size:calc(11px*var(--fs))">Total</span> <b>${money(t.total_value)}</b></div>`:'';
+  return `<div style="display:flex;gap:18px;flex-wrap:wrap;background:#f8fafc;border:1px solid #e2e8f0;border-radius:10px;padding:10px 14px;margin-bottom:10px;font-size:calc(13px*var(--fs))"><div><span class="muted" style="font-size:calc(11px*var(--fs))">Market value</span> <b>${money(t.market_value)}</b></div><div><span class="muted" style="font-size:calc(11px*var(--fs))">P/L</span> ${pl}</div>${cash}</div>`;
+}
+async function saveCash(){
+  const v=document.getElementById('cashIn').value, sp=document.getElementById('spCash'), msg=document.getElementById('addMsg');
+  if(v===''||Number(v)<0){msg.textContent='ใส่ยอด cash เป็น USD (0 ขึ้นไป)';return;}
+  sp.style.display='inline-block';
+  try{
+    const r=await fetch('/api/cash?usd='+encodeURIComponent(v),{method:'POST'}); const d=await r.json();
+    if(!r.ok){msg.textContent='✗ '+((d&&(d.detail||d.error))||r.status);return;}
+    renderPortfolio(d.view); __riskCache=null; msg.textContent='✓ cash $'+Number(v).toLocaleString()+' saved';
+    document.getElementById('cashIn').value='';
+  }catch(e){msg.textContent='✗ '+e}finally{sp.style.display='none'}
 }
 
 async function addHolding(){

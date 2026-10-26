@@ -31,7 +31,9 @@ _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
             "momentum": {}, "fmp_usage": {}, "updated": {},
             "rev_snapshots": {}, "rev_surprises": {},
             # manual monthly ERP / MARKET_PE from the dashboard form
-            "assumptions": {}}
+            "assumptions": {},
+            # uninvested cash in USD, entered by hand (the Risk Desk's whole-portfolio view)
+            "cash": {}}
 
 _PER_TICKER = ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises",
                "refreshed_at", "skipped")
@@ -189,6 +191,27 @@ def set_holding(s, ticker, shares=None, avg_cost=None):
     if avg_cost is not None:
         h["avg_cost"] = float(avg_cost)
     return h
+
+
+CASH_MAX = 1e9
+
+
+def set_cash(s, usd):
+    """Record the uninvested cash (USD). Raises ValueError outside 0..CASH_MAX."""
+    usd = float(usd)
+    if not (0 <= usd <= CASH_MAX):
+        raise ValueError(f"cash must be between 0 and {CASH_MAX:,.0f} USD")
+    store_sync.mark_local_edit()
+    s["cash"] = {"usd": round(usd, 2), "updated": today()}
+    return s["cash"]
+
+
+def cash_usd(s):
+    """The stored cash in USD (0 when none was entered)."""
+    try:
+        return max(0.0, float((s.get("cash") or {}).get("usd") or 0))
+    except (TypeError, ValueError):
+        return 0.0
 
 
 def remove_holding(s, ticker):

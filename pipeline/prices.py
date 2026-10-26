@@ -24,6 +24,7 @@ from sources import yahoo, stooq, fmp, gdrive_store
 from pipeline import batch
 from pipeline import pricecache
 from domain import momentum
+from domain import pricing
 from domain import risk
 
 log = logging.getLogger("portfolio.prices")
@@ -331,9 +332,12 @@ def _fetch_one(ticker, fmp_key, may_use_fmp, days):
 
 
 def _returns_record(series, source):
-    """One risk-desk entry from a (closes, dates) series, or the empty proxy entry."""
-    rets = risk.daily_returns(series["closes"]) if series else []
-    dates = (series or {}).get("dates") or []
+    """One risk-desk entry from a (closes, dates) series, or the empty proxy entry.
+    Today's partial bar is dropped first (the T-1 rule), as the valuation does."""
+    closes, dates = ((series or {}).get("closes") or []), ((series or {}).get("dates") or [])
+    closes, dates = pricing.completed_bars(closes, dates)[:2]
+    rets = risk.daily_returns(closes) if series else []
+    dates = list(dates or [])
     # Carry the DATE of every return: pairing series by position turns a one-bar
     # source lag into a lag-1 cross-correlation. daily_returns() emits one return
     # per price gap, so the return dates are the close dates minus the first.
@@ -348,6 +352,33 @@ def _returns_record(series, source):
         "as_of": dates[-1] if dates else None,
         "n": len(rets),
     }
+
+
+LONG_MIN_BARS = 780        # ~3 years; 5y is what momentum already caches
+
+
+def fetch_long_returns(tickers, fmp_key="", allow_fetch=True):
+    """{ticker: (returns, dates)} over the longest history on disk (momentum caches ~5y
+    of adjusted closes per holding), today's partial bar dropped. Only the market (SPY),
+    which defines the crisis days, is fetched when short, from free sources (never an
+    FMP call); a short holding uses what Run Daily cached, and the caller reports how
+    many crisis days each pair shared."""
+    out = {}
+    for t in tickers:
+        pc = pricecache.read_any(t)
+        if allow_fetch and t == "SPY" and _bars(pc) < LONG_MIN_BARS:
+            try:
+                pc = fetch_daily_adjusted(t, "", rng="5y", full_bars=LONG_MIN_BARS) or pc
+            except Exception as e:
+                log.info("%s long history unavailable (%s); using %d bars", t, e, _bars(pc))
+        if not pc:
+            continue
+        closes, dates = pricing.completed_bars(pc.get("closes") or [], pc.get("dates") or [])[:2]
+        rets = risk.daily_returns(closes)
+        rd = list(dates[1:]) if len(dates) == len(closes) and len(rets) == len(closes) - 1 else []
+        if rets and rd:
+            out[t] = (rets, rd)
+    return out
 
 
 def _local_good(key, tickers):
