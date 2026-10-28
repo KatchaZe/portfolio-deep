@@ -122,8 +122,8 @@ function renderRisk(d){
     ${secHTML(3,'Capital Weight vs Risk Weight',esc(m.cov_tag||''),capitalVsRiskHTML(cv),'s6')}
     ${secHTML(4,'Concentration Map','[CALC]',concentrationHTML(d,cv),'s6')}
     ${secHTML(5,'Stress Test','[JUDG-SCENARIO] ภาพประกอบ ไม่ใช่การพยากรณ์',stressHTML(d),'s6')}
-    ${secHTML('5b','Downside Risk (S2/S4)','[CALC]',downsideHTML(d),'s6')}
-    ${secHTML(6,'Suitability (headline finding)','',suitabilityHTML(d),'s6')}
+    ${secHTML('5b','Downside Risk (S2/S4)','[CALC]',downsideHTML(d),'s8')}
+    ${secHTML(6,'Suitability (headline finding)','',suitabilityHTML(d),'s4')}
     ${secHTML(7,'Rebalancing Plan','[CALC]',rebalanceHTML(d,cv))}
     ${secHTML(null,'Bottom line','',panelExplain(d)+panelLegend(m))}</div>`;
 }
@@ -195,9 +195,8 @@ function downsideHTML(d){
   const beta=s.port_beta, dnb=dn.downside_beta;
   const asym=(dnb!=null&&beta!=null&&Number(dnb)>Number(beta));
   const pair=(la,fa,lb,fb)=>`<div class="pairk"><div><span class="cap">${la}</span><b>${fa}</b></div><span aria-hidden="true">&rarr;</span><div><span class="cap">${lb}</span><b class="warnc">${fb}</b></div></div>`;
-  return pair('Vol',pctFixed(dn.vol_pct),'Downside dev',pctFixed(dn.semidev_pct))+pair('β',beta??'—','Downside β',dnb??'—')
+  return `<div class="dnrow"><div>${pair('Vol',pctFixed(dn.vol_pct),'Downside dev',pctFixed(dn.semidev_pct))+pair('β',beta??'—','Downside β',dnb??'—')}</div>${kpisHTML([['Sortino',dn.sortino??'—'],portMoSCard()])}</div>`
     +(asym?'<p class="note warnc" style="margin:2px 0 0">&#9888; downside &beta; &gt; &beta; — พอร์ตนี้ "ขาลงแรงกว่าขาขึ้น"</p>':'')
-    +kpisHTML([['Sortino',dn.sortino??'—'],portMoSCard()])
     +`<p class="note" style="margin:6px 0 0">${esc(dn.tag||'')} · วัดความเสี่ยง “ขาลง” แยกจากความผันผวนรวม — Sortino สูง=ดี · downside β = แรงตกเทียบ S&amp;P เฉพาะวันตลาดลง (${dn.n||0} วัน)</p>${rateLine}${pricingLine}`;
 }
 function suitabilityHTML(d){

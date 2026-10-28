@@ -296,6 +296,8 @@ svg.ch text.bull{fill:color-mix(in srgb,var(--bull) 72%,var(--ink))} svg.ch text
 .pairk{display:flex;align-items:center;gap:12px;margin:6px 0;font-size:var(--t-sm);flex-wrap:wrap}
 .pairk>div{display:grid;background:var(--sunken);border:1px solid var(--line);border-radius:var(--r-sm);padding:6px 10px;min-width:110px}
 .pairk b{font-size:var(--t-lg);font-family:var(--f-num)}
+.dnrow{display:grid;grid-template-columns:auto 1fr;gap:12px;align-items:start}
+@media (max-width:700px){.dnrow{grid-template-columns:1fr}}
 .suit .t{height:16px}
 .suit .lim{position:absolute;top:-4px;bottom:-4px;width:3px;background:var(--mark);border-radius:2px}
 .story{border:1px solid var(--line);border-radius:var(--r-sm);overflow:hidden}
@@ -325,7 +327,15 @@ svg.ch text.bull{fill:color-mix(in srgb,var(--bull) 72%,var(--ink))} svg.ch text
 @media (max-width:900px){.pillars{grid-template-columns:minmax(0,1fr)}}
 
 /* How to / Ref */
-.prose{font-size:var(--t-sm);line-height:1.75;max-width:calc(1000px*var(--fs))}
+.prose{font-size:var(--t-sm);line-height:1.75}
+.prose>p{max-width:120ch}
+.htfig{position:relative;margin:8px 0 2px;padding:14px;border:1px solid var(--line);border-radius:var(--r);background:var(--sunken);overflow:hidden}
+.htstage{pointer-events:none;user-select:none;position:absolute;left:14px;top:14px;transform-origin:0 0}
+.htstage .card{max-width:none}
+.htmark{position:absolute;z-index:2;min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:var(--ink);color:var(--surface);font:700 12px/22px var(--f-num);text-align:center;box-shadow:0 0 0 2px var(--surface),0 1px 3px rgba(0,0,0,.35)}
+.htph{padding:18px;text-align:center;color:var(--muted);font-size:var(--t-sm)}
+.htcap{margin:0 0 8px;font-size:var(--t-xs);color:var(--muted)}
+.heat.heatw{width:100%}
 .ht{font-size:var(--t-lg);margin:6px 0 4px}
 .ht2{font-size:var(--t-md);margin:20px 0 6px;color:var(--ink)}
 .httab{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:4px 0 10px;table-layout:fixed}

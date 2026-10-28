@@ -176,14 +176,14 @@ function priceVsValueGauge(x){
   const lo=Math.min(bear??base,bull??base), up=Math.max(bear??base,bull??base);
   const ratio=x.price&&base?x.price/base:null;
   return `<div class="value">
-      <div><div class="cap">Margin of safety</div><div class="mosbig ${upcls(mos)}" title="(Fair value − ราคา) / Fair value">${mos==null?'–':sgn(mos,1)}</div></div>
+      <div><div class="cap">Margin of safety</div><div class="mosbig ${upcls(mos)}" title="(Fair value − ราคา) / Fair value${mos!=null?' = '+sgn(mos,1):''}">${mos==null?'–':mos<-100?'&lt; −100%':sgn(mos,1)}</div></div>
       <div class="fvbox"><div class="cap">Fair value · ${esc(meth)}</div><b>${usd(base)}</b>${consensusBadge(x)}
-        <div class="note" title="upside = (FV − ราคา)/ราคา · net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">upside ${sgn(x.upside_pct)} · net ${sgn(x.net_upside_pct)}${mos!=null&&mos<-200&&ratio?` · ราคา ${nf(ratio,1)}× FV`:''}</div></div></div>
+        <div class="note" title="upside = (FV − ราคา)/ราคา · net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">upside ${sgn(x.upside_pct)} · net ${sgn(x.net_upside_pct)}${mos!=null&&mos<-100&&ratio?` · ราคา ${nf(ratio,1)}× FV`:''}</div></div></div>
     <div class="scale" role="img" aria-label="${esc(`ราคา ${usd(x.price)} เทียบช่วงมูลค่า Bear ${usd(bear)} ถึง Bull ${usd(bull)} และ Fair value ${usd(base)}`)}">
       <div class="tr"></div><div class="band" style="left:${at(lo)}%;width:${Math.max(.8,at(up)-at(lo))}%"></div>
       <div class="tick" style="left:${at(base)}%" title="Fair value ${usd(base)}"></div>
       <div class="pm" style="left:${at(x.price)}%" title="ราคา ${usd(x.price)}"></div></div>
-    <div class="scalelab"><span><i class="lg band"></i>${c?'Bear':'low'} <b>${usd(bear,0)}</b> – ${c?'Bull':'high'} <b>${usd(bull,0)}</b></span><span><i class="lg fv"></i>FV <b>${usd(base,0)}</b></span><span><i class="lg px"></i>ราคา <b>${usd(x.price,0)}</b></span></div>`;
+    <div class="scalelab"><span><i class="lg band"></i>${c?'Bear':'low'} <b>${usd(bear,0)}</b> – ${c?'Bull':'high'} <b>${usd(bull,0)}</b></span><span><i class="lg fv"></i>FV <b>${usd(base,0)}</b></span><span><i class="lg px"></i>ราคา <b>${usd(x.price,0)}</b></span></div>${(x.scenarios||{}).growth_destroys_value?`<div class="note warnc">Bear สูงกว่า Base: ที่ margin นี้ยิ่งโตยิ่งเสียมูลค่า (ใช้เงินลงทุนมากกว่าที่สร้าง)</div>`:''}`;
 }
 const VERDICT_TOK={Plausible:'--bull',Ambitious:'--warn',Aggressive:'--bear',Exceptional:'--bear'};
 function impliedVsActualBars(x){
@@ -264,14 +264,14 @@ function placeLabels(list,obs){
 // seeded). The bars are the value histogram; the dark line is the price.
 function storyMcBlock(mc,px){
   if(!mc||!mc.bins||!mc.bins.length)return '';
-  const W=460,H=190,L=10,R=10,B=158,T=14, w=mc.bin_width||1, span=w*mc.bins.length, hiX=Math.max(span,px||0)*1.04;
+  const W=460,H=190,L=10,R=10,B=158,T=34, w=mc.bin_width||1, span=w*mc.bins.length, hiX=Math.max(span,px||0)*1.04;
   const x=v=>L+(W-L-R)*v/hiX, top=Math.max(...mc.bins)||1;
   let s=mc.bins.map((c,i)=>{const h=(B-T)*c/top;return `<rect x="${(x(i*w)+.5).toFixed(1)}" y="${(B-h).toFixed(1)}" width="${Math.max(1,x((i+1)*w)-x(i*w)-1).toFixed(1)}" height="${h.toFixed(1)}" fill="var(--accent)" opacity="${(i+.5)*w>=(px||0)?.9:.45}"/>`}).join('');
   s+=`<line x1="${L}" x2="${W-R}" y1="${B}" y2="${B}" stroke="var(--line)"/>`;
   const st=niceStep(hiX/5); for(let t=0;t<=hiX;t+=st)s+=`<text x="${x(t)}" y="${B+14}" text-anchor="middle">${usd(t,0)}</text>`;
   if(mc.p10!=null&&mc.p90!=null)s+=`<rect x="${x(mc.p10)}" y="${B+2}" width="${Math.max(1,x(mc.p90)-x(mc.p10))}" height="3" fill="var(--bull)" opacity=".55"/>`;
-  if(mc.p50!=null){const a=x(mc.p50)>W*0.6?'end':'start';s+=`<line x1="${x(mc.p50)}" x2="${x(mc.p50)}" y1="${T}" y2="${B}" stroke="var(--bull)" stroke-dasharray="4 3" stroke-width="1.5"/><text x="${x(mc.p50)+(a==='end'?-5:5)}" y="${T+44}" text-anchor="${a}" class="bull">p50 ${usd(mc.p50)}</text>`;}
-  if(px){const a=x(px)>W*0.7?'end':'start';s+=`<line x1="${x(px)}" x2="${x(px)}" y1="${T-4}" y2="${B}" stroke="var(--mark)" stroke-width="2.5"/><text x="${x(px)+(a==='end'?-5:5)}" y="${T+6}" text-anchor="${a}" class="strong">ราคา ${usd(px)}</text>`;}
+  if(mc.p50!=null){const a=x(mc.p50)>W*0.6?'end':'start';s+=`<line x1="${x(mc.p50)}" x2="${x(mc.p50)}" y1="${T}" y2="${B}" stroke="var(--bull)" stroke-dasharray="4 3" stroke-width="1.5"/><text x="${x(mc.p50)+(a==='end'?-5:5)}" y="${T-6}" text-anchor="${a}" class="bull">p50 ${usd(mc.p50)}</text>`;}
+  if(px){const a=x(px)>W*0.7?'end':'start';s+=`<line x1="${x(px)}" x2="${x(px)}" y1="${T-22}" y2="${B}" stroke="var(--mark)" stroke-width="2.5"/><text x="${x(px)+(a==='end'?-5:5)}" y="${T-22}" text-anchor="${a}" class="strong">ราคา ${usd(px)}</text>`;}
   const share=Math.round((mc.prob_above_price||0)*100);
   const story=mc.story||{}, mg=story.margin_pct||[];
   return `<div class="box"><h3>Story Monte Carlo <span class="note">${nf(mc.n||1000,0)} แบบ</span></h3>

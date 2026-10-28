@@ -27,6 +27,7 @@ app.py mounts this directory at `/static`. `index.html` holds the markup only an
 | `js/risk.js` | the Risk Desk (Allocation tab) |
 | `js/correlation.js` | the Correlation tab |
 | `js/watchlist.js` | the Watchlist tab |
+| `js/howto_figs.js` | the How to figures: inert copies of the live components with numbered markers that match each table |
 | `js/app.js` | tabs (arrow keys), theme toggle, tools panel state, build stamp (`DASH_BUILD`), persistence badge, keep-alive, boot |
 
 Bump `DASH_BUILD` in `js/app.js` together with `config.BUILD`. Tests read the frontend

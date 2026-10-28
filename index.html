@@ -163,6 +163,8 @@
       <h3 class="ht2">1) Card ของหุ้นรายตัว (My Portfolio / Watchlist)</h3>
       <p>การ์ดแต่ละใบตอบ 4 คำถามตามลำดับ Damodaran ก่อนจะต้องกดอะไร: <b>ราคาต่ำกว่ามูลค่าไหม</b> &rarr; <b>ธุรกิจดีแค่ไหน</b> &rarr; <b>เราถืออยู่เท่าไร</b> &rarr; <b>ควรทำอะไรตอนนี้</b>. รายละเอียดทั้งหมดอยู่ในปุ่ม <b>รายละเอียด</b> ใต้การ์ด กดแล้วการ์ดขยายเต็มแถว แบ่งเป็น 5 แท็บย่อย</p>
       <p>เหนือการ์ดมี <b>แถบสรุปพอร์ต</b> (มูลค่าพอร์ต · กำไร/ขาดทุน · เทียบ S&amp;P · กราฟ MoS รายตัว กดชื่อเพื่อไปที่การ์ด · น้ำหนักตาม rating · Portfolio MoS) และ <b>แถบเครื่องมือ</b> สำหรับค้นหา ticker, กรอง BUY/HOLD/SELL และเรียงลำดับ (MoS · น้ำหนัก · คะแนน DEEP · P/L · ticker) ค่าที่เลือกถูกจำไว้ในเบราว์เซอร์</p>
+      <figure class="htfig" id="htfig1"></figure>
+      <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
         <tr><th style="width:34px">#</th><th>ส่วนบนการ์ด</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
         <tr><td><b>1</b></td><td><b>หัวการ์ด</b></td><td>จุดสี (confidence ของข้อมูล เขียว &ge;80 / เหลือง &ge;50 / แดง &lt;50) · ticker · ป้าย rating · ชื่อบริษัท · sector · ราคาปิด T-1 และ %เปลี่ยนวันล่าสุด · ปุ่ม &times; ลบ</td><td>ป้ายใต้ชื่อ: &#9873;n = จำนวน data flags (ชี้ดู) · Moat = ROIC−WACC spread · EQ = earnings quality · GARP · BOND / PRICING ASSET สำหรับสินทรัพย์ไม่มีกระแสเงินสด</td></tr>
@@ -183,6 +185,8 @@
       </table>
 
       <h3 class="ht2">2) Top header + Command strip (แถบบนของทุกแท็บ)</h3>
+      <figure class="htfig" id="htfig2"></figure>
+      <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
         <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร / ตีความ</th></tr>
         <tr><td><b>1</b></td><td><b>Drive badge</b></td><td>สถานะ backup ขึ้น Google Drive — ✓ ปกติ · ✗ มีปัญหา (ชี้ดูสาเหตุ) · ระบบจะ <b>บล็อกการ push</b> จนกว่า pull สำเร็จ เพื่อกัน store ว่างไปทับ backup ดี (data-loss guard)</td></tr>
@@ -200,6 +204,8 @@
       </table>
 
       <h3 class="ht2">3) หน้า Allocation — ส่วนบน (Cash stance · GARP screen · Risk Desk controls · Portfolio Story)</h3>
+      <figure class="htfig" id="htfig3"></figure>
+      <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
         <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
         <tr><td><b>1</b></td><td><b>Cash stance (S32/33)</b></td><td>สะพานจาก market overlay สู่หน้า Allocation: ตลาด CHEAP/FAIR/EXPENSIVE &rarr; ควรถือ cash มากขึ้น/เท่าเดิม/น้อยลง</td><td>เป็น tilt เบา ๆ ผ่าน allocation ไม่ใช่สวิตช์เข้า-ออกตลาด (S34 บอกว่าแบบนั้นล้มเหลว)</td></tr>
@@ -211,6 +217,8 @@
       </table>
 
       <h3 class="ht2">4) หน้า Allocation — Risk Desk ส่วน 1–7 (กราฟแต่ละตัวอ่านอย่างไร)</h3>
+      <figure class="htfig" id="htfig4"></figure>
+      <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
         <tr><th style="width:34px">#</th><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
         <tr><td><b>1</b></td><td><b>1 &middot; Portfolio Snapshot</b></td><td>มูลค่าพอร์ต, จำนวนตัว, Est. Vol (annual), Severe drawdown, β, Diversification /100 + DR normal/crisis</td><td>Vol ~15–20% = โซนหุ้นล้วน · Severe drawdown คือ "ถ้าเกิด scenario เลวร้ายสุดซ้ำ" — เทียบกับ Max loss ที่ตั้งไว้ · β&gt;1.3 = แรงกว่าตลาดมาก · Diversification &ge;60 ดี, &lt;40 = กระจุก · DR crisis ใกล้ 1 = การกระจายแทบไม่ช่วยตอนวิกฤต</td></tr>
@@ -229,6 +237,8 @@
 
       <h3 class="ht2">5) หน้า Correlation — พอร์ต balance หรือกระจุก (Damodaran S2&ndash;4 &middot; S35&ndash;41)</h3>
       <p class="muted">กด &ldquo;Run correlation&rdquo; ครั้งเดียว (แชร์ payload เดียวกับแท็บ Allocation — โหลดครั้งเดียวใช้สองแท็บ &middot; cache รายวันเก็บเฉพาะข้อมูลดี ตัวที่ดึงพลาดจะ retry ให้ตอนกด Run ซ้ำ) แล้วสลับปุ่ม <b>Normal / Crisis</b> เพื่อดูว่าการกระจาย &ldquo;หายไป&rdquo; แค่ไหนตอนวิกฤต &middot; ใช้ราคาย้อนหลัง (pricecache/Yahoo &rarr; FMP &rarr; Stooq — หุ้นใหม่ที่ยังไม่มี cache จะดึง Yahoo ตรงให้เอง)</p>
+      <figure class="htfig" id="htfig5"></figure>
+      <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
         <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>ตีความ (Damodaran)</th></tr>
         <tr><td><b>A</b></td><td><b>Diversification Philosophy</b> (การ์ดม่วง)</td><td>gauge <b>ENB&divide;Eff N</b> + <b>Fragility &Delta;ENB</b> + avg corr &middot; 6 เสา (โครงสร้าง/ตัวขับ/ความเปราะ/ตัวถ่วง/beta honesty/action) &middot; story ไทย &middot; ตาราง A1 %Cap vs %Risk</td><td>สรุปเชิงปรัชญาราย &ldquo;พอร์ต&rdquo; &middot; ENB&divide;EffN &lt;0.5 = correlation กินการกระจาย &middot; A1 แดง = หุ้นที่ %risk เกิน %capital = ตัวขับความเสี่ยงจริง (S2/S4 marginal)</td></tr>
@@ -456,6 +466,7 @@
 <script src="/static/js/risk.js"></script>
 <script src="/static/js/correlation.js"></script>
 <script src="/static/js/watchlist.js"></script>
+<script src="/static/js/howto_figs.js"></script>
 <script src="/static/js/app.js"></script>
 </body>
 </html>

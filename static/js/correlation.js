@@ -113,16 +113,17 @@ function corrBenchHTML(co){
   const pv=(o)=>o?(mode==='crisis'?o.crisis:o.normal):null;
   const star=(o)=>(mode==='crisis'&&o&&o.crisis_measured===false)?'*':'';
   const chips=hbarsHTML(refs.map(r=>{const o=(b.portfolio||{})[r.sym];return {l:`${r.name} · ${r.sym}`,v:pv(o),tok:'--c1',star:star(o)};}),{max:1,fmt:(v,x)=>plainNum(v,2)+x.star,label:'correlation พอร์ตกับ benchmark'});
-  let hb=`<thead><tr><th scope="col"><span class="sr">ticker</span></th>${refs.map(r=>`<th scope="col" class="vh"><span>${esc(r.sym)}</span></th>`).join('')}</tr></thead><tbody>`;
-  order.forEach(t=>{hb+=`<tr><th scope="row" class="num">${esc(t)}</th>${refs.map(r=>corrCell(pv(((b.holdings||{})[t]||{})[r.sym]))).join('')}</tr>`;});
+  // benchmarks down the side, holdings across (same order as the heatmap) so the table runs wide
+  let hb=`<thead><tr><th scope="col"><span class="sr">benchmark</span></th>${order.map(t=>`<th scope="col" class="vh"><span>${esc(t)}</span></th>`).join('')}</tr></thead><tbody>`;
+  refs.forEach(r=>{hb+=`<tr><th scope="row" class="num" title="${esc(r.name)}">${esc(r.sym)}</th>${order.map(t=>corrCell(pv(((b.holdings||{})[t]||{})[r.sym]))).join('')}</tr>`;});
   hb+='</tbody>';
   let rr=`<thead><tr><th scope="col"><span class="sr">asset</span></th>${refs.map(r=>`<th scope="col" class="vh"><span>${esc(r.sym)}</span></th>`).join('')}</tr></thead><tbody>`;
   refs.forEach(a=>{rr+=`<tr><th scope="row" class="num">${esc(a.sym)}</th>`+refs.map(bb=>{if(a.sym===bb.sym)return '<td class="diag">1.00</td>';const key=(b.refref||{})[a.sym+'-'+bb.sym]||(b.refref||{})[bb.sym+'-'+a.sym];return corrCell(pv(key));}).join('')+'</tr>';});
   rr+='</tbody>';
   return `<section class="pnl s12" aria-labelledby="hBench"><div class="phead"><h2 id="hBench">Benchmark &amp; Asset-Class Correlation <span class="note">S&amp;P 500 · Nasdaq-100 · Gold · Bitcoin (IBIT)</span></h2>${modeTag()}</div>
-    <div class="dgrid"><div class="box"><h3>A · พอร์ตทั้งก้อน vs benchmark</h3>${chips}
-      <h3 style="margin-top:12px">C · สินทรัพย์ vs สินทรัพย์</h3><div class="tw" tabindex="0" role="region" aria-label="correlation ระหว่างสินทรัพย์อ้างอิง"><table class="heat">${rr}</table></div></div>
-    <div class="box"><h3>B · แต่ละหุ้น vs benchmark</h3><div class="tw" tabindex="0" role="region" aria-label="correlation แต่ละหุ้นกับ benchmark"><table class="heat">${hb}</table></div></div></div>
+    <div class="dgrid"><div class="box"><h3>A · พอร์ตทั้งก้อน vs benchmark</h3>${chips}</div>
+      <div class="box"><h3>C · สินทรัพย์ vs สินทรัพย์</h3><div class="tw" tabindex="0" role="region" aria-label="correlation ระหว่างสินทรัพย์อ้างอิง"><table class="heat">${rr}</table></div></div></div>
+    <div class="box" style="margin-top:14px"><h3>B · แต่ละหุ้น vs benchmark <span class="note">แถว = benchmark · คอลัมน์ = หุ้น (เรียงตาม sector เหมือน heatmap)</span></h3><div class="tw" tabindex="0" role="region" aria-label="correlation แต่ละหุ้นกับ benchmark"><table class="heat heatw">${hb}</table></div></div>
     <p class="note" style="margin:10px 0 0"><b>อ่านการ์ดนี้</b> — ${crisisSourceText(co)} · ค่าที่มี * = ข้อมูลช่วงวิกฤตไม่พอ จึงใช้ค่าสมมติ · ตัวที่ crisis corr ต่ำกว่า 0.30 = ตัวถ่วงจริง (S38–41) · IBIT = spot-BTC ETF (แทน BTC-USD, ปฏิทินตรงวันหุ้น)</p></section>`;
 }
 

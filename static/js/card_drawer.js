@@ -102,7 +102,7 @@ function deepDrawer(x){
         ${dd||'<p class="note" style="margin:0">ไม่มี ROIC / WACC</p>'}
         <p class="explain">${moat?esc(moat[2])+'. ':''}${esc(incTxt)}${esc(termTxt)}</p>
         <p class="note" style="margin:0">จุดทึบ = ROIC · วงกลม = WACC · ตัวเลขขวา = ROIC − WACC · ROIC ${esc(km.roic_basis||'')}</p></div>
-      <div class="box">${hist?`<h3>ROIC ${hist.n} ปี เทียบ WACC ปัจจุบัน <span class="note">ROIC จากงบรายปี (คนละฐานกับ ROIC* ด้านซ้าย)</span></h3>${hist.svg}<p class="explain">ROIC สูงกว่า WACC <b>${hist.above} จาก ${hist.n} ปี</b> — ${hist.above===hist.n?'สร้างมูลค่าต่อเนื่อง moat ทนทาน':hist.above===0?'ไม่เคยทำได้เกินต้นทุนทุน':'ทำได้บางปี ยังไม่สม่ำเสมอ'}</p>`:'<p class="note" style="margin:0">ไม่มี ROIC ย้อนหลังจากงบ</p>'}</div>
+      <div class="box">${hist?`<h3>ROIC ${hist.n} ปี เทียบ WACC ปัจจุบัน <span class="note">ROIC จากงบรายปี (คนละฐานกับ ROIC* ด้านซ้าย)</span></h3>${hist.svg}<p class="explain">ROIC สูงกว่า WACC <b>${hist.above} จาก ${hist.n} ปี</b> — ${hist.above===hist.n?'สร้างมูลค่าต่อเนื่องตามงบ':hist.above===0?'ไม่เคยทำได้เกินต้นทุนทุน':'ทำได้บางปี ยังไม่สม่ำเสมอ'}${hist.above>0&&sp!=null&&sp<0?' · แต่ ROIC* ที่ปรับแล้ว (ฝั่งซ้าย) ต่ำกว่า WACC — ROIC ตามงบอาจดูดีเกินจริง ใช้ฝั่งซ้ายตัดสิน moat':''}</p>`:'<p class="note" style="margin:0">ไม่มี ROIC ย้อนหลังจากงบ</p>'}</div>
     </div>
     <div class="kchips">${chips}</div>
     <p class="note" style="margin:0">*ROIC = ปรับแล้ว (normalized) · FCFF&rarr;WACC, FCFE&rarr;Ke${km.damodaran_industry?` · อุตสาหกรรม Damodaran: ${esc(km.damodaran_industry)}`:''}${km.erp_pct!=null?` · ERP ${km.erp_pct}% (${esc(km.erp_as_of||'')})`:''}</p>`;
@@ -153,7 +153,7 @@ function trendRow(r,X){
   const tok=TREND_TOK[r.direction]||'--muted', col=`var(${tok})`;
   // The backend states the summary's unit: the ROIC row's summary is a return on new
   // capital (%), not a change in points. The fallback only serves rows stored before that.
-  const su=pp2pct(r.summary_unit||(r.unit==='money'?'%':'pp'));
+  const su0=r.summary_unit||(r.unit==='money'?'%':'pp'), su=su0==='pp'?'%':pp2pct(su0);
   const sum=r.summary==null?MUTED_DASH:`<b style="color:color-mix(in srgb,${col} 75%,var(--ink))">${signed(r.summary)}${su}</b>`;
   // fewer than 5 years must show, never read as a 5-year trend
   const nb=r.n<5?` <span class="note" title="${esc('SEC แท็กข้อมูลให้แค่ '+r.n+' ปีที่ต่อเนื่องกัน — ที่เหลือไม่ได้ยื่นหรือขาดขาใดขาหนึ่ง')}">${r.n}y</span>`:'';

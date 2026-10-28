@@ -140,4 +140,4 @@ INDUSTRY_MIX = {
 }
 
 # Build stamp — bump together with DASH_BUILD in static/js/app.js (frontend/deploy guard).
-BUILD = "2026-10-28a"
+BUILD = "2026-10-28b"
