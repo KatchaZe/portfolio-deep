@@ -166,7 +166,7 @@
       <figure class="htfig" id="htfig1"></figure>
       <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
-        <tr><th style="width:34px">#</th><th>ส่วนบนการ์ด</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
+        <tr><th style="width:58px">#</th><th>ส่วนบนการ์ด</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
         <tr><td><b>1</b></td><td><b>หัวการ์ด</b></td><td>จุดสี (confidence ของข้อมูล เขียว &ge;80 / เหลือง &ge;50 / แดง &lt;50) · ticker · ป้าย rating · ชื่อบริษัท · sector · ราคาปิด T-1 และ %เปลี่ยนวันล่าสุด · ปุ่ม &times; ลบ</td><td>ป้ายใต้ชื่อ: &#9873;n = จำนวน data flags (ชี้ดู) · Moat = ROIC−WACC spread · EQ = earnings quality · GARP · BOND / PRICING ASSET สำหรับสินทรัพย์ไม่มีกระแสเงินสด</td></tr>
         <tr><td><b>2</b></td><td><b>Margin of safety + Fair value</b></td><td>MoS ตัวใหญ่ = (FV − ราคา) / FV · Fair value และวิธีหลัก · upside และ net หลังค่าเทรด ~0.2% + ภาษี capital gains ~15%</td><td>นิยาม MoS เดียวกับคะแนน P, advice และ Risk Desk · MoS &ge;+15% = มีส่วนเผื่อ · &lt;−15% = แพง · ตัดสินใจเรื่องผลตอบแทนด้วย net (S6) · ถ้าราคาเกิน FV มาก จะบอกเป็น "ราคา n&times; FV"</td></tr>
         <tr><td><b>3</b></td><td><b>แถบมูลค่า</b></td><td>ช่วงไล่สี = Bear ถึง Bull จาก scenario 25/50/25 (ถ้าไม่มี scenario ใช้ช่วง low–high) · ขีดเหลือง = Fair value · ขีดเข้ม = ราคา</td><td>ขีดเข้มอยู่ซ้ายของขีดเหลือง = ราคาต่ำกว่ามูลค่า · หุ้น pre-profit ที่ไม่มี FV แสดงเป็น 2 แท่ง implied vs actual (Reverse DCF) แทน</td></tr>
@@ -188,7 +188,7 @@
       <figure class="htfig" id="htfig2"></figure>
       <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
-        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร / ตีความ</th></tr>
+        <tr><th style="width:58px">#</th><th>ส่วน</th><th>แสดงอะไร / ตีความ</th></tr>
         <tr><td><b>1</b></td><td><b>Drive badge</b></td><td>สถานะ backup ขึ้น Google Drive — ✓ ปกติ · ✗ มีปัญหา (ชี้ดูสาเหตุ) · ระบบจะ <b>บล็อกการ push</b> จนกว่า pull สำเร็จ เพื่อกัน store ว่างไปทับ backup ดี (data-loss guard)</td></tr>
         <tr><td><b>2</b></td><td><b>FMP quota</b></td><td>โควตา API ฟรีของวันนี้ (250 calls/วัน) — ใกล้เต็มจะเตือนสีส้ม · หุ้น 1 ตัวใช้ ~5 calls ต่อ Fundamental Refresh</td></tr>
         <tr><td><b>&ndash;</b></td><td><b>เครื่องมือ</b></td><td>แผงพับได้ใต้หัวหน้า: เพิ่ม/แก้หุ้น + เงินสด · Assumptions รายเดือน · Revenue mix (หัวข้อ 0 และ 0b) — เปิด/ปิดได้ เบราว์เซอร์จำสถานะไว้</td></tr>
@@ -207,7 +207,7 @@
       <figure class="htfig" id="htfig3"></figure>
       <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
-        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
+        <tr><th style="width:58px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
         <tr><td><b>1</b></td><td><b>Cash stance (S32/33)</b></td><td>สะพานจาก market overlay สู่หน้า Allocation: ตลาด CHEAP/FAIR/EXPENSIVE &rarr; ควรถือ cash มากขึ้น/เท่าเดิม/น้อยลง</td><td>เป็น tilt เบา ๆ ผ่าน allocation ไม่ใช่สวิตช์เข้า-ออกตลาด (S34 บอกว่าแบบนั้นล้มเหลว)</td></tr>
         <tr><td><b>2</b></td><td><b>GARP quadrant</b></td><td>แผนที่ 2 มิติ: แกนนอน = Quality (ROIC−WACC spread) · แกนตั้ง = Cheap (margin of safety) · จุดสีเขียวทึบ = candidate · หุ้นที่คะแนนเท่ากันเป๊ะจะกระจายจุดออกเล็กน้อยแล้วเรียงชื่อซ้อนกัน (ELV/LLY ในภาพ) — ตำแหน่งจริงยังตรงตามคะแนน</td><td>มุมขวาบน = ถูก&times;ดี ★ ควรดูก่อน · มุมขวาล่าง = ดีแต่แพง รอ pullback · มุมซ้ายบน = ถูกแต่ระวัง value trap · มุมซ้ายล่าง = แพงและไม่เด่น</td></tr>
         <tr><td><b>3</b></td><td><b>GARP screen (ตาราง)</b></td><td>จัดอันดับทุกตัวที่วิเคราะห์แล้ว = Quality (Economics) &times; Cheap (Price) รวมเป็น GARP /10</td><td>candidate = &ge;3 ทั้งคู่ (S13/S19: growth at a reasonable price) — รายชื่อที่ควรดูก่อนเมื่อจะเพิ่มเงิน</td></tr>
@@ -220,7 +220,7 @@
       <figure class="htfig" id="htfig4"></figure>
       <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
-        <tr><th style="width:34px">#</th><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
+        <tr><th style="width:58px">#</th><th>หัวข้อ</th><th>แสดงอะไร</th><th>เกณฑ์ / ตีความ (Damodaran)</th></tr>
         <tr><td><b>1</b></td><td><b>1 &middot; Portfolio Snapshot</b></td><td>มูลค่าพอร์ต, จำนวนตัว, Est. Vol (annual), Severe drawdown, β, Diversification /100 + DR normal/crisis</td><td>Vol ~15–20% = โซนหุ้นล้วน · Severe drawdown คือ "ถ้าเกิด scenario เลวร้ายสุดซ้ำ" — เทียบกับ Max loss ที่ตั้งไว้ · β&gt;1.3 = แรงกว่าตลาดมาก · Diversification &ge;60 ดี, &lt;40 = กระจุก · DR crisis ใกล้ 1 = การกระจายแทบไม่ช่วยตอนวิกฤต</td></tr>
         <tr><td><b>2</b></td><td><b>2 &middot; Capital Allocation (โดนัท 2 วง)</b></td><td>แบ่งเงินตาม "ตัวขับความเสี่ยง" (risk sleeve เช่น Semiconductor / Growth-Tech / Defensive) และตามสกุลเงิน<b>ของรายได้</b> (revenue mix ชุดเดียวกับที่ valuation คิด CRP — ADR ซื้อขายเป็น USD แต่หาเงินเป็นสกุลท้องถิ่น) + การ์ด Country risk ของพอร์ต (Σ น้ำหนัก × CRP)</td><td>sleeve เดียว &ge;40% หรือสกุลเงินเดียว &ge;80% = ความเสี่ยงกระจุกที่มองไม่เห็นจากรายตัว — sector คนละชื่ออาจเป็น risk driver เดียวกัน · CRP พอร์ตสูง = ส่วนที่หาเงินในประเทศเสี่ยงมีน้ำหนัก (S2 cash-flow risk)</td></tr>
         <tr><td><b>3</b></td><td><b>3 &middot; Capital vs Risk Weight (กราฟแท่งคู่)</b></td><td>เทียบ %เงินที่ลง (แท่งเทา) กับ %ความเสี่ยงที่สร้าง (แท่งแดง จาก covariance จริง) ต่อหุ้น</td><td>แดงยาวกว่าเทามาก (+3% ขึ้นไป) = ตัวนั้น "กินความเสี่ยง" เกินเงินที่ลง — เป้าหมายแรกเวลาลดความเสี่ยง · แท่งเขียว (ค่าลบ) = diversifier ช่วยลดความเสี่ยงรวม</td></tr>
@@ -240,7 +240,7 @@
       <figure class="htfig" id="htfig5"></figure>
       <p class="htcap">ภาพจากหน้าจริงของคุณ · หมุดเลขตรงกับคอลัมน์ # ในตาราง</p>
       <table class="httab">
-        <tr><th style="width:34px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>ตีความ (Damodaran)</th></tr>
+        <tr><th style="width:58px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>ตีความ (Damodaran)</th></tr>
         <tr><td><b>A</b></td><td><b>Diversification Philosophy</b> (การ์ดม่วง)</td><td>gauge <b>ENB&divide;Eff N</b> + <b>Fragility &Delta;ENB</b> + avg corr &middot; 6 เสา (โครงสร้าง/ตัวขับ/ความเปราะ/ตัวถ่วง/beta honesty/action) &middot; story ไทย &middot; ตาราง A1 %Cap vs %Risk</td><td>สรุปเชิงปรัชญาราย &ldquo;พอร์ต&rdquo; &middot; ENB&divide;EffN &lt;0.5 = correlation กินการกระจาย &middot; A1 แดง = หุ้นที่ %risk เกิน %capital = ตัวขับความเสี่ยงจริง (S2/S4 marginal)</td></tr>
         <tr><td><b>B</b></td><td><b>Correlation Heatmap</b> รายตัว</td><td>ตาราง corr หุ้น&times;หุ้น จัดกลุ่มตาม sector (เส้นคั่น) &middot; เขียว=ต่ำ แดง=สูง เขียวเข้ม=ลบ &middot; ป้ายส้ม <b>PROXY/MIXED</b> = บางคู่/ทั้งหมดเป็นค่าสมมติ 0.60/0.20 (history ไม่พอ — กด Run ซ้ำเพื่อ retry เฉพาะตัวที่ขาด)</td><td>ยิ่งแดง = สองตัววิ่งตามกัน ถือคู่กันแทบเป็นเดิมพันเดียว &middot; คู่ corr ลบ = diversifier จริง</td></tr>
         <tr><td><b>C</b></td><td><b>Sector Summary</b></td><td>%น้ำหนักพอร์ต + avg corr ในกลุ่ม ต่อ sector</td><td>%สูง <b>และ</b> corr สูง = จุดกระจุกตัวจริง (เงินเยอะ + ตัวในกลุ่มซ้ำกัน)</td></tr>

@@ -340,6 +340,7 @@ svg.ch text.bull{fill:color-mix(in srgb,var(--bull) 72%,var(--ink))} svg.ch text
 .ht2{font-size:var(--t-md);margin:20px 0 6px;color:var(--ink)}
 .httab{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:4px 0 10px;table-layout:fixed}
 .httab td,.httab th{overflow-wrap:anywhere;white-space:normal}
+.httab:has(th[style*="58px"]) tr>:first-child{overflow-wrap:normal;white-space:nowrap}
 .httab th{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.03em;color:var(--muted);text-align:left;padding:7px 9px;background:var(--sunken)}
 .httab td{text-align:left;white-space:normal;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--line)}
 .foot{margin-top:28px;font-size:var(--t-xs);color:var(--muted);border-top:1px solid var(--line);padding-top:10px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
