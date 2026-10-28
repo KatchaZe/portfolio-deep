@@ -45,7 +45,7 @@ log = logging.getLogger("portfolio")
 app = FastAPI(title=f"Portfolio DEEP v{config.DEEP_VERSION}")
 BASE = os.path.dirname(os.path.abspath(__file__))
 
-if os.path.isdir(os.path.join(BASE, "static")):          # vendored Chart.js, no CDN
+if os.path.isdir(os.path.join(BASE, "static")):          # dashboard CSS / JS / fonts, no CDN
     app.mount("/static", StaticFiles(directory=os.path.join(BASE, "static")), name="static")
 
 # Read at import (not from config) so reloading this module re-reads the env.

@@ -23,7 +23,7 @@ function assumeLine(){
     ?`PE <b>${v.market_pe}</b> (SPY ล่าสุดที่ดึงได้ ${esc(v.market_pe_live_date)} — ใช้ได้ถึง 30 วัน; ค่าสำรอง ${a.market_pe})`
     :`PE <b>${a.market_pe}</b> (${esc(a.market_pe_as_of||'—')}, ${src.market_pe==='manual'?'manual':'default'}${v.market_pe!=null?' · ดึง SPY ไม่ได้':''})`;
   el.innerHTML=`ปัจจุบัน: ERP <b>${a.erp_pct}%</b> (${esc(a.erp_as_of||'—')}, ${src.erp==='manual'?'manual':src.erp==='damodaran-live'?'Damodaran web':'default'}) · `+pe+
-    (a.erp_stale?` <span style="color:#b45309;font-weight:700">⚑ ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');
+    (a.erp_stale?` <span class="warnc" style="font-weight:700">&#9873; ERP ${a.erp_months_old} เดือน — ควรอัพเดท</span>`:'');
 }
 async function saveAssumptions(){
   const e=document.getElementById('erpIn').value, p=document.getElementById('peIn').value;
@@ -34,13 +34,13 @@ async function saveAssumptions(){
   try{
     const r=await fetch('/api/assumptions?'+q.join('&'),{method:'POST'});
     const d=await r.json();
-    if(d.error){msg.innerHTML='<span style="color:#dc2626">'+esc(d.error)+'</span>';}
+    if(d.error){msg.innerHTML='<span class="down">'+esc(d.error)+'</span>';}
     else{
-      msg.innerHTML='<span style="color:#16a34a">✓ บันทึกแล้ว (sync Google Drive)</span> — '+esc(d.note||'');
+      msg.innerHTML='<span class="up">✓ บันทึกแล้ว (sync Google Drive)</span> — '+esc(d.note||'');
       document.getElementById('erpIn').value='';document.getElementById('peIn').value='';
       await loadAssumptions(); load();
     }
-  }catch(err){msg.innerHTML='<span style="color:#dc2626">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
+  }catch(err){msg.innerHTML='<span class="down">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
   sp.style.display='none';
 }
 // 'YYYY-MM...' -> whole calendar months before today, or null
@@ -59,11 +59,11 @@ function renderAssumptions(mk){
   // say that a Run Daily is all it takes.
   const cur=window._assume||{};
   const snapshotStale=cur.erp_as_of&&v.erp_as_of&&cur.erp_as_of>v.erp_as_of;
-  el.style.cssText='display:block;margin:8px 0;padding:8px 12px;border-radius:8px;font-size:calc(12px*var(--fs));background:#fff7ed;color:#9a3412;border:1px solid #fdba74';
+  el.className='banner tone t-warn'; el.style.display='block';
   el.innerHTML='&#9888; <b>สมมติฐานหมดอายุ:</b> '+bad.join(' · ')
     +(snapshotStale
       ?` — <b>ค่าปัจจุบันในระบบอัพเดตแล้ว (ERP ${cur.erp_pct}% · ${esc(cur.erp_as_of)})</b> — แผงนี้เป็น snapshot จาก Run Daily ครั้งก่อน &middot; กด <b>Run Daily</b> เพื่อคำนวณ market overlay ใหม่`
-      :' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดตที่ฟอร์ม <b>&#128200; Assumptions</b> ด้านบน (ค่าสำรองเมื่อดึงอัตโนมัติไม่ได้ — ดูวิธีในแท็บ How to ข้อ 0) แล้วกด <b>Run Daily</b> + <b>Run Fundamental Refresh</b>');
+      :' — market overlay อาจเพี้ยนทั้งแผง &middot; อัปเดตที่ฟอร์ม <b>Assumptions</b> ในเครื่องมือด้านบน (ค่าสำรองเมื่อดึงอัตโนมัติไม่ได้ — ดูวิธีในแท็บ How to ข้อ 0) แล้วกด <b>Run Daily</b> + <b>Run Fundamental Refresh</b>');
 }
 
 // Revenue mix (country risk premium): auto from the latest 10-K on Refresh, or typed here.
@@ -75,13 +75,13 @@ async function saveRevenueMix(){
   try{
     const r=await fetch('/api/revenue_mix?ticker='+encodeURIComponent(t)+'&mix='+encodeURIComponent(m),{method:'POST'});
     const d=await r.json();
-    if(d.error){msg.innerHTML='<span style="color:#dc2626">'+esc(d.error)+'</span>';}
+    if(d.error){msg.innerHTML='<span class="down">'+esc(d.error)+'</span>';}
     else{
-      msg.innerHTML='<span style="color:#16a34a">✓ '+(d.mix?'บันทึก':'ลบ')+' '+esc(d.ticker)+'</span> — '+esc(d.note||'');
+      msg.innerHTML='<span class="up">✓ '+(d.mix?'บันทึก':'ลบ')+' '+esc(d.ticker)+'</span> — '+esc(d.note||'');
       document.getElementById('mixIn').value='';
       if(document.getElementById('mixList').style.display!=='none')loadMixList();
     }
-  }catch(err){msg.innerHTML='<span style="color:#dc2626">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
+  }catch(err){msg.innerHTML='<span class="down">บันทึกไม่สำเร็จ: '+esc(String(err))+'</span>';}
   sp.style.display='none';
 }
 function mixText(m){return m?Object.entries(m).map(([k,v])=>k+' '+v).join(', '):'';}
@@ -89,10 +89,10 @@ async function loadMixList(){
   const el=document.getElementById('mixList');
   try{
     const d=await (await fetch('/api/revenue_mix')).json();
-    el.innerHTML='<table style="border-collapse:collapse;width:100%" cellpadding="3"><tr><th>Ticker</th><th>CRP</th><th>ที่มา (Refresh ล่าสุด)</th><th>กรอกเอง</th></tr>'+
-      (d.rows||[]).map(r=>`<tr><td><a href="#" onclick="document.getElementById('mixT').value='${esc(r.ticker)}';document.getElementById('mixIn').value='${esc(mixText(r.manual||r.config))}';return false">${esc(r.ticker)}</a></td>`+
-        `<td>${r.crp_pct==null?'—':r.crp_pct+'%'}</td><td>${esc(r.basis||'— (ยังไม่ Refresh)')}</td>`+
-        `<td>${r.config?'config.py: '+esc(mixText(r.config)):esc(mixText(r.manual))||'—'}</td></tr>`).join('')+'</table>';
+    el.innerHTML='<table><thead><tr><th class="l">Ticker</th><th>CRP</th><th class="l">ที่มา (Refresh ล่าสุด)</th><th class="l">กรอกเอง</th></tr></thead><tbody>'+
+      (d.rows||[]).map(r=>`<tr><td class="l"><a href="#" onclick="document.getElementById('mixT').value='${esc(r.ticker)}';document.getElementById('mixIn').value='${esc(mixText(r.manual||r.config))}';return false">${esc(r.ticker)}</a></td>`+
+        `<td>${r.crp_pct==null?'—':r.crp_pct+'%'}</td><td class="l">${esc(r.basis||'— (ยังไม่ Refresh)')}</td>`+
+        `<td class="l">${r.config?'config.py: '+esc(mixText(r.config)):esc(mixText(r.manual))||'—'}</td></tr>`).join('')+'</tbody></table>';
   }catch(err){el.textContent='โหลดไม่ได้';}
 }
 function toggleMixList(){const el=document.getElementById('mixList');const show=el.style.display==='none';el.style.display=show?'block':'none';if(show)loadMixList();}

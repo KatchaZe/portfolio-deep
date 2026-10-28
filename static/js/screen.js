@@ -4,81 +4,39 @@ async function loadScreen(){
   try{const r=await fetch('/api/screen'); const d=await r.json(); renderScreen(d.items||[]);}catch(e){el.innerHTML='';}
 }
 // GARP quadrant (S13/S19): "cheap x good" is two-dimensional, so it is drawn as a map.
-// The plot area is inset in a padded viewBox so a score of 5 on an edge is not clipped.
-const QUAD={X0:44, X1:320, Y0:22, Y1:182, W:344, H:212};
-const quadX=v=>QUAD.X0+Math.max(0,Math.min(5,v))/5*(QUAD.X1-QUAD.X0);
-const quadY=v=>QUAD.Y1-Math.max(0,Math.min(5,v))/5*(QUAD.Y1-QUAD.Y0);
-const clampQuadX=v=>Math.max(QUAD.X0,Math.min(QUAD.X1,v)), clampQuadY=v=>Math.max(QUAD.Y0,Math.min(QUAD.Y1,v));
+// Subscores share coordinates, so names on one point are listed together, and labels are
+// nudged apart (with a leader line) instead of printed over each other.
 function garpQuadrant(items){
   const pts=(items||[]).filter(i=>i.economics!=null&&i.price!=null);
   if(!pts.length)return '';
-  // subscores are integers 0-5, so ties share a coordinate: group them, then fan the dots
-  // around the true position and stack their labels
-  const groups=new Map();
-  pts.forEach(i=>{const k=i.economics+'|'+i.price; if(!groups.has(k))groups.set(k,[]); groups.get(k).push(i);});
-  let dots='';
-  groups.forEach(g=>{dots+=quadrantGroup(g);});
-  return quadrantFrame(dots);
-}
-// a white halo behind each ticker keeps it legible over the captions and the green fill
-function quadrantLabel(x,y,t,fs,an){
-  return `<text x="${x}" y="${y}" font-size="${fs}" text-anchor="${an}" font-weight="700" fill="#fff" stroke="#fff" stroke-width="2.6" stroke-linejoin="round">${t}</text>`
-    +`<text x="${x}" y="${y}" font-size="${fs}" text-anchor="${an}" font-weight="700" fill="#334155">${t}</text>`;
-}
-function quadrantGroup(g){
-  const {X0,X1,Y0,Y1,H}=QUAD;
-  const cx=quadX(g[0].economics), cy=quadY(g[0].price), n=g.length, r=n>1?Math.min(12,5+1.6*n):0;
-  // on an edge the jitter fans inward, so no dot is clamped back onto its neighbour
-  const ix=cx<=X0+2?1:cx>=X1-2?-1:0, iy=cy<=Y0+2?1:cy>=Y1-2?-1:0, onEdge=(ix||iy);
-  const base=onEdge?Math.atan2(iy,ix):-Math.PI/2, span=onEdge?Math.PI/2:2*Math.PI;
-  let out='';
-  g.forEach((i,idx)=>{
-    const a=n<2?0:(onEdge?base+span*(idx/(n-1)-0.5):base+span*idx/n);
-    const dx=clampQuadX(cx+(n>1?r*Math.cos(a):0)), dy=clampQuadY(cy+(n>1?r*Math.sin(a):0));
-    out+=`<circle cx="${dx.toFixed(1)}" cy="${dy.toFixed(1)}" r="5" fill="${i.candidate?'#0d9488':'#94a3b8'}"><title>${esc(i.ticker)} — Quality ${i.economics} · Cheap ${i.price}${i.candidate?' · GARP candidate':''}</title></circle>`;
-  });
-  // near a side the label grows inward instead of spilling out of the viewBox
-  const lx=clampQuadX(cx).toFixed(1), an=cx>X1-22?'end':cx<X0+22?'start':'middle';
-  if(n===1){
-    const above=cy-9>=10;   // below the dot when above would clip the top edge
-    return out+quadrantLabel(lx,(above?cy-9:cy+15).toFixed(1),esc(g[0].ticker),8.5,an);
-  }
-  const down=(cy+r+9*n+4)<=H-14;   // stack downward unless it would run off the bottom
-  const y0=down?cy+r+11:cy-r-9-9*(n-1);
-  g.forEach((i,idx)=>{out+=quadrantLabel(lx,(y0+9*idx).toFixed(1),esc(i.ticker),7.5,an);});
-  return out;
-}
-function quadrantFrame(dots){
-  const {X0:PX0,X1:PX1,Y0:PY0,Y1:PY1,W:VW,H:VH}=QUAD, MIDY=(PY0+PY1)/2;
-  const x3=quadX(3), y3=quadY(3);
-  return `<svg viewBox="0 0 ${VW} ${VH}" style="width:100%;max-width:460px;display:block;margin:6px 0 4px">
-    <rect x="${PX0}" y="${PY0}" width="${PX1-PX0}" height="${PY1-PY0}" fill="#f8fafc" stroke="#e2e8f0"/>
-    <rect x="${x3}" y="${PY0}" width="${(PX1-x3).toFixed(1)}" height="${(y3-PY0).toFixed(1)}" fill="#dcfce7" opacity=".5"/>
-    <line x1="${x3}" y1="${PY0}" x2="${x3}" y2="${PY1}" stroke="#94a3b8" stroke-dasharray="4 3"/>
-    <line x1="${PX0}" y1="${y3}" x2="${PX1}" y2="${y3}" stroke="#94a3b8" stroke-dasharray="4 3"/>
-    <text x="${((x3+PX1)/2).toFixed(0)}" y="${PY0+12}" font-size="8.5" fill="#166534" text-anchor="middle">ถูก × ดี ★</text>
-    <text x="${((PX0+x3)/2).toFixed(0)}" y="${PY0+12}" font-size="8.5" fill="#9a3412" text-anchor="middle">ถูกแต่คุณภาพต่ำ (trap?)</text>
-    <text x="${((x3+PX1)/2).toFixed(0)}" y="${PY1-6}" font-size="8.5" fill="#475569" text-anchor="middle">ดีแต่แพง — รอ pullback</text>
-    <text x="${((PX0+x3)/2).toFixed(0)}" y="${PY1-6}" font-size="8.5" fill="#991b1b" text-anchor="middle">แพงและไม่เด่น</text>
-    <text x="${((PX0+PX1)/2).toFixed(0)}" y="${VH-8}" font-size="8.5" fill="#64748b" text-anchor="middle">Quality (ROIC−WACC spread) &#8594;</text>
-    <text x="14" y="${MIDY}" font-size="8.5" fill="#64748b" transform="rotate(-90 14 ${MIDY})" text-anchor="middle">Cheap (margin of safety) &#8594;</text>
-    ${dots}</svg>`;
+  const W=420,H=320,L=40,R=12,T=12,B=284, X=v=>L+Math.max(0,Math.min(5,v))/5*(W-L-R), Y=v=>B-Math.max(0,Math.min(5,v))/5*(B-T);
+  let s=`<rect x="${X(3)}" y="${T}" width="${X(5)-X(3)}" height="${Y(3)-T}" fill="var(--bull)" opacity=".12"/>`;
+  [0,1,2,3,4,5].forEach(v=>{s+=`<line x1="${X(v)}" x2="${X(v)}" y1="${T}" y2="${B}" stroke="var(--line)"/><line x1="${L}" x2="${W-R}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line)"/><text x="${X(v)}" y="${B+14}" text-anchor="middle">${v}</text><text x="${L-6}" y="${Y(v)+3}" text-anchor="end">${v}</text>`;});
+  s+=`<line x1="${X(3)}" x2="${X(3)}" y1="${T}" y2="${B}" stroke="var(--muted)" stroke-dasharray="4 3"/><line x1="${L}" x2="${W-R}" y1="${Y(3)}" y2="${Y(3)}" stroke="var(--muted)" stroke-dasharray="4 3"/>`;
+  s+=`<text x="${W-R-4}" y="${T+12}" text-anchor="end" class="bull strong">ถูก × ดี</text><text x="${L+4}" y="${T+12}" class="bear">ถูกแต่คุณภาพต่ำ (trap?)</text><text x="${W-R-4}" y="${B-6}" text-anchor="end">ดีแต่แพง — รอ pullback</text><text x="${L+4}" y="${B-6}" class="bear">แพงและไม่เด่น</text>`;
+  s+=`<text x="${(L+W-R)/2}" y="${H-4}" text-anchor="middle">Quality (ROIC−WACC spread) →</text><text x="12" y="${(T+B)/2}" text-anchor="middle" transform="rotate(-90 12 ${(T+B)/2})">Cheap (margin of safety) →</text>`;
+  const grp=new Map(); pts.forEach(i=>{const k=i.economics+'|'+i.price; if(!grp.has(k))grp.set(k,[]); grp.get(k).push(i);});
+  const labs=[], obs=[[W-R-70,T,W-R,T+16],[L,T,L+150,T+16],[W-R-130,B-18,W-R,B],[L,B-18,L+100,B]];
+  grp.forEach(g=>{const x=g[0],cx=X(x.economics),cy=Y(x.price),c=g.some(y=>y.candidate),right=cx>W-90;
+    s+=`<circle cx="${cx}" cy="${cy}" r="${c?6.5:5}" fill="${c?'var(--bull)':'var(--surface)'}" stroke="${c?'var(--bull)':'var(--muted)'}" stroke-width="1.8"><title>${esc(g.map(y=>y.ticker).join(', '))} — Quality ${x.economics} · Cheap ${x.price}${c?' · GARP candidate':''}</title></circle>`;
+    obs.push([cx-7,cy-7,cx+7,cy+7]);
+    labs.push({x:cx+(right?-9:9),y:cy+4,px:cx,py:cy,a:right?'end':'start',t:g.map(y=>y.ticker).join(' · '),c:c?'strong':''});});
+  s+=placeLabels(labs.sort((a,b)=>(b.c?1:0)-(a.c?1:0)),obs);
+  const cand=pts.filter(i=>i.candidate).map(i=>i.ticker);
+  return svgChart(W,H,`GARP quadrant: แกนนอน Quality แกนตั้ง Cheap · ${cand.length} candidate${cand.length?': '+cand.join(', '):''}`,s);
 }
 // Rows the screen cannot place (no quality or no cheapness score) are listed greyed, not
 // dropped: "not shown" must never read as "not attractive".
 function screenRow(it){
   const un=it.unscreenable;
-  const cand=it.candidate?'<span class="tag" style="background:#0d9488;font-size:calc(9px*var(--fs))">candidate</span>'
-    :(un?`<span class="muted" style="font-size:calc(9px*var(--fs));cursor:help" title="${esc('วัดไม่ได้: '+un+' — ไม่ได้แปลว่าไม่ดี แปลว่าข้อมูลไม่พอจะจัดอันดับ')}">วัดไม่ได้ &#9432;</span>`
-        :'<span class="muted" style="font-size:calc(11px*var(--fs))">&mdash;</span>');
-  return `<tr style="border-top:0.5px solid #e2e8f0${un?';background:#f8fafc;color:#94a3b8':''}">`
-    +`<td style="padding:5px 8px;font-weight:700">${esc(it.ticker||'')}</td>`
-    +`<td style="padding:5px 8px;color:#64748b">${esc(it.sector||'')}</td>`
-    +`<td style="padding:5px 8px;text-align:center">${it.economics??'&mdash;'}</td>`
-    +`<td style="padding:5px 8px;text-align:center">${it.price??'&mdash;'}</td>`
-    +`<td style="padding:5px 8px;text-align:center;font-weight:700">${it.garp_score??'&mdash;'}</td>`
-    +`<td style="padding:5px 8px;text-align:center">${cand}</td>`
-    +`<td style="padding:5px 8px;color:#64748b">${esc(it.recommendation||'')}</td></tr>`;
+  const cand=it.candidate?chip('candidate','--bull','GARP candidate: ≥3 ทั้ง Quality และ Cheap')
+    :(un?`<span class="note" style="cursor:help" title="${esc('วัดไม่ได้: '+un+' — ไม่ได้แปลว่าไม่ดี แปลว่าข้อมูลไม่พอจะจัดอันดับ')}">วัดไม่ได้ &#9432;</span>`:MUTED_DASH);
+  return `<tr${un?' class="muted" style="background:var(--sunken)"':''}>`
+    +`<th scope="row" class="l num" style="color:var(--ink)">${esc(it.ticker||'')}</th>`
+    +`<td class="l muted">${esc(it.sector||'')}</td>`
+    +`<td class="n">${it.economics??'&mdash;'}</td><td class="n">${it.price??'&mdash;'}</td>`
+    +`<td class="n"><b>${it.garp_score??'&mdash;'}</b></td><td>${cand}</td>`
+    +`<td class="l">${recoPill(it.recommendation)}</td></tr>`;
 }
 function renderScreen(items){
   const el=document.getElementById('garpScreen'); if(!el)return;
@@ -86,15 +44,13 @@ function renderScreen(items){
   const cands=items.filter(x=>x.candidate).length;
   const nUn=items.filter(x=>x.unscreenable).length;
   const rows=items.map(screenRow).join('');
-  el.innerHTML=`<div style="margin:6px 0 16px;border:1px solid #e2e8f0;border-radius:12px;padding:12px 16px;background:#fff">`
-    +`<div style="font-size:calc(14px*var(--fs));font-weight:800">&#128269; GARP screen — cheap &times; quality <span class="muted" style="font-weight:600;font-size:calc(11px*var(--fs))">(Damodaran S13/S19) &middot; ${cands} candidate(s)</span></div>`
-    +`<div class="muted" style="font-size:calc(11px*var(--fs));margin:5px 0 8px">จัดอันดับทุกตัวที่วิเคราะห์แล้ว = Economics (คุณภาพ/moat) × Price (margin of safety). candidate = ถูก×ดีทั้งคู่ (≥3 ทั้งสองด้าน)`
-    +(nUn?` &middot; <b style="color:#b45309">${nUn} ตัววัดไม่ได้</b> (แสดงสีจางท้ายตาราง — ขาดข้อมูลด้านใดด้านหนึ่ง ไม่ได้แปลว่าแย่)`:'')+`</div>`
-    +garpQuadrant(items)
-    +`<table style="width:100%;border-collapse:collapse;font-size:calc(12px*var(--fs))"><thead><tr style="color:#64748b;text-align:left">`
-    +`<th style="padding:5px 8px">Ticker</th><th style="padding:5px 8px">Sector</th>`
-    +`<th style="padding:5px 8px;text-align:center" title="Economics subscore = ROIC−WACC spread (quality/moat)">Quality</th>`
-    +`<th style="padding:5px 8px;text-align:center" title="Price subscore = margin of safety (cheapness)">Cheap</th>`
-    +`<th style="padding:5px 8px;text-align:center">GARP /10</th><th style="padding:5px 8px;text-align:center">Candidate</th>`
-    +`<th style="padding:5px 8px">DEEP reco</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+  el.innerHTML=secHTML('G','GARP screen — cheap &times; quality',`Damodaran S13/S19 · ${cands} candidate(s)`,
+    `<p class="note" style="margin:0 0 6px">จัดอันดับทุกตัวที่วิเคราะห์แล้ว = Economics (คุณภาพ/moat) × Price (margin of safety). candidate = ถูก×ดีทั้งคู่ (≥3 ทั้งสองด้าน)`
+    +(nUn?` &middot; <b class="warnc">${nUn} ตัววัดไม่ได้</b> (แสดงสีจางท้ายตาราง — ขาดข้อมูลด้านใดด้านหนึ่ง ไม่ได้แปลว่าแย่)`:'')+`</p>`
+    +`<div class="dgrid"><div style="max-width:560px">${garpQuadrant(items)}<p class="note" style="margin:4px 0 0">จุดทึบ = candidate (≥3 ทั้งสองแกน) · ชื่อหลายตัวบนจุดเดียว = คะแนนเท่ากัน</p></div><div class="tw" tabindex="0" role="region" aria-label="ตาราง GARP"><table><caption class="sr">GARP screen ทุกตัว</caption><thead><tr>`
+    +`<th scope="col" class="l">Ticker</th><th scope="col" class="l">Sector</th>`
+    +`<th scope="col" class="n" title="Economics subscore = ROIC−WACC spread (quality/moat)">Quality</th>`
+    +`<th scope="col" class="n" title="Price subscore = margin of safety (cheapness)">Cheap</th>`
+    +`<th scope="col" class="n">GARP /10</th><th scope="col" class="l">Candidate</th>`
+    +`<th scope="col" class="l">DEEP reco</th></tr></thead><tbody>${rows}</tbody></table></div></div>`);
 }

@@ -1,8 +1,8 @@
 // The Watchlist tab: names are stored, their analysis is fetched on demand and not kept.
-async function loadWatchlist(){try{const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}catch(e){document.getElementById('watchNames').innerHTML='<span class="down">&#9888; watchlist load failed: '+esc(String(e))+'</span>';}}
+async function loadWatchlist(){try{const r=await fetch('/api/watchlist');const d=await r.json();renderWatchNames(d.names||[]);}catch(e){document.getElementById('watchNames').innerHTML='<span class="banner tone t-bear">&#9888; watchlist load failed: '+esc(String(e))+'</span>';}}
 function renderWatchNames(names){
   document.getElementById('watchNames').innerHTML = names.length
-    ? 'Watchlist: '+names.map(n=>`<span style="background:#e2e8f0;border-radius:6px;padding:2px 7px;margin:2px;display:inline-block">${n}<span class="rm" onclick="removeWatch('${n}')">&times;</span></span>`).join('')
+    ? `<span class="cap">Watchlist ${names.length} ตัว</span> `+names.map(n=>`<span class="chip num">${esc(n)}<button type="button" class="rm" aria-label="ลบ ${esc(n)} ออกจาก watchlist" onclick="removeWatch('${n}')">&times;</button></span>`).join(' ')
     : '<span class="muted">Watchlist empty — add a ticker above.</span>';
 }
 async function addWatch(){const t=document.getElementById('wt').value.trim().toUpperCase();if(!t)return;await fetch('/api/watchlist/add?ticker='+encodeURIComponent(t),{method:'POST'});document.getElementById('wt').value='';loadWatchlist();}
@@ -18,7 +18,7 @@ async function runWatch(){
 }
 function renderWatchTable(rows){
   if(!rows.length){document.getElementById('watchTable').innerHTML='<span class="muted">No results — add tickers and run.</span>';return;}
-  document.getElementById('watchTable').innerHTML=`<div style="${CARD_GRID}">${rows.map(x=>pcard(x,true)).join('')}</div>`;
+  document.getElementById('watchTable').innerHTML=`<div class="cards">${rows.map(x=>pcard(x,true)).join('')}</div>`;
 }
 async function promote(t){
   const sh=prompt('Add '+t+' to My Portfolio.\n\nNumber of shares:');

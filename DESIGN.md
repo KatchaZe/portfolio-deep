@@ -37,8 +37,8 @@ portfolio-deep/
   index.html                 # dashboard markup only: 6 tabs; Tab 3 = Risk Desk, Tab 6 = Correlation (share ONE /api/risk payload), Tab 4/5 = How to / Ref
   static/                    # dashboard CSS + JS, plain <script> files, no build step (see static/README.md)
     dashboard.css            #   every style the dashboard uses
-    chart.umd.js             #   vendored Chart.js 4.5.0 (CDN fallback only if missing)
-    js/                      #   format · assumptions · screen · card_signals · card_value · card_drawer · strip ·
+    fonts/                   #   IBM Plex Sans Thai + Plex Mono (woff2, OFL) — no CDN
+    js/                      #   format · assumptions · screen · card_signals · card_value · card_drawer · card · strip ·
                              #   portfolio · charts · allocation · risk · correlation · watchlist · app (loaded last;
                              #   holds DASH_BUILD)
   store.py                   # local JSON store: holdings, watchlist, facts, results, momentum, fmp_usage, rev_*
@@ -380,7 +380,7 @@ signal wired into confidence).
 | 3. Engine (versioned) | `domain/engine/contract.py` + registry, `DEEP_VERSION` switch | ✅ |
 | 4. Tab 1 My Portfolio | store, holdings (shares+avg cost), P/L, momentum+breakdown, remove, daily | ✅ |
 | 5. Tab 2 Watchlist | run-on-demand, persist names, +Portfolio (forces shares/avg cost), remove | ✅ |
-| 6. Tab 3 Allocation | cost-basis pies, sector, what-if before/after (Chart.js) | ✅ |
+| 6. Tab 3 Allocation | cost-basis doughnuts, sector, what-if before/after (SVG, theme tokens) | ✅ |
 | 7. Quota guard | daily counter, 90% warning + headroom, over-cap skip | ✅ |
 | 8. Regression + deploy | `run_tests.py`, README, render.yaml/Procfile/.gitignore | ✅ |
 | 9. Earnings track record | Yahoo EPS-surprise (4Q), beat/meet/miss circles, bounded confidence nudge, `test_earnings` | ✅ |

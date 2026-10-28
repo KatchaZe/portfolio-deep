@@ -115,6 +115,8 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "eva": v.get("eva"),
         "key_metrics": v.get("key_metrics"),
         "subscores": v.get("subscores"),
+        # the four DEEP pillar scores (0-5) behind `composite`, for the card's score bars
+        "pillars": {k: v.get(k) for k in ("D", "E_exec", "E_econ", "P")},
         "garp_score": screen_mod.garp_score(v.get("E_econ"), v.get("P")),
         "garp_candidate": screen_mod.is_candidate(v.get("E_econ"), v.get("P")),
     }

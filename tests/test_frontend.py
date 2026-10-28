@@ -34,7 +34,7 @@ def test_new_ui_present():
         # REV-16 (S20): pre-profit forward valuation panel
         "function youngPanel", "Pre-profit forward value (S20)", "youngPanel(x)",
         # REV-21: valuation vs pricing must sit side by side, band included
-        "function pricedInLine", "pricedInLine(x)", "margin ±5pp",
+        "function pricedInLine", "pricedInLine(x)", "margin ±5%",
     ]
     missing = [t for t in required if t not in HTML]
     assert not missing, ("frontend missing new UI tokens: %s" % missing)

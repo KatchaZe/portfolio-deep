@@ -39,10 +39,8 @@ HOP_HEADERS = {"content-length", "content-encoding", "transfer-encoding", "conne
 
 # Computed-style properties whose change means the page looks different. Layout
 # (offset box) is included so a CSS file that fails to load, or loads in a different
-# order, cannot pass on text alone. The allocation doughnuts use maintainAspectRatio:false
-# in a box with no fixed height, so Chart.js keeps growing the canvas on every resize
-# tick: canvas sizes, and the vertical position of everything below them, depend on
-# timing. Only canvas-free boxes report a height, and no element reports its top.
+# order, cannot pass on text alone. No element reports its top: one taller panel above
+# would move every box below it.
 STYLE_PROBE = r"""
 (root) => {
   const props = ['display','visibility','color','backgroundColor','fontSize','fontWeight',
@@ -52,23 +50,10 @@ STYLE_PROBE = r"""
   for (const el of [root, ...root.querySelectorAll('*')]) {
     if (el.tagName === 'SCRIPT' || el.tagName === 'STYLE') continue;
     const cs = getComputedStyle(el);
-    const sized = el.tagName !== 'CANVAS' && !el.querySelector('canvas');
     out.push([el.tagName, ...props.map(p => cs[p]), el.offsetLeft, el.offsetWidth,
-              sized ? el.offsetHeight : '-'].join('|'));
+              el.offsetHeight].join('|'));
   }
   return out.join('\n');
-}
-"""
-# Chart.js draws to canvas, so the text and markup never see a chart. Pin what each
-# chart was built from instead: type, labels, datasets and the plain option values.
-CHARTS = r"""
-() => {
-  const plain = (k, v) => typeof v === 'function' ? 'fn' : v;
-  return Object.keys(charts).sort().map(id => {
-    const c = charts[id];
-    return id + ' ' + JSON.stringify({type: c.config.type, labels: c.data.labels,
-      datasets: c.data.datasets, options: c.config._config.options}, plain);
-  });
 }
 """
 FIXTURE_PORTFOLIO = r"""
@@ -122,7 +107,6 @@ PANEL_HTML = r"""
 (id) => {
   const copy = document.getElementById(id).cloneNode(true);
   copy.querySelectorAll('style').forEach(s => s.remove());
-  copy.querySelectorAll('canvas').forEach(c => { for (const a of ['width','height','style']) c.removeAttribute(a); });
   copy.normalize();
   const walk = document.createTreeWalker(copy, NodeFilter.SHOW_TEXT);
   const blank = [];
@@ -301,7 +285,6 @@ def _capture():
                     "'assumeBanner','cmdStrip','stripSynth','buildStamp']"
                     ".map(i => { const e = document.getElementById(i); return i + '=' + (e ? e.outerHTML : ''); })"
                     ".join('\\n')"),
-                "charts": page.evaluate(CHARTS),
                 "style_sha": _sha(_style_dump(page, name)),
                 "console_errors": sorted(set(console)),
                 "page_errors": sorted(set(page_errors)),
