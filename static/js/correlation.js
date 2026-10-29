@@ -29,7 +29,7 @@ function renderCorr(d){
   if(!co||co.status==='error'){body.innerHTML='<div class="banner tone t-bear">Correlation unavailable: '+esc((co&&co.message)||'—')+'</div>';return;}
   body.innerHTML=corrProxyWarnHTML(co)+`<div class="grid12">${corrPhilHTML(co,d)}${corrHeatHTML(co)}
     <div class="s4" style="display:grid;gap:14px;align-content:start">${corrPairsHTML(co)}${corrSectorHTML(co,d)}</div>
-    ${corrBenchHTML(co)}${corrLegendHTML(co)}</div>`;
+    ${corrBenchHTML(co)}${corrFxHTML(co)}${corrLegendHTML(co)}</div>`;
 }
 
 // where the Crisis numbers come from: a measured market episode, or the assumed floor

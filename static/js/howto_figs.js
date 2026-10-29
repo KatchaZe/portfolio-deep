@@ -65,7 +65,7 @@ const HT_FIGS={
     build(st){
       const body=document.getElementById('corrBody'); if(!body||!body.querySelector('[aria-labelledby=hHeat]'))return false;
       st.appendChild(htCopy(document.querySelector('#p6 > .phead'))); st.appendChild(htCopy(body)); return true;},
-    marks:[['A','hPhil'],['B','hHeat'],['C','hSec'],['D','hPairs'],['E','hBench'],['A7','hRoll']]
+    marks:[['A','hPhil'],['B','hHeat'],['C','hSec'],['D','hPairs'],['E','hBench'],['F','hFx'],['A7','hRoll']]
       .map(([l,h])=>[l,s=>s.querySelector(`[aria-labelledby=${h}]`)]).concat([['Crisis',s=>s.querySelector('.seg')]])},
 };
 

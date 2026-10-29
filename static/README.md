@@ -28,6 +28,7 @@ app.py mounts this directory at `/static`. `index.html` holds the markup only an
 | `js/correlation.js` | the Correlation tab |
 | `js/watchlist.js` | the Watchlist tab |
 | `js/howto_figs.js` | the How to figures: inert copies of the live components with numbered markers that match each table |
+| `js/fx_usdthb.js` | the USD/THB 1-year panel on the Correlation tab; draws MOCK data until the payload carries `correlation.fx_usdthb` (contract at the top of the file) |
 | `js/app.js` | tabs (arrow keys), theme toggle, tools panel state, build stamp (`DASH_BUILD`), persistence badge, keep-alive, boot |
 
 Bump `DASH_BUILD` in `js/app.js` together with `config.BUILD`. Tests read the frontend

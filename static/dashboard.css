@@ -344,3 +344,8 @@ svg.ch text.bull{fill:color-mix(in srgb,var(--bull) 72%,var(--ink))} svg.ch text
 .httab th{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.03em;color:var(--muted);text-align:left;padding:7px 9px;background:var(--sunken)}
 .httab td{text-align:left;white-space:normal;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--line)}
 .foot{margin-top:28px;font-size:var(--t-xs);color:var(--muted);border-top:1px solid var(--line);padding-top:10px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
+
+.fxgrid{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}
+.fxgrid svg.ch{max-width:none}
+.fxside .kpis{grid-template-columns:repeat(2,minmax(0,1fr));margin-top:0}
+@media (max-width:1100px){.fxgrid{grid-template-columns:1fr}}

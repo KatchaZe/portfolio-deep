@@ -246,6 +246,7 @@
         <tr><td><b>C</b></td><td><b>Sector Summary</b></td><td>%น้ำหนักพอร์ต + avg corr ในกลุ่ม ต่อ sector</td><td>%สูง <b>และ</b> corr สูง = จุดกระจุกตัวจริง (เงินเยอะ + ตัวในกลุ่มซ้ำกัน)</td></tr>
         <tr><td><b>D</b></td><td><b>คู่สัมพันธ์ สูงสุด/ต่ำสุด</b></td><td>5 คู่ corr สูงสุด (จุดลด overlap) และต่ำสุด (ตัวช่วยกระจาย)</td><td>เป้าหมายแรกเวลาลดความเสี่ยง = คู่ที่แดงสุด</td></tr>
         <tr><td><b>E</b></td><td><b>Benchmark &amp; Asset-Class</b> (SPY/QQQ/GLD/IBIT)</td><td>พอร์ตทั้งก้อน + แต่ละหุ้น + สินทรัพย์กันเอง เทียบกับ S&amp;P500 / Nasdaq / Gold / Bitcoin</td><td>พอร์ต corr Nasdaq สูง = แทบเป็น index (S35&ndash;36 beta honesty) &middot; Gold/BTC = pricing asset ถือเพราะ corr ต่ำ (S38&ndash;41)</td></tr>
+        <tr><td><b>F</b></td><td><b>USD/THB ย้อนหลัง 1 ปี</b></td><td>กราฟค่าเงิน 1 ปี (เส้นประ = ระดับ 1 ปีก่อน · จุด = สูงสุด/ต่ำสุด/ล่าสุด) + KPI ล่าสุด · เปลี่ยน 1 ปี · สูง/ต่ำ · vol ต่อปี + มูลค่าพอร์ตเป็นบาท · ผลจากค่าเงินอย่างเดียว · ผลตอบแทน 12 เดือนหน่วย $ เทียบหน่วย ฿</td><td>เส้นขึ้น = บาทอ่อน ช่วยคนถือ $ · เส้นลง = บาทแข็ง กินผลตอบแทนตอนแลกกลับ · ป้าย MOCK = ยังไม่ได้ต่อข้อมูลจริง</td></tr>
         <tr><td><b>Crisis</b></td><td><b>ปุ่มสลับ Normal/Crisis</b></td><td>Crisis = correlation ที่<b>วัดจริง</b>ในช่วง drawdown ที่แย่ที่สุดของ S&amp;P ในประวัติราคา (ต้อง &le; &minus;10%, เช่นปี 2022) &middot; คู่ที่ข้อมูลในช่วงนั้นไม่ถึง 20 วัน ใช้ค่าสมมติ equity&harr;equity &ge; 0.9 (ติด *)</td><td>S41: ทดสอบการกระจายด้วย crisis correlation ไม่ใช่ค่าเฉลี่ยทั้งช่วง &mdash; ดูว่า ENB หายไปแค่ไหน &middot; ตัวที่ crisis corr &lt; 0.30 = ตัวถ่วงจริง &middot; ไม่ใช้ "เฉพาะวันที่ตลาดลง" เพราะ Pearson หักค่าเฉลี่ยที่ทุกตัวลงพร้อมกันออก ทำให้ corr ต่ำผิดความจริง</td></tr>
         <tr><td><b>A7</b></td><td><b>Rolling 60d corr</b> (เส้นใต้สุด)</td><td>corr พอร์ต vs S&amp;P แบบ rolling 60 วัน</td><td>ถ้ากำลังไต่ขึ้น = ความเสี่ยงกระจุกกำลังก่อตัว (สัญญาณเตือนล่วงหน้า)</td></tr>
       </table>
@@ -465,6 +466,7 @@
 <script src="/static/js/allocation.js"></script>
 <script src="/static/js/risk.js"></script>
 <script src="/static/js/correlation.js"></script>
+<script src="/static/js/fx_usdthb.js"></script>
 <script src="/static/js/watchlist.js"></script>
 <script src="/static/js/howto_figs.js"></script>
 <script src="/static/js/app.js"></script>
