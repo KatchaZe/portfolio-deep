@@ -36,6 +36,7 @@ import store as st
 import store_sync
 from pipeline import fundamentals, watchlist, portfolio, allocation, risk_report, batch
 from pipeline import screen as screen_mod
+from sources import yahoo
 from pipeline import daily as daily_mod
 
 logging.basicConfig(level=logging.INFO,
@@ -252,7 +253,8 @@ def api_risk(risk_tolerance_pct: float = 20.0, horizon_years: float = 1.0, enric
     try:
         payload, calls = risk_report.build(
             s, config.FMP_API_KEY, st.fmp_used_today(s), config.QUOTA_CAP,
-            risk_tolerance_pct, horizon_years, enrich != "free")
+            risk_tolerance_pct, horizon_years, enrich != "free",
+            fetch_fx=yahoo.fetch_fx_series)
     except Exception as e:      # a bare 500 would crash the frontend's JSON.parse
         log.exception("risk analysis failed")
         return JSONResponse({"status": "error", "snapshot": None,

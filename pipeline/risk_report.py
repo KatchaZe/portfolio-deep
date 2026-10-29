@@ -471,6 +471,19 @@ def _correlation(rdata, tickers, weights, book, cov, cov_c, cov_info,
     }
 
 
+def _fx_usdthb(fetch_fx):
+    """USD/THB closes for the Correlation tab. Absent on failure: the panel then draws
+    its labelled MOCK series, and the rest of the payload is untouched."""
+    try:
+        points = fetch_fx()
+    except Exception as e:
+        log.warning("USD/THB series unavailable: %s", e)
+        return None
+    if len(points) < 3:
+        return None
+    return {"pair": "USD/THB", "as_of": points[-1]["d"], "source": "Yahoo THB=X", "points": points}
+
+
 def _crisis(cov, tickers, asset_class, fetch_long):
     """Measured crisis regime; the assumed floor when the long history is missing."""
     try:
@@ -489,10 +502,11 @@ def _crisis(cov, tickers, asset_class, fetch_long):
 
 
 def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
-          prefer_fmp, fetch_returns=None, fetch_long=None):
+          prefer_fmp, fetch_returns=None, fetch_long=None, fetch_fx=None):
     """Assemble the full risk payload. Returns (payload, fmp_calls).
-    `fetch_returns` is the ONLY network seam: inject a fake provider to unit-test
-    the whole payload shaping offline (tests/test_risk_report.py)."""
+    `fetch_returns` and `fetch_long` are the network seams: inject fakes to unit-test
+    the whole payload shaping offline (tests/test_risk_report.py). `fetch_fx` is opt-in
+    (app.py passes it) and adds correlation.fx_usdthb for the USD/THB panel."""
     fetch_returns = fetch_returns or prices.fetch_returns
     fetch_long = fetch_long or (lambda tks: prices.fetch_long_returns(tks, fmp_key if prefer_fmp else ""))
     book = _book(s)
@@ -575,6 +589,10 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     except Exception as e:
         traceback.print_exc()
         correlation = {"status": "error", "message": f"{type(e).__name__}: {e}"}
+    if fetch_fx and correlation.get("status") != "error":
+        fx = _fx_usdthb(fetch_fx)
+        if fx:
+            correlation["fx_usdthb"] = fx
 
     snapshot = {
         "as_of": s.get("updated", {}).get("_daily") or None,

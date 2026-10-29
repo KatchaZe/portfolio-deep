@@ -223,35 +223,34 @@ def fetch_consensus(ticker, requests_mod=None, timeout=15, retries=3, backoff=1.
     return last
 
 
-def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
-                retries=3, backoff=1.5):
-    """Daily closes + volumes + dates for momentum. Retries + host rotation so a
-    single throttled response doesn't blank out momentum."""
+def _chart_result(ticker, params, requests_mod=None, timeout=20, retries=3, backoff=1.5):
+    """The raw chart result, with retries and host rotation."""
     import requests as _r
     requests_mod = requests_mod or _r
-    import datetime as dt
     last_err = None
-    res = None
     for attempt in range(1, retries + 1):
         for host in ("query1", "query2"):
             try:
                 r = requests_mod.get(f"https://{host}.finance.yahoo.com/v8/finance/chart/{ticker}",
-                                     params={"range": rng, "interval": interval,
-                                             "events": "div,splits"},
-                                     headers=_UA, timeout=timeout)
+                                     params=params, headers=_UA, timeout=timeout)
                 r.raise_for_status()
                 result = (r.json().get("chart") or {}).get("result")
                 if result:
-                    res = result[0]
-                    break
+                    return result[0]
             except Exception as e:
                 last_err = e
-        if res is not None:
-            break
         if attempt < retries:
             time.sleep(backoff * attempt)
-    if res is None:
-        raise last_err or RuntimeError(f"chart unavailable for {ticker}")
+    raise last_err or RuntimeError(f"chart unavailable for {ticker}")
+
+
+def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
+                retries=3, backoff=1.5):
+    """Daily closes + volumes + dates for momentum. Retries + host rotation so a
+    single throttled response doesn't blank out momentum."""
+    import datetime as dt
+    res = _chart_result(ticker, {"range": rng, "interval": interval, "events": "div,splits"},
+                        requests_mod, timeout, retries, backoff)
     q = res["indicators"]["quote"][0]
     # adjusted close (split+dividend) for momentum; absent on some responses
     adj = None
@@ -271,6 +270,27 @@ def fetch_chart(ticker, requests_mod=None, rng="3mo", interval="1d", timeout=20,
     if adj is not None:
         out["adj_closes"] = adj_closes          # present only when Yahoo returned adjclose
     return out
+
+
+def parse_fx_closes(chart_result, today=None):
+    """[{d, v}] daily closes, oldest -> newest. Dates use the chart's own gmtoffset:
+    Yahoo stamps FX bars at London midnight, which is still the previous day in UTC.
+    FX trades around the clock, so the bar dated today is not a close and is dropped."""
+    import datetime as dt
+    off = (chart_result.get("meta") or {}).get("gmtoffset") or 0
+    ts = chart_result.get("timestamp") or []
+    quote = ((chart_result.get("indicators") or {}).get("quote") or [{}])[0]
+    by_day = {}
+    for t, c in zip(ts, quote.get("close") or []):
+        if c is not None and c > 0:
+            by_day[dt.datetime.fromtimestamp(t + off, dt.timezone.utc).strftime("%Y-%m-%d")] = round(float(c), 4)
+    today = today or (dt.datetime.now(dt.timezone.utc) + dt.timedelta(seconds=off)).strftime("%Y-%m-%d")
+    return [{"d": d, "v": v} for d, v in sorted(by_day.items()) if d < today]
+
+
+def fetch_fx_series(symbol="THB=X", rng="1y", requests_mod=None, timeout=15, retries=2):
+    return parse_fx_closes(_chart_result(symbol, {"range": rng, "interval": "1d"},
+                                         requests_mod, timeout, retries))
 
 
 def pe_percentile_5y(eps_dated, closes, dates, price, current_eps):
