@@ -51,7 +51,7 @@ function renderBenchmark(b,perf){
   const fmt=v=>v==null?'—':signed(v)+'%';
   const ex=b.excess_pp, lag=ex!=null&&ex<0;
   el.innerHTML=stripTile('vs S&P 12M (S16/S35)',ex==null?'&mdash;':signed(ex)+'%',
-    `พอร์ต ${fmt(b.portfolio_12m)} vs S&amp;P ${fmt(b.market_12m)} · MV-weighted, illustrative — active ส่วนใหญ่แพ้ index หลังหัก cost/tax`,
+    `พอร์ต ${fmt(b.portfolio_12m)} vs S&amp;P ${fmt(b.market_12m)} · MV-weighted, illustrative — active ส่วนใหญ่แพ้ index หลังหัก cost/tax${p.note?' · ผลจริง: '+esc(p.note):''}`,
     lag?'--warn':'--bull');
 }
 function renderPhilosophy(p){

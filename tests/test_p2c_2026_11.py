@@ -76,6 +76,17 @@ def test_unvalued_holdings_keep_their_weight():
     print("P2-6 unvalued holdings keep their weight OK")
 
 
+def test_a_sell_exits_even_inside_the_band():
+    tk = ["A", "B", "R"]
+    cov = _diag([0.2] * 3)
+    w = {"A": 0.49, "B": 0.495, "R": 0.015}                              # R: 1.5% < the 2pp band
+    out = T.targets(tk, cov, w, {"A": _val(), "B": _val(), "R": _val(rating="SELL / AVOID")},
+                    [{"ticker": t, "hard_max_pct": 100.0} for t in tk], total_value=10000)
+    r = {x["ticker"]: x for x in out["rows"]}["R"]
+    assert r["action"] == "SELL" and r["trade_pct"] == -1.5 and r["trade_usd"] == -150, r
+    print("P2-6 SELL exits inside the band OK")
+
+
 def test_band_trades_only_past_two_points():
     tk = ["A", "B", "C", "D"]
     cov = _diag([0.2] * 4)                                               # targets 25% each

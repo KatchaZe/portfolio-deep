@@ -94,7 +94,9 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
     rows = []
     for t in tickers:
         drift = cur[t] - tgt[t]
-        if abs(drift) > BAND_TRIGGER:
+        if tgt[t] == 0 and cur[t] > 0 and bud[tickers.index(t)] == 0.0:
+            new, act = 0.0, "SELL"                # a SELL exits whole, band or not
+        elif abs(drift) > BAND_TRIGGER:
             new = tgt[t] + math.copysign(BAND_DEST, drift)
             act = "SELL" if drift > 0 else "BUY"
         else:

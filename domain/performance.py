@@ -49,8 +49,11 @@ def summary(log):
     tracking error / information ratio once there are MIN_PERIODS periods."""
     ps = periods(log)
     if not ps:
-        return {"status": "insufficient", "n_periods": 0,
-                "note": "ต้องมี NAV อย่างน้อย 2 วัน (กด Run Daily วันละครั้ง)"}
+        n = sum(1 for e in (log or []) if e.get("nav") and e["nav"] > 0)
+        first = next((e["date"] for e in (log or []) if e.get("nav") and e["nav"] > 0), None)
+        return {"status": "insufficient", "n_periods": 0, "n_entries": n, "start": first,
+                "note": (f"มี NAV {n} วัน (เริ่ม {first}) — ต้องมีอย่างน้อย 2 วัน (กด Run Daily วันละครั้ง)"
+                         if n else "ยังไม่มี NAV — กด Run Daily (ต้องมีราคาปิดของทุกตัววันเดียวกับ SPY)")}
     start = next(e["date"] for e in log if e.get("nav") and e["nav"] > 0)
     end = ps[-1][0]
     days = max(1, (_date(end) - _date(start)).days)
