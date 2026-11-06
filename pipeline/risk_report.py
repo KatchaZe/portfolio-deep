@@ -301,8 +301,20 @@ def _value_inputs(s, tickers, book):
                   "net_mos": round(net_up / (100 + net_up), 4) if (net_up is not None and net_up > -100) else None,
                   "price": price, "avg_cost": hold.get(t, {}).get("avg_cost"),
                   "tax_rate": config.CAPGAINS_TAX_RATE,
-                  "add_min_mos": (v.get("uncertainty") or {}).get("add_min_mos")}
+                  "add_min_mos": (v.get("uncertainty") or {}).get("add_min_mos"),
+                  "excess_pct": (v.get("expected_return") or {}).get("excess_pct"),
+                  "uncertainty": (v.get("uncertainty") or {}).get("rating")}
     return out
+
+
+def _targets(tickers, cov, weights, value, sizing, cash_frac, total):
+    """Risk-budget targets + band trades (domain/risk/targets.py), or a status block."""
+    try:
+        return {"status": "ok", **riskeng.risk_budget_targets(tickers, cov, weights, value, sizing,
+                                                              cash_frac, total)}
+    except Exception as e:
+        log.warning("risk-budget targets failed: %s", e)
+        return {"status": "error", "note": f"targets error: {type(e).__name__}"}
 
 
 def _after_rebalance(reb, tickers, cov, betas, sectors, industries=None):
@@ -689,6 +701,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         "suitability": suit,
         "position_sizing": sizing,
         "rebalance": {**reb, "after": after},
+        "targets": _targets(tickers, cov, weights, value, sizing, cash_frac, invested + cash),
         "meta": {
             "cov_mode": cov_mode, "cov_tag": cov_tag, "cache": rmeta.get("cache"),
             "quota_degraded": rmeta.get("quota_degraded"),
