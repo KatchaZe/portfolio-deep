@@ -466,3 +466,25 @@ def fetch_quarterly_timeseries(ticker, requests_mod=None, timeout=20, years=3):
                       "period2": now, "crumb": crumb}, timeout=timeout)
     r.raise_for_status()
     return r.json()
+
+
+def fetch_window_return(ticker, start, end, requests_mod=None, timeout=20, retries=2):
+    """Total return (dividend + split adjusted) from the first close on or after `start`
+    to the last close on or before `end` (YYYY-MM-DD), or None when the ticker has no
+    close within 5 days of `start` (it did not trade then). Raises on a failed fetch."""
+    import datetime as dt
+    t0 = dt.datetime.fromisoformat(start).replace(tzinfo=dt.timezone.utc)
+    t1 = dt.datetime.fromisoformat(end).replace(tzinfo=dt.timezone.utc) + dt.timedelta(days=1)
+    try:
+        res = _chart_result(ticker, {"period1": int(t0.timestamp()), "period2": int(t1.timestamp()),
+                                     "interval": "1d", "events": "div,splits"},
+                            requests_mod, timeout, retries)
+    except RuntimeError:
+        return None
+    ts = res.get("timestamp") or []
+    adj = ((res.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose") or \
+        ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
+    pts = [(t, c) for t, c in zip(ts, adj) if c]
+    if len(pts) < 2 or pts[0][0] > t0.timestamp() + 5 * 86400:
+        return None
+    return pts[-1][1] / pts[0][1] - 1

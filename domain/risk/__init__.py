@@ -25,7 +25,10 @@ from .portfolio import (add_blocker, beta_risk_contribution, capital_weights, co
                         diversification_ratio, diversification_score, effective_bets,
                         gap_coverage, group_exposure, portfolio_beta, portfolio_vol,
                         position_sizing, rebalance, risk_contributions)
-from .stress import (HISTORICAL, SCENARIOS, effective_duration, historical_var,
+from .stress import (HISTORICAL, PROXY_ETF, SCENARIOS, effective_duration, historical_replay,
+                     historical_var, proxy_for,
                      rate_stress, reverse_stress, stress_test, suitability, var_cvar)
 from .correlation import (downside_beta, downside_corr, pair_corr_dated, rolling_corr,
                           semideviation, sector_corr, sortino, top_pairs)
+from .factors import FACTORS, decompose as factor_decompose
+from .fx_view import thb_view
