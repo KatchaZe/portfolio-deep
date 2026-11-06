@@ -25,7 +25,7 @@ function renderPortfolio(d){
   renderMomBanner(d.momentum_meta);
   renderAssumptions(d.market);
   renderMarket(d.market);
-  renderBenchmark(d.benchmark);
+  renderBenchmark(d.benchmark,d.performance);
   renderPhilosophy(d.philosophy);
   renderSynth(d);
   const p1=document.getElementById('p1');

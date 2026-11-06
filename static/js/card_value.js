@@ -169,6 +169,17 @@ function valueGauge(x){
   if(x.rev_implied_cagr!=null)return impliedVsActualBars(x);
   return '';
 }
+// The uncertainty rating (domain/engine/uncertainty.py) and the MoS the Price pillar
+// asked for on it: a wider value range needs a deeper discount.
+function uncertaintyNote(x){
+  const u=x.uncertainty; if(!u||!u.rating||u.rating==='Unrated'||!u.bands_pct)return '';
+  return `<div class="note" title="ความกว้างช่วงมูลค่า ${u.width!=null?nf(u.width*100,0)+'%':''} (${esc(u.basis||'')}) · เกณฑ์แบบ Morningstar: คะแนน Price 5 ที่ MoS ≥ ${nf(u.bands_pct[0],0)}%, 4 ที่ ≥ ${nf(u.bands_pct[1],0)}%">ความไม่แน่นอน ${esc(u.rating)} · ต้องการ MoS ≥ ${nf(u.bands_pct[1],0)}%</div>`;
+}
+// The return the price offers if the anchor DCF's cash flows arrive, against Ke.
+function impliedReturnNote(x){
+  const e=x.expected_return; if(!e||e.equity_irr_pct==null)return '';
+  return `<div class="note" title="${esc(e.basis||'')} · return on the firm ${nf(e.firm_irr_pct,1)}% vs WACC ${nf(e.wacc_pct,1)}% · ผลตอบแทนต่อปีระยะยาว ไม่ใช่เป้าราคา 12 เดือน">ผลตอบแทนคาดหวัง ${nf(e.equity_irr_pct,1)}%/ปี vs Ke ${nf(e.ke_pct,1)}% (${sgn(e.excess_pct,1)})</div>`;
+}
 function priceVsValueGauge(x){
   const c=((x.scenarios||{}).cases)||null, mos=mosOf(x), meth=methodShort(x.anchor_method);
   const bear=c?c[0].value:x.range_low, base=x.anchor_value, bull=c?c[c.length-1].value:x.range_high;
@@ -176,9 +187,9 @@ function priceVsValueGauge(x){
   const lo=Math.min(bear??base,bull??base), up=Math.max(bear??base,bull??base);
   const ratio=x.price&&base?x.price/base:null;
   return `<div class="value">
-      <div><div class="cap">Margin of safety</div><div class="mosbig ${upcls(mos)}" title="(Fair value − ราคา) / Fair value${mos!=null?' = '+sgn(mos,1):''}">${mos==null?'–':mos<-100?'&lt; −100%':sgn(mos,1)}</div></div>
+      <div><div class="cap">Margin of safety</div><div class="mosbig ${upcls(mos)}" title="(Fair value − ราคา) / Fair value${mos!=null?' = '+sgn(mos,1):''}">${mos==null?'–':mos<-100?'&lt; −100%':sgn(mos,1)}</div>${uncertaintyNote(x)}</div>
       <div class="fvbox"><div class="cap">Fair value · ${esc(meth)}</div><b>${usd(base)}</b>${consensusBadge(x)}
-        <div class="note" title="upside = (FV − ราคา)/ราคา · net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">upside ${sgn(x.upside_pct)} · net ${sgn(x.net_upside_pct)}${mos!=null&&mos<-100&&ratio?` · ราคา ${nf(ratio,1)}× FV`:''}</div></div></div>
+        <div class="note" title="upside = (FV − ราคา)/ราคา · net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">upside ${sgn(x.upside_pct)} · net ${sgn(x.net_upside_pct)}${mos!=null&&mos<-100&&ratio?` · ราคา ${nf(ratio,1)}× FV`:''}</div>${impliedReturnNote(x)}</div></div>
     <div class="scale" role="img" aria-label="${esc(`ราคา ${usd(x.price)} เทียบช่วงมูลค่า Bear ${usd(bear)} ถึง Bull ${usd(bull)} และ Fair value ${usd(base)}`)}">
       <div class="tr"></div><div class="band" style="left:${at(lo)}%;width:${Math.max(.8,at(up)-at(lo))}%"></div>
       <div class="tick" style="left:${at(base)}%" title="Fair value ${usd(base)}"></div>

@@ -280,3 +280,27 @@ def story_mc_young(ydcf, price, margin_lo, margin_hi, sims=MC_SIMS, seed=MC_SEED
     return _summary(vals, price, {
         "margin_pct": [round(margin_lo * 100, 2), round(d["target_margin"] * 100, 2), round(margin_hi * 100, 2)],
         "growth": "first-year -/+15pp", "sales_to_capital": "x0.75-1.25", "survival": "+/-20 points"})
+
+
+# --------------------------------------------------------------------------- #
+#  Implied return (Damodaran's implied cost of capital)                        #
+# --------------------------------------------------------------------------- #
+def implied_return(kw, price):
+    """(rate, note): the WACC at which the anchor's own FCFF DCF is worth exactly the
+    price, i.e. the return on the firm the price offers if the model's cash flows
+    arrive. Both phases move together, keeping the stable-phase WACC's distance from
+    the high-growth one. rate is None (with the reason) outside the solvable range."""
+    if not kw or not price:
+        return None, "not computable"
+    w0, ws0, g = kw["wacc"], kw["wacc_stable"], kw["g_stable"]
+    lo, hi = g + 0.001 - ws0, 0.60 - w0
+
+    def neg_value(d):
+        v = _dcf(kw, wacc=w0 + d, wacc_stable=ws0 + d)
+        return None if v is None else -v
+    d, why = _bisect(neg_value, -price, lo, hi)
+    if d is None:
+        return None, {"below": "the model is worth more than the price at any rate the "
+                               "terminal allows", "above": "worth less than the price "
+                               "even at a 60% rate"}.get(why, why)
+    return w0 + d, None

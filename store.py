@@ -33,7 +33,9 @@ _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
             # manual monthly ERP / MARKET_PE from the dashboard form
             "assumptions": {},
             # uninvested cash in USD, entered by hand (the Risk Desk's whole-portfolio view)
-            "cash": {}}
+            "cash": {},
+            # NAV log + flows not yet booked (pipeline/performance.py)
+            "performance": {}}
 
 _PER_TICKER = ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises",
                "refreshed_at", "skipped")
@@ -182,11 +184,34 @@ def set_revenue_mix(s, ticker, mix):
 
 
 # --- holdings -------------------------------------------------------------- #
+def _book_shares(s, t, d_shares):
+    """Money moved by buying (+) or selling (-) `d_shares`, for the performance log.
+    Valued at the close on file, or at the next NAV entry's close when there is none.
+    Nothing before the first NAV entry: that is the starting book."""
+    perf = s.setdefault("performance", {})
+    if not perf.get("nav") or not d_shares:
+        return
+    price = ((s.get("momentum") or {}).get(t) or {}).get("price") or \
+        (s.get("facts", {}).get(t) or {}).get("price")
+    if price:
+        perf["pending_flow"] = (perf.get("pending_flow") or 0.0) + d_shares * price
+    else:
+        ps = perf.setdefault("pending_shares", {})
+        ps[t] = ps.get(t, 0.0) + d_shares
+
+
+def _book_cash(s, d_usd):
+    perf = s.setdefault("performance", {})
+    if perf.get("nav") and d_usd:
+        perf["pending_flow"] = (perf.get("pending_flow") or 0.0) + d_usd
+
+
 def set_holding(s, ticker, shares=None, avg_cost=None):
     store_sync.mark_local_edit()
     t = clean_ticker(ticker)
     h = s["holdings"].setdefault(t, {"shares": 0, "avg_cost": 0.0, "added": today()})
     if shares is not None:
+        _book_shares(s, t, float(shares) - float(h.get("shares") or 0))
         h["shares"] = float(shares)
     if avg_cost is not None:
         h["avg_cost"] = float(avg_cost)
@@ -202,6 +227,7 @@ def set_cash(s, usd):
     if not (0 <= usd <= CASH_MAX):
         raise ValueError(f"cash must be between 0 and {CASH_MAX:,.0f} USD")
     store_sync.mark_local_edit()
+    _book_cash(s, round(usd, 2) - cash_usd(s))
     s["cash"] = {"usd": round(usd, 2), "updated": today()}
     return s["cash"]
 
@@ -217,6 +243,7 @@ def cash_usd(s):
 def remove_holding(s, ticker):
     store_sync.mark_local_edit()
     t = clean_ticker(ticker)
+    _book_shares(s, t, -float((s.get("holdings", {}).get(t) or {}).get("shares") or 0))
     for k in _PER_TICKER:
         s.get(k, {}).pop(t, None)
 
