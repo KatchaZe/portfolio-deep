@@ -6,6 +6,8 @@ P1-2  the 40% FMP-sector cap is enforced: an over-cap sector is trimmed to the c
 P1-3  the width of the value range sets the uncertainty rating, and the rating sets the
       margin of safety the Price pillar, the advice line and the ADD gate ask for.
 P1-4  the implied return: the WACC at which the anchor's own DCF is worth the price.
+P1-5  realized performance: the NAV log nets deposits out (TWR), compares with SPY,
+      and reports tracking error / IR once there are enough periods.
 """
 import json
 import os
@@ -169,6 +171,87 @@ def test_implied_return_falls_as_price_rises():
     r_hi, _ = S.implied_return(kw, fair * 0.7)
     assert r_lo < r_eq < r_hi and abs(r_eq - 0.09) < 1e-4, (r_lo, r_eq, r_hi)
     print("P1-4 monotone in price OK", round(r_lo, 4), round(r_eq, 4), round(r_hi, 4))
+
+
+def _store(prices, spy, day, cash=0.0):
+    import copy
+    import store
+    s = copy.deepcopy(store._DEFAULT)
+    s["market"] = {"spy_close": spy, "as_of": day}
+    s["momentum"] = {t: {"price": p, "price_date": day} for t, p in prices.items()}
+    s["cash"] = {"usd": cash}
+    return s
+
+
+def _day(s, prices, spy, day):
+    s["market"] = {"spy_close": spy, "as_of": day}
+    for t, p in prices.items():
+        s["momentum"][t] = {"price": p, "price_date": day}
+
+
+def test_deposit_is_not_a_return():
+    import store
+    from pipeline import performance as P
+    s = _store({"A": 10.0}, 100.0, "2026-11-02")
+    store.set_holding(s, "A", 10, 10.0)              # starting book: not a flow
+    assert P.record(s)["flow"] == 0.0
+    store.set_holding(s, "A", 20, 10.0)              # bought 10 more with new money
+    store.set_cash(s, 50)                            # and deposited 50
+    _day(s, {"A": 10.0}, 101.0, "2026-11-03")
+    e = P.record(s)
+    assert e["nav"] == 250.0 and e["flow"] == 150.0, e
+    v = P.view(s)
+    assert v["twr_pct"] == 0.0 and v["spy_pct"] == 1.0 and v["active_pp"] == -1.0, v
+    print("P1-5 deposits netted out of the TWR OK")
+
+
+def test_sale_and_removal_are_outflows_and_the_return_counts():
+    import store
+    from pipeline import performance as P
+    s = _store({"A": 10.0, "B": 20.0}, 100.0, "2026-11-02")
+    store.set_holding(s, "A", 10, 10.0)
+    store.set_holding(s, "B", 5, 20.0)
+    P.record(s)                                      # NAV 200
+    store.remove_holding(s, "B")                     # took 100 out
+    _day(s, {"A": 11.0}, 100.0, "2026-11-03")
+    e = P.record(s)
+    assert e["nav"] == 110.0 and e["flow"] == -100.0, e
+    assert P.view(s)["twr_pct"] == 5.0, P.view(s)    # (110 + 100) / 200 - 1
+    print("P1-5 removal is an outflow; the A gain is the return OK")
+
+
+def test_mixed_day_nav_is_not_recorded():
+    import store
+    from pipeline import performance as P
+    s = _store({"A": 10.0}, 100.0, "2026-11-02")
+    store.set_holding(s, "A", 10, 10.0)
+    P.record(s)
+    s["market"] = {"spy_close": 102.0, "as_of": "2026-11-03"}   # A still on the 2nd
+    assert P.record(s) is None and len(s["performance"]["nav"]) == 1
+    _day(s, {"A": 10.5}, 102.0, "2026-11-03")
+    store.set_cash(s, 30)
+    e1 = P.record(s)
+    store.set_cash(s, 50)                            # a second deposit the same day
+    e2 = P.record(s)
+    assert e2 is e1 and e2["flow"] == 50.0 and len(s["performance"]["nav"]) == 2, s["performance"]
+    print("P1-5 mixed-day NAV skipped; same-day entry accumulates flows OK")
+
+
+def test_tracking_error_needs_enough_periods():
+    from domain import performance as D
+    import datetime as dt
+    log, nav, spy = [], 100.0, 100.0
+    d0 = dt.date(2026, 1, 1)
+    for i in range(25):
+        log.append({"date": (d0 + dt.timedelta(days=i)).isoformat(), "nav": nav, "flow": 0.0, "spy": spy})
+        nav *= 1.002 if i % 2 else 0.999
+        spy *= 1.001
+    out = D.summary(log)
+    assert out["tracking_error_pct"] and out["tracking_error_pct"] > 0, out
+    assert out["information_ratio"] is not None, out
+    short = D.summary(log[:5])
+    assert "tracking_error_pct" not in short and short["note"], short
+    print("P1-5 TE/IR from", out["n_periods"], "periods OK:", out["tracking_error_pct"], out["information_ratio"])
 
 
 if __name__ == "__main__":
