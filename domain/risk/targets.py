@@ -11,8 +11,10 @@ Target weights from a risk budget, and the band rebalance around them.
    solved by the standard multiplicative iteration on the covariance), on the
    invested share of the book.
 3. Caps. No target above the name's hard cap (single-name, risk-share, pricing-asset,
-   sector: position_sizing); what a cap cuts goes to cash, not to the other names.
-   A name whose ADD is blocked keeps at most its current weight.
+   sector: position_sizing), and a name whose ADD is blocked keeps at most its current
+   weight. What these cut is handed to the names that can still take more, in
+   proportion to their risk-budget weights and up to their own caps; only what no
+   name can take is cash (user decision 2026-11-07).
 4. Bands (Vanguard's 200 / 175). A holding more than BAND_TRIGGER from its target is
    traded back to BAND_DEST from it, on the side it drifted; inside the band, no trade.
 
@@ -84,13 +86,26 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
     tgt = {t: cur[t] for t in held}
     tgt.update({tickers[i]: raw[k] * room for k, i in enumerate(free)})
     notes = {t: why[i] for i, t in enumerate(tickers)}
+    ceiling = {t: (min(caps.get(t, 1.0), cur[t]) if blocked.get(t) else caps.get(t, 1.0))
+               for t in tickers}
     for t in tickers:
-        if tgt[t] > caps.get(t, 1.0):
-            tgt[t] = caps[t]
-            notes[t] += f" · cap {caps[t] * 100:.1f}%"
-        if blocked.get(t) and tgt[t] > cur[t]:
-            tgt[t] = cur[t]
-            notes[t] += f" · ADD blocked ({blocked[t]})"
+        if tgt[t] > ceiling[t]:
+            tgt[t] = ceiling[t]
+            notes[t] += (f" · ADD blocked ({blocked[t]})" if blocked.get(t) and ceiling[t] == cur[t]
+                         and cur[t] < caps.get(t, 1.0) else f" · cap {ceiling[t] * 100:.1f}%")
+    share = {tickers[i]: raw[k] for k, i in enumerate(free)}
+    for _ in range(len(tickers)):                 # hand what was cut to who can take it
+        left = invest - sum(tgt.values())
+        open_ = [t for t in share if share[t] > 0 and tgt[t] < ceiling[t] - 1e-12]
+        tot = sum(share[t] for t in open_)
+        if left <= 1e-9 or tot <= 0:
+            break
+        for t in open_:
+            add = min(ceiling[t] - tgt[t], left * share[t] / tot)
+            if add > 1e-12:
+                tgt[t] += add
+                if "+ ส่วนที่ตัวอื่นรับไม่ได้" not in notes[t]:
+                    notes[t] += " + ส่วนที่ตัวอื่นรับไม่ได้"
     rows = []
     for t in tickers:
         drift = cur[t] - tgt[t]

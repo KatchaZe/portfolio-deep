@@ -60,8 +60,18 @@ def test_caps_and_blocks_hold_and_the_cut_goes_to_cash():
     by = {r["ticker"]: r for r in out["rows"]}
     assert by["A"]["target_pct"] == 20.0, by["A"]                        # 33.3 capped
     assert by["C"]["target_pct"] == 30.0 and "ADD blocked" in by["C"]["basis"], by["C"]
-    assert abs(out["target_cash_pct"] - (100 - 20 - 33.3 - 30)) < 0.2, out
-    print("P2-6 caps / blocked ADD / cut to cash OK")
+    assert by["B"]["target_pct"] == 50.0 and "รับไม่ได้" in by["B"]["basis"], by["B"]   # takes A's cut
+    assert out["target_cash_pct"] == 0.0, out
+    print("P2-6 caps / blocked ADD; the cut goes to who can still add OK")
+
+
+def test_only_what_nobody_can_take_is_cash():
+    tk = ["A", "B"]
+    cov = _diag([0.2, 0.2])
+    out = T.targets(tk, cov, {"A": 0.5, "B": 0.5}, {t: _val() for t in tk},
+                    [{"ticker": t, "hard_max_pct": 30.0} for t in tk])
+    assert [r["target_pct"] for r in out["rows"]] == [30.0, 30.0] and out["target_cash_pct"] == 40.0, out
+    print("P2-6 cash = only what no cap can absorb OK")
 
 
 def test_unvalued_holdings_keep_their_weight():
