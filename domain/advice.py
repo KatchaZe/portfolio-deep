@@ -141,6 +141,26 @@ def _action(good_value, bad_value, good_quality, good_mom, crash, comp, has_part
     return None
 
 
+# The DEEP recommendation is the rating; the Action is when and how to act on it, so
+# it may never point the other way. Each rating lists the Actions it allows, and the
+# one an Action outside the list falls back to.
+_ALLOWED = {
+    "BUY": ({"BUY", "ACCUMULATE", "WAIT", "WATCH", "NO ADD", "HOLD", "HOLD?"}, "HOLD"),
+    "HOLD / Accumulate": ({"ACCUMULATE", "WAIT", "WATCH", "NO ADD", "HOLD", "HOLD?", "REDUCE"},
+                          "ACCUMULATE"),
+    "HOLD": ({"WATCH", "NO ADD", "HOLD", "HOLD?", "REDUCE"}, "HOLD"),
+    "SELL / AVOID": ({"REDUCE"}, "REDUCE"),
+}
+
+
+def align(reco, act):
+    """(Action, note): `act` kept when the DEEP rating allows it, else its fallback."""
+    allowed, fallback = _ALLOWED.get(reco, (None, None))
+    if act is None or allowed is None or act in allowed:
+        return act, None
+    return fallback, f"DEEP {reco} → {act} ปรับเป็น {fallback}"
+
+
 def _row_mos(row, up):
     m = _fnum(row.get("mos_pct"))
     return m if m is not None else mos_from_upside(up)
@@ -180,6 +200,9 @@ def _decide(row):
         crash=crash,
         comp=_fnum(row.get("composite")),
         has_parts=bool(parts))
+    act, note = align(row.get("recommendation"), act)
+    if note:
+        parts.append(note)
     return parts, act
 
 
