@@ -1110,6 +1110,7 @@ class DeepV82Engine(DeepEngine):
             key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype, anc),
             flags=list(f.flags))
         v.priced_in, v.scenarios, v.uncertainty = priced_in, scen, unc
+        v.expected_return = _expected_return(f, cap, gr, ctype, rf, anc)
         try:
             v.verdict = _verdict(f, v)
         except Exception as e:                       # guard: never let a verdict typo/bad field crash a ticker
@@ -1133,6 +1134,36 @@ def _cross_checks(f, cap, gr, ctype, rf, anc):
     except Exception as e:
         _add_flag(f, f"scenario cross-check unavailable ({type(e).__name__})")
     return {}, {}
+
+
+def _expected_return(f, cap, gr, ctype, rf, anc):
+    """The return the price offers on the anchor's own FCFF DCF: the implied WACC
+    (return on the firm), un-mixed into the implied return on equity with today's
+    weights and after-tax cost of debt, against the Ke the model asks for. {} when
+    the anchor is not an FCFF DCF. A cross-check: it never moves the score."""
+    if anc.method != "FCFF DCF" or not f.price:
+        return {}
+    try:
+        built = _dcf_inputs(f, cap, gr, ctype, rf)
+        if not built:
+            return {}
+        r, why = scenarios_mod.implied_return(built[0], f.price)
+    except Exception as e:                       # a cross-check must never kill a row
+        _add_flag(f, f"implied return unavailable ({type(e).__name__})")
+        return {}
+    out = {"basis": "WACC ที่ทำให้ FCFF DCF ของ anchor = ราคา (implied cost of capital)",
+           "ke_pct": round(cap.ke * 100, 2), "wacc_pct": round(cap.wacc * 100, 2)}
+    if r is None:
+        return dict(out, firm_irr_pct=None, equity_irr_pct=None, note=why)
+    debt = cap.debt_eff or 0.0
+    v = (cap.mcap or 0.0) + debt
+    if cap.kd_pre and debt > 0 and v > 0 and cap.mcap:
+        wd, we = debt / v, cap.mcap / v
+        ke_impl = (r - cap.kd_pre * (1 - cap.tax) * wd) / we
+    else:
+        ke_impl = r
+    return dict(out, firm_irr_pct=round(r * 100, 2), equity_irr_pct=round(ke_impl * 100, 2),
+                excess_pct=round((ke_impl - cap.ke) * 100, 2), note=None)
 
 
 # --- evaluate() stages, in call order -----------------------------------------

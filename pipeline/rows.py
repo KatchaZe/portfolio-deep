@@ -104,6 +104,7 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "priced_in": v.get("priced_in") or None,
         "scenarios": v.get("scenarios") or None,
         "uncertainty": v.get("uncertainty") or None,
+        "expected_return": v.get("expected_return") or None,
         "relative": v.get("relative") or None,
         "earn_status": earn_status(eps_surprises, rev_surprises, mgn_trend,
                                    f.get("provenance"), has_new_schema, fmp_on),

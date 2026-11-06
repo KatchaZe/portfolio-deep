@@ -5,6 +5,7 @@ P1-2  the 40% FMP-sector cap is enforced: an over-cap sector is trimmed to the c
       pro rata, and freed weight never flows into a sector at the cap.
 P1-3  the width of the value range sets the uncertainty rating, and the rating sets the
       margin of safety the Price pillar, the advice line and the ADD gate ask for.
+P1-4  the implied return: the WACC at which the anchor's own DCF is worth the price.
 """
 import json
 import os
@@ -123,6 +124,14 @@ def test_add_gate_uses_each_names_bar():
 
 
 def test_engine_carries_the_rating_on_a_real_fixture():
+    v = E.DeepV82Engine().evaluate(_abbv(), rf=0.045)
+    assert v.uncertainty.get("rating") in U.BANDS and v.uncertainty["rating"] != "Unrated", v.uncertainty
+    line = next(n for n in v.subscores["breakdown"] if n.startswith("P base"))
+    assert v.uncertainty["rating"] in line, line
+    print("P1-3 engine wiring OK:", v.uncertainty["rating"], v.uncertainty["width"])
+
+
+def _abbv():
     from pipeline import normalize, validate
 
     def load(n):
@@ -131,11 +140,35 @@ def test_engine_carries_the_rating_on_a_real_fixture():
     ff = normalize.build("ABBV", load("sec_companyfacts"), load("fmp_profile"),
                          load("yahoo_quotesummary"))
     validate.validate(ff)
+    return ff
+
+
+def test_implied_return_equals_wacc_when_price_equals_value():
+    ff = _abbv()
     v = E.DeepV82Engine().evaluate(ff, rf=0.045)
-    assert v.uncertainty.get("rating") in U.BANDS and v.uncertainty["rating"] != "Unrated", v.uncertainty
-    line = next(n for n in v.subscores["breakdown"] if n.startswith("P base"))
-    assert v.uncertainty["rating"] in line, line
-    print("P1-3 engine wiring OK:", v.uncertainty["rating"], v.uncertainty["width"])
+    assert v.anchor_method == "FCFF DCF", v.anchor_method
+    ff2 = _abbv()
+    ff2.price = v.fv_dcf
+    er = E.DeepV82Engine().evaluate(ff2, rf=0.045).expected_return
+    assert abs(er["firm_irr_pct"] - er["wacc_pct"]) < 0.05, er
+    dear = v.expected_return                      # the real price is above the value
+    assert v.anchor_value < ff.price and dear["firm_irr_pct"] < dear["wacc_pct"], dear
+    assert dear["excess_pct"] < 0, dear
+    print("P1-4 implied return: = WACC at fair value, below it when dear OK", dear["equity_irr_pct"])
+
+
+def test_implied_return_falls_as_price_rises():
+    from domain.engine import scenarios as S
+    from domain.engine import fcff_dcf
+    kw = dict(revenue=1000.0, margin_now=0.2, margin_target=0.2, g_high=0.08, g_stable=0.03,
+              sales_to_capital=2.0, tax_now=0.21, tax_marginal=0.25, wacc=0.09,
+              wacc_stable=0.085, roic_stable=0.12, cash=0.0, debt=0.0, shares=100.0)
+    fair = fcff_dcf.value(**kw)["per_share"]
+    r_lo, _ = S.implied_return(kw, fair * 1.3)
+    r_eq, _ = S.implied_return(kw, fair)
+    r_hi, _ = S.implied_return(kw, fair * 0.7)
+    assert r_lo < r_eq < r_hi and abs(r_eq - 0.09) < 1e-4, (r_lo, r_eq, r_hi)
+    print("P1-4 monotone in price OK", round(r_lo, 4), round(r_eq, 4), round(r_hi, 4))
 
 
 if __name__ == "__main__":

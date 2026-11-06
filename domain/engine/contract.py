@@ -61,6 +61,9 @@ class Valuation:
     # how wide the value range is (domain/engine/uncertainty.py): Low .. Extreme, and
     # the margin-of-safety bands the Price pillar used for it
     uncertainty: dict = field(default_factory=dict)
+    # the return the price offers on the anchor's own FCFF DCF (implied WACC, and the
+    # implied return on equity against Ke); a cross-check, never the score
+    expected_return: dict = field(default_factory=dict)
     # relative valuation on the firm's own peers (pipeline/peers.py): weekly peer fit,
     # target side recomputed each refresh; a cross-check, never the anchor
     relative: dict = field(default_factory=dict)
