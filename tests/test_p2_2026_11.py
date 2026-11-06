@@ -19,6 +19,7 @@ def _roic(vals):
 
 def test_moat_class_from_the_competitive_advantage_period():
     assert E.moat_class(_roic([20, 20, 20, 20, 20]), 0.09)[0] == "wide"
+    assert E.moat_class(_roic([20, 20, 13, 20, 20]), 0.09)[0] == "narrow"  # one year < WACC + 5pp
     assert E.moat_class(_roic([20, 20, 20, 5, 5]), 0.09)[0] == "narrow"
     assert E.moat_class(_roic([20, 20, 5, 5, 5]), 0.09)[0] == "none"
     assert E.moat_class(_roic([20, 20, 20, 20]), 0.09)[0] == "narrow"     # 4 years: not wide
@@ -37,9 +38,9 @@ def _kw(**over):
 
 def test_dcf_horizon_follows_the_moat_period():
     narrow = fcff_dcf.value(**_kw())
-    wide = fcff_dcf.value(**_kw(high_years=7, total_years=15))
+    wide = fcff_dcf.value(**_kw(high_years=7, total_years=12))
     none = fcff_dcf.value(**_kw(high_years=3, total_years=8))
-    assert len(narrow["path"]) == 10 and len(wide["path"]) == 15 and len(none["path"]) == 8
+    assert len(narrow["path"]) == 10 and len(wide["path"]) == 12 and len(none["path"]) == 8
     assert none["per_share"] < narrow["per_share"] < wide["per_share"], (
         none["per_share"], narrow["per_share"], wide["per_share"])
     assert fcff_dcf.value(**_kw(high_years=5, total_years=10))["per_share"] == narrow["per_share"]
@@ -58,9 +59,9 @@ def test_engine_reports_the_moat_and_the_5_plus_5_value():
     validate.validate(ff)
     v = E.DeepV82Engine().evaluate(ff, rf=0.045)
     src = v.dcf["sources"]
-    assert src["moat"] == "wide" and src["total_years"] == 15, src
+    assert src["moat"] == "wide" and src["total_years"] == 12, src
     assert src["value_at_5_5"] and src["value_at_5_5"] < v.fv_dcf, (src, v.fv_dcf)
-    assert len(v.dcf["path"]) == 15
+    assert len(v.dcf["path"]) == 12
     print("P2-3 engine: MSFT wide,", v.fv_dcf, "vs 5+5", src["value_at_5_5"])
 
 
