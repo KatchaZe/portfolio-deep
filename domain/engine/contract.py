@@ -58,6 +58,9 @@ class Valuation:
     # price implies, and a 25/50/25 Bear/Base/Bull expected value. Never the anchor.
     priced_in: dict = field(default_factory=dict)
     scenarios: dict = field(default_factory=dict)
+    # how wide the value range is (domain/engine/uncertainty.py): Low .. Extreme, and
+    # the margin-of-safety bands the Price pillar used for it
+    uncertainty: dict = field(default_factory=dict)
     # relative valuation on the firm's own peers (pipeline/peers.py): weekly peer fit,
     # target side recomputed each refresh; a cross-check, never the anchor
     relative: dict = field(default_factory=dict)

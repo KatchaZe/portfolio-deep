@@ -13,6 +13,7 @@ from domain.company_type import CompanyType, classify, normalized_margin
 from . import fcff_dcf, young_dcf
 from . import scenarios as scenarios_mod
 from . import financial as financial_mod
+from . import uncertainty as uncertainty_mod
 from .contract import DeepEngine, Valuation
 
 # Functions read config.ERP / config.ERP_AS_OF at call time so the dashboard's
@@ -947,7 +948,7 @@ def fcf_yield_adj(trend_rows, enterprise_value, wacc_val):
     return adj, f"FCF yield {y*100:.1f}% vs WACC {wacc_val*100:.1f}% ({ratio:.2f}x)"
 
 
-def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None):
+def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None, uncertainty=None):
     if fv_anchor is None or not price or fv_anchor <= 0:
         # No point fair value: an FCF yield is still a cheapness opinion, scored
         # around neutral because the margin-of-safety half is missing.
@@ -961,8 +962,11 @@ def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None):
     # Margin of safety divides by VALUE, not price (dividing by price is upside and
     # skews the bands asymmetrically).
     mos = (fv_anchor - price) / fv_anchor
-    base = _band(mos, [(0.40, 5.0), (0.15, 4.0), (-0.15, 3.0), (-0.40, 2.0), (-1e9, 1.0)])
-    notes.append(f"P base(margin-of-safety {mos*100:+.0f}% of value)={base}")
+    b5, b4, b3, b2 = uncertainty_mod.bands(uncertainty)
+    base = _band(mos, [(b5, 5.0), (b4, 4.0), (b3, 3.0), (b2, 2.0), (-1e9, 1.0)])
+    rated = (uncertainty or {}).get("rating") or "Unrated"
+    notes.append(f"P base(margin-of-safety {mos*100:+.0f}% of value, uncertainty {rated}: "
+                 f"5 at >= {b5*100:.0f}%, 4 at >= {b4*100:.0f}%)={base}")
     score = base
     # The firm's own 5-year P/E range no longer moves P (user decision 2026-10-19):
     # Damodaran compares a multiple with fundamentals and the sector, not with the firm's
@@ -1072,9 +1076,13 @@ class DeepV82Engine(DeepEngine):
         anc = _anchor(f, cap, fcff, gr, dil.rate, pv, pi, rf, ctype)
         range_low, range_high, fv_disagreement = _fv_range(f, anc)
         ex = _execution_inputs(f, cap, acq, gr, notes, ctype)
+        # the value range sets how deep a discount the Price pillar asks for
+        priced_in, scen = _cross_checks(f, cap, gr, ctype, rf, anc)
+        unc = uncertainty_mod.assess(scen, anc.ydcf)
         scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype,
                           young_uncertain=bool((anc.ydcf or {}).get("uncertain"))
-                          and anc.method.startswith("Young-Company"))
+                          and anc.method.startswith("Young-Company"),
+                          uncertainty=unc)
         comp, reco = _overall(f, scores, notes)
 
         # EVA on ONE basis: the measured return on the capital it was measured on
@@ -1101,7 +1109,7 @@ class DeepV82Engine(DeepEngine):
             subscores={"breakdown": notes},
             key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype, anc),
             flags=list(f.flags))
-        v.priced_in, v.scenarios = _cross_checks(f, cap, gr, ctype, rf, anc)
+        v.priced_in, v.scenarios, v.uncertainty = priced_in, scen, unc
         try:
             v.verdict = _verdict(f, v)
         except Exception as e:                       # guard: never let a verdict typo/bad field crash a ticker
@@ -2232,7 +2240,7 @@ def _acquisitions_for_growth_year(f):
 
 
 def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD,
-             young_uncertain=False):
+             young_uncertain=False, uncertainty=None):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(*_acquisitions_for_growth_year(f))
     # the fade is read on the covered years only, on the fiscal-year clock Demand
@@ -2270,7 +2278,7 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     ev = (cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)) if cap.mcap else None
     fy_adj, fy_note = (0.0, None) if fin else fcf_yield_adj(trend_rows, ev, cap.wacc)
     P = _r_price(anchor_value, f.price, notes,
-                 fcf_adj=fy_adj, fcf_note=fy_note)
+                 fcf_adj=fy_adj, fcf_note=fy_note, uncertainty=uncertainty)
     # When the two growth stories disagree, "cheap" is a belief about consensus:
     # cap (never lift) P at NEUTRAL.
     if pv.growth_unreconciled and P is not None and P > NEUTRAL_SCORE:

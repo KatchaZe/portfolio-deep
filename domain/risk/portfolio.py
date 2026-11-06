@@ -240,13 +240,17 @@ def _sells(rating):
 
 def add_blocker(v, add_min_mos=ADD_MIN_NET_MOS):
     """Why a holding may NOT be added to (None = it may): a SELL rating, no fair value,
-    or a margin of safety after trading cost and tax below the bar."""
+    or a margin of safety after trading cost and tax below the bar. The bar is the
+    name's own when its value carries one (`add_min_mos`, from its uncertainty rating:
+    a wider value range asks for a deeper discount), else `add_min_mos`."""
     v = v or {}
     if _sells(v.get("rating")):
         return f"rating {v.get('rating')}"
     m = v.get("net_mos")
     if m is None:
         return "ไม่มี fair value"
+    if v.get("add_min_mos") is not None:
+        add_min_mos = v["add_min_mos"]
     if m < add_min_mos:
         nu = v.get("net_upside_pct")
         return (f"MoS หลังหักต้นทุน+ภาษี {m * 100:.1f}% < {add_min_mos * 100:.0f}%"
@@ -443,5 +447,6 @@ def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
                   "total_usd": round(tax + cost, 2),
                   "turnover_pct": round(sum(t["amount_pct"] for t in trades) / 2, 1)},
         "rule": (None if value is None else
-                 f"ADD เฉพาะ MoS หลังหักต้นทุน+ภาษี ≥ {add_min_mos * 100:.0f}% ตามสัดส่วน MoS · ที่เหลือเป็น cash"),
+                 f"ADD เฉพาะ MoS หลังหักต้นทุน+ภาษี ≥ เกณฑ์ตามความไม่แน่นอนของแต่ละตัว "
+                 f"(ไม่มี rating = {add_min_mos * 100:.0f}%) ตามสัดส่วน MoS · ที่เหลือเป็น cash"),
     }

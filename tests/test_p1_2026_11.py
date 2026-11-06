@@ -3,8 +3,17 @@ P1 fixes, 2026-11 (methodology review against Morningstar / Barra / Vanguard).
 
 P1-2  the 40% FMP-sector cap is enforced: an over-cap sector is trimmed to the cap,
       pro rata, and freed weight never flows into a sector at the cap.
+P1-3  the width of the value range sets the uncertainty rating, and the rating sets the
+      margin of safety the Price pillar, the advice line and the ADD gate ask for.
 """
+import json
+import os
+
+import config
+from domain import advice
 from domain import risk as R
+from domain.engine import deep_v82 as E
+from domain.engine import uncertainty as U
 
 
 def _rows(weights):
@@ -66,6 +75,67 @@ def test_unknown_sector_and_non_equity_are_not_pooled():
                                risk_share_cap=1.0, asset_class={"TLT": "bond", "GLD": "gold"})
     assert all(not r["binding_cap"].startswith("sector") for r in sizing), sizing
     print("P1-2 Unknown / non-equity not pooled OK")
+
+
+def _mc(p10, p50, p90):
+    return {"story_mc": {"p10": p10, "p50": p50, "p90": p90}}
+
+
+def test_width_sets_the_rating():
+    assert U.assess(_mc(90, 100, 120))["rating"] == "Low"
+    assert U.assess(_mc(80, 100, 135))["rating"] == "Medium"
+    assert U.assess(_mc(60, 100, 150))["rating"] == "High"
+    assert U.assess(_mc(40, 100, 180))["rating"] == "Very High"
+    assert U.assess(_mc(10, 100, 300))["rating"] == "Extreme"
+    assert U.assess({})["rating"] == "Unrated"
+    cases = {"cases": [{"value": 70}, {"value": 100}, {"value": 120}]}
+    a = U.assess(cases)
+    assert a["rating"] == "Medium" and a["basis"].startswith("Bear"), a
+    print("P1-3 width -> rating OK")
+
+
+def test_price_score_moves_with_uncertainty():
+    def p(mos, unc):
+        return E._r_price(100.0, 100.0 * (1 - mos), [], uncertainty=unc)
+    low, med, unrated = {"rating": "Low"}, {"rating": "Medium"}, None
+    assert p(0.25, low) == 5.0 and p(0.25, unrated) == 4.0, (p(0.25, low), p(0.25, unrated))
+    assert p(-0.12, med) == 2.0 and p(-0.12, unrated) == 3.0
+    assert p(0.45, {"rating": "Extreme"}) == 4.0 and p(0.45, unrated) == 5.0
+    print("P1-3 Price bands follow the rating OK")
+
+
+def test_advice_reads_the_same_bands():
+    row = {"upside_pct": 100 / 92 * 100 - 100, "mos_pct": 8.0,
+           "key_metrics": {"spread_pct": 5.0}, "eq_verdict": "CLEAN",
+           "uncertainty": U.assess(_mc(90, 100, 120))}
+    assert advice.action(row) == "ACCUMULATE", advice.action(row)     # 8% clears Low's 5%
+    row["uncertainty"] = None
+    assert advice.action(row) != "ACCUMULATE", advice.action(row)     # not the 15% default
+    print("P1-3 advice uses the row's bands OK")
+
+
+def test_add_gate_uses_each_names_bar():
+    v = _val(0.08)
+    assert R.add_blocker(dict(v, add_min_mos=0.05)) is None
+    assert R.add_blocker(dict(v, add_min_mos=0.15)).startswith("MoS"), R.add_blocker(dict(v, add_min_mos=0.15))
+    assert R.add_blocker(v).startswith("MoS")                           # no rating -> 15%
+    print("P1-3 ADD bar per uncertainty OK")
+
+
+def test_engine_carries_the_rating_on_a_real_fixture():
+    from pipeline import normalize, validate
+
+    def load(n):
+        p = os.path.join(config.FIXTURE_DIR, "ABBV", n + ".json")
+        return json.load(open(p, encoding="utf-8")) if os.path.exists(p) else None
+    ff = normalize.build("ABBV", load("sec_companyfacts"), load("fmp_profile"),
+                         load("yahoo_quotesummary"))
+    validate.validate(ff)
+    v = E.DeepV82Engine().evaluate(ff, rf=0.045)
+    assert v.uncertainty.get("rating") in U.BANDS and v.uncertainty["rating"] != "Unrated", v.uncertainty
+    line = next(n for n in v.subscores["breakdown"] if n.startswith("P base"))
+    assert v.uncertainty["rating"] in line, line
+    print("P1-3 engine wiring OK:", v.uncertainty["rating"], v.uncertainty["width"])
 
 
 if __name__ == "__main__":

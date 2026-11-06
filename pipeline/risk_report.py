@@ -300,7 +300,8 @@ def _value_inputs(s, tickers, book):
                   "mos": round((fv - price) / fv, 4) if up is not None else None,
                   "net_mos": round(net_up / (100 + net_up), 4) if (net_up is not None and net_up > -100) else None,
                   "price": price, "avg_cost": hold.get(t, {}).get("avg_cost"),
-                  "tax_rate": config.CAPGAINS_TAX_RATE}
+                  "tax_rate": config.CAPGAINS_TAX_RATE,
+                  "add_min_mos": (v.get("uncertainty") or {}).get("add_min_mos")}
     return out
 
 
