@@ -64,7 +64,10 @@ def _dcf(kw, **over):
 
 
 def _rev10(out):
-    return out["path"][-1]["revenue"] if out and out.get("path") else None
+    """Revenue in year 10 (the last year when the model runs shorter)."""
+    path = (out or {}).get("path") or []
+    row = next((r for r in path if r["year"] == 10), path[-1] if path else None)
+    return row["revenue"] if row else None
 
 
 def _implied_bull(vals, price):

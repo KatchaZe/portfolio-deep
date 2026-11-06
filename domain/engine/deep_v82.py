@@ -870,6 +870,27 @@ def competitive_advantage_period(roic_map, wacc_val, years=5):
     return 0.0, f"{above}/{n} ปี ROIC > WACC"
 
 
+# moat -> (years at full growth / WACC, years until the stable state) in the FCFF DCF.
+# Narrow is the long-standing 5 + 5. [JUDG] lengths; the card shows the value at 5 + 5.
+MOAT_PERIODS = {"none": (3, 8), "narrow": (5, 10), "wide": (7, 15)}
+
+
+def moat_class(roic_map, wacc_val, years=5):
+    """(class, note) from the competitive advantage period: every one of the last 5
+    fiscal years above today's WACC = wide, 2 or fewer = none, else narrow.
+    (None, None) with fewer than CAP_MIN_YEARS contiguous years."""
+    if not roic_map or not wacc_val or wacc_val <= 0:
+        return None, None
+    win = trend_mod._window(roic_map, years=years)
+    if len(win) < CAP_MIN_YEARS:
+        return None, None
+    above = sum(1 for d in win if roic_map[d]["roic"] > wacc_val * 100)
+    n = len(win)
+    cls = "wide" if (above == n and n >= 5) else "none" if above <= 2 else "narrow"
+    hi, tot = MOAT_PERIODS[cls]
+    return cls, f"{above}/{n} ปี ROIC > WACC → moat {cls}: โต {hi} ปี + fade ถึงปี {tot}"
+
+
 def sector_relative(roic_used, sector_roc):
     """Is this return good FOR ITS INDUSTRY (Damodaran's industry ROC)?
 
@@ -1913,8 +1934,12 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
               wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
               cash=f.cash, debt=cap.debt_eff, shares=_quote_shares(f, cap),
               margin_years=years, fade_start_cap=GROWTH_CAP)
+    moat, moat_note = moat_class(cap.roic_map, cap.wacc)
+    kw["high_years"], kw["total_years"] = MOAT_PERIODS[moat or "narrow"]
     sources = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
-               "lease_interest_added": round(addback, 0) if addback else None}
+               "lease_interest_added": round(addback, 0) if addback else None,
+               "moat": moat, "moat_period": moat_note or "ไม่พอวัด moat (<4 ปีงบ) → 5 + 5 ปี",
+               "total_years": kw["total_years"]}
     return kw, sources, g_basis
 
 
@@ -1930,6 +1955,10 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         return None
     out["growth_basis"] = g_basis
     out["sources"] = sources
+    if (kw["high_years"], kw["total_years"]) != MOAT_PERIODS["narrow"]:
+        base = fcff_dcf.value(**dict(kw, high_years=MOAT_PERIODS["narrow"][0],
+                                     total_years=MOAT_PERIODS["narrow"][1]))
+        sources["value_at_5_5"] = round(base["per_share"], 2) if base else None
     if (out.get("terminal_share_pct") or 0) > DCF_TERMINAL_HEAVY:
         _add_flag(f, (f"FCFF DCF: {out['terminal_share_pct']}% of value is terminal - "
                       f"the fair value rests on the stable-phase assumptions"))
