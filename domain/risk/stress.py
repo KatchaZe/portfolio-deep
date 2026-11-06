@@ -18,13 +18,65 @@ SCENARIOS = [
     {"key": "liquidity_crisis", "label": "Liquidity crisis", "mkt": -0.30, "highbeta_extra": -0.08},
 ]
 
-# Historical replays: the equity-market drawdown of each episode.
+# Historical replays: the equity-market drawdown of each episode, and the S&P 500's
+# peak and trough closes it ran between (the window each holding is replayed over).
 HISTORICAL = [
-    {"key": "gfc_2008", "label": "GFC 2008", "mkt": -0.55},
-    {"key": "covid_2020", "label": "COVID crash 2020-03", "mkt": -0.34},
-    {"key": "rate_2022", "label": "Rate shock 2022", "mkt": -0.25},
-    {"key": "carry_2024", "label": "Yen carry unwind 2024-08", "mkt": -0.08},
+    {"key": "gfc_2008", "label": "GFC 2008", "mkt": -0.55, "start": "2007-10-09", "end": "2009-03-09"},
+    {"key": "covid_2020", "label": "COVID crash 2020-03", "mkt": -0.34, "start": "2020-02-19", "end": "2020-03-23"},
+    {"key": "rate_2022", "label": "Rate shock 2022", "mkt": -0.25, "start": "2022-01-03", "end": "2022-10-12"},
+    {"key": "carry_2024", "label": "Yen carry unwind 2024-08", "mkt": -0.08, "start": "2024-07-16", "end": "2024-08-05"},
 ]
+
+# A holding with no prices in a window is replayed on its industry's or sector's ETF
+# (one that traded then); without one, on beta x the market drawdown.
+PROXY_ETF = {
+    "Semiconductors": "SOXX", "Technology": "XLK", "Information Technology": "XLK",
+    "Healthcare": "XLV", "Financial Services": "XLF", "Energy": "XLE",
+    "Consumer Cyclical": "XLY", "Consumer Defensive": "XLP", "Industrials": "XLI",
+    "Basic Materials": "XLB", "Utilities": "XLU", "Real Estate": "IYR",
+    "Communication Services": "VOX",
+}
+
+
+def proxy_for(sector, industry=None):
+    return PROXY_ETF.get(industry) or PROXY_ETF.get(sector)
+
+
+def historical_replay(weights, window_returns, betas, sectors, industries=None,
+                      scenarios=None, default_beta=1.0):
+    """Portfolio loss per historical episode from what each holding actually did over
+    the S&P's peak-to-trough window: its own return when it traded then, else its
+    industry/sector ETF's, else beta x the market drawdown. `window_returns` is
+    {episode key: {symbol: return}}. Rows as stress_test's, plus how each holding
+    was replayed, most negative first."""
+    scenarios = scenarios or HISTORICAL
+    industries = industries or {}
+    out = []
+    for scn in scenarios:
+        got = window_returns.get(scn["key"]) or {}
+        contrib, basis = {}, {}
+        for t, w in weights.items():
+            proxy = proxy_for(sectors.get(t), industries.get(t))
+            if got.get(t) is not None:
+                r, basis[t] = got[t], "own"
+            elif proxy and got.get(proxy) is not None:
+                r, basis[t] = got[proxy], f"proxy {proxy}"
+            else:
+                r = _position_shock(betas.get(t), sectors.get(t), scn, default_beta,
+                                    industries.get(t))
+                basis[t] = "beta"
+            contrib[t] = w * max(r, -0.95)
+        loss = sum(contrib.values())
+        worst = min(contrib.items(), key=lambda kv: kv[1])[0] if contrib else None
+        n_own = sum(1 for b in basis.values() if b == "own")
+        out.append({"key": scn["key"], "label": scn["label"], "loss_pct": round(loss * 100, 1),
+                    "worst_contributor": worst, "window": f"{scn['start']} → {scn['end']}",
+                    "basis": basis,
+                    "method": ("replay" if n_own == len(basis) else
+                               "replay + proxy" if any(b != "beta" for b in basis.values()) else
+                               "beta x market")})
+    out.sort(key=lambda x: x["loss_pct"])
+    return out
 
 
 def _position_shock(beta, sector, scn, default_beta=1.0, industry=None):

@@ -34,6 +34,14 @@ async function loadRisk(force){
 // historical and hypothetical stress scenarios, biggest loss first
 function scenariosWorstFirst(st){return [...(st.historical||[]),...(st.hypothetical||[])].sort((a,b)=>a.loss_pct-b.loss_pct);}
 function worstScenario(st){return scenariosWorstFirst(st)[0];}
+// a historical row says what it replayed: own prices, a sector ETF, or beta x market
+function scenarioTitle(x){
+  const p=[];
+  if(x.worst_contributor)p.push('ตัวที่เจ็บสุด: '+x.worst_contributor);
+  if(x.window)p.push('ช่วง '+x.window+' · '+(x.method||''));
+  if(x.basis){const by=Object.entries(x.basis).filter(([,b])=>b!=='own').map(([t,b])=>t+' = '+b);if(by.length)p.push(by.join(', '));}
+  return p.join(' · ');
+}
 // per-holding capital vs risk share: covariance-based when the backend has it, else beta-based
 function capRiskRows(cv){
   const cov=cv.covariance_based||[];
@@ -123,6 +131,8 @@ function renderRisk(d){
     ${secHTML(4,'Concentration Map','[CALC]',concentrationHTML(d,cv),'s6')}
     ${secHTML(5,'Stress Test','[JUDG-SCENARIO] ภาพประกอบ ไม่ใช่การพยากรณ์',stressHTML(d),'s6')}
     ${secHTML('5b','Downside Risk (S2/S4)','[CALC]',downsideHTML(d),'s8')}
+    ${secHTML('5c','Factor Exposure (Fama-French 5 + Momentum)',esc((d.factors||{}).tag||''),factorsHTML(d.factors),'s8')}
+    ${secHTML('5d','ความเสี่ยงในมุมเงินบาท (USD → THB)',esc((d.thb_view||{}).tag||''),thbViewHTML(d.thb_view),'s4')}
     ${secHTML(6,'Suitability (headline finding)','',suitabilityHTML(d),'s4')}
     ${secHTML(7,'Rebalancing Plan','[CALC]',rebalanceHTML(d,cv))}
     ${secHTML(null,'Bottom line','',panelExplain(d)+panelLegend(m))}</div>`;
@@ -171,7 +181,7 @@ function concentrationHTML(d,cv){
 }
 function stressHTML(d){
   const st=d.stress||{},vr=st.var||{},sc=scenariosWorstFirst(st);
-  return hbarsHTML(sc.map(x=>({l:x.label,v:x.loss_pct,tok:lossTok(x.loss_pct),cls:x.loss_pct<0?'down':'',title:x.worst_contributor?'ตัวที่เจ็บสุด: '+x.worst_contributor:''})),{fmt:v=>pctFixed(v),label:'ขาดทุนตาม scenario'})
+  return hbarsHTML(sc.map(x=>({l:x.label,v:x.loss_pct,tok:lossTok(x.loss_pct),cls:x.loss_pct<0?'down':'',title:scenarioTitle(x)})),{fmt:v=>pctFixed(v),label:'ขาดทุนตาม scenario'})
     +kpisHTML([['VaR 95%',pctFixed(vr.var95_pct),'down'],['VaR 99%',pctFixed(vr.var99_pct),'down'],['CVaR 95%',pctFixed(vr.cvar95_pct),'down'],
       ...(st.var_hist&&st.var_hist.var95_pct!=null?[['Hist VaR 95%',pctFixed(st.var_hist.var95_pct),'down'],['Hist VaR 99%',pctFixed(st.var_hist.var99_pct),'down'],['Hist CVaR 95%',pctFixed(st.var_hist.cvar95_pct),'down']]:[])])
     +(st.var_hist&&st.var_hist.var95_pct!=null?`<p class="note" style="margin:6px 0 0">Historical VaR (P1-7, S2/S4): จาก returns จริง ${st.var_hist.n} วัน — เห็น fat tail ตามที่เคยเกิด ไม่สมมุติ normal</p>`:'')
@@ -185,6 +195,26 @@ function betaTableHTML(bc){
   return `<details style="margin-top:8px"><summary class="note" style="cursor:pointer">β ที่ stress ใช้ เทียบ β ที่วัดจากราคา (${ks.length} ตัว)</summary>
     <p class="note" style="margin:4px 0">Damodaran S4: regression β ของหุ้นตัวเดียวคลาดเคลื่อนสูง จึงใช้ bottom-up β ของอุตสาหกรรม (re-lever ตาม D/E) · downside β = วัดเฉพาะวันที่ S&amp;P ลง (S2) ใช้ดูว่าขาลงจริงแรงกว่าที่สมมติไหม</p>
     <div class="tw"><table><thead><tr><th class="l">Ticker</th><th class="n">ใช้ (bottom-up)</th><th class="n">FMP</th><th class="n">daily vs SPY</th><th class="n">downside</th><th class="l">ที่มา</th></tr></thead><tbody>${rows}</tbody></table></div></details>`;
+}
+// Barra-style split: what the book is exposed to, and how much of its risk the
+// factors explain versus the names themselves (pipeline/risk_report._factor_exposure)
+const FACTOR_LABEL={MKT:'Market',SMB:'Size (เล็ก−ใหญ่)',HML:'Value (ถูก−แพง)',RMW:'Profitability',CMA:'Investment (ลงทุนน้อย−มาก)',MOM:'Momentum'};
+function factorsHTML(f){
+  if(!f||f.status!=='ok')return `<div class="empty">${esc((f&&f.note)||'ยังไม่มีข้อมูล factor')}</div>`;
+  const ex=f.exposures||{}, rs=f.risk_share_pct||{};
+  const bars=hbarsHTML(Object.keys(FACTOR_LABEL).map(k=>({l:FACTOR_LABEL[k],v:ex[k],tok:ex[k]<0?'--warn':'--accent',title:'สัดส่วนความเสี่ยงจาก factor นี้ '+(rs[k]??'—')+'%'})),{fmt:v=>v==null?'—':plainNum(v,2),label:'exposure (β ต่อ factor)'});
+  const miss=(f.missing||[]).length?` · ไม่มีประวัติพอ: ${esc(f.missing.join(', '))}`:'';
+  return bars+kpisHTML([['Factor risk',pctFixed(f.factor_share_pct)],['Specific risk',pctFixed(f.specific_share_pct)],['Vol (model)',pctFixed(f.vol_pct)]])
+    +`<p class="note" style="margin:6px 0 0">β ต่อ factor จาก regression 2 ปีรายวัน · factor risk = ส่วนที่ factor อธิบายได้ · specific = เฉพาะตัวหุ้น · ข้อมูลถึง ${esc(f.factors_through||'—')} · ครอบคลุม ${f.covered_weight_pct}% ของพอร์ต${miss}</p>`;
+}
+// the same book measured in baht: the currency can cushion or deepen a US loss
+function thbViewHTML(v){
+  if(!v||v.status!=='ok')return `<div class="empty">${esc((v&&v.note)||'ยังไม่มีข้อมูล')}</div>`;
+  const row=(l,u,t)=>`<tr><th scope="row" class="l">${l}</th><td class="n">${pctFixed(u)}</td><td class="n"><b>${pctFixed(t)}</b></td></tr>`;
+  const c=v.corr_port_fx, cush=c!=null&&c<0;
+  return `<div class="tw"><table><thead><tr><th class="l"></th><th class="n">USD</th><th class="n">THB</th></tr></thead><tbody>
+    ${row('ผลตอบแทนช่วงนี้',v.return_usd_pct,v.return_thb_pct)}${row('Vol (ต่อปี)',v.vol_usd_pct,v.vol_thb_pct)}${row('Hist VaR 95%',v.var95_usd_pct,v.var95_thb_pct)}${row('Max drawdown',v.max_dd_usd_pct,v.max_dd_thb_pct)}</tbody></table></div>
+    <p class="note" style="margin:6px 0 0">corr(พอร์ต, USD/THB) = ${c??'—'}${c==null?'':cush?' — บาทมักอ่อนตอนหุ้นสหรัฐลง ช่วยรองรับขาดทุน':' — ค่าเงินไม่ได้ช่วยรองรับขาลง'} · ${v.n} วัน</p>`;
 }
 // S2/S4: total risk paired with its downside, next to the portfolio margin of safety
 function downsideHTML(d){
