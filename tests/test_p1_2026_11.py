@@ -35,7 +35,7 @@ def test_sector_over_cap_is_trimmed_to_the_cap_pro_rata():
     sizing = R.position_sizing(_rows(w), sec, sector_cap=0.40, risk_share_cap=1.0)
     by = {r["ticker"]: r for r in sizing}
     for t in ("NVDA", "AVGO", "MSFT"):
-        assert by[t]["binding_cap"].startswith("sector cap (Technology 54%"), by[t]
+        assert by[t]["binding_cap"].startswith("sector cap (Technology 54.0% > 42%"), by[t]
         assert abs(by[t]["hard_max_pct"] - 13.3) < 0.05, by[t]
         assert by[t]["action"] == "TRIM", by[t]
     assert by["LLY"]["binding_cap"] == "single-name cap", by["LLY"]
@@ -69,6 +69,18 @@ def test_name_in_a_full_sector_is_not_added_to():
     assert "sector Technology" in (by["T2"]["add_blocker"] or ""), by["T2"]
     assert by["H1"]["add_blocker"] is None, by["H1"]
     print("P1-2 full sector blocks ADD OK")
+
+
+def test_a_sector_inside_the_band_is_not_trimmed_but_not_added_to():
+    w = {"T1": 0.2015, "T2": 0.2015, "H1": 0.10}                     # Technology 40.3%
+    sec = {"T1": "Technology", "T2": "Technology", "H1": "Healthcare"}
+    value = {t: _val(0.40) for t in w}
+    by = {r["ticker"]: r for r in R.position_sizing(_rows(w), sec, single_name_cap=0.25,
+                                                    sector_cap=0.40, risk_share_cap=1.0, value=value)}
+    for t in ("T1", "T2"):
+        assert by[t]["binding_cap"] == "single-name cap" and by[t]["action"] != "TRIM", by[t]
+        assert "sector Technology 40.3%" in (by[t]["add_blocker"] or ""), by[t]
+    print("P1-2 sector band: 40.3% not trimmed, not added to OK")
 
 
 def test_unknown_sector_and_non_equity_are_not_pooled():
