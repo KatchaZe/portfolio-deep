@@ -262,23 +262,52 @@ def _sizing_action(w, hard, soft, blocker=None):
     return "HOLD"
 
 
-def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
+SECTOR_CAP = 0.40
+
+
+def _cap_sector(t, sectors, asset_class):
+    """The sector a holding counts toward for the sector cap, or None. Only equities
+    with a known sector are pooled: "Unknown" is not one industry, and a bond or gold
+    fund has its own caps."""
+    if (asset_class.get(t) or "equity").lower() != "equity":
+        return None
+    sec = (sectors or {}).get(t)
+    return sec if sec and sec != "Unknown" else None
+
+
+def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CAP,
                     risk_share_cap=0.30, asset_class=None, pricing_cap=0.05, value=None):
     """Per holding: a soft/hard target band from the binding cap, current vs target,
     and an action verdict. `value` ({ticker: {rating, net_mos}}) withholds "ADD" from a
     name the valuation does not support; without it every name is judged on risk only
-    (legacy). `sectors` and `sector_cap` are accepted, but no sector cap is applied."""
+    (legacy). A sector above `sector_cap` scales each of its names' hard cap by
+    cap / sector weight, so trimming every name to its cap brings the sector to the cap,
+    and no name in a sector at its cap may be added to."""
     asset_class = asset_class or {}
+    sec_of = {r["ticker"]: _cap_sector(r["ticker"], sectors, asset_class) for r in rc_rows}
+    sec_w = {}
+    for r in rc_rows:
+        if sec_of[r["ticker"]]:
+            sec_w[sec_of[r["ticker"]]] = sec_w.get(sec_of[r["ticker"]], 0.0) + (r["capital_pct"] or 0) / 100.0
     out = []
     for r in rc_rows:
         w = (r["capital_pct"] or 0) / 100.0
         arc = (r.get("abs_risk_share_pct") or r.get("risk_pct") or 0) / 100.0
         ac = (asset_class.get(r["ticker"]) or "equity").lower()
         hard, binding = _hard_cap(w, arc, ac, single_name_cap, risk_share_cap, pricing_cap)
+        sec = sec_of[r["ticker"]]
+        sw = sec_w.get(sec, 0.0)
+        sector_full = bool(sec and sector_cap and sw >= sector_cap - 1e-9)
+        if sec and sector_cap and sw > sector_cap + 1e-9 and w * sector_cap / sw < hard:
+            hard = w * sector_cap / sw
+            binding = f"sector cap ({sec} {sw * 100:.0f}% > {sector_cap * 100:.0f}%)"
         soft = hard * 0.8
         blocker = add_blocker((value or {}).get(r["ticker"])) if value is not None else None
+        if blocker is None and sector_full:
+            blocker = f"sector {sec} เต็มเพดาน {sector_cap * 100:.0f}%"
         out.append({
             "ticker": r["ticker"],
+            "sector": sec,
             "current_pct": round(w * 100, 1),
             "soft_max_pct": round(soft * 100, 1),
             "hard_max_pct": round(hard * 100, 1),
@@ -287,6 +316,23 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=0.40,
             "add_blocker": blocker,
             "action": _sizing_action(w, hard, soft, blocker),
         })
+    return out
+
+
+def _sector_limited(give, proposed, sec_of, sector_cap):
+    """Scale the gives of each sector down so no sector ends above `sector_cap`."""
+    if not sector_cap:
+        return give
+    out = dict(give)
+    for sec in {s for s in sec_of.values() if s}:
+        names = [t for t in give if sec_of.get(t) == sec]
+        g = sum(give[t] for t in names)
+        if g <= 0:
+            continue
+        head = max(0.0, sector_cap - sum(w for t, w in proposed.items() if sec_of.get(t) == sec))
+        if g > head:
+            for t in names:
+                out[t] = give[t] * head / g
     return out
 
 
@@ -306,7 +352,7 @@ def _trade_costs(t, cut_w, side, value, total_value, cost_bps):
 
 
 def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
-              total_value=None, cost_bps=0, add_min_mos=ADD_MIN_NET_MOS):
+              total_value=None, cost_bps=0, add_min_mos=ADD_MIN_NET_MOS, sector_cap=SECTOR_CAP):
     """Trim over-cap names to their hard cap and SELL-rated names above their soft max.
     With `value` the freed weight goes only to names whose margin of safety after cost
     and tax clears `add_min_mos`, in proportion to that MoS and within each name's soft
@@ -317,6 +363,7 @@ def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
     portfolio basis, or cash freed by one run lifts every name over its cap on the next.
     Every trade carries its dollars, realized gain, tax and trading cost."""
     scale = 1.0 - (cash_frac or 0.0)
+    sec_of = {s["ticker"]: s.get("sector") for s in sizing_rows}
     cur = {t: w * scale for t, w in weights.items()}
     proposed = dict(cur)
     trades, freed = [], 0.0
@@ -354,10 +401,14 @@ def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
                         room[t], score[t] = r, value[t]["net_mos"]
         left = freed
         while left > 1e-9 and room:           # water-fill in proportion to the score
+            full = {s for s in set(sec_of.values()) if s and sector_cap and
+                    sum(w for x, w in proposed.items() if sec_of.get(x) == s) >= sector_cap - 1e-9}
+            room = {t: r for t, r in room.items() if sec_of.get(t) not in full}
             tot = sum(score[t] for t in room)
             if tot <= 0:
                 break
-            give = {t: min(room[t], left * score[t] / tot) for t in room}
+            give = _sector_limited({t: min(room[t], left * score[t] / tot) for t in room},
+                                   proposed, sec_of, sector_cap)
             for t, g in give.items():
                 proposed[t] = proposed.get(t, 0) + g
                 room[t] -= g
