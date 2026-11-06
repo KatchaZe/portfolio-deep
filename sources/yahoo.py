@@ -471,7 +471,8 @@ def fetch_quarterly_timeseries(ticker, requests_mod=None, timeout=20, years=3):
 def fetch_window_return(ticker, start, end, requests_mod=None, timeout=20, retries=2):
     """Total return (dividend + split adjusted) from the first close on or after `start`
     to the last close on or before `end` (YYYY-MM-DD), or None when the ticker has no
-    close within 5 days of `start` (it did not trade then). Raises on a failed fetch."""
+    close within 5 days of `start` (it did not trade then; Yahoo answers a window
+    before the listing with HTTP 400). Raises on any other failed fetch."""
     import datetime as dt
     t0 = dt.datetime.fromisoformat(start).replace(tzinfo=dt.timezone.utc)
     t1 = dt.datetime.fromisoformat(end).replace(tzinfo=dt.timezone.utc) + dt.timedelta(days=1)
@@ -481,6 +482,10 @@ def fetch_window_return(ticker, start, end, requests_mod=None, timeout=20, retri
                             requests_mod, timeout, retries)
     except RuntimeError:
         return None
+    except Exception as e:
+        if getattr(getattr(e, "response", None), "status_code", None) in (400, 404):
+            return None
+        raise
     ts = res.get("timestamp") or []
     adj = ((res.get("indicators") or {}).get("adjclose") or [{}])[0].get("adjclose") or \
         ((res.get("indicators") or {}).get("quote") or [{}])[0].get("close") or []
