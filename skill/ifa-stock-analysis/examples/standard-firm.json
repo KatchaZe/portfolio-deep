@@ -1,0 +1,29 @@
+{
+ "ticker": "EXAMPLE",
+ "rf": 0.0415,
+ "erp": 0.0420,
+ "erp_as_of": "2026-10",
+ "facts": {
+  "company": "Example Software Corp (illustrative numbers)",
+  "sector": "Technology", "industry": "Software - Infrastructure", "country": "US",
+  "fiscal_year": "2026-06-30", "price": 200.0,
+  "revenue": 100e9, "operating_income": 30e9, "net_income": 25e9,
+  "income_before_tax": 28e9, "tax_expense": 5.6e9,
+  "shares_diluted": 1e9, "forward_eps": 8.0, "beta": 1.1,
+  "total_debt": 20e9, "cash": 10e9, "equity": 50e9,
+  "equity_prior": 45e9, "total_debt_prior": 22e9, "cash_prior": 9e9,
+  "capex": 5e9, "dep_amort": 4e9, "sbc": 3e9, "cfo": 27e9, "total_assets": 120e9,
+  "interest_expense": 1e9, "acquisitions_net": 2e9,
+  "deferred_revenue": 12e9, "deferred_revenue_prior": 9e9,
+  "revenue_annuals": [100e9, 88e9, 78e9, 70e9],
+  "operating_income_annuals": [30e9, 26e9, 22e9, 19e9],
+  "rnd_annuals": [6e9, 5e9, 4e9, 3e9, 2e9, 2e9],
+  "rev_growth_path": [[0.14, 20], [0.12, 18], [0.10, 12]],
+  "fwd_growth_y1": 0.14, "fwd_growth_near": 0.12, "n_analysts": 20, "n_analysts_y2": 18
+ },
+ "sources": {
+  "price": "[WS] previous close 2026-11-09 (illustrative)",
+  "revenue": "[SEC] 10-K FY2026 (illustrative)",
+  "rev_growth_path": "[BD] consensus estimates (illustrative)"
+ }
+}

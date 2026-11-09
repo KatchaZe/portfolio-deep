@@ -292,18 +292,18 @@ def test_exposure_reads_the_stored_crp_mix_without_any_cache():
 
 def test_refresh_stores_the_mix_the_crp_was_priced_on():
     from domain.facts import FinancialFacts
-    from pipeline import fundamentals
+    from pipeline import finish
     from sources import country_risk as cr
     orig = cr.fetch_crp_table
     cr.fetch_crp_table = lambda **kw: cr.CRP_FALLBACK
     try:
         ff = FinancialFacts("MELI", company="MercadoLibre")
         ff.country = "UY"
-        fundamentals._country_risk(ff, "MELI")
+        finish.country_risk(ff, "MELI")
         dom = FinancialFacts("ELV", company="Elevance")
         dom.country = "US"
         dom.accounting_standard = "ifrs"                       # no 10-K lookup
-        fundamentals._country_risk(dom, "ELV")
+        finish.country_risk(dom, "ELV")
     finally:
         cr.fetch_crp_table = orig
     import config

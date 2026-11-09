@@ -48,7 +48,7 @@ S2C_LO, S2C_HI = 0.4, 6.0
 # growth fades to g_stable over the horizon and is paid for via sales-to-capital,
 # so a high starting rate is self-financing here rather than free.
 G_HIGH_CAP = 0.60
-MC_SIMS = 1000              # p10/p50/p90 are stable well below the skill's 5000
+MC_SIMS = 1000              # p10/p50/p90 are stable well below 5000 draws
 MC_SEED = 42                # deterministic: the same facts must value the same twice
 # P2-4: how wide to sample the target margin. This is the single most consequential
 # number in the module — the band it produces is what the promotion gate then judges,
@@ -127,9 +127,7 @@ def sales_to_capital(revenue, invested_capital, total_assets, cash):
 
 
 def going_concern(d):
-    """Forward FCFF build + Gordon terminal. Mirrors the skill script exactly
-    (ifa-stock-analysis-v8/scripts/young_company_dcf.going_concern) — the two are
-    pinned together by tests/test_skill_parity."""
+    """Forward FCFF build + Gordon terminal."""
     rev = d["current_revenue"]
     g_h, g_st = d["g_high"], d["g_stable"]
     n = int(d.get("horizon", 10))

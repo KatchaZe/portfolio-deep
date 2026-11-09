@@ -78,7 +78,7 @@ def _ff(**kw):
 
 
 def test_f2_growth_is_forward_looking():
-    from pipeline import normalize as N
+    from pipeline import finish as N
     from sources import fmp
     f = _ff(fwd_growth_y1=0.20, fwd_growth_near=0.10, fwd_growth_far=0.33, n_analysts=30, n_analysts_y2=25)
     N.resolve_growth(f)

@@ -1,0 +1,85 @@
+"""
+Engine contract — the STABLE interface between the app and any DEEP version.
+
+Everything downstream (store, API, dashboard, daily action) depends only on:
+  * FinancialFacts   (input, defined in domain/facts.py)
+  * Valuation        (output, defined here)
+  * DeepEngine.evaluate(facts, rf) -> Valuation
+
+A new framework version (e.g. 7.4) just implements DeepEngine and returns a
+Valuation. No other module changes. Keep this file backward-compatible: only
+ADD optional fields, never remove or repurpose existing ones.
+"""
+from abc import ABC, abstractmethod
+from dataclasses import dataclass, field
+from typing import Optional
+
+
+@dataclass
+class Valuation:
+    version: str
+    # DEEP sub-scores (0-5) + aggregate
+    D: Optional[float] = None
+    E_exec: Optional[float] = None
+    E_econ: Optional[float] = None
+    P: Optional[float] = None
+    composite: Optional[float] = None
+    stars: str = ""
+    recommendation: Optional[str] = None        # BUY / HOLD / Accumulate / SELL ...
+    signal: Optional[str] = None                 # BUY / HOLD / SELL (for daily action grid)
+
+    # fair value (per share)
+    anchor_method: Optional[str] = None
+    anchor_value: Optional[float] = None
+    range_low: Optional[float] = None
+    range_high: Optional[float] = None
+    fv_peg: Optional[float] = None
+    fv_fvp: Optional[float] = None
+
+    reverse_dcf: dict = field(default_factory=dict)
+    key_metrics: dict = field(default_factory=dict)   # wacc_pct, roic_pct, spread_pct, growth_pct, beta
+    # REV-16 (S20): pre-profit forward intrinsic value — going-concern value, the
+    # failure-risk adjustment, and the Monte Carlo band. Empty for profitable names.
+    young_dcf: dict = field(default_factory=dict)
+
+    # --- v8.x additions (optional; older engines leave them at defaults) ------
+    cost_of_equity: Optional[float] = None             # Ke decimal (FCFE discount rate)
+    eva: Optional[float] = None                        # economic profit = spread × invested capital
+    eq_verdict: Optional[str] = None                   # earnings-quality: CLEAN / REVIEW / LOW
+    subscores: dict = field(default_factory=dict)      # per-pillar rubric breakdown (audit trail)
+
+    # --- model router (domain/company_type.py) --------------------------------
+    company_type: Optional[str] = None                 # financial / young / cyclical / standard
+    fv_dcf: Optional[float] = None                     # FCFF DCF per share (operating companies)
+    fv_excess_return: Optional[float] = None           # excess-return value per share (financials)
+    dcf: dict = field(default_factory=dict)            # fcff_dcf.value() result: inputs, path, sources
+    excess_return: dict = field(default_factory=dict)  # financial.value() result
+    # cross-checks on the primary model (domain/engine/scenarios.py): the input the
+    # price implies, and a 25/50/25 Bear/Base/Bull expected value. Never the anchor.
+    priced_in: dict = field(default_factory=dict)
+    scenarios: dict = field(default_factory=dict)
+    # how wide the value range is (domain/engine/uncertainty.py): Low .. Extreme, and
+    # the margin-of-safety bands the Price pillar used for it
+    uncertainty: dict = field(default_factory=dict)
+    # the return the price offers on the anchor's own FCFF DCF (implied WACC, and the
+    # implied return on equity against Ke); a cross-check, never the score
+    expected_return: dict = field(default_factory=dict)
+    # relative valuation on the firm's own peers (pipeline/peers.py): weekly peer fit,
+    # target side recomputed each refresh; a cross-check, never the anchor
+    relative: dict = field(default_factory=dict)
+
+    verdict: str = ""                                  # short ifa-style summary line
+    flags: list = field(default_factory=list)
+
+    def to_dict(self):
+        return dict(self.__dict__)
+
+
+class DeepEngine(ABC):
+    """Implement this for each DEEP framework version."""
+    version: str = "?"
+
+    @abstractmethod
+    def evaluate(self, facts, rf: float = 0.045) -> "Valuation":
+        """Pure: map a validated FinancialFacts -> Valuation. No network."""
+        raise NotImplementedError
