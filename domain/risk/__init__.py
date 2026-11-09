@@ -32,3 +32,4 @@ from .correlation import (downside_beta, downside_corr, pair_corr_dated, rolling
                           semideviation, sector_corr, sortino, top_pairs)
 from .factors import FACTORS, decompose as factor_decompose
 from .fx_view import thb_view
+from .targets import targets as risk_budget_targets

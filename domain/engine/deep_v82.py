@@ -872,23 +872,29 @@ def competitive_advantage_period(roic_map, wacc_val, years=5):
 
 # moat -> (years at full growth / WACC, years until the stable state) in the FCFF DCF.
 # Narrow is the long-standing 5 + 5. [JUDG] lengths; the card shows the value at 5 + 5.
-MOAT_PERIODS = {"none": (3, 8), "narrow": (5, 10), "wide": (7, 15)}
+# Wide is 7 + 5 and needs ROIC above WACC by WIDE_SPREAD in every one of the last 5
+# years: on the live book (2026-11-07) a plain ROIC > WACC test with 7 + 8 rated 12 of
+# 21 names wide and lifted ORCL +66%, MELI +52% (user decision: both tightened).
+MOAT_PERIODS = {"none": (3, 8), "narrow": (5, 10), "wide": (7, 12)}
+WIDE_SPREAD = 0.05
 
 
 def moat_class(roic_map, wacc_val, years=5):
     """(class, note) from the competitive advantage period: every one of the last 5
-    fiscal years above today's WACC = wide, 2 or fewer = none, else narrow.
-    (None, None) with fewer than CAP_MIN_YEARS contiguous years."""
+    fiscal years above today's WACC + WIDE_SPREAD = wide, 2 or fewer above WACC = none,
+    else narrow. (None, None) with fewer than CAP_MIN_YEARS contiguous years."""
     if not roic_map or not wacc_val or wacc_val <= 0:
         return None, None
     win = trend_mod._window(roic_map, years=years)
     if len(win) < CAP_MIN_YEARS:
         return None, None
     above = sum(1 for d in win if roic_map[d]["roic"] > wacc_val * 100)
+    wide = sum(1 for d in win if roic_map[d]["roic"] > (wacc_val + WIDE_SPREAD) * 100)
     n = len(win)
-    cls = "wide" if (above == n and n >= 5) else "none" if above <= 2 else "narrow"
+    cls = "wide" if (wide == n and n >= 5) else "none" if above <= 2 else "narrow"
     hi, tot = MOAT_PERIODS[cls]
-    return cls, f"{above}/{n} ปี ROIC > WACC → moat {cls}: โต {hi} ปี + fade ถึงปี {tot}"
+    return cls, (f"{above}/{n} ปี ROIC > WACC, {wide}/{n} ปี > WACC + {WIDE_SPREAD * 100:.0f}pp"
+                 f" → moat {cls}: โต {hi} ปี + fade ถึงปี {tot}")
 
 
 def sector_relative(roic_used, sector_roc):

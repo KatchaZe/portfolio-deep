@@ -243,14 +243,24 @@ function rebalanceHTML(d,cv){
   const ps=(d.position_sizing||[]);
   const sizing=ps.length?`<details style="margin-top:10px"><summary class="note" style="cursor:pointer">Position sizing — เพดานต่อตัว (${ps.length} ตัว)</summary><div class="tw"><table><thead><tr><th class="l">Ticker</th><th class="n">ตอนนี้</th><th class="n">Soft / Hard max</th><th class="n">ส่วนแบ่งความเสี่ยง</th><th class="l">Action</th><th class="l">ติดที่</th></tr></thead><tbody>
     ${ps.map(x=>`<tr><th scope="row" class="l num" style="color:var(--ink)">${esc(x.ticker)}</th><td class="n">${pctFixed(x.current_pct)}</td><td class="n">${pctFixed(x.soft_max_pct,0)} / ${pctFixed(x.hard_max_pct,0)}</td><td class="n">${pctFixed(x.abs_risk_share_pct)}</td><td class="l">${tag(esc(String(x.action||'').split(' (')[0]),ACT_COLOR[String(x.action||'').split(' ')[0]])}</td><td class="l note">${esc(pp2pct(x.add_blocker||x.binding_cap||'–'))}</td></tr>`).join('')}</tbody></table></div></details>`:'';
-  if(reb.no_trade)return `<div class="banner tone t-bull" style="font-weight:700">NO TRADE — พอร์ตยังอยู่ใน policy band</div>${rule}${sizing}`;
+  const plan=targetsHTML(d.targets);
+  if(reb.no_trade)return `<div class="banner tone t-bull" style="font-weight:700">NO TRADE — พอร์ตยังอยู่ใน policy band</div>${rule}${sizing}${plan}`;
   const af=reb.after||{}, c=reb.costs||{};
   return kpisHTML([['Vol now',pctFixed(reb.vol_now_pct??cv.port_vol_pct)],['Vol after',pctFixed(af.port_vol_pct),'up'],['Cash after',pctFixed(reb.cash_pct_after)],['ภาษี + ค่าเทรด',money(c.total_usd)],
       ['Top risk now',(capRiskRows(cv)[0]||{}).ticker||'—'],['Top risk after',af.top_risk||'—'],['Stress worst after',pctFixed(af.stress_worst_pct),af.stress_worst_pct<0?'down':'']])
     +`<div class="tw" tabindex="0" role="region" aria-label="รายการ rebalance" style="margin-top:10px"><table><thead><tr><th class="l">Ticker</th><th class="l">Action</th><th class="n">From</th><th class="n">To</th><th class="n">Δ</th><th class="n">$</th><th class="n" title="กำไรที่ realize จาก avg cost">กำไร realize</th><th class="n">ภาษี</th><th class="n">ค่าเทรด</th><th class="l">Priority</th></tr></thead><tbody>
       ${(reb.trades||[]).map(t=>`<tr><th scope="row" class="l num" style="color:var(--ink)">${esc(t.ticker)}</th><td class="l">${tag(esc(t.action),ACT_COLOR[t.action])}</td><td class="n">${pctFixed(t.from_pct)}</td><td class="n">${pctFixed(t.to_pct)}</td><td class="n">${pctFixed(t.amount_pct)}</td><td class="n">${money(t.amount_usd)}</td><td class="n">${t.action==='TRIM'?money(t.realized_gain_usd):'—'}</td><td class="n">${money(t.tax_usd)}</td><td class="n">${money(t.cost_usd)}</td><td class="l">${esc(t.priority||'')}</td></tr>`).join('')}
       </tbody></table></div>
-      <p class="note" style="margin:6px 0 0">เงินที่ไม่มีตัวไหนผ่านเกณฑ์รับ → cash ${pctFixed(reb.to_cash_pct)} · turnover ${pctFixed(c.turnover_pct)} · ภาษีกำไร ${money(c.tax_usd)} + ค่าเทรด ${money(c.trading_usd)} (S6)</p>${rule}${sizing}`;
+      <p class="note" style="margin:6px 0 0">เงินที่ไม่มีตัวไหนผ่านเกณฑ์รับ → cash ${pctFixed(reb.to_cash_pct)} · turnover ${pctFixed(c.turnover_pct)} · ภาษีกำไร ${money(c.tax_usd)} + ค่าเทรด ${money(c.trading_usd)} (S6)</p>${rule}${sizing}${plan}`;
+}
+// plan B: targets from a risk budget, traded only outside the 2 / 1.75pp band
+function targetsHTML(tg){
+  if(!tg||tg.status!=='ok'||!(tg.rows||[]).length)return '';
+  const moves=tg.rows.filter(r=>r.action!=='HOLD');
+  return `<details style="margin-top:10px"${moves.length?' open':''}><summary class="note" style="cursor:pointer">แผน B: Target ตาม risk budget · band ${tg.band_pp[0]}/${tg.band_pp[1]}pp — ${moves.length?moves.length+' ตัวหลุด band':'ทุกตัวอยู่ใน band'}</summary>
+    <div class="tw" tabindex="0" role="region" aria-label="target ตาม risk budget"><table><thead><tr><th class="l">Ticker</th><th class="n">ตอนนี้</th><th class="n">Target</th><th class="n">ห่าง</th><th class="l">Action</th><th class="n">$</th><th class="l">ที่มา target</th></tr></thead><tbody>
+    ${tg.rows.map(r=>`<tr><th scope="row" class="l num" style="color:var(--ink)">${esc(r.ticker)}</th><td class="n">${pctFixed(r.current_pct)}</td><td class="n">${pctFixed(r.target_pct)}</td><td class="n">${pctFixed(r.drift_pp)}</td><td class="l">${r.action==='HOLD'?'อยู่ใน band':tag(esc(r.action),ACT_COLOR[r.action==='SELL'?'TRIM':'ADD'])}</td><td class="n">${r.action==='HOLD'?'—':money(r.trade_usd)}</td><td class="l note">${esc(r.basis||'')}</td></tr>`).join('')}
+    </tbody></table></div><p class="note" style="margin:6px 0 0">Target cash ${pctFixed(tg.target_cash_pct)} · ${esc(tg.tag||'')} · เป็นข้อเสนอคู่กับแผนหลักด้านบน ไม่ได้แทน</p></details>`;
 }
 function capRiskHint(cv){const r=capRiskRows(cv);const big=r.filter(x=>x.diff!=null&&x.diff>=3).sort((a,b)=>b.diff-a.diff)[0];return big?`${big.ticker} ถือเงิน ${pctFixed(big.cap)} แต่สร้างความเสี่ยง ${pctFixed(big.risk)} (มากกว่าน้ำหนักเงิน +${big.diff}%).`:'';}
 function hiddenConc(alloc,cv){

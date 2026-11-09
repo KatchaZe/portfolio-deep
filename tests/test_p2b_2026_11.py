@@ -126,6 +126,33 @@ def test_replay_cache_keeps_answers_not_failures():
     print("P2-2 replay cache OK")
 
 
+def test_a_window_before_the_listing_is_not_a_failure():
+    import requests
+    from sources import yahoo
+
+    class Resp:
+        def __init__(self, code):
+            self.status_code = code
+
+        def raise_for_status(self):
+            raise requests.HTTPError(f"{self.status_code}", response=self)
+
+    class Req:
+        def __init__(self, code):
+            self.code = code
+
+        def get(self, *a, **k):
+            return Resp(self.code)
+    assert yahoo.fetch_window_return("ABBV", "2007-10-09", "2009-03-09", requests_mod=Req(400),
+                                     retries=1) is None
+    try:
+        yahoo.fetch_window_return("ABBV", "2007-10-09", "2009-03-09", requests_mod=Req(503), retries=1)
+        raise AssertionError("a 503 must raise, so it is retried next build")
+    except requests.HTTPError:
+        pass
+    print("P2-2 HTTP 400 = did not trade then (cached), 503 = retry OK")
+
+
 def test_thb_view_nets_the_currency():
     dates = _dates(120)
     port = [-0.01 if i % 2 else 0.012 for i in range(120)]

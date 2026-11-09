@@ -267,6 +267,10 @@ def _sizing_action(w, hard, soft, blocker=None):
 
 
 SECTOR_CAP = 0.40
+# A sector is trimmed only once it is this far over the cap, then back to the cap:
+# 0.3pp over is not worth five 0.1pp trades and their costs. Between the cap and the
+# band it is left alone, but nothing in it may be added to.
+SECTOR_BAND = 0.02
 
 
 def _cap_sector(t, sectors, asset_class):
@@ -284,9 +288,9 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CA
     """Per holding: a soft/hard target band from the binding cap, current vs target,
     and an action verdict. `value` ({ticker: {rating, net_mos}}) withholds "ADD" from a
     name the valuation does not support; without it every name is judged on risk only
-    (legacy). A sector above `sector_cap` scales each of its names' hard cap by
-    cap / sector weight, so trimming every name to its cap brings the sector to the cap,
-    and no name in a sector at its cap may be added to."""
+    (legacy). A sector more than SECTOR_BAND above `sector_cap` scales each of its
+    names' hard cap by cap / sector weight, so trimming every name to its cap brings the
+    sector back to the cap; no name in a sector at or over its cap may be added to."""
     asset_class = asset_class or {}
     sec_of = {r["ticker"]: _cap_sector(r["ticker"], sectors, asset_class) for r in rc_rows}
     sec_w = {}
@@ -302,13 +306,14 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CA
         sec = sec_of[r["ticker"]]
         sw = sec_w.get(sec, 0.0)
         sector_full = bool(sec and sector_cap and sw >= sector_cap - 1e-9)
-        if sec and sector_cap and sw > sector_cap + 1e-9 and w * sector_cap / sw < hard:
+        if sec and sector_cap and sw > sector_cap + SECTOR_BAND + 1e-9 and w * sector_cap / sw < hard:
             hard = w * sector_cap / sw
-            binding = f"sector cap ({sec} {sw * 100:.0f}% > {sector_cap * 100:.0f}%)"
+            binding = (f"sector cap ({sec} {sw * 100:.1f}% > {(sector_cap + SECTOR_BAND) * 100:.0f}%"
+                       f" → กลับไป {sector_cap * 100:.0f}%)")
         soft = hard * 0.8
         blocker = add_blocker((value or {}).get(r["ticker"])) if value is not None else None
         if blocker is None and sector_full:
-            blocker = f"sector {sec} เต็มเพดาน {sector_cap * 100:.0f}%"
+            blocker = f"sector {sec} {sw * 100:.1f}% ≥ เพดาน {sector_cap * 100:.0f}%"
         out.append({
             "ticker": r["ticker"],
             "sector": sec,
