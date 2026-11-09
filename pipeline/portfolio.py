@@ -8,7 +8,7 @@ import datetime as dt
 import config
 import store as store_mod
 from domain import momentum, philosophy, advice
-from pipeline import rows
+from pipeline import performance, rows
 
 
 def _momentum_meta(view_rows, stale_after=4):
@@ -142,4 +142,5 @@ def view(s):
     prof = philosophy.load(os.path.join(config.BASE_DIR, "data", "philosophy_profile.json"))
     return {"rows": view_rows, "totals": totals, "momentum_meta": mom_meta,
             "market": market or None, "benchmark": benchmark,
+            "performance": performance.view(s),
             "philosophy": philosophy.assess(view_rows, prof)}

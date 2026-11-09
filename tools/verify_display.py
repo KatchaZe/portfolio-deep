@@ -460,9 +460,9 @@ def check_frontend():
     from domain.engine import deep_v82 as E
     import inspect
     band = inspect.getsource(E._r_price)
-    check(advice.MOS_GOOD == 15.0 and advice.MOS_BAD == -15.0
-          and "(0.15, 4.0), (-0.15, 3.0)" in band,
-          "advice and the P-score cut margin of safety at the same +/-15%")
+    check("uncertainty_mod.bands(uncertainty)" in band
+          and "bands_pct" in inspect.getsource(advice._bands_pct),
+          "advice and the P-score cut margin of safety on the same uncertainty bands")
 
 
 def main():

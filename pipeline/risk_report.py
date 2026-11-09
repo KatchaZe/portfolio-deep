@@ -300,7 +300,8 @@ def _value_inputs(s, tickers, book):
                   "mos": round((fv - price) / fv, 4) if up is not None else None,
                   "net_mos": round(net_up / (100 + net_up), 4) if (net_up is not None and net_up > -100) else None,
                   "price": price, "avg_cost": hold.get(t, {}).get("avg_cost"),
-                  "tax_rate": config.CAPGAINS_TAX_RATE}
+                  "tax_rate": config.CAPGAINS_TAX_RATE,
+                  "add_min_mos": (v.get("uncertainty") or {}).get("add_min_mos")}
     return out
 
 
@@ -574,10 +575,12 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     value = _value_inputs(s, tickers, book)
     # sizing caps and the trades share one basis: weights of the WHOLE portfolio
     rc_total = [{**r, "capital_pct": round((r["capital_pct"] or 0) * (1 - cash_frac), 4)} for r in rc_rows]
-    sizing = riskeng.position_sizing(rc_total, sectors, asset_class=asset_class,
+    sizing = riskeng.position_sizing(rc_total, sectors, sector_cap=config.SECTOR_CAP,
+                                     asset_class=asset_class,
                                      pricing_cap=config.PRICING_ASSET_CAP, value=value)
     reb = riskeng.rebalance(weights, sizing, value=value, cash_frac=cash_frac,
-                            total_value=invested + cash, cost_bps=config.TRADING_COST_BPS)
+                            total_value=invested + cash, cost_bps=config.TRADING_COST_BPS,
+                            sector_cap=config.SECTOR_CAP)
     reb["vol_now_pct"] = round(port_vol_total * 100, 1) if port_vol else None
     after = _after_rebalance(reb, tickers, cov, betas, sectors, book.industries)
 

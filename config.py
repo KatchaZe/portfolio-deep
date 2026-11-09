@@ -107,6 +107,9 @@ CLASS_PROXY_VOL = {"equity": 0.18, "bond": 0.06, "gold": 0.15, "crypto": 0.70,
 # P1-11 (S40-41): assets with NO cash flow (crypto/collectible) are PRICING plays —
 # harder single-position weight cap than ordinary equities (position_sizing).
 PRICING_ASSET_CAP = 0.05
+# Most of the whole portfolio one FMP sector may hold (equities with a known sector).
+# Above it every name in the sector is trimmed pro rata and none may be added to.
+SECTOR_CAP = 0.40
 
 # Where a company earns its revenue, for its country risk premium (sources/
 # country_risk.py). Markets are country names, ISO-2 codes or a region from
@@ -140,4 +143,4 @@ INDUSTRY_MIX = {
 }
 
 # Build stamp — bump together with DASH_BUILD in static/js/app.js (frontend/deploy guard).
-BUILD = "2026-10-28b"
+BUILD = "2026-11-06b"

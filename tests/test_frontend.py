@@ -23,7 +23,7 @@ def test_new_ui_present():
     required = [
         "function renderMarket", "function renderBenchmark", "function renderPhilosophy",
         "function garpBadge", 'id="mktRegime"', 'id="benchmark"', 'id="philosophy"',
-        "renderMarket(d.market)", "renderBenchmark(d.benchmark)", "renderPhilosophy(d.philosophy)",
+        "renderMarket(d.market)", "renderBenchmark(d.benchmark,d.performance)", "renderPhilosophy(d.philosophy)",
         "Downside Risk (S2/S4)", "function checkBuild", "function renderScreen", 'id="garpScreen"',
         # Philosophies UI upgrade (Tier 1-3, build 2026-07-03b)
         "function valueGauge", "function moatChip", "function guardBadges", "function dispAction",

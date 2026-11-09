@@ -37,8 +37,16 @@ function renderMarket(mk){
   }else t2=stripTile('Market value (S32/33)','&mdash;','ERP/PE ยังคำนวณไม่ได้ — เช็ค config');
   el.innerHTML=t1+t2;
 }
-function renderBenchmark(b){
+function renderBenchmark(b,perf){
   const el=stripSlot('benchmark'); if(!el)return;
+  const p=perf||{};
+  if(p.status==='ok'&&p.spy_pct!=null){       // realized, deposits netted out (pipeline/performance.py)
+    const te=p.tracking_error_pct!=null?` · TE ${nf(p.tracking_error_pct,1)}% · IR ${nf(p.information_ratio,2)}`:` · ${esc(p.note||'')}`;
+    el.innerHTML=stripTile('ผลจริง vs SPY (TWR)',signed(p.active_pp)+'%',
+      `พอร์ต ${signed(p.twr_pct)}% vs SPY ${signed(p.spy_pct)}% ตั้งแต่ ${esc(p.start)} (${p.days} วัน)${te}`,
+      p.active_pp<0?'--warn':'--bull');
+    return;
+  }
   if(!b||(b.portfolio_12m==null&&b.market_12m==null)){el.innerHTML=stripTile('vs S&P 12M (S16/S35)','&mdash;','กด &#9654; Run Daily เพื่อคำนวณ');return;}
   const fmt=v=>v==null?'—':signed(v)+'%';
   const ex=b.excess_pp, lag=ex!=null&&ex<0;

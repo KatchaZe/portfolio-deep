@@ -101,6 +101,7 @@ def _market_overview(sp, prev_market=None):
     mkt = momentum.market_state(sp["closes"])
     mkt["ret_12m"] = momentum.roc(sp["closes"], 252)
     mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
+    mkt["spy_close"] = sp["closes"][-1] if sp.get("closes") else None
     try:
         rf, rf_live = yahoo.fetch_treasury_10y()
         from pipeline.fundamentals import refresh_implied_erp
@@ -160,4 +161,9 @@ def commit_daily(s, fetched):
             s["market"] = m
         else:
             s["momentum"][t] = m
+    try:                               # the performance log must never break a commit
+        from pipeline import performance
+        performance.record(s)
+    except Exception as e:
+        log.warning("performance snapshot failed: %s", e)
     return [t for t in fetched if t != MARKET_KEY]

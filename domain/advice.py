@@ -29,17 +29,26 @@ def build(row):
         return ""
 
 
-# Bands on the margin of safety (V - P) / V, the same cut-offs the engine's P-score
-# uses (40 / 15 / -15 / -40), so the advice line and the score cannot disagree.
-# (matches MoS %, headline, verdict) — first match wins
-MOS_GOOD, MOS_BAD = 15.0, -15.0
-_VALUE_BANDS = (
-    (lambda m: m >= 40, "ราคาต่ำกว่า Fair Value มาก", "ส่วนเผื่อกว้าง"),
-    (lambda m: m >= MOS_GOOD, "ต่ำกว่า Fair Value", "มีส่วนเผื่อความปลอดภัย"),
-    (lambda m: m >= MOS_BAD, "ใกล้ Fair Value", "ราคาสมเหตุสมผล"),
-    (lambda m: m >= -40, "สูงกว่า Fair Value", "จ่ายแพงกว่ามูลค่า"),
-    (lambda m: True, "แพงกว่า Fair Value มาก", "เสี่ยง de-rating"),
-)
+# Bands on the margin of safety (V - P) / V: the cut-offs the engine's P-score used for
+# this row's uncertainty rating (domain/engine/uncertainty.py), so the advice line and
+# the score cannot disagree. Unrated rows keep 40 / 15 / -15 / -40.
+MOS_GOOD, MOS_BAD = 15.0, -15.0          # the Unrated edges
+_VALUE_TEXT = (("ราคาต่ำกว่า Fair Value มาก", "ส่วนเผื่อกว้าง"),
+               ("ต่ำกว่า Fair Value", "มีส่วนเผื่อความปลอดภัย"),
+               ("ใกล้ Fair Value", "ราคาสมเหตุสมผล"),
+               ("สูงกว่า Fair Value", "จ่ายแพงกว่ามูลค่า"),
+               ("แพงกว่า Fair Value มาก", "เสี่ยง de-rating"))
+
+
+def _bands_pct(row):
+    """(5, 4, 3, 2) MoS edges in percent for this row."""
+    b = ((row or {}).get("uncertainty") or {}).get("bands_pct")
+    return tuple(b) if b and len(b) == 4 else (40.0, MOS_GOOD, MOS_BAD, -40.0)
+
+
+def _value_text(row, mos):
+    edges = _bands_pct(row)
+    return next((t for e, t in zip(edges, _VALUE_TEXT) if mos >= e), _VALUE_TEXT[-1])
 
 
 def mos_from_upside(up):
@@ -59,7 +68,10 @@ def _value_clause(row, up, implied):
     if mos is not None:
         net_up = _fnum(row.get("net_upside_pct"))
         basis = f", net หลังภาษี/ค่าเทรด {net_up:+.0f}%" if net_up is not None else ""
-        _, head, verdict = next(b for b in _VALUE_BANDS if b[0](mos))
+        head, verdict = _value_text(row, mos)
+        rated = (row.get("uncertainty") or {}).get("rating")
+        if rated and rated != "Unrated":
+            verdict += f" · ความไม่แน่นอน {rated}"
         return f"มูลค่า: {head} (MoS {mos:+.0f}% ของมูลค่า · upside {up:+.0f}%{basis}) — {verdict}"
     if implied is not None:
         actual = _fnum(row.get("rev_actual_1y"))
@@ -154,7 +166,8 @@ def _decide(row):
     mos = _row_mos(row, up)
     if mos is not None:
         # same edges as the P-score's `x >= t` bands: exactly -15% is still fair
-        good_value, bad_value = mos >= MOS_GOOD, mos < MOS_BAD
+        _, good, bad, _ = _bands_pct(row)
+        good_value, bad_value = mos >= good, mos < bad
     else:
         good_value = implied is not None and rev_verdict == "Plausible"
         bad_value = rev_verdict in ("Aggressive", "Exceptional")
