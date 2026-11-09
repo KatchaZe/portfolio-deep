@@ -97,6 +97,19 @@ def test_a_sell_exits_even_inside_the_band():
     print("P2-6 SELL exits inside the band OK")
 
 
+def test_targets_keep_each_sector_under_the_cap():
+    tk = ["H1", "H2", "H3", "T1"]
+    cov = _diag([0.2] * 4)                                               # ERC: 25% each
+    w = {t: 0.25 for t in tk}
+    sizing = [{"ticker": t, "hard_max_pct": 100.0, "sector": "Healthcare" if t[0] == "H" else "Technology"}
+              for t in tk]
+    out = T.targets(tk, cov, w, {t: _val() for t in tk}, sizing, sector_cap=0.40)
+    by = {r["ticker"]: r["target_pct"] for r in out["rows"]}
+    assert abs(by["H1"] + by["H2"] + by["H3"] - 40.0) < 0.15, by          # 75% -> 40%
+    assert by["T1"] == 40.0 and abs(out["target_cash_pct"] - 20.0) < 0.15, (by, out)
+    print("P2-6 targets respect the sector cap OK", by)
+
+
 def test_band_trades_only_past_two_points():
     tk = ["A", "B", "C", "D"]
     cov = _diag([0.2] * 4)                                               # targets 25% each

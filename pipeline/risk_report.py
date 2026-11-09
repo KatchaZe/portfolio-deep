@@ -311,7 +311,8 @@ def _targets(tickers, cov, weights, value, sizing, cash_frac, total):
     """Risk-budget targets + band trades (domain/risk/targets.py), or a status block."""
     try:
         return {"status": "ok", **riskeng.risk_budget_targets(tickers, cov, weights, value, sizing,
-                                                              cash_frac, total)}
+                                                              cash_frac, total,
+                                                              sector_cap=config.SECTOR_CAP)}
     except Exception as e:
         log.warning("risk-budget targets failed: %s", e)
         return {"status": "error", "note": f"targets error: {type(e).__name__}"}

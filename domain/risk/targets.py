@@ -70,11 +70,32 @@ def risk_budget_weights(cov, budgets, iters=500, tol=1e-10):
     return w
 
 
-def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_value=None):
+def _sector_fit(tgt, sec_of, sector_cap, notes):
+    """Scale each sector's targets down to the sector cap."""
+    for sec in {s for s in sec_of.values() if s}:
+        names = [t for t in tgt if sec_of.get(t) == sec]
+        limit = sector_cap
+        tot = sum(tgt[t] for t in names)
+        if tot > limit + 1e-9:
+            for t in names:
+                tgt[t] *= limit / tot
+                notes[t] += f" · sector {sec} ≤ {sector_cap * 100:.0f}%"
+
+
+def _sector_room(t, tgt, sec_of, sector_cap):
+    sec = sec_of.get(t)
+    if not sec or not sector_cap:
+        return 1.0
+    return max(0.0, sector_cap - sum(w for x, w in tgt.items() if sec_of.get(x) == sec))
+
+
+def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_value=None,
+            sector_cap=None):
     """Per holding: target, current, drift and the band trade; plus the cash the caps
     leave. Weights in and out are of the whole portfolio (cash included)."""
     caps = {r["ticker"]: (r.get("hard_max_pct") or 100.0) / 100 for r in sizing_rows}
     blocked = {r["ticker"]: r.get("add_blocker") for r in sizing_rows}
+    sec_of = {r["ticker"]: r.get("sector") for r in sizing_rows}
     invest = 1.0 - (cash_frac or 0.0)
     cur = {t: weights.get(t, 0.0) * invest for t in tickers}
     bud, why = zip(*[budget((value or {}).get(t)) for t in tickers]) if tickers else ((), ())
@@ -93,15 +114,19 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
             tgt[t] = ceiling[t]
             notes[t] += (f" · ADD blocked ({blocked[t]})" if blocked.get(t) and ceiling[t] == cur[t]
                          and cur[t] < caps.get(t, 1.0) else f" · cap {ceiling[t] * 100:.1f}%")
+    if sector_cap:
+        _sector_fit(tgt, sec_of, sector_cap, notes)
     share = {tickers[i]: raw[k] for k, i in enumerate(free)}
     for _ in range(len(tickers)):                 # hand what was cut to who can take it
         left = invest - sum(tgt.values())
-        open_ = [t for t in share if share[t] > 0 and tgt[t] < ceiling[t] - 1e-12]
+        open_ = [t for t in share if share[t] > 0 and tgt[t] < ceiling[t] - 1e-12
+                 and _sector_room(t, tgt, sec_of, sector_cap) > 1e-12]
         tot = sum(share[t] for t in open_)
         if left <= 1e-9 or tot <= 0:
             break
         for t in open_:
-            add = min(ceiling[t] - tgt[t], left * share[t] / tot)
+            add = min(ceiling[t] - tgt[t], left * share[t] / tot,
+                      _sector_room(t, tgt, sec_of, sector_cap))
             if add > 1e-12:
                 tgt[t] += add
                 if "+ ส่วนที่ตัวอื่นรับไม่ได้" not in notes[t]:
