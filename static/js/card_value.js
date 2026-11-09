@@ -7,10 +7,11 @@ function methodShort(m){return (m||'').replace('Terminal-Anchored Reverse DCF','
 function dcfTip(x){
   const k=x.key_metrics||{}, s=(x.dcf||{}).sources||{};
   const gp=k.dcf_growth_path_pct&&k.dcf_growth_path_pct.length?k.dcf_growth_path_pct:[k.dcf_growth_pct??'?'];
-  const parts=['FCFF DCF (Damodaran): revenue growth '+gp.join('%, ')+'% (ปีที่ 1'+(gp.length>1?'–'+gp.length:'')+') แล้วลดเป็นเส้นตรงสู่ g ระยะยาวในปีที่ 10'+(s.growth?' ('+s.growth+')':''),
+  const parts=['FCFF DCF (Damodaran): revenue growth '+gp.join('%, ')+'% (ปีที่ 1'+(gp.length>1?'–'+gp.length:'')+') แล้วลดเป็นเส้นตรงสู่ g ระยะยาวในปีที่ '+(s.total_years||10)+(s.growth?' ('+s.growth+')':''),
     'operating margin เป้าหมาย '+(k.dcf_margin_target_pct??'?')+'%',
     'sales-to-capital '+(k.dcf_sales_to_capital??'?')+(s.sales_to_capital?' ('+s.sales_to_capital+')':''),
     'terminal value = '+(k.dcf_terminal_share_pct??'?')+'% ของมูลค่า'];
+  if(s.moat_period)parts.push(s.moat_period+(s.value_at_5_5!=null?' (ถ้าใช้ 5 + 5 ปี = $'+s.value_at_5_5+')':''));
   if(k.crp_pct!=null)parts.push('country risk +'+k.crp_pct+'% ('+(k.crp_basis||'')+')');
   if(k.company_type&&k.company_type!=='standard')parts.push('model: '+k.company_type);
   return pp2pct(parts.join(' · '));

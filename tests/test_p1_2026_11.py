@@ -145,16 +145,23 @@ def _abbv():
     return ff
 
 
+def _reprice(ff, price):
+    """Move the quote and the market cap together, as the market does."""
+    ff.market_cap = ff.market_cap * price / ff.price
+    ff.price = price
+    return ff
+
+
 def test_implied_return_equals_wacc_when_price_equals_value():
     ff = _abbv()
     v = E.DeepV82Engine().evaluate(ff, rf=0.045)
     assert v.anchor_method == "FCFF DCF", v.anchor_method
-    ff2 = _abbv()
-    ff2.price = v.fv_dcf
+    ff2 = _reprice(_abbv(), v.fv_dcf)
     er = E.DeepV82Engine().evaluate(ff2, rf=0.045).expected_return
     assert abs(er["firm_irr_pct"] - er["wacc_pct"]) < 0.05, er
-    dear = v.expected_return                      # the real price is above the value
-    assert v.anchor_value < ff.price and dear["firm_irr_pct"] < dear["wacc_pct"], dear
+    ff3 = _reprice(_abbv(), v.fv_dcf * 1.3)       # dear: 30% above the model value
+    dear = E.DeepV82Engine().evaluate(ff3, rf=0.045).expected_return
+    assert dear["firm_irr_pct"] < dear["wacc_pct"], dear
     assert dear["excess_pct"] < 0, dear
     print("P1-4 implied return: = WACC at fair value, below it when dear OK", dear["equity_irr_pct"])
 
