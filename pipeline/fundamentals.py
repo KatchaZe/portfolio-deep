@@ -463,6 +463,13 @@ def _surprise_backfill(ff, t, fmp_key):
     return calls
 
 
+def _app_today():
+    """The app's clock (store.today), so NTM weights move with the date the rest of the
+    refresh uses -- and a test that pins that clock pins these too."""
+    import datetime as _dt
+    return _dt.date.fromisoformat(store_mod.today())
+
+
 def _blend_forward_eps(ff, t, fmp_estimates, prev=None):
     """Median of the free forward-EPS candidates, with the min-max dispersion kept for
     display. validate() still applies the revenue-ceiling backstop afterwards. Alpha
@@ -472,7 +479,7 @@ def _blend_forward_eps(ff, t, fmp_estimates, prev=None):
     if ff.forward_eps and ff.forward_eps > 0:
         candidates["yahoo"] = ff.forward_eps          # Yahoo value set by normalize
     if fmp_estimates:
-        fe = fmp.parse_ntm_eps(fmp_estimates)          # NTM, the basis the others are put on
+        fe = fmp.parse_ntm_eps(fmp_estimates, _app_today())   # NTM, the basis the others are put on
         if fe:
             candidates["fmp"] = fe
     if config.FINNHUB_API_KEY:
@@ -490,7 +497,7 @@ def _blend_forward_eps(ff, t, fmp_estimates, prev=None):
                         "(its estimates are in the reporting currency, unlabelled)")
     elif not candidates and config.ALPHAVANTAGE_API_KEY:
         raw, _ = _av_estimates(t)
-        av = alphavantage.parse_ntm_eps(raw, ff.fiscal_year)
+        av = alphavantage.parse_ntm_eps(raw, ff.fiscal_year, today=_app_today())
         if av:
             candidates["alphavantage"] = av
     reused = None

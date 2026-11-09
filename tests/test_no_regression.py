@@ -49,6 +49,9 @@ def _patch_offline():
         return data, 0, {"cache": "test", "quota_degraded": False}
     app.risk_report.prices.fetch_returns = fake
     app.risk_report.prices.fetch_long_returns = lambda *a, **kw: {}   # crisis history: offline too
+    app.yahoo.fetch_fx_series = lambda *a, **kw: None          # THB view
+    app.yahoo.fetch_window_return = lambda *a, **kw: None      # historical replay
+    app.french.fetch_factors = lambda *a, **kw: None           # factor exposure
 
 
 def test_existing_endpoint_contracts():

@@ -3,6 +3,7 @@
 check() records a failure and keeps going, so one run reports every broken check.
 A plain `assert` still stops the suite at the first failure, as it always has.
 """
+import atexit
 import hashlib
 import json
 import os
@@ -16,6 +17,59 @@ def check(ok, label, detail=""):
     print(("  ok   " if ok else "  FAIL ") + label + (("  -> " + detail) if detail and not ok else ""))
     if not ok:
         FAIL.append(label)
+
+
+_LOCAL_HOSTS = {"localhost", "127.0.0.1", "::1", None, ""}
+NET_ATTEMPTS = []
+
+
+class NetworkCut(OSError):
+    pass
+
+
+def cut_network():
+    """Every suite is offline by contract, so results do not depend on Yahoo, SEC or
+    Damodaran being up that day. Refuse any non-loopback connection; the app's own
+    fallbacks (bundled snapshots, cached files) then run, the same on every machine.
+    Blocked hosts are listed at exit so a suite that leans on a fetch is visible."""
+    import socket
+
+    def _host(addr):
+        return addr[0] if isinstance(addr, tuple) else addr
+
+    def _refuse_remote(host):
+        if host not in _LOCAL_HOSTS:
+            NET_ATTEMPTS.append(str(host))
+            raise NetworkCut("test suites are offline: tried to reach %r" % (host,))
+
+    real_getaddrinfo, real_connect = socket.getaddrinfo, socket.socket.connect
+    real_create = socket.create_connection
+
+    def getaddrinfo(host, *a, **k):
+        _refuse_remote(host)
+        return real_getaddrinfo(host, *a, **k)
+
+    def connect(self, addr):
+        _refuse_remote(_host(addr))
+        return real_connect(self, addr)
+
+    def create_connection(addr, *a, **k):
+        _refuse_remote(_host(addr))
+        return real_create(addr, *a, **k)
+
+    socket.getaddrinfo, socket.socket.connect = getaddrinfo, connect
+    socket.create_connection = create_connection
+    # A proxy on loopback would hide the real destination from the check above.
+    for var in list(os.environ):
+        if var.lower() in ("http_proxy", "https_proxy", "all_proxy"):
+            del os.environ[var]
+    atexit.register(_report_blocked)
+
+
+def _report_blocked():
+    if NET_ATTEMPTS:
+        sys.stdout.flush()
+        print("(offline) blocked: " + ", ".join(sorted(set(NET_ATTEMPTS))))
 
 
 def run_suite(ns, ok_msg):

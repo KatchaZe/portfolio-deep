@@ -141,6 +141,10 @@ def main(argv):
         print(f"no store at {STORE} — nothing to replay")
         return 0
     current = evaluate_all()
+    if not current and not update:
+        # a fresh clone and CI carry an empty store (portfolio.json is the owner's data)
+        print(f"store at {STORE} holds no tickers — nothing to replay")
+        return 0
 
     if verbose:
         for t, row in current.items():
