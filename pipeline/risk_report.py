@@ -16,7 +16,7 @@ from dataclasses import dataclass
 
 import config
 import store as store_mod
-from pipeline import prices
+from pipeline import factors as factors_mod, prices, replay
 from domain import risk as riskeng
 from domain import diversification
 from domain import exposure
@@ -472,6 +472,18 @@ def _correlation(rdata, tickers, weights, book, cov, cov_c, cov_info,
     }
 
 
+def _thb_view(rdata, tickers, w_total, fx, horizon_years):
+    """Risk in baht beside risk in dollars, or a status block."""
+    if not fx:
+        return {"status": "unavailable", "note": "ไม่มีข้อมูล USD/THB"}
+    try:
+        prets, pdates = riskeng.portfolio_returns_dated(rdata, tickers, w_total)
+        return riskeng.thb_view(prets, pdates, fx.get("points"), horizon_years)
+    except Exception as e:
+        log.warning("THB view failed: %s", e)
+        return {"status": "error", "note": f"THB view error: {type(e).__name__}"}
+
+
 def _fx_usdthb(fetch_fx):
     """USD/THB closes for the Correlation tab. Absent on failure: the panel then draws
     its labelled MOCK series, and the rest of the payload is untouched."""
@@ -502,12 +514,39 @@ def _crisis(cov, tickers, asset_class, fetch_long):
              "assumed_pairs": len(tickers) * (len(tickers) - 1) // 2}), {}, set()
 
 
+def _replay(w_total, betas, sectors, industries, fetch_window):
+    """Historical episodes replayed on what each holding (or its sector ETF) did."""
+    proxies = {riskeng.proxy_for(sectors.get(t), industries.get(t)) for t in w_total} - {None}
+    try:
+        got = replay.window_returns(list(w_total) + sorted(proxies), fetch=fetch_window)
+    except Exception as e:
+        log.warning("historical replay data unavailable (beta x market used): %s", e)
+        got = {}
+    return riskeng.historical_replay(w_total, got, betas, sectors, industries=industries)
+
+
+def _factor_exposure(weights, long_series, rdata, fetch_factors):
+    """Fama-French 5 + momentum exposures of the invested book, or a status block."""
+    try:
+        ff = factors_mod.factors(fetch_factors)
+        if not ff:
+            return {"status": "unavailable", "note": "ยังไม่มีข้อมูล factor (Ken French) — ลองใหม่ภายหลัง"}
+        series = {t: (long_series.get(t) or _series(rdata, t)) for t in weights}
+        return riskeng.factor_decompose(weights, series, ff)
+    except Exception as e:
+        log.warning("factor exposure failed: %s", e)
+        return {"status": "error", "note": f"factor exposure error: {type(e).__name__}"}
+
+
 def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
-          prefer_fmp, fetch_returns=None, fetch_long=None, fetch_fx=None):
+          prefer_fmp, fetch_returns=None, fetch_long=None, fetch_fx=None, fetch_window=None,
+          fetch_factors=None):
     """Assemble the full risk payload. Returns (payload, fmp_calls).
     `fetch_returns` and `fetch_long` are the network seams: inject fakes to unit-test
     the whole payload shaping offline (tests/test_risk_report.py). `fetch_fx` is opt-in
-    (app.py passes it) and adds correlation.fx_usdthb for the USD/THB panel."""
+    (app.py passes it) and adds correlation.fx_usdthb for the USD/THB panel; so is
+    `fetch_window` (symbol, start, end) -> return, for the historical replays, and
+    `fetch_factors` () -> Ken French factors, for the factor exposure."""
     fetch_returns = fetch_returns or prices.fetch_returns
     fetch_long = fetch_long or (lambda tks: prices.fetch_long_returns(tks, fmp_key if prefer_fmp else ""))
     book = _book(s)
@@ -563,8 +602,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     rate_risk, pricing_assets = _rate_risk(rdata, tickers, w_total, asset_class)
 
     stress = riskeng.stress_test(w_total, betas, sectors, industries=book.industries)
-    historical = riskeng.stress_test(w_total, betas, sectors, scenarios=riskeng.HISTORICAL,
-                                     industries=book.industries)
+    historical = _replay(w_total, betas, sectors, book.industries or {}, fetch_window)
     port_vol_total = port_vol * (1 - cash_frac)
     var = riskeng.var_cvar(port_vol_total, horizon_years)
     var_hist = _historical_var(rdata, tickers, w_total, horizon_years)
@@ -592,10 +630,10 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     except Exception as e:
         traceback.print_exc()
         correlation = {"status": "error", "message": f"{type(e).__name__}: {e}"}
-    if fetch_fx and correlation.get("status") != "error":
-        fx = _fx_usdthb(fetch_fx)
-        if fx:
-            correlation["fx_usdthb"] = fx
+    fx = _fx_usdthb(fetch_fx) if fetch_fx else None
+    if fx and correlation.get("status") != "error":
+        correlation["fx_usdthb"] = fx
+    thb = _thb_view(rdata, tickers, w_total, fx, horizon_years)
 
     snapshot = {
         "as_of": s.get("updated", {}).get("_daily") or None,
@@ -642,6 +680,8 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
             "score": score,
         },
         "downside": downside,
+        "factors": _factor_exposure(weights, long_series, rdata, fetch_factors),
+        "thb_view": thb,
         "rate_risk": rate_risk,
         "stress": {"hypothetical": stress, "historical": historical,
                    "var": var, "var_hist": var_hist, "reverse": reverse,
