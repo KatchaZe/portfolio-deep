@@ -22,6 +22,12 @@ EXTRA = ["tests.replay_snapshot", "tests.golden_snapshot", "tests.audit2"]
 TESTS = ["tests." + p.stem for p in SUITE_FILES] + EXTRA
 
 
+# Every suite runs with the network cut (tests/_harness.cut_network): a suite that
+# reaches the internet fails, even when the code under test swallows the error.
+OFFLINE_LAUNCH = ("import runpy, sys; from tests import _harness; _harness.cut_network(); "
+                  "t = sys.argv[1]; sys.argv = [t]; runpy.run_module(t, run_name='__main__', alter_sys=True)")
+
+
 def _has_main_block(path):
     tree = ast.parse(path.read_text(encoding="utf-8"))
     return any(isinstance(node, ast.If)
@@ -36,7 +42,7 @@ def main():
         print("=" * 60)
         print("RUN", t)
         print("=" * 60)
-        r = subprocess.run([sys.executable, "-m", t], cwd=HERE)
+        r = subprocess.run([sys.executable, "-c", OFFLINE_LAUNCH, t], cwd=HERE)
         if r.returncode != 0:
             failed.append(t)
     print("\n" + "=" * 60)
