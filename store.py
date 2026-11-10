@@ -35,7 +35,9 @@ _DEFAULT = {"holdings": {}, "watchlist": [], "facts": {}, "results": {},
             # uninvested cash in USD, entered by hand (the Risk Desk's whole-portfolio view)
             "cash": {},
             # NAV log + flows not yet booked (pipeline/performance.py)
-            "performance": {}}
+            "performance": {},
+            # transactions; once started, holdings and cash are derived from it (domain/ledger)
+            "ledger": {}}
 
 _PER_TICKER = ("holdings", "facts", "results", "momentum", "rev_snapshots", "rev_surprises",
                "refreshed_at", "skipped")
@@ -187,7 +189,8 @@ def set_revenue_mix(s, ticker, mix):
 def _book_shares(s, t, d_shares):
     """Money moved by buying (+) or selling (-) `d_shares`, for the performance log.
     Valued at the close on file, or at the next NAV entry's close when there is none.
-    Nothing before the first NAV entry: that is the starting book."""
+    Nothing before the first NAV entry: that is the starting book. Before the ledger
+    starts only: after it, flows are the ledger's deposits and withdrawals."""
     perf = s.setdefault("performance", {})
     if not perf.get("nav") or not d_shares:
         return
@@ -207,6 +210,9 @@ def _book_cash(s, d_usd):
 
 
 def set_holding(s, ticker, shares=None, avg_cost=None):
+    if ledger_active(s):
+        from domain.ledger import LedgerError
+        raise LedgerError("ledger ทำงานอยู่ — บันทึกเป็นรายการ BUY / SELL / DEPOSIT / WITHDRAW แทน")
     store_sync.mark_local_edit()
     t = clean_ticker(ticker)
     h = s["holdings"].setdefault(t, {"shares": 0, "avg_cost": 0.0, "added": today()})
@@ -226,6 +232,9 @@ def set_cash(s, usd):
     usd = float(usd)
     if not (0 <= usd <= CASH_MAX):
         raise ValueError(f"cash must be between 0 and {CASH_MAX:,.0f} USD")
+    if ledger_active(s):
+        from domain.ledger import LedgerError
+        raise LedgerError("ledger ทำงานอยู่ — บันทึกเป็นรายการ BUY / SELL / DEPOSIT / WITHDRAW แทน")
     store_sync.mark_local_edit()
     _book_cash(s, round(usd, 2) - cash_usd(s))
     s["cash"] = {"usd": round(usd, 2), "updated": today()}
@@ -241,11 +250,134 @@ def cash_usd(s):
 
 
 def remove_holding(s, ticker):
+    if ledger_active(s):
+        from domain.ledger import LedgerError
+        raise LedgerError("ledger ทำงานอยู่ — บันทึกเป็นรายการ BUY / SELL / DEPOSIT / WITHDRAW แทน")
     store_sync.mark_local_edit()
     t = clean_ticker(ticker)
     _book_shares(s, t, -float((s.get("holdings", {}).get(t) or {}).get("shares") or 0))
     for k in _PER_TICKER:
         s.get(k, {}).pop(t, None)
+
+
+# --- ledger ---------------------------------------------------------------- #
+def ledger_active(s):
+    return bool((s.get("ledger") or {}).get("txns"))
+
+
+def _last_price(s, t):
+    m = (s.get("momentum") or {}).get(t) or {}
+    return m.get("price") or (s.get("facts", {}).get(t) or {}).get("price")
+
+
+def ledger_start(s, usdthb=None):
+    """Open the ledger from the book on file: one OPEN per holding at its average cost
+    (the principal) and today's close (where since-start returns begin), and one for
+    the cash. Baht principal is left to estimate at today's rate until edited."""
+    from domain import ledger as L
+    if ledger_active(s):
+        raise L.LedgerError("ledger already started")
+    store_sync.mark_local_edit()
+    day, txns, n = today(), [], 0
+    for t, h in sorted((s.get("holdings") or {}).items()):
+        sh = float(h.get("shares") or 0)
+        if sh <= 0:
+            continue
+        n += 1
+        cost = float(h.get("avg_cost") or 0) or float(_last_price(s, t) or 0)
+        txns.append({"id": n, "type": "OPEN", "date": day, "ticker": t, "shares": sh,
+                     "price": cost, "mkt_price": _last_price(s, t) or cost,
+                     "acquired": h.get("added") or day, "note": "ยกมาจากยอดถือ"})
+    if cash_usd(s) > 0:
+        n += 1
+        txns.append({"id": n, "type": "OPEN", "date": day, "amount": cash_usd(s), "note": "เงินสดยกมา"})
+    if not txns:
+        raise L.LedgerError("ยังไม่มีหุ้นหรือเงินสดในพอร์ต — เริ่มด้วย DEPOSIT แทน")
+    s["ledger"] = {"txns": txns, "next_id": n + 1, "started": day, "usdthb_at_start": usdthb}
+    _apply_ledger(s)
+    return s["ledger"]
+
+
+def ledger_save(s, txn):
+    """Add a transaction (or replace the one with the same id). Validated, then the
+    whole ledger is replayed before anything is kept: a sell of more than is held
+    raises LedgerError and leaves the store as it was. Returns the stored txn."""
+    from domain import ledger as L
+    t = {k: v for k, v in dict(txn).items() if v not in (None, "")}
+    t["type"] = str(t.get("type") or "").upper()
+    if t.get("ticker"):
+        t["ticker"] = clean_ticker(t["ticker"])
+    for k in ("shares", "price", "fee", "amount", "thb", "ratio", "mkt_price", "withheld"):
+        if k in t:
+            t[k] = float(t[k])
+    L.validate(t)
+    if not ledger_active(s) and ((s.get("holdings") or {}) or cash_usd(s) > 0):
+        # the first entry would replace a book the ledger has never seen
+        raise L.LedgerError("มีหุ้น/เงินสดในพอร์ตอยู่แล้ว — กด \"เริ่ม ledger\" เพื่อยกยอดมาก่อน")
+    led = s.get("ledger") or {}
+    if led.get("started") and t["type"] != "OPEN" and t["date"] < led["started"]:
+        raise L.LedgerError(f"วันที่ {t['date']} อยู่ก่อนวันเริ่ม ledger ({led['started']}) — "
+                            "รายการก่อนหน้านั้นรวมอยู่ในยอดยกมาแล้ว")
+    txns = list(led.get("txns") or [])
+    if t.get("id") is not None:
+        t["id"] = int(t["id"])
+        if not any(x["id"] == t["id"] for x in txns):
+            raise L.LedgerError(f"no transaction {t['id']}")
+        txns = [t if x["id"] == t["id"] else x for x in txns]
+    else:
+        t["id"] = int(led.get("next_id") or (max([x["id"] for x in txns], default=0) + 1))
+        txns.append(t)
+    L.replay(txns, config.DIVIDEND_WITHHOLDING)            # raises before anything is kept
+    store_sync.mark_local_edit()
+    led["txns"] = txns
+    led["next_id"] = max(int(led.get("next_id") or 0), t["id"] + 1)
+    led.setdefault("started", t["date"])
+    s["ledger"] = led
+    _apply_ledger(s)
+    return t
+
+
+def ledger_delete(s, txn_id):
+    from domain import ledger as L
+    led = s.get("ledger") or {}
+    txns = [x for x in (led.get("txns") or []) if x["id"] != int(txn_id)]
+    if len(txns) == len(led.get("txns") or []):
+        raise L.LedgerError(f"no transaction {txn_id}")
+    L.replay(txns, config.DIVIDEND_WITHHOLDING)
+    store_sync.mark_local_edit()
+    led["txns"] = txns
+    _apply_ledger(s)
+
+
+def _apply_ledger(s):
+    """Holdings and cash as the ledger says. A name sold out leaves the book (its
+    ledger history stays); a new name enters with today as its `added` date."""
+    from domain import ledger as L
+    book = L.replay(s["ledger"]["txns"], config.DIVIDEND_WITHHOLDING)
+    held = L.holdings(book)
+    hold = s.setdefault("holdings", {})
+    for t in [t for t in hold if t not in held]:
+        for k in _PER_TICKER:
+            s.get(k, {}).pop(t, None)
+    for t, h in held.items():
+        cur = hold.setdefault(t, {"added": today()})
+        cur["shares"], cur["avg_cost"] = h["shares"], h["avg_cost"]
+    s["cash"] = {"usd": round(max(book["cash"], 0.0), 2), "updated": today()}
+    return book
+
+
+def ledger_flows_unbooked(s, day=None):
+    """External flows no NAV entry has counted yet, whatever their date: the NAV is
+    priced on the current book, which already holds every ledger entry, so a deposit
+    dated after the close in use (Bangkok runs a day ahead of New York) and one typed
+    in late both belong to the period being recorded."""
+    from domain import ledger as L
+    if not ledger_active(s):
+        return [], 0.0
+    booked = set(map(str, (s.get("performance") or {}).get("booked_flows") or []))
+    book = L.replay(s["ledger"]["txns"], config.DIVIDEND_WITHHOLDING)
+    new = [f for f in book["flows"] if str(f["id"]) not in booked]
+    return [str(f["id"]) for f in new], sum(f["amount"] for f in new)
 
 
 # --- watchlist ------------------------------------------------------------- #

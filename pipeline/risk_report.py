@@ -174,12 +174,19 @@ def _series(rdata, sym):
 def _covariance(rdata, tickers, book):
     """Covariance on DATE-aligned returns when every name has enough history;
     otherwise a per-pair hybrid where only thin-history pairs use the assumed
-    proxy correlation. Returns (cov, cov_mode, cov_tag, proxy_tickers, n_window)."""
+    proxy correlation. Returns (cov, cov_mode, cov_tag, proxy_tickers, n_window, raw,
+    shrinkage). On full history `cov` is the Ledoit-Wolf matrix (vol, risk contributions,
+    sizing and targets read it) and `raw` the sample one (the Correlation tab and the
+    crisis regime show pairs as measured); otherwise both are the hybrid and shrinkage None."""
     have_realized = all((rdata.get(t, {}).get("n") or 0) >= MIN_REALIZED for t in tickers)
     aligned, align_mode = riskeng.align_on_dates(rdata, tickers)
     n_window = min((len(aligned[t]) for t in tickers if aligned[t]), default=0)
     if have_realized and n_window >= MIN_REALIZED:
-        return riskeng.cov_matrix(aligned, tickers), "realized", "[CALC]", [], n_window
+        raw = riskeng.cov_matrix(aligned, tickers)
+        lw, delta = riskeng.ledoit_wolf(aligned, tickers)
+        if lw is None:
+            return raw, "realized", "[CALC]", [], n_window, raw, None
+        return lw, "realized", f"[CALC, Ledoit-Wolf δ={delta:.2f}]", [], n_window, raw, round(delta, 3)
     ac = book.asset_class
     pvols = [config.CLASS_PROXY_VOL.get(ac[t], _proxy_vol(book.sectors[t]))
              if ac[t] != "equity" else _proxy_vol(book.sectors[t]) for t in tickers]
@@ -191,8 +198,8 @@ def _covariance(rdata, tickers, book):
         tickers, pvols, ac)
     proxy_tickers = [t for t in tickers if t not in realized_tk]
     if realized_tk:
-        return cov, "mixed", "[CALC + JUDG-PROXY]", proxy_tickers, n_window
-    return cov, "proxy", "[JUDG-PROXY]", proxy_tickers, n_window
+        return cov, "mixed", "[CALC + JUDG-PROXY]", proxy_tickers, n_window, cov, None
+    return cov, "proxy", "[JUDG-PROXY]", proxy_tickers, n_window, cov, None
 
 
 def _vol_and_dr(wvec, cov):
@@ -281,6 +288,17 @@ def _historical_var(rdata, tickers, weights, horizon_years):
     except Exception:
         return {"var95_pct": None, "var99_pct": None, "cvar95_pct": None,
                 "n": 0, "method": "historical (error)"}
+
+
+def _bootstrap_var(rdata, tickers, weights, horizon_years):
+    """Horizon VaR from blocks of realized days, compounded (keeps volatility clusters
+    that the sqrt-of-time scaling of the historical VaR assumes away)."""
+    try:
+        prets, _ = riskeng.portfolio_returns_dated(rdata, tickers, weights)
+        return riskeng.bootstrap_var(prets, horizon_years)
+    except Exception:
+        return {"var95_pct": None, "var99_pct": None, "cvar95_pct": None, "median_pct": None,
+                "p_loss": {}, "n": 0, "method": "bootstrap (error)"}
 
 
 def _value_inputs(s, tickers, book):
@@ -585,9 +603,10 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         quota_used, quota_cap, prefer_fmp=prefer_fmp)
 
     _downside_betas(rdata, tickers, book.beta_check)
-    cov, cov_mode, cov_tag, proxy_tickers, n_window = _covariance(rdata, tickers, book)
+    cov, cov_mode, cov_tag, proxy_tickers, n_window, cov_raw, shrinkage = _covariance(
+        rdata, tickers, book)
     port_vol, dr_normal = _vol_and_dr(wvec, cov)
-    (cov_c, crisis_info), long_series, crisis_set = _crisis(cov, tickers, asset_class, fetch_long)
+    (cov_c, crisis_info), long_series, crisis_set = _crisis(cov_raw, tickers, asset_class, fetch_long)
     _port_vol_c, dr_crisis = _vol_and_dr(wvec, cov_c)
 
     rc_rows, rc_sum = riskeng.risk_contributions(tickers, wvec, cov)
@@ -619,6 +638,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     port_vol_total = port_vol * (1 - cash_frac)
     var = riskeng.var_cvar(port_vol_total, horizon_years)
     var_hist = _historical_var(rdata, tickers, w_total, horizon_years)
+    var_boot = _bootstrap_var(rdata, tickers, w_total, horizon_years)
     reverse = riskeng.reverse_stress(w_total, betas, tolerance_pct)
     severe_dd = min([r["loss_pct"] for r in (stress + historical)], default=None)
 
@@ -636,7 +656,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     after = _after_rebalance(reb, tickers, cov, betas, sectors, book.industries)
 
     try:                                # the Correlation tab must NEVER break the payload
-        correlation = _correlation(rdata, tickers, weights, book, cov, cov_c,
+        correlation = _correlation(rdata, tickers, weights, book, cov_raw, cov_c,
                                    (cov_mode, cov_tag, proxy_tickers, n_window),
                                    dr_normal, dr_crisis, conc, rc_rows, by_sector,
                                    (crisis_info, long_series, crisis_set))
@@ -697,14 +717,14 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         "thb_view": thb,
         "rate_risk": rate_risk,
         "stress": {"hypothetical": stress, "historical": historical,
-                   "var": var, "var_hist": var_hist, "reverse": reverse,
+                   "var": var, "var_hist": var_hist, "var_boot": var_boot, "reverse": reverse,
                    "tag": "[JUDG-SCENARIO] Illustrative, not a forecast"},
         "suitability": suit,
         "position_sizing": sizing,
         "rebalance": {**reb, "after": after},
         "targets": _targets(tickers, cov, weights, value, sizing, cash_frac, invested + cash),
         "meta": {
-            "cov_mode": cov_mode, "cov_tag": cov_tag, "cache": rmeta.get("cache"),
+            "cov_mode": cov_mode, "cov_tag": cov_tag, "shrinkage": shrinkage, "cache": rmeta.get("cache"),
             "quota_degraded": rmeta.get("quota_degraded"),
             "sources": {t: rdata.get(t, {}).get("source") for t in tickers},
             "as_of": {t: rdata.get(t, {}).get("as_of") for t in tickers},

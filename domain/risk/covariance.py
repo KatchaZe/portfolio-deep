@@ -233,3 +233,46 @@ def crisis_cov(cov, tickers, asset_class, floor=None):
             if i != j and _is_equity(asset_class, tickers[i]) and _is_equity(asset_class, tickers[j]):
                 C[i][j] = max(corr[i][j], floor)
     return [[C[i][j] * sd[i] * sd[j] for j in range(n)] for i in range(n)]
+
+
+def ledoit_wolf(aligned, tickers):
+    """Ledoit-Wolf (2004) shrinkage toward constant correlation, annualized.
+
+    The sample matrix puts every pair's estimation noise into the risk contributions
+    and the risk-budget targets; shrinking toward one average correlation (each name
+    keeps its own variance) cuts that noise by the amount the data justify:
+        Sigma = delta * F + (1 - delta) * S,   delta = clamp(kappa / T, 0, 1)
+    with F_ij = rbar * sqrt(s_ii s_jj) and kappa = (pi - rho) / gamma from the paper.
+    `aligned` must be date-aligned series of equal length. Returns (cov, delta);
+    (None, None) below 2 names or 3 observations."""
+    n = len(tickers)
+    xs = [aligned[t] for t in tickers]
+    T = min((len(x) for x in xs), default=0)
+    if n < 2 or T < 3:
+        return None, None
+    xs = [x[-T:] for x in xs]
+    means = [sum(x) / T for x in xs]
+    X = [[x[t] - m for t in range(T)] for x, m in zip(xs, means)]      # N x T, demeaned
+    S = [[sum(X[i][t] * X[j][t] for t in range(T)) / T for j in range(n)] for i in range(n)]
+    sd = [math.sqrt(S[i][i]) if S[i][i] > 0 else 0.0 for i in range(n)]
+    pairs = [(i, j) for i in range(n) for j in range(n) if i != j]
+    corr = [S[i][j] / (sd[i] * sd[j]) for i, j in pairs if sd[i] > 0 and sd[j] > 0]
+    rbar = sum(corr) / len(corr) if corr else 0.0
+    F = [[S[i][i] if i == j else rbar * sd[i] * sd[j] for j in range(n)] for i in range(n)]
+
+    sq = [[X[i][t] * X[i][t] for t in range(T)] for i in range(n)]
+    pi_mat = [[sum((X[i][t] * X[j][t] - S[i][j]) ** 2 for t in range(T)) / T
+               for j in range(n)] for i in range(n)]
+    pi_hat = sum(map(sum, pi_mat))
+    rho = sum(pi_mat[i][i] for i in range(n))
+    for i, j in pairs:
+        if sd[i] <= 0 or sd[j] <= 0:
+            continue
+        theta_ii = sum((sq[i][t] - S[i][i]) * (X[i][t] * X[j][t] - S[i][j]) for t in range(T)) / T
+        theta_jj = sum((sq[j][t] - S[j][j]) * (X[i][t] * X[j][t] - S[i][j]) for t in range(T)) / T
+        rho += rbar / 2 * (sd[j] / sd[i] * theta_ii + sd[i] / sd[j] * theta_jj)
+    gamma = sum((F[i][j] - S[i][j]) ** 2 for i in range(n) for j in range(n))
+    delta = 0.0 if gamma <= 0 else max(0.0, min(1.0, (pi_hat - rho) / gamma / T))
+    cov = [[(delta * F[i][j] + (1 - delta) * S[i][j]) * TRADING_DAYS for j in range(n)]
+           for i in range(n)]
+    return cov, delta

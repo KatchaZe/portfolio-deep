@@ -38,6 +38,8 @@ from pipeline import fundamentals, watchlist, portfolio, allocation, risk_report
 from pipeline import screen as screen_mod
 from sources import french, yahoo
 from pipeline import daily as daily_mod
+from pipeline import performance as perf_pipe
+from domain.ledger import LedgerError
 
 logging.basicConfig(level=logging.INFO,
                     format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -182,6 +184,10 @@ def _assumption_values():
 
 def _invalid(message):
     return JSONResponse({"error": message}, status_code=422)
+
+
+def _ledger_conflict(e):
+    return JSONResponse({"error": str(e)}, status_code=409)
 
 
 # --------------------------------------------------------------------------- #
@@ -344,8 +350,11 @@ def api_set_holding(ticker: str, shares: float = None, avg_cost: float = None):
     t = st.clean_ticker(ticker)
     if not t:
         return _invalid("invalid ticker")
-    with st.transaction() as s:
-        st.set_holding(s, t, shares, avg_cost)
+    try:
+        with st.transaction() as s:
+            st.set_holding(s, t, shares, avg_cost)
+    except LedgerError as e:
+        return _ledger_conflict(e)
     meta = None
     if t not in s["facts"]:                     # new name: slow fetch OUTSIDE the lock
         meta, s = _fetch_and_commit([t])
@@ -360,6 +369,8 @@ def api_set_cash(usd: float):
     try:
         with st.transaction() as s:
             st.set_cash(s, usd)
+    except LedgerError as e:
+        return _ledger_conflict(e)
     except ValueError as e:
         return _invalid(str(e))
     return JSONResponse({"view": portfolio.view(s)})
@@ -367,9 +378,77 @@ def api_set_cash(usd: float):
 
 @app.post("/api/holding/remove")
 def api_remove_holding(ticker: str):
-    with st.transaction() as s:
-        st.remove_holding(s, ticker)
+    try:
+        with st.transaction() as s:
+            st.remove_holding(s, ticker)
+    except LedgerError as e:
+        return _ledger_conflict(e)
     return JSONResponse(portfolio.view(s))
+
+
+# --------------------------------------------------------------------------- #
+#  Ledger: every buy, sell, deposit; holdings and cash are derived from it     #
+# --------------------------------------------------------------------------- #
+class Txn(BaseModel):
+    """One ledger transaction (domain/ledger.py names the fields each type needs)."""
+    id: Optional[int] = None
+    type: str = ""
+    date: str = ""
+    ticker: Optional[str] = None
+    shares: Optional[float] = None
+    price: Optional[float] = None
+    fee: Optional[float] = None
+    amount: Optional[float] = None
+    thb: Optional[float] = None
+    ratio: Optional[float] = None
+    withheld: Optional[float] = None
+    mkt_price: Optional[float] = None
+    acquired: Optional[str] = None
+    note: Optional[str] = None
+
+
+def _ledger_payload(s, meta=None):
+    return {"ledger": perf_pipe.ledger_view(s), "view": portfolio.view(s),
+            "quota": _quota(s), "result": meta}
+
+
+@app.get("/api/ledger")
+def api_ledger():
+    return perf_pipe.ledger_view(st.load())
+
+
+@app.post("/api/ledger/start")
+def api_ledger_start():
+    try:
+        with st.transaction() as s:
+            st.ledger_start(s, ((s.get("market") or {}).get("usdthb") or {}).get("rate"))
+    except LedgerError as e:
+        return _ledger_conflict(e)
+    return _ledger_payload(s)
+
+
+@app.post("/api/ledger/txn")
+def api_ledger_txn(txn: Txn):
+    try:
+        with st.transaction() as s:
+            saved = st.ledger_save(s, txn.model_dump())
+    except (LedgerError, ValueError, TypeError) as e:
+        return _invalid(str(e))
+    meta = None
+    t = saved.get("ticker")
+    if t and t in s.get("holdings", {}) and t not in s.get("facts", {}):
+        meta, s = _fetch_and_commit([t])        # a new name: slow fetch OUTSIDE the lock
+    return _ledger_payload(s, meta)
+
+
+@app.post("/api/ledger/delete")
+def api_ledger_delete(id: int):
+    try:
+        with st.transaction() as s:
+            st.ledger_delete(s, id)
+    except LedgerError as e:
+        return _invalid(str(e))
+    return _ledger_payload(s)
 
 
 @app.post("/api/refresh")
@@ -430,9 +509,18 @@ def api_watch_promote(ticker: str, shares: float = None, avg_cost: float = None)
     t = st.clean_ticker(ticker)
     if not t:
         return _invalid("invalid ticker")
-    with st.transaction() as s:
-        st.set_holding(s, t, shares, avg_cost)
-        st.remove_watch(s, t)
+    try:
+        with st.transaction() as s:
+            if st.ledger_active(s):             # a promotion is a purchase on the ledger
+                if not shares or not avg_cost:
+                    raise LedgerError("ใส่จำนวนหุ้นและราคาที่ซื้อ (บันทึกเป็น BUY วันนี้)")
+                st.ledger_save(s, {"type": "BUY", "date": st.today(), "ticker": t,
+                                   "shares": shares, "price": avg_cost})
+            else:
+                st.set_holding(s, t, shares, avg_cost)
+            st.remove_watch(s, t)
+    except LedgerError as e:
+        return _ledger_conflict(e)
     meta, s = _fetch_and_commit([t])
     return {"view": portfolio.view(s), "names": s.get("watchlist", []),
             "quota": _quota(s), "result": meta}

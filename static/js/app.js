@@ -1,7 +1,7 @@
 // The page shell: tabs, build stamp, persistence badge, keep-alive and boot. Loaded last.
 
 // must equal config.BUILD; a browser still running cached JS shows the mismatch banner
-const DASH_BUILD="2026-11-09b";
+const DASH_BUILD="2026-11-11a";
 
 async function checkBuild(){
   const el=document.getElementById('buildStamp'); if(!el)return;
@@ -21,9 +21,10 @@ const TAB_OPENERS={
   2:()=>loadWatchlist(),
   3:()=>{renderCashStance();loadAllocation();loadRisk();loadScreen();},
   6:()=>loadCorr(),
+  7:()=>loadLedger(),
   4:()=>renderHowtoFigs(),
 };
-const TAB_ORDER=[1,2,3,6,4,5];
+const TAB_ORDER=[1,2,3,6,7,4,5];
 function showTab(n,focus){
   for(const i of TAB_ORDER){const t=document.getElementById('tab'+i),on=i===n;
     t.classList.toggle('active',on);t.setAttribute('aria-selected',on);t.tabIndex=on?0:-1;

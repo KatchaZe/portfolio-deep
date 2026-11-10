@@ -190,7 +190,7 @@ function priceVsValueGauge(x){
   return `<div class="value">
       <div><div class="cap">Margin of safety</div><div class="mosbig ${upcls(mos)}" title="(Fair value − ราคา) / Fair value${mos!=null?' = '+sgn(mos,1):''}">${mos==null?'–':mos<-100?'&lt; −100%':sgn(mos,1)}</div>${uncertaintyNote(x)}</div>
       <div class="fvbox"><div class="cap">Fair value · ${esc(meth)}</div><b>${usd(base)}</b>${consensusBadge(x)}
-        <div class="note" title="upside = (FV − ราคา)/ราคา · net = หลังค่าเทรด ~0.2% + ภาษี capital gains ~15% — ตัดสินใจด้วย net เสมอ (Damodaran S6)">upside ${sgn(x.upside_pct)} · net ${sgn(x.net_upside_pct)}${mos!=null&&mos<-100&&ratio?` · ราคา ${nf(ratio,1)}× FV`:''}</div>${impliedReturnNote(x)}</div></div>
+        <div class="note" title="upside = (FV − ราคา)/ราคา · net = หลังค่าเทรด ~0.2% + ภาษี capital gains ที่ตั้งไว้ (0%) — ตัดสินใจด้วย net เสมอ (Damodaran S6)">upside ${sgn(x.upside_pct)} · net ${sgn(x.net_upside_pct)}${mos!=null&&mos<-100&&ratio?` · ราคา ${nf(ratio,1)}× FV`:''}</div>${impliedReturnNote(x)}</div></div>
     <div class="scale" role="img" aria-label="${esc(`ราคา ${usd(x.price)} เทียบช่วงมูลค่า Bear ${usd(bear)} ถึง Bull ${usd(bull)} และ Fair value ${usd(base)}`)}">
       <div class="tr"></div><div class="band" style="left:${at(lo)}%;width:${Math.max(.8,at(up)-at(lo))}%"></div>
       <div class="tick" style="left:${at(base)}%" title="Fair value ${usd(base)}"></div>

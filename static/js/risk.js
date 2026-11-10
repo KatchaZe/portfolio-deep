@@ -185,8 +185,18 @@ function stressHTML(d){
     +kpisHTML([['VaR 95%',pctFixed(vr.var95_pct),'down'],['VaR 99%',pctFixed(vr.var99_pct),'down'],['CVaR 95%',pctFixed(vr.cvar95_pct),'down'],
       ...(st.var_hist&&st.var_hist.var95_pct!=null?[['Hist VaR 95%',pctFixed(st.var_hist.var95_pct),'down'],['Hist VaR 99%',pctFixed(st.var_hist.var99_pct),'down'],['Hist CVaR 95%',pctFixed(st.var_hist.cvar95_pct),'down']]:[])])
     +(st.var_hist&&st.var_hist.var95_pct!=null?`<p class="note" style="margin:6px 0 0">Historical VaR (P1-7, S2/S4): จาก returns จริง ${st.var_hist.n} วัน — เห็น fat tail ตามที่เคยเกิด ไม่สมมุติ normal</p>`:'')
+    +bootVarHTML(st.var_boot)
     +`<p class="note" style="margin:6px 0 0">${esc(st.tag||'')} · Reverse stress: ${esc((st.reverse&&st.reverse.note)||'—')} · β = ตัวเดียวกับที่ valuation ใช้ (bottom-up; หุ้นระยะเริ่มต้นใช้ regression ที่สูงกว่า) (business risk, S4)</p>`
     +betaTableHTML((d.meta||{}).beta_check);
+}
+// 1-year VaR from blocks of real days, compounded: keeps the clustering that the
+// sqrt-of-time scaling of the historical VaR assumes away
+function bootVarHTML(b){
+  if(!b||b.var95_pct==null)return '';
+  const pl=b.p_loss||{},odds=Object.keys(pl).map(k=>`ขาดทุนเกิน ${k}%: <b>${pl[k]}%</b>`).join(' · ');
+  return kpisHTML([['Bootstrap VaR 95% (1 ปี)',pctFixed(b.var95_pct),'down'],['Bootstrap VaR 99%',pctFixed(b.var99_pct),'down'],
+      ['Bootstrap CVaR 95%',pctFixed(b.cvar95_pct),'down'],['ผลกลาง (median)',pctFixed(b.median_pct),b.median_pct<0?'down':'up']])
+    +`<p class="note" style="margin:6px 0 0">Bootstrap VaR: สุ่มต่อช่วงละ ${b.block_days} วันทำการจริงจาก ${b.n} วัน จนครบ ${b.horizon_days} วัน ทบต้น ${b.sims.toLocaleString()} รอบ (ตัด drift ของช่วงข้อมูลออก) — เก็บช่วงที่ตลาดผันผวนต่อเนื่องไว้ (Hist VaR คูณ √252 ซึ่งสมมุติแต่ละวันอิสระกัน) · โอกาสใน 1 ปี: ${odds}</p>`;
 }
 // the beta each stress runs on, beside the measured ones: information, not a warning
 function betaTableHTML(bc){
@@ -289,5 +299,5 @@ function panelLegend(m){
   const src=m.sources||{}; const srcTxt=Object.keys(src).map(t=>`${t}:${src[t]}`).join(' · ');
   return `<p class="note" style="margin:10px 0 0;border-top:1px dashed var(--line);padding-top:8px">
     Tags: [STORED]=จาก data model · [CALC]=คำนวณ · [JUDG-PROXY]=ค่าสมมติ asset-class · [JUDG-SCENARIO]=stress illustrative.
-    Covariance: <b>${esc(m.cov_mode||'?')}</b> ${esc(m.cov_tag||'')}${m.quota_degraded?' · &#9888; degraded to free source (quota)':''}<br>price source — ${esc(srcTxt)}</p>`;
+    Covariance: <b>${esc(m.cov_mode||'?')}</b> ${esc(m.cov_tag||'')}${m.shrinkage!=null?` (Ledoit-Wolf: ดึงเข้าหา correlation เฉลี่ย ${(m.shrinkage*100).toFixed(0)}% — ใช้กับ vol / risk contribution / แผน B; แท็บ Correlation แสดงค่าวัดจริง)`:''}${m.quota_degraded?' · &#9888; degraded to free source (quota)':''}<br>price source — ${esc(srcTxt)}</p>`;
 }

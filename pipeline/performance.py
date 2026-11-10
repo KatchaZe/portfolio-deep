@@ -7,10 +7,13 @@ record(s)  after a daily commit: append today's NAV (holdings at the close on fi
            close for SPY's date: a NAV of mixed days would book price moves as returns.
 view(s)    the summary the dashboard shows.
 
-Flows come from store.set_holding / set_cash / remove_holding: shares added or removed
-at the close on file (or at the next entry's close for a name with none yet), and the
-change in cash. Edits before the first entry are the starting book, not flows.
+Flows: once the ledger runs, its deposits and withdrawals (and implied deposits for a
+buy the recorded cash could not pay), at the amounts recorded; buys, sells and
+dividends move money inside the book and are not flows. Before the ledger, edits via
+store.set_holding / set_cash / remove_holding are valued at the close on file. Edits
+before the first entry are the starting book, not flows.
 """
+from domain import ledger as ledger_mod
 from domain import performance as perf_mod
 
 MAX_ENTRIES = 3000          # ~12 years of trading days; the oldest drop off
@@ -46,9 +49,13 @@ def record(s):
     nav += cash
     if nav <= 0:
         return None
+    import store as store_mod
     flow = float(perf.get("pending_flow") or 0.0)
     for t, d in (perf.get("pending_shares") or {}).items():
         flow += d * (prices.get(t) or 0.0)
+    new_ids, ledger_flow = store_mod.ledger_flows_unbooked(s)
+    if log:
+        flow += ledger_flow
     if log and log[-1]["date"] == day:
         entry = log[-1]
         entry.update(nav=round(nav, 2), spy=spy, flow=round((entry.get("flow") or 0.0) + flow, 2))
@@ -60,8 +67,33 @@ def record(s):
         log.append(entry)
         del log[:-MAX_ENTRIES]
     perf["pending_flow"], perf["pending_shares"] = 0.0, {}
+    perf["booked_flows"] = (perf.get("booked_flows") or []) + new_ids
     return entry
 
 
 def view(s):
-    return perf_mod.summary(((s.get("performance") or {}).get("nav")) or [])
+    log = ((s.get("performance") or {}).get("nav")) or []
+    out = perf_mod.summary(log)
+    out["max_drawdown_pct"] = ledger_mod.max_drawdown(log)
+    return out
+
+
+def ledger_view(s):
+    """The Performance tab: the ledger's transactions and what they add up to at the
+    closes on file. {"active": False} before the ledger starts."""
+    import store as store_mod
+    import config
+    if not store_mod.ledger_active(s):
+        return {"active": False}
+    txns = s["ledger"]["txns"]
+    book = ledger_mod.replay(txns, config.DIVIDEND_WITHHOLDING)
+    held = [t for t, p in book["positions"].items() if p["shares"] > 1e-9]
+    prices = {t: _price(s, t)[0] for t in held}
+    fx = ((s.get("market") or {}).get("usdthb") or {})
+    out = ledger_mod.view(book, {t: p for t, p in prices.items() if p}, store_mod.today(),
+                          usdthb=fx.get("rate"),
+                          nav_log=((s.get("performance") or {}).get("nav")) or [])
+    out.update(active=True, usdthb_date=fx.get("date"),
+               txns=sorted(txns, key=lambda x: (x["date"], x["id"]), reverse=True),
+               performance=view(s), withholding=config.DIVIDEND_WITHHOLDING)
+    return out
