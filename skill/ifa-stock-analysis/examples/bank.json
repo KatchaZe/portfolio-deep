@@ -1,0 +1,17 @@
+{
+ "ticker": "BANKEX",
+ "rf": 0.0415, "erp": 0.0420, "erp_as_of": "2026-10",
+ "facts": {
+  "company": "Example Regional Bank (illustrative numbers)",
+  "sector": "Financial Services", "industry": "Banks - Regional", "country": "US",
+  "fiscal_year": "2025-12-31", "price": 50.0,
+  "revenue": 8e9, "operating_income": 3e9, "net_income": 2.3e9,
+  "income_before_tax": 2.9e9, "tax_expense": 0.6e9,
+  "shares_diluted": 400e6, "forward_eps": 6.0, "beta": 1.1, "dividend_ps": 2.0,
+  "total_debt": 15e9, "cash": 20e9, "equity": 20e9, "equity_prior": 19e9,
+  "revenue_annuals": [8e9, 7.6e9, 7.1e9, 6.8e9],
+  "operating_income_annuals": [3e9, 2.8e9, 2.6e9, 2.4e9],
+  "rev_growth_path": [[0.05, 15], [0.04, 14]],
+  "fwd_growth_y1": 0.05, "fwd_growth_near": 0.04, "n_analysts": 15, "n_analysts_y2": 14
+ }
+}

@@ -69,7 +69,7 @@ def cut_network():
 def _report_blocked():
     if NET_ATTEMPTS:
         sys.stdout.flush()
-        print("(offline) blocked: " + ", ".join(sorted(set(NET_ATTEMPTS))))
+        print("(offline) blocked: " + ", ".join(sorted(set(NET_ATTEMPTS))), file=sys.stderr)
 
 
 def run_suite(ns, ok_msg):

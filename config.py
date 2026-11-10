@@ -33,7 +33,7 @@ DEEP_VERSION = "8.2"         # active DEEP framework version; change this ONE li
 # Equity risk premium (Damodaran implied, US). No free live feed, so it is refreshed
 # by hand; the engine and the validate sanity band both read it from here (a value
 # saved from the dashboard overrides it at runtime, see store._apply_assumptions).
-# ifa-stock-analysis-v8/scripts keep their own CLI default: update those too.
+# The ifa-stock-analysis skill takes the ERP as a run input (skill/.../scripts/value.py).
 ERP = 0.0420                 # decimal, not percent (Damodaran implied, 1 Oct 2026)
 ERP_AS_OF = "2026-10"        # year-month this ERP was last set
 # Where the ERP in force came from: "config-default", "manual" (dashboard form) or

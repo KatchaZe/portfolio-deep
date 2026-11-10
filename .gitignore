@@ -16,3 +16,6 @@ htmlcov/
 tests/golden/
 tests/ui_baseline.json.gz
 tests/ui_baseline.inputs.json
+
+# built skill zip (python -m tools.build_skill --zip)
+dist/
