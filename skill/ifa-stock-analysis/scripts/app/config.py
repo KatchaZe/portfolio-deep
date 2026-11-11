@@ -76,7 +76,12 @@ KNOWN_GOOD = {
 # --- Damodaran S6: trading costs & taxes are a real drag on net returns -------
 # ASSUMPTIONS (no live feed; set here like ERP). Anything derived from these is
 # labelled net-of-cost/tax in the UI, with the gross shown alongside.
-CAPGAINS_TAX_RATE = 0.15     # investor capital-gains tax on realized gains (long-term US default)
+# Investor taxes, for a Thai tax resident holding US stocks. The US does not tax a
+# non-resident's gains on US shares; Thailand taxes foreign gains only when they are
+# remitted (progressive 0-35%, Revenue Dept. order Por.161/2566). The owner keeps gains
+# abroad, so 0. Set the top marginal rate here if gains are brought into Thailand.
+CAPGAINS_TAX_RATE = 0.0      # tax on realized gains (0 = gains stay abroad)
+DIVIDEND_WITHHOLDING = 0.15  # US withholding on dividends, US-Thailand treaty rate (W-8BEN)
 TRADING_COST_BPS = 20        # round-trip trading cost in bps (bid-ask + impact); 20 = 0.20%
 
 # --- Damodaran S32/33: market-valuation overlay (manual, refresh monthly like ERP)
@@ -143,4 +148,4 @@ INDUSTRY_MIX = {
 }
 
 # Build stamp — bump together with DASH_BUILD in static/js/app.js (frontend/deploy guard).
-BUILD = "2026-11-09b"
+BUILD = "2026-11-11a"

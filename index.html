@@ -26,6 +26,7 @@
     <button type="button" class="tab" role="tab" id="tab2" aria-controls="p2" aria-selected="false" tabindex="-1" onclick="showTab(2)">Watchlist</button>
     <button type="button" class="tab" role="tab" id="tab3" aria-controls="p3" aria-selected="false" tabindex="-1" onclick="showTab(3)">Allocation</button>
     <button type="button" class="tab" role="tab" id="tab6" aria-controls="p6" aria-selected="false" tabindex="-1" onclick="showTab(6)">Correlation</button>
+    <button type="button" class="tab" role="tab" id="tab7" aria-controls="p7" aria-selected="false" tabindex="-1" onclick="showTab(7)">Performance</button>
     <button type="button" class="tab" role="tab" id="tab4" aria-controls="p4" aria-selected="false" tabindex="-1" onclick="showTab(4)">How to</button>
     <button type="button" class="tab" role="tab" id="tab5" aria-controls="p5" aria-selected="false" tabindex="-1" onclick="showTab(5)">Ref</button>
   </div></nav>
@@ -34,7 +35,7 @@
   <div class="summary" id="summary" aria-live="polite"></div>
 
   <details class="tools" id="tools" open>
-    <summary>เครื่องมือ <span class="note">เพิ่ม / แก้หุ้น · เงินสด · Assumptions รายเดือน · Revenue mix</span></summary>
+    <summary>เครื่องมือ <span class="note">เพิ่ม / แก้หุ้น · เงินสด (ก่อนเริ่ม ledger) · Assumptions รายเดือน · Revenue mix</span></summary>
     <div class="tools-in">
       <div class="addform">
         <span class="lbl">เพิ่ม / แก้หุ้น</span>
@@ -135,6 +136,14 @@
       <div id="corrBody"><div class="empty">กด &ldquo;Run correlation&rdquo; เพื่อคำนวณ correlation รายตัว, สรุประดับ sector, benchmark (SPY/QQQ/GLD/IBIT) และ Diversification Philosophy ตามหลัก Damodaran</div></div>
     </div>
 
+    <!-- ===================== PERFORMANCE: the transaction ledger and what it adds up to ===================== -->
+    <div id="p7" role="tabpanel" aria-labelledby="tab7" style="display:none">
+      <div class="phead">
+        <h2 style="font-size:var(--t-lg)">Performance <span class="note">บันทึกซื้อ / ขาย / ฝาก / ถอน / ปันผล &mdash; แอปคำนวณหุ้น ต้นทุน เงินสด และผลตอบแทนจริงให้</span></h2>
+      </div>
+      <div id="ledgerBody"><div class="empty">กำลังโหลด&hellip;</div></div>
+    </div>
+
     <!-- ===================== HOW TO (คู่มืออ่านค่าแต่ละส่วน) ===================== -->
     <div id="p4" role="tabpanel" aria-labelledby="tab4" class="prose pnl" style="display:none">
       <h2 class="ht">How to — วิธีอ่านแดชบอร์ดนี้ (ตามหลัก Damodaran)</h2>
@@ -168,7 +177,7 @@
       <table class="httab">
         <tr><th style="width:58px">#</th><th>ส่วนบนการ์ด</th><th>แสดงอะไร</th><th>อ่าน/ตีความอย่างไร</th></tr>
         <tr><td><b>1</b></td><td><b>หัวการ์ด</b></td><td>จุดสี (confidence ของข้อมูล เขียว &ge;80 / เหลือง &ge;50 / แดง &lt;50) · ticker · ป้าย rating · ชื่อบริษัท · sector · ราคาปิด T-1 และ %เปลี่ยนวันล่าสุด · ปุ่ม &times; ลบ</td><td>ป้ายใต้ชื่อ: &#9873;n = จำนวน data flags (ชี้ดู) · Moat = ROIC−WACC spread · EQ = earnings quality · GARP · BOND / PRICING ASSET สำหรับสินทรัพย์ไม่มีกระแสเงินสด</td></tr>
-        <tr><td><b>2</b></td><td><b>Margin of safety + Fair value</b></td><td>MoS ตัวใหญ่ = (FV − ราคา) / FV · Fair value และวิธีหลัก · upside และ net หลังค่าเทรด ~0.2% + ภาษี capital gains ~15%</td><td>นิยาม MoS เดียวกับคะแนน P, advice และ Risk Desk · เกณฑ์ "ถูก/แพง" ขึ้นกับ<b>ความไม่แน่นอน</b>ของมูลค่า (บรรทัด "ความไม่แน่นอน Low…Extreme · ต้องการ MoS &ge; X%") — ช่วงมูลค่ากว้าง ต้องการส่วนลดมากขึ้นแบบ Morningstar · บรรทัด "ผลตอบแทนคาดหวัง X%/ปี vs Ke" = ผลตอบแทนระยะยาวที่ราคานี้ให้ถ้า DCF เป็นจริง (ไม่ใช่เป้าราคา 12 เดือน) · ตัดสินใจเรื่องผลตอบแทนด้วย net (S6) · ถ้าราคาเกิน FV มาก จะบอกเป็น "ราคา n&times; FV"</td></tr>
+        <tr><td><b>2</b></td><td><b>Margin of safety + Fair value</b></td><td>MoS ตัวใหญ่ = (FV − ราคา) / FV · Fair value และวิธีหลัก · upside และ net หลังค่าเทรด ~0.2% + ภาษี capital gains (0% — กำไรไม่นำกลับไทย)</td><td>นิยาม MoS เดียวกับคะแนน P, advice และ Risk Desk · เกณฑ์ "ถูก/แพง" ขึ้นกับ<b>ความไม่แน่นอน</b>ของมูลค่า (บรรทัด "ความไม่แน่นอน Low…Extreme · ต้องการ MoS &ge; X%") — ช่วงมูลค่ากว้าง ต้องการส่วนลดมากขึ้นแบบ Morningstar · บรรทัด "ผลตอบแทนคาดหวัง X%/ปี vs Ke" = ผลตอบแทนระยะยาวที่ราคานี้ให้ถ้า DCF เป็นจริง (ไม่ใช่เป้าราคา 12 เดือน) · ตัดสินใจเรื่องผลตอบแทนด้วย net (S6) · ถ้าราคาเกิน FV มาก จะบอกเป็น "ราคา n&times; FV"</td></tr>
         <tr><td><b>3</b></td><td><b>แถบมูลค่า</b></td><td>ช่วงไล่สี = Bear ถึง Bull จาก scenario 25/50/25 (ถ้าไม่มี scenario ใช้ช่วง low–high) · ขีดเหลือง = Fair value · ขีดเข้ม = ราคา</td><td>ขีดเข้มอยู่ซ้ายของขีดเหลือง = ราคาต่ำกว่ามูลค่า · หุ้น pre-profit ที่ไม่มี FV แสดงเป็น 2 แท่ง implied vs actual (Reverse DCF) แทน</td></tr>
         <tr><td><b>4</b></td><td><b>คะแนน DEEP</b></td><td>คะแนนรวม /5 และ 4 เสาเป็นแถบ 5 ช่อง: D (Demand 20%) · Ex (Execution 20%) · Ec (Economics 30%) · P (Price 30%)</td><td>&ge;4 = BUY · 3–4 = HOLD/Accumulate · 2–3 = HOLD · &lt;2 = SELL/AVOID · เสาที่วัดไม่ได้แสดง &mdash; (ไม่ใช่ศูนย์)</td></tr>
         <tr><td><b>5</b></td><td><b>สถานะในพอร์ต</b></td><td>จำนวนหุ้น · มูลค่าตลาด · น้ำหนักในพอร์ต · กำไร/ขาดทุน %</td><td>Watchlist ไม่มีแถวนี้ แต่มีปุ่ม + เพิ่มเข้าพอร์ต</td></tr>
@@ -253,6 +262,17 @@
         <tr><td><b>A7</b></td><td><b>Rolling 60d corr</b> (เส้นใต้สุด)</td><td>corr พอร์ต vs S&amp;P แบบ rolling 60 วัน</td><td>ถ้ากำลังไต่ขึ้น = ความเสี่ยงกระจุกกำลังก่อตัว (สัญญาณเตือนล่วงหน้า)</td></tr>
       </table>
       <p class="muted">ใช้คู่กับ Allocation: Allocation บอก &ldquo;ตัวไหนกินความเสี่ยง&rdquo; (ราย stock) &rarr; Correlation บอก &ldquo;ทำไม&rdquo; (หุ้นวิ่งตามกัน) และ &ldquo;พอร์ตเปราะแค่ไหนตอนวิกฤต&rdquo; (ราย portfolio)</p>
+
+      <h3 class="ht2">6) หน้า Performance — บันทึกรายการ แล้วแอปคำนวณผลจริงให้</h3>
+      <p class="muted">ครั้งแรกกด &ldquo;เริ่ม ledger จากยอดถือวันนี้&rdquo; แอปยกแต่ละหุ้นมาเป็นรายการ <b>OPEN</b> (ต้นทุนเฉลี่ย = เงินต้น · ราคาปิดวันนั้น = จุดเริ่มวัดผล) หลังจากนั้นช่อง &ldquo;เพิ่ม / แก้หุ้น&rdquo; และ &ldquo;เงินสด&rdquo; ในแผงเครื่องมือจะปิด: ทุกการเปลี่ยนแปลงบันทึกเป็นรายการ แล้วแอปคำนวณจำนวนหุ้น ต้นทุนเฉลี่ย และเงินสดเอง &middot; รายการลงวันที่ก่อนวันเริ่มไม่ได้ (รวมอยู่ในยอดยกมาแล้ว) &middot; แก้ / ลบรายการได้ทุกเมื่อ แอปไล่คำนวณใหม่ทั้งหมด</p>
+      <table class="httab">
+        <tr><th style="width:58px">#</th><th>ส่วน</th><th>แสดงอะไร</th><th>ใช้อย่างไร</th></tr>
+        <tr><td><b>1</b></td><td><b>ภาพรวมเงินต้นและกำไร</b></td><td>NAV · <b>เงินต้นสุทธิ</b> (ต้นทุนยอดยกมา + ฝาก − ถอน) และสัดส่วนในพอร์ต · กำไรรวม = realized + unrealized + ปันผลสุทธิ · ค่าธรรมเนียมสะสม</td><td>สัดส่วนเงินต้นต่ำลงเรื่อย ๆ = พอร์ตโตจากกำไร ไม่ใช่จากเงินที่เติม</td></tr>
+        <tr><td><b>2</b></td><td><b>ผลตอบแทน</b></td><td><b>TWR</b> เทียบ SPY · <b>XIRR</b> (ขึ้นเมื่อครบ 30 วัน) · Max drawdown ของ NAV จริง · Turnover · มูลค่าและกำไรในหน่วยบาท</td><td>TWR = ฝีมือเลือกหุ้น (ตัดผลจังหวะเติมเงิน) · XIRR = ผลตอบแทนของเงินคุณจริง · XIRR &lt; TWR = เติมเงินช่วงราคาแพง</td></tr>
+        <tr><td><b>3</b></td><td><b>รายหุ้น</b></td><td>ต้นทุนเฉลี่ย · unrealized · realized · ปันผล · <b>P&amp;L ตั้งแต่เริ่ม</b> (มูลค่า + ขายได้ + ปันผล − มูลค่าวันเริ่ม − เงินซื้อเพิ่ม) · สัดส่วนของกำไรรวม</td><td>ตัวไหนสร้าง / ทำลายผลตอบแทนจริง รวมตัวที่ขายหมดแล้ว</td></tr>
+        <tr><td><b>4</b></td><td><b>ไม้ที่ปิดแล้ว</b></td><td>ทุก SELL: กำไรเทียบต้นทุนเฉลี่ย · win rate · กำไรเฉลี่ย / ขาดทุนเฉลี่ย · profit factor · ระยะถือเฉลี่ย</td><td>ขายตัวที่กำไรเร็ว แต่ถือตัวขาดทุนนาน = disposition effect</td></tr>
+        <tr><td><b>5</b></td><td><b>รายการ</b></td><td>BUY / SELL (หุ้น ราคา ค่าธรรมเนียม) · DEPOSIT / WITHDRAW (USD + บาท) · DIVIDEND (ยอดก่อนภาษี; ว่าง = หัก 15%) · SPLIT (4 = 1 หุ้นเป็น 4)</td><td>ซื้อเกินเงินสดที่บันทึก = นับเป็นเงินฝากอัตโนมัติ และขึ้นเตือนให้บันทึก DEPOSIT จริงพร้อมยอดบาท</td></tr>
+      </table>
     </div>
 
     <!-- ===================== REF (นิยามทุกค่า) ===================== -->
@@ -292,7 +312,7 @@
         <tr><td><b>RevDCF (implied CAGR)</b></td><td>Reverse DCF: แก้สมการ FCFF DCF ตัวเดียวกัน (margin เป้าหมาย, sales-to-capital, WACC) หา growth ปีที่ 1–5 ที่ทำให้มูลค่าเท่าราคาตลาด; หุ้นยังไม่มีกำไรใช้ margin อุตสาหกรรมเป็นปลายทาง</td><td>หุ้นยังไม่มีกำไร — เทียบ implied กับ actual: Plausible (&lt;1.5&times; ของที่ทำได้) / Ambitious / Aggressive / Exceptional (&gt;5&times; = priced for perfection)</td></tr>
         <tr><td><b>Anchor FV / ★</b></td><td>วิธีที่เลือกตามประเภทบริษัทเป็นหลักในการคิด MoS</td><td>card แสดงทุกวิธีเสมอ — ถ้าสองวิธีต่างกันมาก แปลว่ามูลค่า "sensitive ต่อสมมติฐาน" ให้ลดความมั่นใจ</td></tr>
         <tr><td><b>MoS</b></td><td>Margin of safety = (FV−P)/FV — นิยามเดียวทั้งแอป (คะแนน P, เกจ, advice, Risk Desk)</td><td>เกณฑ์ตาม<b>ความไม่แน่นอน</b> (คะแนน P 5 / 4 / 3 / 2 เมื่อ MoS &ge;): Low 20 / 5 / −5 / −25% · Medium 30 / 10 / −10 / −35% · High 40 / 15 / −15 / −55% · Very High 50 / 20 / −20 / −75% · Extreme 75 / 40 / −40 / −300% · ไม่มี rating 40 / 15 / −15 / −40% (เกณฑ์เดิม)</td></tr>
-        <tr><td><b>Upside / net</b></td><td>(FV−P)/P = ผลตอบแทนถ้าราคาวิ่งถึง FV · net = หลังหักภาษี capital gains ~15% + ค่าเทรด ~0.2% (S6)</td><td>ใช้ดูผลตอบแทนที่เหลือจริง — S6: ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
+        <tr><td><b>Upside / net</b></td><td>(FV−P)/P = ผลตอบแทนถ้าราคาวิ่งถึง FV · net = หลังหักค่าเทรด ~0.2% + ภาษี capital gains ที่ตั้งไว้ (0%: สหรัฐไม่เก็บจากคนไทย, ไทยเก็บเมื่อนำกำไรเข้าประเทศ) (S6)</td><td>ใช้ดูผลตอบแทนที่เหลือจริง — S6: ต้นทุน/ภาษีคือเหตุผลใหญ่ที่ active แพ้ index</td></tr>
         <tr><td><b>EPS&times;n badge</b></td><td>forward EPS ใช้ค่า blend (median) จาก n แหล่ง (Yahoo/FMP/Finnhub) ทุกแหล่งปรับเป็น <b>NTM</b> (ถ่วงปีนี้กับปีหน้าตามเวลาที่เหลือ) + ช่วง min–max</td><td>spread ระหว่างแหล่ง &gt;25% = ประมาณการไม่นิ่ง ลดความเชื่อมั่น FV</td></tr>
       </table>
 
@@ -327,6 +347,18 @@
         <tr><td><b>VaR 95/99</b></td><td>ขาดทุนสูงสุดที่ "ไม่น่าจะเกิน" ใน horizon ที่เลือก ด้วยความเชื่อมั่น 95/99%</td><td>CVaR = ค่าเฉลี่ย "เมื่อทะลุ VaR แล้ว" — สะท้อน tail จริงกว่า</td></tr>
         <tr><td><b>Downside dev / Sortino / Downside β (S2/S4)</b></td><td>วัดเฉพาะฝั่งขาลง: ส่วนเบี่ยงเบนขาลง · ผลตอบแทนต่อความเสี่ยงขาลง · ความไวเฉพาะวันตลาดลบ</td><td>Sortino &gt;1 ดี · downside β &gt;1 = ตกแรงกว่าตลาด</td></tr>
         <tr><td><b>Suitability</b></td><td>drawdown ที่ผูกพัน (แย่สุดจาก stress/VaR) เทียบ Max loss ที่ผู้ใช้รับได้</td><td>เกิน = FINDING หลัก ต้องแก้ที่ "ขนาด" ก่อนเสมอ</td></tr>
+      </table>
+
+      <h3 class="ht2">ภาษี · ความเสี่ยงเชิงประมาณ · Ledger (build 2026-11-11)</h3>
+      <table class="httab">
+        <tr><th>ค่า</th><th>นิยาม</th><th>เกณฑ์ / ที่มา</th></tr>
+        <tr><td><b>ภาษี capital gains 0%</b></td><td>สหรัฐไม่เก็บภาษีกำไรจากการขายหุ้นของคนไทย · ไทยเก็บเมื่อนำกำไรเข้าประเทศ (อัตราก้าวหน้า 0–35%, ป.161/2566) · กำไรอยู่ต่างประเทศ จึงตั้ง 0%</td><td>ใช้ใน net upside / net MoS / ต้นทุนการ trim · นำกำไรเข้าไทยเมื่อไร ให้ตั้ง CAPGAINS_TAX_RATE เป็นอัตราขั้นสูงสุดของตัวเอง</td></tr>
+        <tr><td><b>ภาษีปันผล 15%</b></td><td>สหรัฐหักที่ต้นทางตามอนุสัญญาภาษีสหรัฐ–ไทย (กรอก W-8BEN แล้ว)</td><td>ledger หักจากปันผลทุกครั้ง เว้นแต่กรอกยอดที่ถูกหักจริง</td></tr>
+        <tr><td><b>Ledoit-Wolf δ</b></td><td>covariance = δ &times; (correlation เฉลี่ยเดียวกันทุกคู่) + (1 − δ) &times; ค่าที่วัดได้ · δ คำนวณจากข้อมูล (Ledoit &amp; Wolf 2004)</td><td>ลด noise ของ vol / risk contribution / แผน B · แท็บ Correlation ยังแสดงค่าที่วัดได้จริง</td></tr>
+        <tr><td><b>Bootstrap VaR (1 ปี)</b></td><td>สุ่มต่อช่วงละ 10 วันทำการจริงจนครบปี แล้วทบต้น 5,000 รอบ (ตัด drift ของช่วงข้อมูลออก) · โอกาสขาดทุนเกิน 10 / 20 / 30%</td><td>เก็บช่วงที่ตลาดผันผวนติดกันไว้ ซึ่ง Hist VaR (คูณ √252) สมมติว่าไม่มี</td></tr>
+        <tr><td><b>ต้นทุนเฉลี่ย</b></td><td>BUY: ต้นทุน + ค่าธรรมเนียมเข้าต้นทุนของหุ้น · SELL: realized = ขายได้ − ค่าธรรมเนียม − ต้นทุนเฉลี่ย &times; จำนวน (ต้นทุนเฉลี่ยไม่เปลี่ยน) · SPLIT: จำนวนคูณ อัตรา ต้นทุนเฉลี่ยหาร</td><td>เหมือนแอปโบรกส่วนใหญ่</td></tr>
+        <tr><td><b>เงินต้นสุทธิ</b></td><td>ต้นทุนยอดยกมา + เงินสดยกมา + DEPOSIT − WITHDRAW (+ เงินฝากโดยนัย) · บาท: ยอดที่กรอก; ส่วนที่ไม่ได้กรอกประเมินที่เรทวันนี้</td><td>กำไรรวม = NAV − เงินต้นสุทธิ</td></tr>
+        <tr><td><b>TWR · XIRR</b></td><td>TWR: ต่อผลตอบแทนรายช่วงโดยตัดเงินเข้า-ออก (flow = DEPOSIT / WITHDRAW ใน ledger ตามยอดจริง) · XIRR: อัตราที่ทำให้มูลค่าปัจจุบันของเงินเข้า-ออก + NAV = 0</td><td>XIRR ขึ้นเมื่อครบ 30 วัน</td></tr>
       </table>
 
       <h3 class="ht2">Correlation / Diversification (หน้า Correlation)</h3>
@@ -477,6 +509,7 @@
 <script src="/static/js/correlation.js"></script>
 <script src="/static/js/fx_usdthb.js"></script>
 <script src="/static/js/watchlist.js"></script>
+<script src="/static/js/ledger.js"></script>
 <script src="/static/js/howto_figs.js"></script>
 <script src="/static/js/app.js"></script>
 </body>

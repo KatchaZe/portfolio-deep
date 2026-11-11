@@ -134,6 +134,57 @@ def historical_var(port_returns, horizon_years=1.0, min_n=60):
             "n": n, "method": "historical"}
 
 
+BOOT_SIMS, BOOT_BLOCK, BOOT_SEED = 5000, 10, 7
+BOOT_LOSS_LEVELS = (10, 20, 30)
+
+
+def bootstrap_var(port_returns, horizon_years=1.0, sims=BOOT_SIMS, block=BOOT_BLOCK,
+                  seed=BOOT_SEED, min_n=120):
+    """VaR/CVaR over the horizon from the realized daily portfolio returns, compounded.
+
+    Scaling a one-day percentile by sqrt(252 * horizon) assumes days are independent;
+    real losses cluster (a bad week follows a bad week). A block bootstrap keeps that:
+    each simulated year is stitched from random runs of `block` consecutive real days,
+    compounded, and the loss quantiles are read from `sims` such years. The days are
+    demeaned first: the window's own drift (a bull run, a bear market) is luck, not
+    risk, and would otherwise move the VaR by the window's return. Seeded, so the same
+    history gives the same answer. Also reports the chance of losing more than each of
+    BOOT_LOSS_LEVELS percent over the horizon."""
+    import random
+    rs = [r for r in (port_returns or []) if r is not None]
+    n = len(rs)
+    if n < max(min_n, block + 1):
+        return {"var95_pct": None, "var99_pct": None, "cvar95_pct": None, "median_pct": None,
+                "p_loss": {}, "n": n, "method": "bootstrap (insufficient history)"}
+    days = max(1, int(round(TRADING_DAYS * horizon_years)))
+    mu = sum(rs) / n
+    rs = [r - mu for r in rs]
+    rng = random.Random(seed)
+    starts = n - block + 1
+    out = []
+    for _ in range(sims):
+        g, left = 1.0, days
+        while left > 0:
+            k = rng.randrange(starts)
+            for r in rs[k:k + min(block, left)]:
+                g *= 1 + r
+            left -= block
+        out.append(g - 1)
+    out.sort()
+
+    def loss_at(q):
+        return round(-out[max(0, min(sims - 1, int(q * sims)))] * 100, 1)
+
+    tail = out[:max(1, int(0.05 * sims))]
+    return {"var95_pct": loss_at(0.05), "var99_pct": loss_at(0.01),
+            "cvar95_pct": round(-sum(tail) / len(tail) * 100, 1),
+            "median_pct": round(out[sims // 2] * 100, 1),
+            "p_loss": {str(L): round(100 * sum(1 for x in out if x <= -L / 100) / sims, 1)
+                       for L in BOOT_LOSS_LEVELS},
+            "n": n, "sims": sims, "block_days": block, "horizon_days": days,
+            "method": "block bootstrap (demeaned)"}
+
+
 def var_cvar(port_vol, horizon_years=1.0):
     """Parametric (normal) VaR/CVaR as % of value; `port_vol` is the ANNUAL sigma_p.
     z95 = 1.645, z99 = 2.326, CVaR95 factor = 2.063."""

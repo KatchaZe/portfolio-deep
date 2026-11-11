@@ -19,13 +19,14 @@ from .returns import (TRADING_DAYS, align_on_dates, align_pair, align_returns,
                       portfolio_returns_dated)
 from .covariance import (CRISIS_EQUITY_CORR, CRISIS_MIN_DAYS, CRISIS_MIN_DRAWDOWN, PROXY_VOL,
                          corr_from_cov, cov_matrix, crisis_cov, crisis_cov_measured,
-                         crisis_days, crisis_pair_corr, crisis_window, hybrid_cov, proxy_cov,
-                         shrink_to_psd)
+                         crisis_days, crisis_pair_corr, crisis_window, hybrid_cov, ledoit_wolf,
+                         proxy_cov, shrink_to_psd)
 from .portfolio import (add_blocker, beta_risk_contribution, capital_weights, concentration,
                         diversification_ratio, diversification_score, effective_bets,
                         gap_coverage, group_exposure, portfolio_beta, portfolio_vol,
                         position_sizing, rebalance, risk_contributions)
-from .stress import (HISTORICAL, PROXY_ETF, SCENARIOS, effective_duration, historical_replay,
+from .stress import (HISTORICAL, PROXY_ETF, SCENARIOS, bootstrap_var, effective_duration,
+                     historical_replay,
                      historical_var, proxy_for,
                      rate_stress, reverse_stress, stress_test, suitability, var_cvar)
 from .correlation import (downside_beta, downside_corr, pair_corr_dated, rolling_corr,

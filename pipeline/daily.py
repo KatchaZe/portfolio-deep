@@ -102,6 +102,12 @@ def _market_overview(sp, prev_market=None):
     mkt["ret_12m"] = momentum.roc(sp["closes"], 252)
     mkt["as_of"] = sp["dates"][-1] if sp.get("dates") else None
     mkt["spy_close"] = sp["closes"][-1] if sp.get("closes") else None
+    # USD/THB last close, for the ledger's baht view; the previous one when Yahoo fails
+    try:
+        fx = yahoo.fetch_fx_series("THB=X", rng="5d")
+        mkt["usdthb"] = {"rate": fx[-1]["v"], "date": fx[-1]["d"]} if fx else (prev_market or {}).get("usdthb")
+    except Exception:
+        mkt["usdthb"] = (prev_market or {}).get("usdthb")
     try:
         rf, rf_live = yahoo.fetch_treasury_10y()
         from pipeline.fundamentals import refresh_implied_erp
