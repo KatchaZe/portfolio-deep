@@ -72,11 +72,7 @@ def _risk_beta(asset_class, km, b_fmp, b_calc):
     the same business risk. Gold, bonds and crypto have no industry beta: their
     measured regression beta is the only one."""
     if asset_class == "equity" and km.get("beta") is not None:
-        src = km.get("beta_source") or "valuation"
-        if (km.get("beta_regression") is not None and km["beta"] == km["beta_regression"]
-                and src.startswith("bottom-up")):
-            src = "regression (valuation's early-stage rule: higher than the industry beta)"
-        return km["beta"], src
+        return km["beta"], km.get("beta_source") or "valuation"
     if b_fmp is not None:
         return b_fmp, "regression (FMP)"
     if b_calc is not None:

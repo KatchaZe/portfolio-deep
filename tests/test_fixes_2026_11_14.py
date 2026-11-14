@@ -622,7 +622,9 @@ def test_early_stage_uses_industry_beta():
                        market_cap=40e9, total_debt=0.0, operating_income=-0.2e9)
     b = E._bottom_up_beta(f, [])
     assert abs(b - E.relevered_beta(1.2, 0.0, 40e9)) < 1e-9 and b < 2.0, b
-    assert any("2.61" in x and "p_survival" in x for x in f.flags), f.flags
+    # the beta stage cannot know the model yet: no p_survival claim here (final #2)
+    assert any("2.61" in x and "too noisy" in x for x in f.flags), f.flags
+    assert not any("p_survival" in x for x in f.flags), f.flags
     print("early stage uses industry beta OK")
 
 
@@ -639,6 +641,8 @@ def test_early_stage_beta_source_label():
     km = v.key_metrics
     assert km["beta_source"] == "bottom-up industry (early stage: failure risk carried by p_survival)", km
     assert km["beta_regression"] == 2.61 and km["beta"] < 2.0, km
+    assert v.anchor_method.startswith("Young-Company"), v.anchor_method
+    assert any("p_survival" in x for x in v.flags), v.flags
     print("early stage beta_source label OK")
 
 
@@ -981,6 +985,112 @@ global.fetch = async () => ({ok: false, status: 422, json: async () => ({error: 
     assert res["render"] == 0, res
     assert res["msg"] == "\u2717 shares must be >= 0", res
     print("addHolding non-ok response shows error, does not render OK")
+
+
+
+# ---- Final review fixes: TTM gate on value-driving fields only (#1) -------------
+def _msft_cf():
+    root = os.path.dirname(os.path.abspath(__file__))
+    with open(os.path.join(root, "fixtures", "MSFT", "sec_companyfacts.json")) as fh:
+        return json.load(fh)
+
+
+def _populated(cf):
+    from sources import sec_edgar as se
+    ff = FinancialFacts("TTMX")
+    se.populate(ff, cf)
+    return ff
+
+
+_OK_UNC = {"rating": "Medium"}
+
+
+def test_sporadic_ttm_gap_is_not_rated_out():
+    cf = _msft_cf()
+    # restructuring filed in Q0, Q1, Q4, Q5 only: sporadic, not a broken year
+    cf["facts"]["us-gaap"]["RestructuringCharges"] = {"units": {"USD": _qs(
+        ["2026-03-31", "2025-12-31", "2025-03-31", "2024-12-31"])}}
+    ff = _populated(cf)
+    assert not any(str(x).startswith("TTM: quarters not contiguous") for x in ff.flags), ff.flags
+    assert any("restructuring_ttm" in str(x) for x in ff.flags), ff.flags   # info kept
+    assert E.not_rated_reasons(_OK_UNC, _anc(dcf={"terminal_share_pct": 60}), ff) == [], ff.flags
+    # a stored flag in the old wording for a sporadic field cannot rate a row out either
+    f = FinancialFacts("OLD")
+    f.flags = ["TTM: quarters not contiguous (restructuring_ttm)"]
+    assert E.not_rated_reasons(_OK_UNC, _anc(dcf={"terminal_share_pct": 60}), f) == []
+    print("sporadic TTM gap keeps the row rated OK")
+
+
+def test_gapped_revenue_is_not_rated():
+    cf = {"facts": _qrows([("2025-06-30", 1), ("2025-09-30", 2), ("2026-06-30", 4), ("2026-09-30", 8)])}
+    ff = _populated(cf)
+    why = E.not_rated_reasons(_OK_UNC, _anc(dcf={"terminal_share_pct": 60}), ff)
+    assert why and "revenue" in why[0], why
+    print("gapped revenue -> NOT RATED OK")
+
+
+def _derived_ebit_cf(interest_ends):
+    ends = ["2025-09-30", "2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"]
+    ns = {"Revenues": {"units": {"USD": _qs(ends)}},
+          se_PRETAX(): {"units": {"USD": _qs(ends)}},
+          "InterestExpense": {"units": {"USD": _qs(interest_ends)}}}
+    return {"facts": {"us-gaap": ns}}
+
+
+def se_PRETAX():
+    from sources import sec_edgar as se
+    return se.PRETAX[0]
+
+
+def test_derived_ebit_with_gapped_interest_is_not_rated():
+    from sources import sec_edgar as se
+    ok = se.extract(_derived_ebit_cf(["2025-12-31", "2026-03-31", "2026-06-30", "2026-09-30"]))
+    assert ok["operating_income_derived"] and ok["operating_income"] == 80, ok["operating_income"]
+    assert ok["xbrl_flags"] == [], ok["xbrl_flags"]
+    cf = _derived_ebit_cf(["2025-06-30", "2025-09-30", "2026-06-30", "2026-09-30"])
+    d = se.extract(cf)
+    assert d["operating_income_derived"], d
+    assert "TTM: quarters not contiguous (interest_expense)" in d["xbrl_flags"], d["xbrl_flags"]
+    ff = _populated(cf)
+    why = E.not_rated_reasons(_OK_UNC, _anc(dcf={"terminal_share_pct": 60}), ff)
+    assert why and "interest_expense" in why[0], (why, ff.flags)
+    # a filer with a real operating-income line: a gapped interest TTM does not drive EBIT
+    f = FinancialFacts("OPX")
+    f.flags = ["TTM: quarters not contiguous (interest_expense)"]
+    assert E.not_rated_reasons(_OK_UNC, _anc(dcf={"terminal_share_pct": 60}), f) == []
+    print("derived EBIT with gapped interest -> NOT RATED OK")
+
+
+def test_not_rated_flag_does_not_self_trigger():
+    f = FinancialFacts("RERUN")
+    f.flags = ["NOT RATED: TTM incomplete - TTM: quarters not contiguous (revenue)"]
+    assert E.not_rated_reasons(_OK_UNC, _anc(dcf={"terminal_share_pct": 60}), f) == []
+    print("persisted NOT RATED flag does not re-trigger OK")
+
+
+# ---- Final review fixes: early-stage beta wording (#2) --------------------------
+def test_fcff_valued_early_stage_beta_wording():
+    f = _op_facts()
+    # profitable but barely (thin margin, small): FCFF DCF values it, not young_dcf
+    f.operating_income, f.beta, f.beta_unlevered_industry = 0.02 * f.revenue, 2.61, 1.2
+    f.market_cap = 10e9
+    v = E.DeepV82Engine().evaluate(f, rf=0.045)
+    assert not v.anchor_method.startswith("Young-Company"), v.anchor_method
+    km = v.key_metrics
+    assert km["beta_source"] == ("bottom-up industry (early stage: single-stock regression "
+                                 "beta 2.61 too noisy, kept as cross-check)"), km["beta_source"]
+    assert not any("p_survival" in x for x in v.flags), [x for x in v.flags if "beta" in x]
+    assert any("2.61" in x and "too noisy" in x for x in v.flags), v.flags
+    print("FCFF-valued early-stage beta wording OK")
+
+
+def test_risk_report_has_no_early_stage_rewrite():
+    from pipeline import risk_report
+    km = {"beta": 1.3, "beta_regression": 1.3, "beta_source": "bottom-up: Software"}
+    assert risk_report._risk_beta("equity", km, None, None) == (1.3, "bottom-up: Software")
+    src = open(risk_report.__file__, encoding="utf-8").read()
+    assert "higher than the industry beta" not in src
+    print("risk report: dead early-stage rewrite removed OK")
 
 
 if __name__ == "__main__":

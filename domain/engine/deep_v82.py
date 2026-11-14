@@ -3,6 +3,7 @@ DEEP Framework v8.2 engine — implements the DeepEngine contract.
 Free-data limits handled per skill invariant 17 (skip + flag, never fabricate).
 """
 import decimal as _decimal
+import re
 import datetime
 from typing import NamedTuple, Optional
 
@@ -1093,14 +1094,33 @@ def stars(c):
 NOT_RATED = "NOT RATED"
 TERMINAL_SHARE_UNRATABLE = 100.0     # % of value in the terminal: past this the
                                      # explicit years subtract value - no rating holds
-_TTM_GAP = "TTM: quarters not contiguous"
+# Mirrors sources/sec_edgar.GAP_FLAG / VALUE_DRIVING_TTM: the flag text is the
+# contract between the two (tests pin both ends). Parsed, not substring-matched: the
+# engine's own "NOT RATED: TTM incomplete - ..." flag is persisted with the facts and
+# a sporadic item (restructuring_ttm) in an older wording must not rate a row out.
+_TTM_GAP_RE = re.compile(r"^TTM: quarters not contiguous \((\w+)\)$")
+_VALUE_DRIVING_TTM = ("revenue", "operating_income", "net_income", "cfo", "capex")
+
+
+def _ttm_gaps(f):
+    """The source's TTM-gap flags on fields the fair value is built from."""
+    driving = set(_VALUE_DRIVING_TTM)
+    if str((getattr(f, "provenance", None) or {}).get("operating_income", "")).startswith(
+            "sec-derived (EBIT = pretax + interest)"):
+        driving.add("interest_expense")
+    out = []
+    for x in getattr(f, "flags", None) or []:
+        m = _TTM_GAP_RE.match(str(x))
+        if m and m.group(1) in driving:
+            out.append(str(x))
+    return out
 
 
 def not_rated_reasons(unc, anc, f):
     """Why this row cannot carry a rating (empty = it can). Any one is enough: the
     value range is Extreme; the fair value is the liquidation floor, not a going
     concern; the primary model puts over 100% of its value in the terminal; or a
-    TTM field had no value because its quarters were not contiguous. The composite
+    value-driving TTM field had no value because its quarters were not contiguous. The composite
     is still computed and shown; only the recommendation is withheld (B1)."""
     out = []
     if (unc or {}).get("rating") == "Extreme":
@@ -1115,7 +1135,7 @@ def not_rated_reasons(unc, anc, f):
                    else None))
     if share is not None and share > TERMINAL_SHARE_UNRATABLE:
         out.append(f"terminal value is {share:g}% of the value (> {TERMINAL_SHARE_UNRATABLE:g}%)")
-    gaps = [x for x in (getattr(f, "flags", None) or []) if _TTM_GAP in str(x)]
+    gaps = _ttm_gaps(f)
     if gaps:
         out.append("TTM incomplete - " + "; ".join(gaps))
     return out
@@ -1304,10 +1324,14 @@ def relevered_beta(beta_unlevered, debt, equity_mktcap, marginal_tax=None):
     return beta_unlevered * (1 + (1 - t) * max(de, 0.0))
 
 
-# Below these a firm is still in its early, riskier stage, not the mature industry
-# its unlevered beta describes: an operating margin under 5% (the reverse DCF's
-# terminal-margin floor), or a small company growing revenue above 30% a year.
+# Below these a firm is still in its early stage: an operating margin under 5% (the
+# reverse DCF's terminal-margin floor), or a small company growing revenue above 30% a
+# year. It still runs on the industry beta (B2); the stage is reported, not priced.
 EARLY_MARGIN, EARLY_GROWTH, EARLY_MAX_MCAP = 0.05, 0.30, 50e9
+
+
+EARLY_BETA_NOTE = "single-stock regression beta {reg:.2f} too noisy, kept as cross-check"
+YOUNG_BETA_NOTE = "failure risk carried by p_survival, not the discount rate"
 
 
 def _early_stage(f, mcap):
@@ -1315,8 +1339,8 @@ def _early_stage(f, mcap):
     if oi is None or oi <= 0:
         return "pre-profit"
     # a thin margin marks a young firm only while it is small: a $1.4T carmaker with a
-    # 4% margin is a cyclical at a trough, and Damodaran would not swap its industry
-    # beta for a noisy regression one (TSLA read 1.92 against Auto & Truck 1.32)
+    # 4% margin is a cyclical at a trough, not an early-stage firm (TSLA). Either way
+    # the industry beta is used; the stage only changes the flag and beta_source.
     if rev and oi / rev < EARLY_MARGIN and mcap and mcap < EARLY_MAX_MCAP:
         return f"operating margin {oi / rev:.1%} (barely profitable, small)"
     ann = f.revenue_annuals or []
@@ -1350,7 +1374,7 @@ def _bottom_up_beta(f, notes):
     """The beta Ke runs on. Industry unlevered beta re-levered at the firm's market D/E
     when the industry is known (Damodaran: a single-stock regression beta is too noisy,
     NVO read 0.35 against a pharma industry at 0.98), early-stage firms included: their
-    failure risk is separate from the discount rate (see young_dcf); the regression beta otherwise;
+    regression beta too noisy to use; the regression beta when no industry is known;
     1.0 when neither exists. Debt includes capitalized operating leases, the same D
     the WACC weights use."""
     reg = f.beta
@@ -1361,12 +1385,12 @@ def _bottom_up_beta(f, notes):
         b = relevered_beta(bu, debt, mcap)
         why = (f"beta bottom-up {b:.2f} = {f.beta_industry or 'industry'} unlevered "
                f"{bu:.2f} re-levered at D/E {debt / mcap:.0%}")
-        # An early-stage firm's failure risk is NOT a beta premium: young_dcf carries it
-        # in p_survival, so a high regression beta here would count it twice.
+        # An early-stage firm keeps the industry beta too: its regression beta is the
+        # noisiest of all. Where young_dcf values it, failure risk is carried by
+        # p_survival (_young_company_anchor says so); FCFF-valued, it is not modelled.
         stage = _early_stage(f, mcap)
         if stage and reg:
-            _add_flag(f, why + f" - {stage}: failure risk carried by p_survival, "
-                              f"not the discount rate (regression beta {reg:.2f} kept as a cross-check)")
+            _add_flag(f, why + f" - {stage}: {EARLY_BETA_NOTE.format(reg=reg)}")
             return b
         _add_flag(f, why + (f" (regression beta {reg:.2f} kept as a cross-check)" if reg else ""))
         return b
@@ -2178,6 +2202,8 @@ def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi):
             f"pre-profit valued forward (S20): p50 ${value} "
             f"[p10 ${mc['p10']} - p90 ${mc['p90']}], "
             f"survival {ydcf['p_survival']*100:.0f}%, distress ${ydcf['distress_per_share']}"))
+        if f.beta and f.beta_unlevered_industry and _early_stage(f, cap.mcap):
+            _add_flag(f, f"early stage on the industry beta: {YOUNG_BETA_NOTE}")
         if ydcf.get("uncertain"):
             _add_flag(f, (f"young-company DCF is the anchor but uncertain - "
                           f"{ydcf.get('blocked_reason')}; Price capped at neutral "
@@ -2467,6 +2493,18 @@ def _round_nonzero(x, nd=2):
     return round(x, nd) if x else None
 
 
+def _beta_source(f, anc):
+    """Where the valuation's beta came from, in the same terms as its flag."""
+    if not f.beta_unlevered_industry:
+        return "regression" if f.beta else "default 1.0"
+    mcap = f.market_cap or ((f.price or 0) * (f.shares_diluted or 0)) or None
+    if f.beta and _early_stage(f, mcap):
+        if anc and (anc.method or "").startswith("Young-Company"):
+            return "bottom-up industry (early stage: failure risk carried by p_survival)"
+        return f"bottom-up industry (early stage: {EARLY_BETA_NOTE.format(reg=f.beta)})"
+    return "bottom-up: " + (f.beta_industry or "industry")
+
+
 def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType.STANDARD,
                  anc=None):
     dcf = (anc.dcf if anc else None) or {}
@@ -2503,10 +2541,7 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "terminal_wacc_pct": round(cap.wacc_term * 100, 2),
             "growth_pct": round(gr.growth * 100, 1), "beta": round(cap.beta, 2),
             "beta_regression": round(f.beta, 2) if f.beta else None,
-            "beta_source": (("bottom-up industry (early stage: failure risk carried by p_survival)"
-                             if _early_stage(f, f.market_cap or ((f.price or 0) * (f.shares_diluted or 0)) or None)
-                             else "bottom-up: " + (f.beta_industry or "industry"))
-                            if f.beta_unlevered_industry else ("regression" if f.beta else "default 1.0")),
+            "beta_source": _beta_source(f, anc),
             # consensus growth drives the FV, realised growth drives Demand: both
             # published so a reader sees which story the price needs
             "growth_realised_pct": _pct(pv.g_realised, 1),

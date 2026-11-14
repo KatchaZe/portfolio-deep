@@ -8,7 +8,7 @@
      recur) are added back to EBIT before anything values it
   4. a DCF far below the price stays the anchor (tests.test_damodaran_round2 #12)
   5. the terminal ROIC is floored at the stable WACC, not today's
-  6. a thin margin swaps in the regression beta only for a small firm
+  6. a thin margin keeps the industry beta at any size (B2)
 
 Run: python -m tests.test_fair_value_2026_10_19
 """

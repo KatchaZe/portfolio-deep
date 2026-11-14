@@ -147,7 +147,7 @@ def test_stress_runs_on_the_valuation_beta():
 
 
 def test_valuation_beta_label_matches_the_beta_used():
-    """Stored portfolio: a row whose Ke runs on the regression beta (early-stage rule)
+    """Stored portfolio: a row whose Ke runs on the regression beta (no industry beta)
     must not be labelled bottom-up. TMDX/RKLB/HIMS/AXON/CELH were."""
     import json
     import config
@@ -557,9 +557,12 @@ def test_rebalance_is_idempotent_with_cash():
 
 
 def test_regression_beta_is_not_labelled_bottom_up():
+    # B2 (2026-11-14): the engine runs every operating firm on the industry beta, so a
+    # bottom-up beta equal to the regression one is a coincidence, not the old
+    # early-stage swap: the valuation's own label stands
     b, src = risk_report._risk_beta("equity", {"beta": 2.43, "beta_regression": 2.43,
                                                 "beta_source": "bottom-up: Healthcare IT"}, 2.43, 2.56)
-    assert b == 2.43 and src.startswith("regression"), src
+    assert b == 2.43 and src == "bottom-up: Healthcare IT", src
     b2, src2 = risk_report._risk_beta("equity", {"beta": 1.19, "beta_regression": 0.28,
                                                   "beta_source": "bottom-up: Drugs"}, 0.28, 0.35)
     assert src2.startswith("bottom-up"), src2

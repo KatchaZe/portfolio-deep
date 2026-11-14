@@ -855,6 +855,8 @@ def _derived_ebit(x):
         p_ttm = x.ttm(pre_c)
         if p_ttm is not None:
             out["operating_income"] = p_ttm + ((x.ttm(int_c) or 0) if int_c else 0)
+            # a gapped interest TTM reads as 0 here; _gap_flags gates the row on it
+            out["interest_ttm_gapped"] = bool(int_c and x.ttm_gapped(int_c))
         pa = dict(x.annual_series_dated(pre_c))
         ia = dict(x.annual_series_dated(int_c)) if int_c else {}
         dated = [[d, pa[d] + ia.get(d, 0)] for d in sorted(pa, reverse=True)]
@@ -867,16 +869,31 @@ def _derived_ebit(x):
     return out
 
 
+# The TTM fields a fair value is built from. A gap in one of these means the year is
+# not a year, and the row is NOT RATED (deep_v82.not_rated_reasons matches GAP_FLAG).
+# Interest drives value only when EBIT is derived as pretax + interest (LLY, PFE).
+VALUE_DRIVING_TTM = ("revenue", "operating_income", "net_income", "cfo", "capex")
+GAP_FLAG = "TTM: quarters not contiguous (%s)"
+# Sporadic items (restructuring, impairments, acquisitions) skip quarters normally:
+# shown, never a reason to withhold the rating.
+GAP_INFO = "TTM gap (info): %s quarters not contiguous - read as none"
+
+
 def _gap_flags(x, at, rev_tags, op_tags, ni_tags, out):
-    """"TTM: quarters not contiguous (field)" for each field that ended with NO value
-    because a candidate tag's last four quarters skip a period. A probe that lost to a
-    tag with a good TTM raises nothing."""
+    """GAP_FLAG for each value-driving field that ended with NO value because a
+    candidate tag's last four quarters skip a period; GAP_INFO for any other TTM field.
+    A probe that lost to a tag with a good TTM raises nothing."""
     cands = {"revenue": rev_tags, "operating_income": op_tags, "net_income": ni_tags}
     for field, (rule, ladder) in FIELD_LADDERS.items():
         if rule in (_ttm, _ttm_present, _ttm_max) and out.get(field) is None:
             cands[field] = [t for t, _ in _live_tags(x, ladder, at)]
-    return sorted("TTM: quarters not contiguous (%s)" % f for f, tags in cands.items()
-                  if tags and any(x.ttm_gapped(t) for t in tags))
+    driving = set(VALUE_DRIVING_TTM)
+    if out.get("operating_income_derived"):
+        driving.add("interest_expense")
+    gapped = {f for f, tags in cands.items() if tags and any(x.ttm_gapped(t) for t in tags)}
+    if out.get("interest_ttm_gapped"):
+        gapped.add("interest_expense")
+    return sorted((GAP_FLAG if f in driving else GAP_INFO) % f for f in gapped)
 
 
 def _series(x, concept, name):
@@ -923,7 +940,7 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
     }
     out["xbrl_flags"] = _gap_flags(
         x, at, rev_concept is None and REV,
-        op_concept is None and out.get("operating_income") is None and OP,
+        op_concept is None and out.get("operating_income") is None and OP + PRETAX,
         ni_concept is None and NI, out)
     if cash_excludes_securities:
         cash_only = ((), CASH_TAGS, ())
