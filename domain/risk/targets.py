@@ -6,8 +6,9 @@ Target weights from a risk budget, and the band rebalance around them.
    price offers over the cost of equity (the implied return, P1-4) and scaled down by
    the value's uncertainty (P1-3). A SELL gets no budget; a holding with no fair value
    (a bond or gold fund, a name not yet valued) keeps its current weight, since the
-   valuation has no opinion on it. A NOT RATED holding keeps its current weight too,
-   caps included: no rating, no trade either way (B1).
+   valuation has no opinion on it. A NOT RATED holding keeps its current weight too
+   (no valuation-driven BUY or SELL, B1); like an ADD-blocked name its target is
+   min(cap, current weight), so the hard single-name and sector caps still trim it.
 2. Weights. The weights whose risk contributions match the budget (risk budgeting,
    solved by the standard multiplicative iteration on the covariance), on the
    invested share of the book.
@@ -75,12 +76,11 @@ def risk_budget_weights(cov, budgets, iters=500, tol=1e-10):
     return w
 
 
-def _sector_fit(tgt, sec_of, sector_cap, notes, fixed=()):
-    """Scale each sector's targets down to the sector cap; `fixed` names (NOT RATED)
-    keep theirs and the rest of the sector makes room."""
+def _sector_fit(tgt, sec_of, sector_cap, notes):
+    """Scale each sector's targets down to the sector cap."""
     for sec in {s for s in sec_of.values() if s}:
-        names = [t for t in tgt if sec_of.get(t) == sec and t not in fixed]
-        limit = max(0.0, sector_cap - sum(tgt[t] for t in fixed if sec_of.get(t) == sec))
+        names = [t for t in tgt if sec_of.get(t) == sec]
+        limit = sector_cap
         tot = sum(tgt[t] for t in names)
         if tot > limit + 1e-9:
             for t in names:
@@ -113,9 +113,7 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
     tgt = {t: cur[t] for t in held}
     tgt.update({tickers[i]: raw[k] * room for k, i in enumerate(free)})
     notes = {t: why[i] for i, t in enumerate(tickers)}
-    unrated = {t for t in held if ((value or {}).get(t) or {}).get("rating") == NOT_RATED}
-    ceiling = {t: (cur[t] if t in unrated
-                   else min(caps.get(t, 1.0), cur[t]) if blocked.get(t) else caps.get(t, 1.0))
+    ceiling = {t: (min(caps.get(t, 1.0), cur[t]) if blocked.get(t) else caps.get(t, 1.0))
                for t in tickers}
     for t in tickers:
         if tgt[t] > ceiling[t]:
@@ -123,7 +121,7 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
             notes[t] += (f" · ADD blocked ({blocked[t]})" if blocked.get(t) and ceiling[t] == cur[t]
                          and cur[t] < caps.get(t, 1.0) else f" · cap {ceiling[t] * 100:.1f}%")
     if sector_cap:
-        _sector_fit(tgt, sec_of, sector_cap, notes, fixed=unrated)
+        _sector_fit(tgt, sec_of, sector_cap, notes)
     share = {tickers[i]: raw[k] for k, i in enumerate(free)}
     for _ in range(len(tickers)):                 # hand what was cut to who can take it
         left = invest - sum(tgt.values())
@@ -142,7 +140,8 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
     rows = []
     for t in tickers:
         drift = cur[t] - tgt[t]
-        if tgt[t] == 0 and cur[t] > 0 and bud[tickers.index(t)] == 0.0:
+        exit_ = tgt[t] == 0 and cur[t] > 0 and bud[tickers.index(t)] == 0.0
+        if exit_:
             new, act = 0.0, "SELL"                # a SELL exits whole, band or not
         elif abs(drift) > BAND_TRIGGER:
             new = tgt[t] + math.copysign(BAND_DEST, drift)
@@ -152,7 +151,7 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
         trade = new - cur[t]
         rows.append({"ticker": t, "target_pct": round(tgt[t] * 100, 1),
                      "current_pct": round(cur[t] * 100, 1), "drift_pp": round(drift * 100, 1),
-                     "action": act, "trade_pct": round(trade * 100, 2),
+                     "action": act, "exit": exit_, "trade_pct": round(trade * 100, 2),
                      "trade_usd": round(trade * total_value, 0) if total_value else None,
                      "basis": notes[t]})
     rows.sort(key=lambda r: -abs(r["drift_pp"]))

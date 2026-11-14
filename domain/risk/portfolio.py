@@ -230,7 +230,7 @@ def _hard_cap(w, arc, asset_class, single_name_cap, risk_share_cap, pricing_cap)
 
 
 SELL_RATINGS = ("SELL", "AVOID")
-NOT_RATED = "NOT RATED"          # no rating: never added to, never sold for its rating
+NOT_RATED = "NOT RATED"          # no rating: never added to; only the caps trim it
 ADD_MIN_NET_MOS = 0.15          # S4/S12: add only with a margin of safety that is "enough"
 
 
@@ -316,7 +316,6 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CA
         blocker = add_blocker(v) if value is not None else None
         if blocker is None and sector_full:
             blocker = f"sector {sec} {sw * 100:.1f}% ≥ เพดาน {sector_cap * 100:.0f}%"
-        unrated = v.get("rating") == NOT_RATED
         out.append({
             "ticker": r["ticker"],
             "sector": sec,
@@ -326,27 +325,8 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CA
             "binding_cap": binding,
             "abs_risk_share_pct": r.get("abs_risk_share_pct"),
             "add_blocker": blocker,
-            # no rating: the weight is kept, caps included (B1) - never TRIM/ADD here
-            "action": ("HOLD (ไม่จัดอันดับ: คงน้ำหนักเดิม)" if unrated
-                       else _sizing_action(w, hard, soft, blocker)),
+            "action": _sizing_action(w, hard, soft, blocker),
         })
-    return out
-
-
-def _sector_limited(give, proposed, sec_of, sector_cap):
-    """Scale the gives of each sector down so no sector ends above `sector_cap`."""
-    if not sector_cap:
-        return give
-    out = dict(give)
-    for sec in {s for s in sec_of.values() if s}:
-        names = [t for t in give if sec_of.get(t) == sec]
-        g = sum(give[t] for t in names)
-        if g <= 0:
-            continue
-        head = max(0.0, sector_cap - sum(w for t, w in proposed.items() if sec_of.get(t) == sec))
-        if g > head:
-            for t in names:
-                out[t] = give[t] * head / g
     return out
 
 
@@ -369,8 +349,8 @@ def trades_from_targets(target_rows, weights, sizing_rows, total_value, cost_bps
     """The Risk Desk's Rebalance table: the Targets rows (domain/risk/targets.py) in
     dollars, realized gain, tax and trading cost, in the dict shape the post-trade
     check and the UI read. Targets is the one recommendation set (B6): a row inside
-    its band is not traded, a BUY is an ADD, a SELL a TRIM (to 0 for a SELL-rated
-    exit). `weights` are the current weights of the WHOLE portfolio (cash = 1 - sum);
+    its band is not traded, a BUY is an ADD, a SELL a TRIM (to 0 when the row says
+    `exit`, a SELL-rated name; a target that merely rounds to 0 is not an exit). `weights` are the current weights of the WHOLE portfolio (cash = 1 - sum);
     names without a target row keep theirs. `value` carries price, average cost and
     tax rate for the tax on a sale."""
     hard = {s["ticker"]: (s.get("hard_max_pct") or 100.0) / 100.0 for s in sizing_rows or []}
@@ -381,7 +361,7 @@ def trades_from_targets(target_rows, weights, sizing_rows, total_value, cost_bps
         if act not in ("BUY", "SELL") or not r.get("trade_pct"):
             continue
         w = weights.get(t, (r.get("current_pct") or 0) / 100.0)
-        exit_ = act == "SELL" and r.get("target_pct") == 0
+        exit_ = act == "SELL" and r.get("exit") is True
         # an exit sells the whole position: trade_pct is rounded, the weight is not
         new = 0.0 if exit_ else max(0.0, w + r["trade_pct"] / 100.0)
         proposed[t] = new
@@ -416,104 +396,7 @@ def trades_from_targets(target_rows, weights, sizing_rows, total_value, cost_bps
                   "total_usd": round(tax + cost, 2),
                   "turnover_pct": round(sum(t["amount_pct"] for t in trades) / 2, 1)},
         "rule": ("จาก Targets (risk budget): เทรดเฉพาะตัวที่หลุด band กลับเข้า band · "
-                 "SELL rating ออกทั้งตัว · ไม่จัดอันดับ / ไม่มี fair value = คงน้ำหนักเดิม"),
+                 "SELL rating ออกทั้งตัว · ไม่จัดอันดับ / ไม่มี fair value = ไม่ซื้อขายตามมูลค่า "
+                 "(cap ยังตัดได้)"),
     }
 
-
-def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
-              total_value=None, cost_bps=0, add_min_mos=ADD_MIN_NET_MOS, sector_cap=SECTOR_CAP):
-    """Cap-based plan, kept for its tests; the Risk Desk no longer calls it (its
-    Rebalance table is trades_from_targets, B6 2026-11-15).
-    Trim over-cap names to their hard cap and SELL-rated names above their soft max.
-    With `value` the freed weight goes only to names whose margin of safety after cost
-    and tax clears `add_min_mos`, in proportion to that MoS and within each name's soft
-    max; what nobody can take stays CASH (S35: no diluting into names the valuation
-    does not back; S6: fewer trades). Without `value` the legacy risk-only spread is
-    kept. `weights` are of the invested book and are scaled to the WHOLE portfolio
-    (cash = `cash_frac`); the caps in `sizing_rows` must already be on that whole-
-    portfolio basis, or cash freed by one run lifts every name over its cap on the next.
-    Every trade carries its dollars, realized gain, tax and trading cost."""
-    scale = 1.0 - (cash_frac or 0.0)
-    sec_of = {s["ticker"]: s.get("sector") for s in sizing_rows}
-    cur = {t: w * scale for t, w in weights.items()}
-    proposed = dict(cur)
-    trades, freed = [], 0.0
-    for s in sizing_rows:
-        t = s["ticker"]
-        w = cur.get(t, 0.0)
-        cap = (s["hard_max_pct"] or 100) / 100.0
-        soft = (s["soft_max_pct"] or 100) / 100.0
-        target, why = None, None
-        if w > cap + 1e-6:
-            target, why = cap, "Must"
-        elif value is not None and _sells(((value or {}).get(t) or {}).get("rating")) and w > soft + 1e-6:
-            target, why = soft, "Should (rating SELL)"
-        if target is not None:
-            cut = w - target
-            proposed[t] = target
-            freed += cut
-            trades.append({"ticker": t, "action": "TRIM", "from_pct": round(w * 100, 1),
-                           "to_pct": round(target * 100, 1), "amount_pct": round(cut * 100, 1),
-                           "priority": why, "_w": cut, "_side": "sell"})
-    to_cash = 0.0
-    if freed > 1e-6:
-        if value is None:                     # legacy: spread over every name with room
-            room = {s["ticker"]: (s["soft_max_pct"] or 0) / 100.0 - proposed.get(s["ticker"], 0)
-                    for s in sizing_rows}
-            room = {t: r for t, r in room.items() if r > 0}
-            score = {t: r for t, r in room.items()}
-        else:
-            room, score = {}, {}
-            for s in sizing_rows:
-                t = s["ticker"]
-                if add_blocker((value or {}).get(t), add_min_mos) is None:
-                    r = (s["soft_max_pct"] or 0) / 100.0 - proposed.get(t, 0)
-                    if r > 0:
-                        room[t], score[t] = r, value[t]["net_mos"]
-        left = freed
-        while left > 1e-9 and room:           # water-fill in proportion to the score
-            full = {s for s in set(sec_of.values()) if s and sector_cap and
-                    sum(w for x, w in proposed.items() if sec_of.get(x) == s) >= sector_cap - 1e-9}
-            room = {t: r for t, r in room.items() if sec_of.get(t) not in full}
-            tot = sum(score[t] for t in room)
-            if tot <= 0:
-                break
-            give = _sector_limited({t: min(room[t], left * score[t] / tot) for t in room},
-                                   proposed, sec_of, sector_cap)
-            for t, g in give.items():
-                proposed[t] = proposed.get(t, 0) + g
-                room[t] -= g
-                left -= g
-            room = {t: r for t, r in room.items() if r > 1e-9}
-        for t in sorted(proposed, key=lambda x: -(proposed[x] - cur.get(x, 0))):
-            add = proposed[t] - cur.get(t, 0)
-            if add > 1e-6:
-                trades.append({"ticker": t, "action": "ADD", "from_pct": round(cur.get(t, 0) * 100, 1),
-                               "to_pct": round(proposed[t] * 100, 1), "amount_pct": round(add * 100, 1),
-                               "priority": "Should", "_w": add, "_side": "buy"})
-        if value is None:                     # legacy renormalizes over the invested book
-            tot = sum(proposed.values())
-            proposed = {t: w / tot * scale for t, w in proposed.items()} if tot > 0 else proposed
-        else:
-            to_cash = max(0.0, left)
-    tax = cost = 0.0
-    for tr in trades:
-        d, g, tx, c = _trade_costs(tr["ticker"], tr.pop("_w"), tr.pop("_side"), value,
-                                   total_value, cost_bps)
-        tr.update({"amount_usd": d, "realized_gain_usd": g, "tax_usd": tx, "cost_usd": c})
-        tax += tx
-        cost += c
-    cash_after = (cash_frac or 0.0) + to_cash
-    return {
-        "no_trade": len(trades) == 0,
-        "proposed_weights": {t: round(w, 4) for t, w in proposed.items()},
-        "cash_pct_after": round(cash_after * 100, 1),
-        "to_cash_pct": round(to_cash * 100, 1),
-        "trades": trades,
-        "costs": {"tax_usd": round(tax, 2), "trading_usd": round(cost, 2),
-                  "total_usd": round(tax + cost, 2),
-                  "turnover_pct": round(sum(t["amount_pct"] for t in trades) / 2, 1)},
-        "rule": (None if value is None else
-                 f"ADD เฉพาะ MoS หลังหักต้นทุน+ภาษี ≥ เกณฑ์ตามความไม่แน่นอนของแต่ละตัว "
-                 f"(ไม่มี rating = {add_min_mos * 100:.0f}%) ตามสัดส่วน MoS · ที่เหลือเป็น cash"),
-    }

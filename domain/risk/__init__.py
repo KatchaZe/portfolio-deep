@@ -24,7 +24,7 @@ from .covariance import (CRISIS_EQUITY_CORR, CRISIS_MIN_DAYS, CRISIS_MIN_DRAWDOW
 from .portfolio import (add_blocker, beta_risk_contribution, capital_weights, concentration,
                         diversification_ratio, diversification_score, effective_bets,
                         gap_coverage, group_exposure, portfolio_beta, portfolio_vol,
-                        position_sizing, rebalance, risk_contributions,
+                        position_sizing, risk_contributions,
                         trades_from_targets)
 from .stress import (HISTORICAL, PROXY_ETF, SCENARIOS, bootstrap_var, effective_duration,
                      historical_replay,

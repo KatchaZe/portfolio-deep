@@ -653,6 +653,10 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     # one recommendation set (B6): the Rebalance table is the Targets rows in dollars
     reb = riskeng.trades_from_targets(targets.get("rows") or [], w_total, sizing,
                                       invested + cash, config.TRADING_COST_BPS, value=value)
+    # no targets is not "nothing to do": say the plan is missing, not NO TRADE
+    reb["status"] = "ok" if targets.get("status") == "ok" else "unavailable"
+    if reb["status"] != "ok":
+        reb["note"] = targets.get("note") or "targets unavailable"
     reb["vol_now_pct"] = round(port_vol_total * 100, 1) if port_vol else None
     after = _after_rebalance(reb, tickers, cov, betas, sectors, book.industries)
 

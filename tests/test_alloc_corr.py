@@ -431,31 +431,18 @@ def test_rebalance_adds_only_where_the_value_is_and_parks_the_rest_in_cash():
     act = {r["ticker"]: r["action"] for r in sizing}
     assert act["C"].startswith("HOLD (ไม่เพิ่ม: rating"), act
     assert act["D"].startswith("HOLD (ไม่เพิ่ม: MoS"), act
-    reb = R.rebalance(w, sizing, value=value, total_value=10000, cost_bps=20)
+    # the plan is Targets in dollars (B6): never an ADD to C (SELL) or D (MoS too thin)
+    tk = list(w)
+    cov = [[0.04 if i == j else 0.01 for j in range(len(tk))] for i in range(len(tk))]
+    tg = R.risk_budget_targets(tk, cov, w, value, sizing, total_value=10000)
+    reb = R.trades_from_targets(tg["rows"], w, sizing, 10000, 20, value=value)
     tr = {t["ticker"]: t for t in reb["trades"]}
-    assert tr["A"]["action"] == "TRIM" and tr["A"]["to_pct"] == 20.0, tr["A"]
-    assert set(tr) <= {"A", "B", "E"} and "C" not in tr and "D" not in tr, tr      # never add C/D
-    assert tr["B"]["action"] == "ADD" and tr["B"]["to_pct"] == 16.0, tr["B"]      # up to its soft max
-    assert reb["to_cash_pct"] == 34.0 and reb["cash_pct_after"] == 34.0, reb       # 40 freed - 6 added
+    assert {t for t, x in tr.items() if x["action"] == "ADD"} <= {"B"}, tr
+    assert tr["C"]["to_pct"] == 0.0 and tr["C"]["priority"].startswith("Must"), tr["C"]
+    assert tr["A"]["action"] == "TRIM" and tr["A"]["realized_gain_usd"] > 0
+    assert abs(tr["A"]["tax_usd"] - tr["A"]["realized_gain_usd"] * 0.15) <= 0.01, tr["A"]
     assert abs(sum(reb["proposed_weights"].values()) + reb["cash_pct_after"] / 100 - 1) < 1e-3, reb
-    # tax only on the gain: 20% of $10,000 = $2,000 sold at 120 over 100 cost -> gain 333.33
-    assert abs(tr["A"]["realized_gain_usd"] - 333.33) < 0.01 and abs(tr["A"]["tax_usd"] - 50.0) < 0.01, tr["A"]
-    assert tr["A"]["cost_usd"] == 2.0 and tr["B"]["tax_usd"] == 0.0, (tr["A"], tr["B"])
-    print("D2 value-aware rebalance OK:", reb["costs"], "to cash", reb["to_cash_pct"])
-
-
-def test_rebalance_sale_at_a_loss_pays_no_tax_and_sell_rated_trims():
-    w = {"S": 0.30, "K": 0.70}
-    value = {"S": {"rating": "SELL / AVOID", "net_mos": -0.4, "price": 50.0, "avg_cost": 80.0, "tax_rate": 0.15},
-             "K": {"rating": "HOLD", "net_mos": 0.05, "price": 10.0, "avg_cost": 10.0, "tax_rate": 0.15}}
-    sizing = R.position_sizing(_sizing_rows(w), {}, single_name_cap=0.30, risk_share_cap=1.0, value=value)
-    reb = R.rebalance(w, sizing, value=value, total_value=1000, cost_bps=20)
-    s = {t["ticker"]: t for t in reb["trades"]}.get("S")
-    assert s, reb["trades"]
-    assert s["action"] == "TRIM" and s["to_pct"] == 24.0 and "SELL" in s["priority"], s
-    assert s["realized_gain_usd"] < 0 and s["tax_usd"] == 0.0, s
-    assert reb["cash_pct_after"] == 46.0, reb      # K 70->30, S 30->24, nobody qualifies -> cash
-    print("D2 loss sale untaxed, SELL above soft max trimmed OK")
+    print("D2 value-aware plan OK:", reb["costs"], "cash after", reb["cash_pct_after"])
 
 
 def test_live_book_never_adds_to_a_sell_rated_name():
@@ -554,7 +541,11 @@ def test_rebalance_is_idempotent_with_cash():
         rows = [{"ticker": t, "capital_pct": x * (1 - cash) * 100, "abs_risk_share_pct": x * 100}
                 for t, x in w.items()]
         sizing = R.position_sizing(rows, {}, single_name_cap=0.20, risk_share_cap=1.0, value=value)
-        reb = R.rebalance(w, sizing, value=value, cash_frac=cash, total_value=10000, cost_bps=20)
+        tk = list(w)
+        cov = [[0.04 if i == j else 0.01 for j in range(len(tk))] for i in range(len(tk))]
+        tg = R.risk_budget_targets(tk, cov, w, value, sizing, cash_frac=cash, total_value=10000)
+        whole = {t: x * (1 - cash) for t, x in w.items()}
+        reb = R.trades_from_targets(tg["rows"], whole, sizing, 10000, 20, value=value)
         if run == 0:
             assert not reb["no_trade"], reb
         else:

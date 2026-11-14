@@ -112,12 +112,13 @@ function storyTiming(v,dv){
 }
 function storyCosts(reb){
   let t;
-  if(reb.no_trade)t='NO TRADE — ไม่มีต้นทุน/ภาษีต้องจ่าย พอร์ตอยู่ใน policy band';
+  if(reb.status==='unavailable')t='Targets คำนวณไม่ได้ — ไม่มีรายการ rebalance ให้ประเมินต้นทุน/ภาษี';
+  else if(reb.no_trade)t='NO TRADE — ไม่มีต้นทุน/ภาษีต้องจ่าย ทุกตัวอยู่ใน band ของ Targets';
   else{
     const c=reb.costs||{}, turn=c.turnover_pct??(reb.trades||[]).reduce((a2,x2)=>a2+Math.abs(x2.amount_pct||0),0)/2;
     t=`แผน rebalance ขยับ ~<b>${Number(turn).toFixed(1)}%</b> ของพอร์ต — ภาษีกำไร <b>${money(c.tax_usd)}</b> + ค่าเทรด ${money(c.trading_usd)} &rarr; <b>ทำเป็นขั้น</b> เริ่มจาก Must ก่อน อย่ารวดเดียว`;
   }
-  return storyRow('&#9316; หัก cost/tax ก่อนเชื่อ','S6 · ส่วน 7',t,!reb.no_trade);
+  return storyRow('&#9316; หัก cost/tax ก่อนเชื่อ','S6 · ส่วน 7',t,reb.status==='unavailable'||!reb.no_trade);
 }
 function renderRisk(d){
   const body=document.getElementById('riskBody');
@@ -254,6 +255,7 @@ function rebalanceHTML(d,cv){
   const sizing=ps.length?`<details style="margin-top:10px"><summary class="note" style="cursor:pointer">Position sizing — เพดานต่อตัว (${ps.length} ตัว)</summary><div class="tw"><table><thead><tr><th class="l">Ticker</th><th class="n">ตอนนี้</th><th class="n">Soft / Hard max</th><th class="n">ส่วนแบ่งความเสี่ยง</th><th class="l">Action</th><th class="l">ติดที่</th></tr></thead><tbody>
     ${ps.map(x=>`<tr><th scope="row" class="l num" style="color:var(--ink)">${esc(x.ticker)}</th><td class="n">${pctFixed(x.current_pct)}</td><td class="n">${pctFixed(x.soft_max_pct,0)} / ${pctFixed(x.hard_max_pct,0)}</td><td class="n">${pctFixed(x.abs_risk_share_pct)}</td><td class="l">${tag(esc(String(x.action||'').split(' (')[0]),ACT_COLOR[String(x.action||'').split(' ')[0]])}</td><td class="l note">${esc(pp2pct(x.add_blocker||x.binding_cap||'–'))}</td></tr>`).join('')}</tbody></table></div></details>`:'';
   const plan=targetsHTML(d.targets);
+  if(reb.status==='unavailable')return `<div class="banner tone t-warn" role="alert" style="font-weight:700">&#9888; Targets คำนวณไม่ได้ — ไม่มีรายการ rebalance${reb.note?` <span class="note">(${esc(reb.note)})</span>`:''}</div>${sizing}`;
   if(reb.no_trade)return `<div class="banner tone t-bull" style="font-weight:700">NO TRADE — ทุกตัวอยู่ใน band ของ Targets</div>${rule}${sizing}${plan}`;
   const af=reb.after||{}, c=reb.costs||{};
   return kpisHTML([['Vol now',pctFixed(reb.vol_now_pct??cv.port_vol_pct)],['Vol after',pctFixed(af.port_vol_pct),'up'],['Cash after',pctFixed(reb.cash_pct_after)],['ภาษี + ค่าเทรด',money(c.total_usd)],
@@ -270,7 +272,7 @@ function targetsHTML(tg){
   return `<details style="margin-top:10px"${moves.length?' open':''}><summary class="note" style="cursor:pointer">Targets ตาม risk budget (ที่มาของรายการ rebalance) · band ${tg.band_pp[0]}/${tg.band_pp[1]}pp — ${moves.length?moves.length+' ตัวหลุด band':'ทุกตัวอยู่ใน band'}</summary>
     <div class="tw" tabindex="0" role="region" aria-label="target ตาม risk budget"><table><thead><tr><th class="l">Ticker</th><th class="n">ตอนนี้</th><th class="n">Target</th><th class="n">ห่าง</th><th class="l">Action</th><th class="n">$</th><th class="l">ที่มา target</th></tr></thead><tbody>
     ${tg.rows.map(r=>`<tr><th scope="row" class="l num" style="color:var(--ink)">${esc(r.ticker)}</th><td class="n">${pctFixed(r.current_pct)}</td><td class="n">${pctFixed(r.target_pct)}</td><td class="n">${pctFixed(r.drift_pp)}</td><td class="l">${r.action==='HOLD'?'อยู่ใน band':tag(esc(r.action),ACT_COLOR[r.action==='SELL'?'TRIM':'ADD'])}</td><td class="n">${r.action==='HOLD'?'—':money(r.trade_usd)}</td><td class="l note">${esc(r.basis||'')}</td></tr>`).join('')}
-    </tbody></table></div><p class="note" style="margin:6px 0 0">Target cash ${pctFixed(tg.target_cash_pct)} · ${esc(tg.tag||'')} · ไม่จัดอันดับ / ไม่มี fair value = คงน้ำหนักเดิม</p></details>`;
+    </tbody></table></div><p class="note" style="margin:6px 0 0">Target cash ${pctFixed(tg.target_cash_pct)} · ${esc(tg.tag||'')} · ไม่จัดอันดับ / ไม่มี fair value = ไม่ซื้อขายตามมูลค่า (cap ยังตัดได้)</p></details>`;
 }
 function capRiskHint(cv){const r=capRiskRows(cv);const big=r.filter(x=>x.diff!=null&&x.diff>=3).sort((a,b)=>b.diff-a.diff)[0];return big?`${big.ticker} ถือเงิน ${pctFixed(big.cap)} แต่สร้างความเสี่ยง ${pctFixed(big.risk)} (มากกว่าน้ำหนักเงิน +${big.diff}%).`:'';}
 function hiddenConc(alloc,cv){
@@ -292,7 +294,7 @@ function panelExplain(d){
   li.push(`Diversification ${d.snapshot.diversification_score}/100 — DR crisis ${dv.dr_crisis??'—'} (ใกล้ 1 = แทบไม่ช่วยตอนวิกฤต)`);
   if((dv.score&&dv.score.sub&&dv.score.sub.gap_coverage)===0)li.push(`ขาด ballast: ไม่มี bond / gold / cash ถ่วงพอร์ต`);
   li.push(suit.within_tolerance?`Drawdown ยังอยู่ในขีดที่รับได้`:`&#9888; Drawdown อาจเกินที่รับได้ — เรื่องนี้สำคัญสุด`);
-  li.push(reb.no_trade?`Action: NO TRADE`:(firstAct?`Action แรก: ${esc(firstAct.action)} ${esc(firstAct.ticker)} ${pctFixed(firstAct.amount_pct)}`:'Action: review'));
+  li.push(reb.status==='unavailable'?`&#9888; Targets คำนวณไม่ได้ — ไม่มีรายการ rebalance`:reb.no_trade?`Action: NO TRADE`:(firstAct?`Action แรก: ${esc(firstAct.action)} ${esc(firstAct.ticker)} ${pctFixed(firstAct.amount_pct)}`:'Action: review'));
   return `<ul style="margin:0;padding-left:18px;font-size:var(--t-sm);line-height:1.7">`+li.map(x=>`<li>${x}</li>`).join('')+`</ul>`;
 }
 function panelLegend(m){

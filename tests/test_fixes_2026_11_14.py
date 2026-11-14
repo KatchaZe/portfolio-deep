@@ -728,21 +728,34 @@ def test_targets_keep_weight_for_not_rated():
     tk = ["A", "B", "N"]
     cov = [[0.04, 0.01, 0.01], [0.01, 0.04, 0.01], [0.01, 0.01, 0.04]]
     w = {"A": 0.30, "B": 0.10, "N": 0.60}
-    # N is far over its 20% cap and far from any budget weight: still kept as is
-    sizing = [{"ticker": t, "hard_max_pct": 20.0} for t in tk]
-    out = T.targets(tk, cov, w, {"A": _tg_val(), "B": _tg_val(), "N": _tg_val("NOT RATED")},
-                    sizing, total_value=10000)
+    vals = {"A": _tg_val(), "B": _tg_val(), "N": _tg_val("NOT RATED")}
+    # inside its caps: no valuation-driven trade, however far from a budget weight
+    out = T.targets(tk, cov, w, vals, [{"ticker": t, "hard_max_pct": 100.0} for t in tk],
+                    total_value=10000)
     n = {r["ticker"]: r for r in out["rows"]}["N"]
     assert n["action"] == "HOLD" and n["trade_pct"] == 0 and n["target_pct"] == 60.0, n
     assert "ไม่จัดอันดับ" in n["basis"], n
-    # a full sector trims the others, never the NOT RATED name
+    # over its 20% hard cap: trimmed to the cap like an ADD-blocked name, never an exit
+    out = T.targets(tk, cov, w, vals, [{"ticker": t, "hard_max_pct": 20.0,
+                                        "add_blocker": "rating NOT RATED" if t == "N" else None}
+                                       for t in tk], total_value=10000)
+    n = {r["ticker"]: r for r in out["rows"]}["N"]
+    assert n["target_pct"] == 20.0 and n["action"] == "SELL" and n["exit"] is False, n
+    assert abs(n["trade_pct"] - (21.75 - 60.0)) < 1e-9, n
+    # a sector over its cap trims the NOT RATED name pro rata too
     sec = [{"ticker": t, "hard_max_pct": 100.0, "sector": "Tech"} for t in tk]
-    out = T.targets(tk, cov, w, {"A": _tg_val(), "B": _tg_val(), "N": _tg_val("NOT RATED")},
-                    sec, total_value=10000, sector_cap=0.40)
+    out = T.targets(tk, cov, w, vals, sec, total_value=10000, sector_cap=0.40)
     by = {r["ticker"]: r for r in out["rows"]}
-    assert by["N"]["action"] == "HOLD" and by["N"]["target_pct"] == 60.0, by["N"]
-    assert by["A"]["target_pct"] == 0.0 and by["B"]["target_pct"] == 0.0, by
-    print("targets keep a NOT RATED holding at its weight OK")
+    assert by["N"]["target_pct"] == 24.0 and by["N"]["action"] == "SELL", by["N"]
+    assert sum(r["target_pct"] for r in out["rows"]) <= 40.0 + 1e-6, by
+    # the sizing table says TRIM over the hard cap, HOLD otherwise - never ADD
+    rc = [{"ticker": "N", "capital_pct": 30.0, "abs_risk_share_pct": 30.0},
+          {"ticker": "M", "capital_pct": 5.0, "abs_risk_share_pct": 5.0}]
+    nv = {"N": {"rating": "NOT RATED", "net_mos": 0.5}, "M": {"rating": "NOT RATED", "net_mos": 0.5}}
+    act = {r["ticker"]: r["action"] for r in RP.position_sizing(rc, {}, single_name_cap=0.20,
+                                                                  risk_share_cap=1.0, value=nv)}
+    assert act["N"] == "TRIM" and act["M"].startswith("HOLD"), act
+    print("NOT RATED: no valuation trade, still bounded by the caps OK")
 
 
 def test_existing_sell_still_exits():
@@ -764,8 +777,8 @@ def test_trades_from_targets_shape_and_costs():
              "trade_pct": -18.25, "trade_usd": -1825},
             {"ticker": "B", "current_pct": 10.0, "target_pct": 30.0, "action": "BUY",
              "trade_pct": 18.25, "trade_usd": 1825},
-            {"ticker": "C", "current_pct": 30.0, "target_pct": 0.0, "action": "SELL",
-             "trade_pct": -30.0, "trade_usd": -3000},
+            {"ticker": "C", "current_pct": 30.0, "target_pct": 0.0, "action": "SELL", "exit": True,
+             "trade_pct": -29.99, "trade_usd": -2999},
             {"ticker": "D", "current_pct": 10.0, "target_pct": 11.0, "action": "HOLD",
              "trade_pct": 0.0, "trade_usd": 0}]
     w = {"A": 0.40, "B": 0.10, "C": 0.30, "D": 0.10}           # 10% cash
@@ -792,6 +805,14 @@ def test_trades_from_targets_shape_and_costs():
     assert reb["cash_pct_after"] == 40.0 and reb["to_cash_pct"] == 30.0, reb
     assert reb["no_trade"] is False and "Targets" in reb["rule"], reb
     assert RP.trades_from_targets([], w, sizing, 10000, 20)["no_trade"] is True
+    # a target that rounds to 0 (a sector cap squeezing a BUY-rated name) is NOT an exit:
+    # Targets keeps 1.75pp, so must the Rebalance table
+    z = RP.trades_from_targets([{"ticker": "A", "current_pct": 30.0, "target_pct": 0.0,
+                                 "action": "SELL", "exit": False, "trade_pct": -28.25,
+                                 "trade_usd": -2825}], {"A": 0.30}, sizing, 10000, 20)
+    za = z["trades"][0]
+    assert za["to_pct"] == 1.8 and abs(z["proposed_weights"]["A"] - 0.0175) < 1e-9, za
+    assert "SELL" not in za["priority"] and abs(za["amount_usd"] - 2825) < 0.01, za
     print("trades_from_targets: shape, costs, cash OK")
 
 
@@ -826,14 +847,63 @@ def test_rebalance_matches_targets():
         assert abs(t["amount_usd"] - abs(r["trade_usd"])) <= 1.0, (r, t)
     assert moved and len(trades) == moved, (tg["rows"], trades)
     nr = {r["ticker"]: r for r in tg["rows"]}["NR"]
-    assert nr["action"] == "HOLD" and "NR" not in trades, nr
+    assert nr["exit"] is False and nr["target_pct"] <= 20.0, nr          # cap, not valuation
+    assert trades["NR"]["action"] == "TRIM" and trades["NR"]["to_pct"] > 20.0, trades["NR"]
+    assert trades["NR"]["priority"].startswith("Must (เกิน hard cap)"), trades["NR"]
     assert "CC" in trades and trades["CC"]["to_pct"] == 0.0, trades.get("CC")
     assert trades["CC"]["priority"].startswith("Must") and reb["proposed_weights"]["CC"] == 0
-    # the sizing table may not contradict the plan: NR is over its 20% cap but kept
+    # the sizing table agrees with the plan: NR is over its 20% cap -> TRIM
     nr_size = {r["ticker"]: r for r in p["position_sizing"]}["NR"]
-    assert nr_size["action"].startswith("HOLD (ไม่จัดอันดับ"), nr_size
+    assert nr_size["action"] == "TRIM", nr_size
+    assert reb["status"] == "ok", reb
     assert reb["after"] is not None and "Targets" in reb["rule"], reb
     print("Risk Desk rebalance = Targets in shares/dollars OK:", sorted(trades))
+
+
+def test_targets_failure_is_not_no_trade():
+    import random
+    import subprocess
+    import shutil
+    from tests.test_alloc_corr import _store, _provider
+    from pipeline import risk_report
+    random.seed(5)
+    spec = {"AA": dict(sector="Technology"), "BB": dict(sector="Healthcare")}
+    s = _store(spec)
+    s["results"] = {"AA": {"recommendation": "BUY", "anchor_value": 150.0},
+                    "BB": {"recommendation": "HOLD", "anchor_value": 100.0}}
+    series = {t: [random.gauss(0.0004, 0.015) for _ in range(250)] for t in spec}
+    real = risk_report.riskeng.risk_budget_targets
+
+    def boom(*a, **k):
+        raise ValueError("singular")
+    risk_report.riskeng.risk_budget_targets = boom
+    try:
+        p, _ = risk_report.build(s, "", 0, 250, 20.0, 1.0, False,
+                                 fetch_returns=_provider(series), fetch_long=lambda t: {})
+    finally:
+        risk_report.riskeng.risk_budget_targets = real
+    reb = p["rebalance"]
+    assert p["targets"]["status"] == "error" and reb["status"] == "unavailable", reb
+    assert reb["trades"] == [] and reb["after"] is None and reb.get("note"), reb
+    if not shutil.which("node"):
+        return
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = "\n".join(open(os.path.join(root, "static", "js", f), encoding="utf-8").read()
+                    for f in ("format.js", "charts.js", "risk.js"))
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as fh:
+        json.dump(p, fh, default=str)
+    js = ("global.document={getElementById:()=>null,querySelectorAll:()=>[]};global.window={};"
+          "global.localStorage={getItem:()=>null,setItem:()=>{}};" + src +
+          ";const d=JSON.parse(require('fs').readFileSync(process.argv[1],'utf8'));"
+          "console.log(JSON.stringify([rebalanceHTML(d,d.capital_vs_risk),panelExplain(d),"
+          "storyCosts(d.rebalance)]));")
+    out = subprocess.run(["node", "-e", js, fh.name], capture_output=True, text=True)
+    os.unlink(fh.name)
+    html, explain, story = json.loads(out.stdout.strip().splitlines()[-1])
+    assert "Targets คำนวณไม่ได้ — ไม่มีรายการ rebalance" in html and "NO TRADE" not in html, html
+    assert "NO TRADE" not in explain and "Targets คำนวณไม่ได้" in explain, explain
+    assert "NO TRADE" not in story, story
+    print("targets failure shows a warning, not NO TRADE OK")
 
 
 def test_ui_and_docs_name_not_rated():

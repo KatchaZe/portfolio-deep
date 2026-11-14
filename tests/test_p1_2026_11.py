@@ -39,11 +39,16 @@ def test_sector_over_cap_is_trimmed_to_the_cap_pro_rata():
         assert abs(by[t]["hard_max_pct"] - 13.3) < 0.05, by[t]
         assert by[t]["action"] == "TRIM", by[t]
     assert by["LLY"]["binding_cap"] == "single-name cap", by["LLY"]
+    # the plan (Targets, B6): the sector's targets sum to the cap, pro rata
     value = {t: _val(0.20) for t in w}
-    reb = R.rebalance(w, sizing, value=value, total_value=10000, sector_cap=0.40)
-    tech = sum(v for t, v in reb["proposed_weights"].items() if sec[t] == "Technology")
-    assert tech <= 0.40 + 1e-3, reb["proposed_weights"]
-    print("P1-2 over-cap sector trimmed pro rata to 40% OK:", round(tech, 4))
+    tk = list(w)
+    cov = [[0.04 if i == j else 0.01 for j in range(len(tk))] for i in range(len(tk))]
+    tg = R.risk_budget_targets(tk, cov, w, value, sizing, total_value=10000, sector_cap=0.40)
+    tgt = {r["ticker"]: r["target_pct"] for r in tg["rows"]}
+    tech = sum(tgt[t] for t in tk if sec[t] == "Technology")
+    assert tech <= 40.0 + 0.15, tgt
+    assert abs(tgt["NVDA"] - tgt["AVGO"]) < 0.15 and abs(tgt["AVGO"] - tgt["MSFT"]) < 0.15, tgt
+    print("P1-2 over-cap sector: targets trimmed pro rata to 40% OK:", round(tech, 2))
 
 
 def test_freed_weight_never_lifts_a_sector_over_the_cap():
@@ -52,12 +57,14 @@ def test_freed_weight_never_lifts_a_sector_over_the_cap():
     value = {"BIG": _val(0.0, "HOLD"), "T1": _val(0.40), "T2": _val(0.40), "H1": _val(0.20)}
     sizing = R.position_sizing(_rows(w), sec, single_name_cap=0.20, sector_cap=0.40,
                                risk_share_cap=1.0, value=value)
-    reb = R.rebalance(w, sizing, value=value, total_value=10000, sector_cap=0.40)
-    pw = reb["proposed_weights"]
-    tech = pw["T1"] + pw["T2"]
-    assert tech <= 0.40 + 1e-6, pw
-    assert pw["H1"] > 0.05, pw                       # the rest still goes where value is
-    print("P1-2 freed weight respects sector headroom OK: tech", round(tech, 4))
+    tk = list(w)
+    cov = [[0.04 if i == j else 0.01 for j in range(len(tk))] for i in range(len(tk))]
+    tg = R.risk_budget_targets(tk, cov, w, value, sizing, total_value=10000, sector_cap=0.40)
+    tgt = {r["ticker"]: r["target_pct"] for r in tg["rows"]}
+    tech = tgt["T1"] + tgt["T2"]
+    assert tech <= 40.0 + 0.15, tgt
+    assert tgt["H1"] > 5.0, tgt                      # the rest still goes where value is
+    print("P1-2 redistributed weight respects sector headroom OK: tech", round(tech, 2))
 
 
 def test_name_in_a_full_sector_is_not_added_to():
