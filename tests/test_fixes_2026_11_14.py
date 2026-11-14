@@ -298,6 +298,64 @@ def test_holding_endpoint_returns_422():
     print("/api/holding 422 OK")
 
 
+# ---- Task 2: TTM needs four contiguous quarters ---------------------------------
+def _qrows(ends_vals, tag="Revenues", annual=None):
+    rows = []
+    for end, val in ends_vals:
+        e = dt.date.fromisoformat(end)
+        rows.append({"start": (e - dt.timedelta(days=90)).isoformat(), "end": end,
+                     "val": val, "filed": end, "form": "10-Q"})
+    if annual:
+        rows.append(annual)
+    return {"us-gaap": {tag: {"units": {"USD": rows}}}}
+
+
+def test_ttm_rejects_gap():
+    from sources import sec_edgar as se
+    x = se._Xbrl(_qrows([("2025-06-30", 1), ("2025-09-30", 2), ("2026-06-30", 4), ("2026-09-30", 8)]))
+    assert x.ttm("Revenues") is None
+    assert "TTM: quarters not contiguous" in x.flags
+    print("ttm gap rejected OK")
+
+
+def test_ttm_gap_uses_recent_annual_only():
+    from sources import sec_edgar as se
+    ann = {"start": "2025-10-01", "end": "2026-09-30", "val": 99, "filed": "2026-11-01", "form": "10-K"}
+    old = dict(ann, start="2024-10-01", end="2025-09-30")
+    q = [("2025-06-30", 1), ("2025-09-30", 2), ("2026-06-30", 4), ("2026-09-30", 8)]
+    # annual ends at latest_end but cur (a quarter) is latest; build so cur is a quarter
+    rows = _qrows(q, annual=dict(ann, end="2026-06-30", start="2025-07-01"))
+    assert se._Xbrl(rows).ttm("Revenues") is not None
+    rows = _qrows(q, annual=old)
+    assert se._Xbrl(rows).ttm("Revenues") is None      # annual 12 months stale
+    print("ttm annual-recency OK")
+
+
+def test_ttm_53_week_quarter_ok():
+    from sources import sec_edgar as se
+    x = se._Xbrl(_qrows([("2025-03-31", 1), ("2025-06-30", 2), ("2025-10-06", 4), ("2025-12-29", 8)]))
+    # gaps 91, 98, 84 days
+    assert x.ttm("Revenues") == 15 and not x.flags
+    print("ttm 53-week OK")
+
+
+def test_ttm_annual_path_unchanged():
+    from sources import sec_edgar as se
+    rows = [{"start": "2024-10-01", "end": "2025-09-30", "val": 100, "filed": "2025-11-01", "form": "10-K"},
+            {"start": "2025-10-01", "end": "2025-12-31", "val": 30, "filed": "2026-02-01", "form": "10-Q"},
+            {"start": "2024-10-01", "end": "2024-12-31", "val": 20, "filed": "2025-02-01", "form": "10-Q"}]
+    x = se._Xbrl({"us-gaap": {"Revenues": {"units": {"USD": rows}}}})
+    assert x.ttm("Revenues") == 110 and not x.flags
+    print("ttm annual path OK")
+
+
+def test_ttm_flag_reaches_facts():
+    from sources import sec_edgar as se
+    cf = {"facts": _qrows([("2025-06-30", 1), ("2025-09-30", 2), ("2026-06-30", 4), ("2026-09-30", 8)])}
+    assert "TTM: quarters not contiguous" in se.extract(cf)["xbrl_flags"]
+    print("ttm flag in extract OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

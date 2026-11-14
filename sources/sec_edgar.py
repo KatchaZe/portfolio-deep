@@ -85,6 +85,9 @@ def _units(node, prefer):
     return None, None
 
 
+TTM_GAP_DAYS = (80, 100)   # same rule as pipeline/quarterly.GAP_DAYS (sources/ must not import pipeline/)
+
+
 class _Xbrl:
     """Read-only views over one filer's companyfacts namespace (us-gaap, else ifrs-full).
 
@@ -95,6 +98,7 @@ class _Xbrl:
         self.standard = ("us-gaap" if facts.get("us-gaap") else
                          "ifrs" if facts.get("ifrs-full") else None)
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
+        self.flags = set()             # data-quality notes raised while reading (-> ff.flags)
 
     def entries(self, concept, prefer=USD):
         """One entry per (start, end) period, keeping the most recently filed."""
@@ -134,10 +138,16 @@ class _Xbrl:
             prior = _year_earlier(es, latest_end, _span(cur))
             if prior and annual["end"] > prior["end"]:
                 return annual["val"] + cur["val"] - prior["val"]
-        last4 = list(self.quarters(concept, prefer).values())[:4]
-        if len(last4) == 4:
-            return sum(last4)
-        return annual["val"] if annual else None
+        q4 = list(self.quarters(concept, prefer).items())[:4]
+        if len(q4) == 4 and all(
+                TTM_GAP_DAYS[0] <= _days(q4[i + 1][0], q4[i][0]) <= TTM_GAP_DAYS[1]
+                for i in range(3)):
+            return sum(v for _, v in q4)
+        # four quarters that skip a period are not a year (SPCX summed Q2'25+Q3'25+Q2'26+Q3'26)
+        self.flags.add("TTM: quarters not contiguous")
+        if annual and _days(annual["end"], latest_end) <= 100:
+            return annual["val"]
+        return None
 
     def annual_series_dated(self, concept, prefer=USD):
         """[[FY_end, value], ...] newest first, one per year."""
@@ -888,6 +898,7 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
         **operating,
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
         "q4_derived_ends": sorted(x.q4_derived),
+        "xbrl_flags": sorted(x.flags),      # last: filled by every read above
     }
     if cash_excludes_securities:
         cash_only = ((), CASH_TAGS, ())
@@ -1123,6 +1134,8 @@ def populate(ff, companyfacts, splits=None, cash_excludes_securities=False):
                                 + ", ".join(derived))
     for c in d.get("concept_conflicts") or []:
         ff.flags.append("SEC tag conflict - " + c)
+    for f in d.get("xbrl_flags") or []:
+        ff.flags.append(f)
     if d.get("prior_fallbacks"):
         ff.flags.append("prior-year balance for " + ", ".join(d["prior_fallbacks"])
                         + " read at the previous fiscal year end (no balance filed a year "
