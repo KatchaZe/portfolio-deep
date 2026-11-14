@@ -354,6 +354,12 @@ def evaluate(f, *, g_stable, wacc, roic_term, invested_capital, debt_eff, tax,
     # Every condition above is still reported, and it now caps the Price pillar at
     # neutral (`uncertain`) instead of withholding the number.
     promote = mc is not None
+    # A value held up by the liquidation floor is not a tight going-concern estimate:
+    # the floor collapses p10 and p90 onto the distress value (band ratio 1.0), which
+    # would otherwise read as certainty and escape the Price-pillar cap.
+    if floored and blocked is None:
+        blocked = (f"the value is held at the liquidation floor ${round(distress, 2)} - "
+                   f"the going-concern case alone is worth less than net cash")
     uncertain = blocked is not None
 
     return {

@@ -589,6 +589,34 @@ def test_floor_does_not_lower_extreme():
     print("floor does not lower Extreme OK")
 
 
+def _young_eval(revenue, cash=1.0e9):
+    from tests.test_young_dcf import PREPROFIT, RF
+    from domain.engine.deep_v82 import DeepV82Engine
+    from domain.facts import FinancialFacts
+    kw = dict(PREPROFIT, revenue=revenue, cash=cash, total_debt=0.0, operating_income=-0.5e9,
+              cfo=-0.5e9, revenue_annuals=[revenue, revenue * .8, revenue * .6, revenue * .4],
+              growth_lt=0.05, fwd_growth_near=0.05)
+    return DeepV82Engine().evaluate(FinancialFacts("YNGCO", **kw), rf=RF).young_dcf
+
+
+def test_floored_young_is_uncertain():
+    y = _young_eval(0.5e9)          # small POSITIVE going concern ($1.1) under $4.17 net cash
+    assert y["floored"] is True and y["going_concern_per_share"] > 0, y
+    assert y["band_ratio"] == 1.0, "floored band collapses to a point (reads as tight)"
+    assert y["uncertain"] is True and "liquidation floor" in y["blocked_reason"], y
+    ok = _young_eval(0.9e9)         # going concern above net cash: untouched
+    assert ok["floored"] is False and ok["uncertain"] is False and ok["blocked_reason"] is None, ok
+    print("floored young value is flagged uncertain OK")
+
+
+def test_non_young_uncertainty_has_no_floored_by():
+    from domain.engine import deep_v82 as E
+    v = E.DeepV82Engine().evaluate(_op_facts(), rf=0.045)
+    assert not v.anchor_method.startswith("Young-Company")
+    assert "floored_by" not in (v.uncertainty or {}), v.uncertainty
+    print("non-young uncertainty has no floored_by OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
