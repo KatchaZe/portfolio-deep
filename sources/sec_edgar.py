@@ -98,7 +98,6 @@ class _Xbrl:
         self.standard = ("us-gaap" if facts.get("us-gaap") else
                          "ifrs" if facts.get("ifrs-full") else None)
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
-        self.flags = set()             # data-quality notes raised while reading (-> ff.flags)
 
     def entries(self, concept, prefer=USD):
         """One entry per (start, end) period, keeping the most recently filed."""
@@ -125,29 +124,37 @@ class _Xbrl:
         return max((e["end"] for e in self.entries(concept, prefer)), default=None)
 
     def ttm(self, concept, prefer=USD):
+        return self._ttm(concept, prefer)[0]
+
+    def ttm_gapped(self, concept, prefer=USD):
+        """True when this concept's TTM is None because its last four quarters skip a period."""
+        v, gapped = self._ttm(concept, prefer)
+        return gapped and v is None
+
+    def _ttm(self, concept, prefer=USD):
+        """(value, quarters_not_contiguous). Pure: callers decide whether a gap matters."""
         es = [e for e in self.entries(concept, prefer) if e.get("start")]
         if not es:
-            return None
+            return None, False
         latest_end = max(e["end"] for e in es)
         cur = max((e for e in es if e["end"] == latest_end), key=_span)
         if _is_annual(cur):
-            return cur["val"]
+            return cur["val"], False
         annual = max((e for e in es if _is_annual(e)), key=lambda e: e["end"], default=None)
         if annual:
             # latest FY + current YTD - the same YTD a year earlier
             prior = _year_earlier(es, latest_end, _span(cur))
             if prior and annual["end"] > prior["end"]:
-                return annual["val"] + cur["val"] - prior["val"]
+                return annual["val"] + cur["val"] - prior["val"], False
         q4 = list(self.quarters(concept, prefer).items())[:4]
         if len(q4) == 4 and all(
                 TTM_GAP_DAYS[0] <= _days(q4[i + 1][0], q4[i][0]) <= TTM_GAP_DAYS[1]
                 for i in range(3)):
-            return sum(v for _, v in q4)
+            return sum(v for _, v in q4), False
         # four quarters that skip a period are not a year (SPCX summed Q2'25+Q3'25+Q2'26+Q3'26)
-        self.flags.add("TTM: quarters not contiguous")
         if annual and _days(annual["end"], latest_end) <= 100:
-            return annual["val"]
-        return None
+            return annual["val"], True
+        return None, len(q4) == 4
 
     def annual_series_dated(self, concept, prefer=USD):
         """[[FY_end, value], ...] newest first, one per year."""
@@ -857,6 +864,18 @@ def _derived_ebit(x):
     return out
 
 
+def _gap_flags(x, at, rev_tags, op_tags, ni_tags, out):
+    """"TTM: quarters not contiguous (field)" for each field that ended with NO value
+    because a candidate tag's last four quarters skip a period. A probe that lost to a
+    tag with a good TTM raises nothing."""
+    cands = {"revenue": rev_tags, "operating_income": op_tags, "net_income": ni_tags}
+    for field, (rule, ladder) in FIELD_LADDERS.items():
+        if rule in (_ttm, _ttm_present, _ttm_max) and out.get(field) is None:
+            cands[field] = [t for t, _ in _live_tags(x, ladder, at)]
+    return sorted("TTM: quarters not contiguous (%s)" % f for f, tags in cands.items()
+                  if tags and any(x.ttm_gapped(t) for t in tags))
+
+
 def _series(x, concept, name):
     return {name + "_annuals": x.annual_series(concept),
             name + "_annuals_dated": x.annual_series_dated(concept),
@@ -898,8 +917,11 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
         **operating,
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
         "q4_derived_ends": sorted(x.q4_derived),
-        "xbrl_flags": sorted(x.flags),      # last: filled by every read above
     }
+    out["xbrl_flags"] = _gap_flags(
+        x, at, rev_concept is None and REV,
+        op_concept is None and out.get("operating_income") is None and OP,
+        ni_concept is None and NI, out)
     if cash_excludes_securities:
         cash_only = ((), CASH_TAGS, ())
         out["cash"] = _cash_and_securities(x, cash_only, at)

@@ -314,7 +314,7 @@ def test_ttm_rejects_gap():
     from sources import sec_edgar as se
     x = se._Xbrl(_qrows([("2025-06-30", 1), ("2025-09-30", 2), ("2026-06-30", 4), ("2026-09-30", 8)]))
     assert x.ttm("Revenues") is None
-    assert "TTM: quarters not contiguous" in x.flags
+    assert x.ttm_gapped("Revenues")
     print("ttm gap rejected OK")
 
 
@@ -335,7 +335,7 @@ def test_ttm_53_week_quarter_ok():
     from sources import sec_edgar as se
     x = se._Xbrl(_qrows([("2025-03-31", 1), ("2025-06-30", 2), ("2025-10-06", 4), ("2025-12-29", 8)]))
     # gaps 91, 98, 84 days
-    assert x.ttm("Revenues") == 15 and not x.flags
+    assert x.ttm("Revenues") == 15 and not x.ttm_gapped('Revenues')
     print("ttm 53-week OK")
 
 
@@ -345,15 +345,63 @@ def test_ttm_annual_path_unchanged():
             {"start": "2025-10-01", "end": "2025-12-31", "val": 30, "filed": "2026-02-01", "form": "10-Q"},
             {"start": "2024-10-01", "end": "2024-12-31", "val": 20, "filed": "2025-02-01", "form": "10-Q"}]
     x = se._Xbrl({"us-gaap": {"Revenues": {"units": {"USD": rows}}}})
-    assert x.ttm("Revenues") == 110 and not x.flags
+    assert x.ttm("Revenues") == 110 and not x.ttm_gapped('Revenues')
     print("ttm annual path OK")
 
 
-def test_ttm_flag_reaches_facts():
+def _two_tag_facts(good_tag_rows, other_tag, other_rows):
+    ns = {"Revenues": {"units": {"USD": good_tag_rows}}}
+    ns[other_tag] = {"units": {"USD": other_rows}}
+    return {"facts": {"us-gaap": ns}}
+
+
+def _qs(ends):
+    out = []
+    for end in ends:
+        e = dt.date.fromisoformat(end)
+        out.append({"start": (e - dt.timedelta(days=90)).isoformat(), "end": end,
+                    "val": 10, "filed": end, "form": "10-Q"})
+    return out
+
+
+def test_ttm_flag_names_field_when_no_value():
     from sources import sec_edgar as se
     cf = {"facts": _qrows([("2025-06-30", 1), ("2025-09-30", 2), ("2026-06-30", 4), ("2026-09-30", 8)])}
-    assert "TTM: quarters not contiguous" in se.extract(cf)["xbrl_flags"]
+    flags = se.extract(cf)["xbrl_flags"]
+    assert "TTM: quarters not contiguous (revenue)" in flags, flags
     print("ttm flag in extract OK")
+
+
+def test_ttm_no_flag_when_losing_probe_is_gapped():
+    from sources import sec_edgar as se
+    good = _qs(["2025-03-31", "2025-06-30", "2025-09-30", "2025-12-31", "2026-03-31"])
+    new = "RevenueFromContractWithCustomerExcludingAssessedTax"
+    cf = _two_tag_facts(good, new, _qs(["2025-12-31", "2026-03-31"]))
+    d = se.extract(cf)
+    assert d["revenue"] == 40, d["revenue"]
+    assert d["xbrl_flags"] == [], d["xbrl_flags"]
+    # and a gapped tag that lost to a healthy one raises nothing either
+    cf = _two_tag_facts(good, new, _qs(["2025-06-30", "2025-09-30", "2026-06-30", "2026-09-30"]))
+    d = se.extract(cf)
+    assert d["revenue"] == 40 and d["xbrl_flags"] == [], (d["revenue"], d["xbrl_flags"])
+    print("ttm no false-positive flag OK")
+
+
+def test_ttm_gap_boundary_100_and_101_days():
+    from sources import sec_edgar as se
+    def rows(gap):
+        ends = []
+        e = dt.date(2026, 9, 30)
+        for _ in range(4):
+            ends.append(e.isoformat())
+            e -= dt.timedelta(days=gap)
+        return [{"start": (dt.date.fromisoformat(x) - dt.timedelta(days=90)).isoformat(),
+                 "end": x, "val": 5, "filed": x, "form": "10-Q"} for x in ends]
+    ok = se._Xbrl({"us-gaap": {"Revenues": {"units": {"USD": rows(100)}}}})
+    assert ok.ttm("Revenues") == 20
+    bad = se._Xbrl({"us-gaap": {"Revenues": {"units": {"USD": rows(101)}}}})
+    assert bad.ttm("Revenues") is None
+    print("ttm 100/101 day boundary OK")
 
 
 if __name__ == "__main__":
