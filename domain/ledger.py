@@ -85,8 +85,8 @@ def replay(txns, withholding=0.0):
         typ, day = t["type"], t["date"]
         tk = (t.get("ticker") or "").upper()
         fee = float(t.get("fee") or 0.0)
+        start = start or day
         if typ == "OPEN":
-            start = start or day
             if tk and t.get("shares"):
                 p = pos.setdefault(tk, _pos())
                 sh, cost = float(t["shares"]), float(t["shares"]) * float(t["price"])

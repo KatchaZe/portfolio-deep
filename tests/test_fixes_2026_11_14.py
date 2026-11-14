@@ -928,6 +928,61 @@ def test_ui_and_docs_name_not_rated():
     print("UI + How-to name NOT RATED (ไม่จัดอันดับ) OK")
 
 
+def test_ledger_start_from_first_deposit():
+    from domain import ledger
+    txns = [{"id": 1, "type": "DEPOSIT", "date": "2026-01-02", "amount": 10000},
+            {"id": 2, "type": "BUY", "date": "2026-01-05", "ticker": "AAPL", "shares": 10, "price": 100}]
+    book = ledger.replay(txns)
+    assert book["start"] == "2026-01-02", book["start"]
+    v = ledger.view(book, {"AAPL": 110.0}, "2026-06-01")
+    assert v["start"] == "2026-01-02" and v["xirr_pct"] is not None, v["xirr_note"]
+    print("ledger start from first deposit OK")
+
+
+def test_ledger_open_start_unchanged():
+    from domain import ledger
+    txns = [{"id": 1, "type": "OPEN", "date": "2026-01-01", "ticker": "MSFT", "shares": 5,
+             "price": 300, "mkt_price": 300},
+            {"id": 2, "type": "BUY", "date": "2026-01-05", "ticker": "AAPL", "shares": 10, "price": 100}]
+    assert ledger.replay(txns)["start"] == "2026-01-01"
+    print("ledger OPEN start unchanged OK")
+
+
+def test_add_holding_checks_r_ok():
+    import subprocess
+    import shutil
+    if not shutil.which("node"):
+        print("node missing: addHolding r.ok check skipped")
+        return
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    src = open(os.path.join(root, "static", "js", "portfolio.js"), encoding="utf-8").read()
+    fn = src.split("async function addHolding(){", 1)[1].split("\nasync function removeHolding", 1)[0]
+    js = """
+const calls = {render: 0};
+global.renderPortfolio = () => { calls.render++; };
+global.renderQuota = () => {};
+global.__riskCache = null;
+const els = {t: {value: 'abc'}, sh: {value: '-5'}, ac: {value: ''}, spA: {style: {}},
+             addMsg: {textContent: ''}};
+global.document = {getElementById: (id) => els[id]};
+global.fetch = async () => ({ok: false, status: 422, json: async () => ({error: 'shares must be >= 0'})});
+(async () => {
+  eval(FN);
+  await addHolding();
+  console.log(JSON.stringify({render: calls.render, msg: els.addMsg.textContent}));
+})();
+""".replace("FN", json.dumps("async function addHolding(){" + fn))
+    fh = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8")
+    fh.write(js)
+    fh.close()
+    out = subprocess.run(["node", fh.name], capture_output=True, text=True)
+    os.unlink(fh.name)
+    res = json.loads(out.stdout.strip().splitlines()[-1])
+    assert res["render"] == 0, res
+    assert res["msg"] == "\u2717 shares must be >= 0", res
+    print("addHolding non-ok response shows error, does not render OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

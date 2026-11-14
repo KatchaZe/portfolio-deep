@@ -56,6 +56,7 @@ async function addHolding(){
     if(ac!=='')u+='&avg_cost='+encodeURIComponent(ac);
     const r=await fetch(u,{method:'POST'}); const d=await r.json();
     if(r.status===401){msg.textContent='🔒 unauthorized — open /?token=YOUR_APP_TOKEN';return;}
+    if(!r.ok){msg.textContent='✗ '+(d.error||r.status);return;}
     renderPortfolio(d.view||d); if(d.quota)renderQuota(d.quota);
     const errs=(d.result&&d.result.errors)||[];
     msg.textContent=errs.length?('⚠ '+t+': '+errs.join('; ')):('✓ '+t+' added/updated');
