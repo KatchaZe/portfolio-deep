@@ -38,12 +38,23 @@ class FakeDrive:
         self.get_raises = get_raises
         self.uploads = []
         self.next_version = 100
+        self.named = {}                                # aux name -> uploaded bytes
 
     def files(self):
         return self
 
-    def list(self, **kw):
-        return _Req(lambda: {"files": [{"id": "fid1", "name": gdrive_store.REMOTE_NAME}]})
+    def list(self, q="", **kw):
+        name = q.split("'")[1] if "'" in q else gdrive_store.REMOTE_NAME
+        if name == gdrive_store.REMOTE_NAME:
+            return _Req(lambda: {"files": [{"id": "fid1", "name": name}]})
+        return _Req(lambda: {"files": [{"id": "aux:" + name, "name": name}]
+                             if name in self.named else []})
+
+    def create(self, body, media_body, fields=None):
+        def run():
+            self.named[body["name"]] = media_body
+            return {"id": "aux:" + body["name"], "version": "1"}
+        return _Req(run)
 
     def get(self, fileId, fields):
         def run():
@@ -57,6 +68,9 @@ class FakeDrive:
 
     def update(self, fileId, media_body, fields=None):
         def run():
+            if fileId.startswith("aux:"):
+                self.named[fileId[4:]] = media_body
+                return {"id": fileId, "version": "2"}
             self.uploads.append(fileId)
             self.next_version += 1
             return {"id": fileId, "version": str(self.next_version)}
@@ -69,12 +83,16 @@ def _setup(tmp, drive, remote_version):
     gdrive_store._service = drive
     gdrive_store._ids = {}
     gdrive_store.STATUS.update(push_result=None, remote_version=remote_version,
-                               conflict_file=None, last_error=None)
+                               conflict_file=None, conflict_remote=None, last_error=None)
     gdrive_store._download = lambda svc, fid: b'{"remote": true}'
+    gdrive_store._upload_media = lambda data: data      # FakeDrive keeps the bytes
     path = os.path.join(tmp, "portfolio.json")
     with open(path, "w") as fh:
         fh.write('{"local": true}')
     return path
+
+
+_REAL_DOWNLOAD, _REAL_MEDIA = gdrive_store._download, gdrive_store._upload_media
 
 
 def _teardown():
@@ -82,8 +100,11 @@ def _teardown():
     gdrive_store._enabled = None
     gdrive_store._service = None
     gdrive_store._ids = {}
-    gdrive_store.STATUS.update(push_result=None, remote_version=None, conflict_file=None)
+    gdrive_store._download, gdrive_store._upload_media = _REAL_DOWNLOAD, _REAL_MEDIA
+    gdrive_store.STATUS.update(push_result=None, remote_version=None, conflict_file=None,
+                               conflict_remote=None, pull_result=None, local_sidecar=None)
     store_sync._pull_state = None
+    store_sync._mark_mirrored(store_sync._edit_count())
 
 
 def test_push_blocked_when_remote_version_moved():
@@ -1091,6 +1112,232 @@ def test_risk_report_has_no_early_stage_rewrite():
     src = open(risk_report.__file__, encoding="utf-8").read()
     assert "higher than the industry beta" not in src
     print("risk report: dead early-stage rewrite removed OK")
+
+
+
+# ---- Final review fixes: Drive conflict survives an ephemeral disk (#3-#5) -------
+import re as _re                                         # noqa: E402
+
+_CONFLICT_RE = _re.compile(r"^portfolio\.conflict-[A-Za-z0-9-]{1,24}-\d{8}-\d{4}\.json$")
+
+
+def _conflict_copies(drive):
+    return {n: b for n, b in drive.named.items() if n.startswith("portfolio.conflict-")}
+
+
+def test_conflict_pushes_conflict_copy_and_repushes_on_save():
+    with tempfile.TemporaryDirectory() as tmp:
+        drive = FakeDrive(push_version="8")
+        path = _setup(tmp, drive, remote_version="7")
+        try:
+            assert gdrive_store.drive_push(path) is False
+            name = gdrive_store.STATUS["conflict_remote"]
+            assert name and _CONFLICT_RE.match(name), name
+            assert _conflict_copies(drive) == {name: b'{"local": true}'}, drive.named
+            assert drive.uploads == [], "the guarded portfolio.json is never touched"
+            assert store_sync.status()["conflict_remote"] == name
+            # a save while in conflict re-pushes the SAME conflict copy
+            with open(path, "w") as fh:
+                fh.write('{"local": "edited after conflict"}')
+            store_sync._pull_state = "pulled"
+            store_sync.schedule_push(path)
+            store_sync.wait_push()
+            assert _conflict_copies(drive) == {name: b'{"local": "edited after conflict"}'}, drive.named
+            assert drive.uploads == []
+        finally:
+            _teardown()
+    print("conflict copy pushed on conflict and re-pushed on save OK")
+
+
+def test_pull_reads_version_before_download():
+    with tempfile.TemporaryDirectory() as tmp:
+        drive = FakeDrive(push_version="7")
+        path = _setup(tmp, drive, remote_version=None)
+
+        def racing_download(svc, fid):
+            drive.versions = ["8"]          # another writer lands mid-download
+            return b'{"remote": "v8 content"}'
+        gdrive_store._download = racing_download
+        try:
+            assert gdrive_store.drive_pull(path) == "pulled"
+            assert gdrive_store.STATUS["remote_version"] == "7", gdrive_store.STATUS["remote_version"]
+            # what we hold may be older than v8: the next push must not overwrite it
+            assert gdrive_store.drive_push(path) is False
+            assert gdrive_store.STATUS["push_result"] == "conflict" and drive.uploads == []
+        finally:
+            _teardown()
+    print("pull reads the version before downloading OK")
+
+
+def _local_wins_setup(tmp, remote_bytes):
+    drive = FakeDrive(push_version="7")
+    path = _setup(tmp, drive, remote_version=None)
+    gdrive_store._download = lambda svc, fid: remote_bytes
+    with open(path, "wb") as fh:
+        fh.write(b'{"holdings": {"NVDA": 1}}')     # the one holding added offline
+    store_sync._pull_state, store_sync._last_try = "error", 0.0
+    store_sync._last_backup_day = None
+    store_sync.mark_local_edit()
+    return drive, path
+
+
+def test_local_edit_vs_differing_remote_enters_conflict():
+    with tempfile.TemporaryDirectory() as tmp:
+        drive, path = _local_wins_setup(tmp, b'{"holdings": {"full": "portfolio"}}')
+        try:
+            store_sync.ensure_pull(path)
+            store_sync.wait_push()
+            assert drive.uploads == [], "near-empty local must not replace the Drive portfolio"
+            assert gdrive_store.STATUS["push_result"] == "conflict"
+            assert store_sync.status()["push_blocked"] is True
+            assert open(path, "rb").read() == b'{"holdings": {"NVDA": 1}}', "local kept"
+            side = glob.glob(path + ".remote-*")
+            assert len(side) == 1 and open(side[0], "rb").read() == b'{"holdings": {"full": "portfolio"}}'
+            assert gdrive_store.STATUS["conflict_file"] == os.path.basename(side[0])
+            assert not os.path.exists(path + ".remote"), "scratch copy left behind"
+            assert list(_conflict_copies(drive).values()) == [b'{"holdings": {"NVDA": 1}}']
+            assert not [n for n in drive.named if n.startswith("portfolio.backup-")], drive.named
+            # a later save stays blocked from portfolio.json and from the dated backup
+            store_sync.schedule_push(path)
+            store_sync.wait_push()
+            assert drive.uploads == []
+            assert not [n for n in drive.named if n.startswith("portfolio.backup-")]
+        finally:
+            store_sync._last_backup_day = None
+            _teardown()
+    print("offline edit vs a different remote -> conflict, no overwrite OK")
+
+
+def test_local_edit_identical_to_remote_is_mirrored():
+    with tempfile.TemporaryDirectory() as tmp:
+        drive, path = _local_wins_setup(tmp, b'{"holdings": {"NVDA": 1}}')
+        try:
+            store_sync.ensure_pull(path)
+            store_sync.wait_push()
+            assert gdrive_store.STATUS["push_result"] != "conflict"
+            assert store_sync._pull_state == "pulled" and not store_sync._has_unmirrored_edit()
+            assert gdrive_store.STATUS["remote_version"] == "7"
+            assert not glob.glob(path + ".remote*")
+        finally:
+            store_sync._last_backup_day = None
+            _teardown()
+    print("offline edit equal to the remote -> no conflict OK")
+
+
+def test_no_daily_backup_from_a_conflicted_store():
+    with tempfile.TemporaryDirectory() as tmp:
+        drive = FakeDrive(push_version="7")
+        path = _setup(tmp, drive, remote_version="7")
+        store_sync._last_backup_day = None
+        try:
+            gdrive_store.STATUS["push_result"] = "conflict"
+            store_sync._backup_once_a_day(path)
+            assert drive.named == {} and store_sync._last_backup_day is None, drive.named
+        finally:
+            store_sync._last_backup_day = None
+            _teardown()
+    print("no dated backup while in conflict OK")
+
+
+
+# ---- Final review fixes: UI (#6, #7) ---------------------------------------------
+def _node(js):
+    import subprocess
+    fh = tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8")
+    fh.write(js)
+    fh.close()
+    try:
+        out = subprocess.run(["node", fh.name], capture_output=True, text=True)
+    finally:
+        os.unlink(fh.name)
+    assert out.returncode == 0, out.stderr
+    return json.loads(out.stdout.strip().splitlines()[-1])
+
+
+def _js_src(name):
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return open(os.path.join(root, "static", "js", name), encoding="utf-8").read()
+
+
+def _run_add_holding(response_js):
+    fn = _js_src("portfolio.js").split("async function addHolding(){", 1)[1].split(
+        "\nasync function removeHolding", 1)[0]
+    js = """
+const calls = {render: 0};
+global.renderPortfolio = () => { calls.render++; };
+global.renderQuota = () => {};
+global.__riskCache = null;
+const els = {t: {value: 'abc'}, sh: {value: '5'}, ac: {value: ''}, spA: {style: {}},
+             addMsg: {textContent: ''}};
+global.document = {getElementById: (id) => els[id]};
+global.fetch = async () => (__RESP__);
+(async () => {
+  eval(__FN__);
+  await addHolding();
+  console.log(JSON.stringify({render: calls.render, msg: els.addMsg.textContent}));
+})();
+""".replace("__RESP__", response_js).replace(
+        "__FN__", json.dumps("async function addHolding(){" + fn))
+    return _node(js)
+
+
+def test_add_holding_non_json_error_and_ok_path():
+    import shutil
+    if not shutil.which("node"):
+        print("node missing: addHolding non-JSON check skipped")
+        return
+    res = _run_add_holding("{ok: false, status: 500, json: async () => "
+                           "{ throw new SyntaxError('Unexpected token I'); }}")
+    assert res == {"render": 0, "msg": "✗ 500"}, res
+    res = _run_add_holding("{ok: true, status: 200, json: async () => ({view: {}})}")
+    assert res["render"] == 1 and res["msg"] == "✓ ABC added/updated", res
+    print("addHolding: non-JSON 500 shows status, 200 renders OK")
+
+
+def _run_badge(persist):
+    fn = _js_src("app.js").split("async function loadPersist(){", 1)[1].split(
+        "\n// Render free tier", 1)[0]
+    js = """
+const el = {className: '', innerHTML: '', title: '', style: {}};
+global.document = {getElementById: () => el};
+global.fetch = async () => ({json: async () => (__PERSIST__)});
+(async () => {
+  eval(__FN__);
+  await loadPersist();
+  console.log(JSON.stringify(el));
+})();
+""".replace("__PERSIST__", json.dumps(persist)).replace(
+        "__FN__", json.dumps("async function loadPersist(){" + fn))
+    return _node(js)
+
+
+def test_badge_amber_when_restart_pull_replaced_local():
+    import shutil
+    if not shutil.which("node"):
+        print("node missing: badge check skipped")
+        return
+    ok = {"configured": True, "auth_mode": "oauth", "pull_state": "pulled",
+          "push_blocked": False, "push_result": "pushed", "local_sidecar": None}
+    el = _run_badge(ok)
+    assert el["className"] == "quota", el
+    el = _run_badge(dict(ok, local_sidecar="portfolio.json.local-20261115-0900"))
+    assert el["className"] == "quota warn", el
+    assert "portfolio.json.local-20261115-0900" in el["title"], el
+    print("badge amber with the local sidecar named OK")
+
+
+def test_badge_names_conflict_copy_without_restart_advice():
+    import shutil
+    if not shutil.which("node"):
+        print("node missing: conflict badge check skipped")
+        return
+    el = _run_badge({"configured": True, "auth_mode": "oauth", "pull_state": "pulled",
+                     "push_blocked": True, "push_result": "conflict",
+                     "conflict_file": "portfolio.json.remote-20261115-0900",
+                     "conflict_remote": "portfolio.conflict-srv-20261115-0900.json"})
+    assert "portfolio.conflict-srv-20261115-0900.json" in el["title"], el
+    assert "ข้างไฟล์ local" not in el["title"] and "ก่อน restart" not in el["title"], el["title"]
+    print("conflict badge names the Drive conflict copy OK")
 
 
 if __name__ == "__main__":

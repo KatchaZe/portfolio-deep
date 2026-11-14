@@ -17,7 +17,9 @@ With neither set every function is a no-op. No function here ever raises.
 """
 import os
 import io
+import re
 import json
+import socket
 import logging
 import datetime as _dt
 
@@ -34,6 +36,7 @@ STATUS = {
     "remote_version": None,   # Drive `version` of portfolio.json we last pulled/pushed
     "local_sidecar": None,    # local copy kept when a pull replaced a different file
     "conflict_file": None,    # local sidecar holding the remote copy after a conflict
+    "conflict_remote": None,  # Drive name of this instance's copy during a conflict
 }
 
 REMOTE_NAME = "portfolio.json"
@@ -250,9 +253,11 @@ def drive_pull(local_path):
             log.info("Drive: no remote portfolio.json yet (first run)")
             STATUS["pull_result"] = "absent"
             return "absent"
+        # The version BEFORE the bytes: a write landing mid-download then reads as a
+        # moved remote at the next push (conflict), never as the version we hold.
+        version = remote_version(svc, fid)
         data = _download(svc, fid)
         json.loads(data.decode("utf-8"))            # validate before overwriting
-        version = remote_version(svc, fid)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         if not local_path.endswith(".remote"):      # the local-wins sidecar is a scratch copy
             _keep_differing_local(local_path, data)
@@ -289,13 +294,47 @@ def _stash_remote(svc, fid, local_path):
     return side
 
 
+def _conflict_name():
+    """portfolio.conflict-<host>-<YYYYMMDD-HHMM>.json: never the guarded name."""
+    host = os.environ.get("RENDER_SERVICE_NAME") or socket.gethostname() or "host"
+    host = re.sub(r"[^A-Za-z0-9-]+", "-", host).strip("-")[:24].strip("-") or "host"
+    return f"portfolio.conflict-{host}-{_dt.datetime.now().strftime('%Y%m%d-%H%M')}.json"
+
+
+def conflict_remote_name():
+    """This conflict episode's Drive name, fixed at first use (one per episode)."""
+    STATUS["conflict_remote"] = STATUS.get("conflict_remote") or _conflict_name()
+    return STATUS["conflict_remote"]
+
+
+def push_conflict_copy(local_path):
+    """Upload the local file under this conflict episode's own Drive name. Render's
+    disk is ephemeral: without this, edits made after a conflict die with the
+    instance. store_sync re-pushes it on every save. True on success."""
+    if not enabled():
+        return False
+    return drive_push_json(conflict_remote_name(), local_path)
+
+
+def enter_conflict(local_path, why, remote_side):
+    """Block the guarded push for the rest of this process, keep the remote copy
+    (`remote_side`, already on local disk) and put the local copy on Drive."""
+    STATUS["push_result"] = "conflict"
+    STATUS["conflict_file"] = os.path.basename(remote_side) if remote_side else None
+    STATUS["last_error"] = f"push: conflict - {why}"
+    push_conflict_copy(local_path)
+    log.error("Drive push BLOCKED (%s); remote copy saved to %s, local copy uploaded "
+              "as %s", why, remote_side, STATUS["conflict_remote"])
+
+
 def drive_push(local_path):
     """Upload local_path as the remote portfolio.json. True on success.
 
     Optimistic lock: the push goes ahead only when Drive's version still equals the
     one this process last pulled/pushed. A moved (or unreadable) version means
-    another writer changed the remote, so it is saved beside the local file and the
-    push is refused with push_result == "conflict", which stays until restart."""
+    another writer changed the remote, so it is saved beside the local file, the local
+    file goes to Drive under a conflict name, and the push is refused with
+    push_result == "conflict", which stays until restart."""
     if not enabled():
         return False
     if STATUS["push_result"] == "conflict":
@@ -312,11 +351,7 @@ def drive_push(local_path):
             except Exception as e:
                 moved, why = True, f"remote version unreadable: {e}"
             if moved:
-                side = _stash_remote(svc, fid, local_path)
-                log.error("Drive push BLOCKED (%s); remote copy saved to %s", why, side)
-                STATUS["push_result"] = "conflict"
-                STATUS["conflict_file"] = os.path.basename(side) if side else None
-                STATUS["last_error"] = f"push: conflict - {why}"
+                enter_conflict(local_path, why, _stash_remote(svc, fid, local_path))
                 return False
         version = _upload(REMOTE_NAME, local_path)
     except Exception as e:

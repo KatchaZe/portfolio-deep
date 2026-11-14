@@ -66,7 +66,9 @@ async function loadPersist(){
     }
     if(p.push_result==='conflict'){
       el.className='quota warn'; el.style.color='#d33'; el.innerHTML='Drive &#9888; conflict';
-      el.title='Drive มีไฟล์ใหม่กว่าที่ instance นี้รู้จัก — การ push ถูกบล็อกจนกว่าจะ restart\nสำเนาจาก Drive เก็บไว้ที่ '+(p.conflict_file||'portfolio.json.remote-*')+' ข้างไฟล์ local\nrestart แล้ว instance จะ pull ทับไฟล์ local (ข้อมูลที่แก้หลังเกิด conflict จะถูกเก็บไว้ที่ portfolio.json.local-* ก่อนถูกทับ) — ตรวจสอบไฟล์ทั้งสองก่อน restart'+kept;
+      el.title='Drive มี portfolio.json ที่ต่างจากของ instance นี้ — หยุด push ทับ portfolio.json บน Drive ไว้ก่อน'
+        +'\nข้อมูลของ instance นี้ (รวมที่แก้หลังจากนี้) ถูกอัปโหลดขึ้น Drive เป็น '+(p.conflict_remote||'portfolio.conflict-*.json')+' ทุกครั้งที่บันทึก'
+        +'\nเปิดทั้งสองไฟล์ใน Google Drive เลือกหรือรวมเป็น portfolio.json แล้ว restart เพื่อ pull ไฟล์นั้น'+kept;
       return;
     }
     el.style.color='';
@@ -76,6 +78,10 @@ async function loadPersist(){
       el.title='Google Drive backup มีปัญหา — '+(p.last_error||'pull/push ล้มเหลว')
         +'\nการ push ถูกบล็อกไว้เพื่อป้องกันไฟล์ backup ถูกทับด้วย store ว่าง จะ retry อัตโนมัติทุก 1 นาที'
         +'\nถ้าค้างนาน: refresh token อาจหมดอายุ (OAuth consent screen สถานะ Testing = token หมดใน 7 วัน — กด PUBLISH APP เป็น In production แล้วสร้าง token ใหม่)';
+    }else if(p.local_sidecar){
+      el.className='quota warn'; el.innerHTML='Drive &#10003; local kept';
+      el.title='Drive ทำงานปกติ แต่ตอนเริ่ม instance ไฟล์จาก Drive ได้แทนที่ไฟล์ local ที่ต่างกัน'+kept
+        +'\nตรวจว่าข้อมูลในไฟล์นั้นยังต้องใช้หรือไม่';
     }else{
       el.className='quota'; el.innerHTML='Drive &#10003;';
       el.title=`Google Drive backup ทำงานปกติ (${p.auth_mode})\nlast pull: ${p.last_pull||'—'} (${p.pull_state||p.pull_result||'—'})\nlast push: ${p.last_push||'—'} (${p.push_result||'—'})${kept}`;

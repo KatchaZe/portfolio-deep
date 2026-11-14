@@ -7,8 +7,9 @@ module owns the state that decides between them:
   * a background push worker, so save() never does network I/O under store.LOCK;
   * the PUSH GUARD: no portfolio push until one pull has succeeded, so a cold-started
     empty-disk instance can never overwrite the good Drive backup;
-  * the LOCAL GUARD: a user edit made while Drive was unreachable is newer than the
-    remote, so a later pull retry must not overwrite it.
+  * the LOCAL GUARD: a user edit made while Drive was unreachable must not be
+    overwritten by a later pull retry, nor may it overwrite a different remote: the
+    two differing is a conflict (both kept, local copy on Drive under its own name).
 
 Per-process state: the app must run as exactly ONE worker.
 """
@@ -27,8 +28,9 @@ log = logging.getLogger("portfolio.store_sync")
 #   "pulled"  -> remote restored onto local disk  (push allowed)
 #   "absent"  -> Drive reachable, no remote yet   (push allowed - first run)
 #   "error"   -> pull FAILED -> push BLOCKED until a retry succeeds
-# A push that finds the remote moved sets gdrive_store.STATUS["push_result"] to
-# "conflict"; pushes stay blocked until the process restarts (no automatic retry).
+# A push that finds the remote moved (or an offline edit meeting a different remote)
+# sets gdrive_store.STATUS["push_result"] to "conflict": portfolio.json pushes stay
+# blocked until restart, and each save goes to Drive under the conflict name instead.
 _pull_state = None
 _last_try = 0.0
 RETRY_SECS = 60           # retry a failed pull at most once a minute
@@ -81,24 +83,44 @@ def ensure_pull(path):
     _last_try = now
 
     if _has_unmirrored_edit() and os.path.exists(path):
-        # Local wins: keep it, unblock pushing so it reaches Drive, and keep whatever
-        # the remote held in a sidecar rather than discarding either version.
-        try:
-            gdrive_store.drive_pull(path + ".remote")
-        except Exception:
-            pass
-        _pull_state = "pulled"
-        log.warning("Drive pull SKIPPED: local %s was edited while Drive was "
-                    "unreachable, so it is newer than the remote. Keeping local and "
-                    "pushing it up; the remote copy was saved to %s.remote",
-                    path, path)
-        gdrive_store.STATUS["pull_result"] = "local-kept"
-        schedule_push(path)
+        _pull_state = _reconcile_offline_edit(path)
+        if _pull_state == "absent":
+            schedule_push(path)
         return
 
     _pull_state = gdrive_store.drive_pull(path)
     if _pull_ok():
         _mark_mirrored(_edit_count())
+
+
+def _reconcile_offline_edit(path):
+    """The local file was edited while Drive was unreachable. Neither side can be
+    called newer (the edit may sit on the empty default store a failed cold start
+    saved), so: no remote -> push local; same bytes -> mirrored; different bytes ->
+    conflict, keeping both and putting the local copy on Drive under its own name.
+    Returns the new pull state."""
+    scratch = path + ".remote"
+    res = gdrive_store.drive_pull(scratch)
+    if res == "error":
+        return "error"
+    if res == "absent":
+        gdrive_store.STATUS["pull_result"] = "local-kept"
+        log.warning("Drive has no portfolio.json yet: pushing the local %s", path)
+        return "absent"
+    with open(path, "rb") as fh:
+        local = fh.read()
+    with open(scratch, "rb") as fh:
+        remote = fh.read()
+    if local == remote:
+        os.remove(scratch)
+        _mark_mirrored(_edit_count())
+        return "pulled"
+    side = f"{path}.remote-{_dt.datetime.now().strftime('%Y%m%d-%H%M')}"
+    os.replace(scratch, side)
+    gdrive_store.STATUS["pull_result"] = "local-kept"
+    gdrive_store.enter_conflict(path, "local edited while Drive was unreachable and "
+                                      "the Drive copy differs", side)
+    return "pulled"
 
 
 # --- background push ------------------------------------------------------- #
@@ -128,6 +150,8 @@ def _push_worker():
 def _backup_once_a_day(path):
     """A dated copy on Drive, so a bad overwrite is recoverable. Once per day."""
     global _last_backup_day
+    if gdrive_store.STATUS.get("push_result") == "conflict":
+        return                      # a conflicted store must never become "the backup"
     today = _dt.date.today().isoformat()
     if _last_backup_day == today:
         return
@@ -158,8 +182,9 @@ def schedule_push(path):
         gdrive_store.STATUS["push_result"] = "skipped"
         return
     if gdrive_store.STATUS.get("push_result") == "conflict":
-        log.error("Drive push BLOCKED: remote changed under us (conflict). Restart "
-                  "after reconciling the .remote-* file beside the local store.")
+        # portfolio.json stays untouched; this instance's copy keeps reaching Drive
+        # under its conflict name so a restart (ephemeral disk) cannot lose it
+        _enqueue(path, gdrive_store.conflict_remote_name())
         return
     _enqueue(path, None)
 

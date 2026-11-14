@@ -54,9 +54,9 @@ async function addHolding(){
     let u='/api/holding?ticker='+encodeURIComponent(t);
     if(sh!=='')u+='&shares='+encodeURIComponent(sh);
     if(ac!=='')u+='&avg_cost='+encodeURIComponent(ac);
-    const r=await fetch(u,{method:'POST'}); const d=await r.json();
+    const r=await fetch(u,{method:'POST'}); const d=await r.json().catch(()=>null);
     if(r.status===401){msg.textContent='🔒 unauthorized — open /?token=YOUR_APP_TOKEN';return;}
-    if(!r.ok){msg.textContent='✗ '+(d.error||r.status);return;}
+    if(!r.ok||!d){msg.textContent='✗ '+((d&&(d.detail||d.error))||r.status);return;}
     renderPortfolio(d.view||d); if(d.quota)renderQuota(d.quota);
     const errs=(d.result&&d.result.errors)||[];
     msg.textContent=errs.length?('⚠ '+t+': '+errs.join('; ')):('✓ '+t+' added/updated');

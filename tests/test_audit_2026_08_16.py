@@ -451,11 +451,16 @@ def test_local_edit_survives_a_late_drive_pull():
         check("NVDA" in got.get("holdings", {}),
               "the local save survives the pull retry (holdings=%s)"
               % list(got.get("holdings", {})))
-        check(os.path.exists(path + ".remote"),
+        import glob as _glob
+        check(len(_glob.glob(path + ".remote-*")) == 1,
               "and the remote copy is kept beside it instead of being discarded")
+        check(gdrive_store.STATUS.get("push_result") == "conflict",
+              "and the differing remote is a conflict, not overwritten (final review #5)")
     finally:
         gdrive_store.enabled, gdrive_store.drive_pull, gdrive_store.drive_push = (
             _enabled, _pull, _push)
+        gdrive_store.STATUS.update(push_result=None, conflict_file=None,
+                                   conflict_remote=None, last_error=None)
         importlib.reload(store_sync)
 
 
