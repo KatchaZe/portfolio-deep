@@ -67,17 +67,27 @@ def rating(width):
     return next((r for cut, r in WIDTH_CUTS if width < cut), "Extreme")
 
 
-def assess(scenarios, young_dcf=None):
-    """The uncertainty block a Valuation carries."""
+ORDER = ("Low", "Medium", "High", "Very High", "Extreme")
+
+
+def assess(scenarios, young_dcf=None, floor=None):
+    """The uncertainty block a Valuation carries. `floor` is the lowest rating the
+    caller will accept (a pre-profit firm's range is never "Low"); it only lifts."""
     width, basis = measure(scenarios, young_dcf)
     r = rating(width)
+    lifted = None
+    if floor in ORDER and (r not in ORDER or ORDER.index(r) < ORDER.index(floor)):
+        r, lifted = floor, floor
     b = BANDS[r]
-    return {"rating": r,
+    out = {"rating": r,
             "width": round(width, 3) if width is not None else None,
             "basis": basis,
             "bands_pct": [round(x * 100, 1) for x in b],
             "add_min_mos": b[1],
             "tag": "[JUDG] Morningstar uncertainty bands; width cut-offs set on fixtures"}
+    if lifted:
+        out["floored_by"] = lifted
+    return out
 
 
 def bands(block):

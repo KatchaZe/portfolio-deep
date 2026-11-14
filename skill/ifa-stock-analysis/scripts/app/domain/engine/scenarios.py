@@ -165,9 +165,13 @@ def young(ydcf, price, industry_margin=None):
         return None, None
     p, distress = ydcf.get("p_survival") or 0.0, ydcf.get("distress_per_share") or 0.0
 
-    def val(**over):
+    def val(raw=False, **over):
         g = young_dcf.going_concern(dict(d, **over))
-        return None if g is None else p * g["going_concern_per_share"] + (1 - p) * distress
+        if g is None:
+            return None
+        if raw:
+            return young_dcf.failure_adjusted(g["going_concern_per_share"], p, distress)
+        return young_dcf.floored_value(g["going_concern_per_share"], p, distress)[0]
     m_star, why_m = _bisect(lambda m: val(target_margin=m), price, MARGIN_LO, MARGIN_HI)
     g_star, why_g = _bisect(lambda g: val(g_high=g), price, 0.0, 3.0)
     rev10 = None
@@ -194,6 +198,11 @@ def young(ydcf, price, industry_margin=None):
                        "growth_y1_pct": round(over.get("g_high", gh) * 100, 1)})
     pack = _pack([c[0] for c in cases], values, inputs, price,
                  "margin = อุตสาหกรรม / โมเดล / 2× อุตสาหกรรม · growth ปีแรก ∓15pp · Base = ค่าจุด (FV หลักคือ p50 ของ Monte Carlo)")
+    # the floor clips Bear and Base to the same liquidation value; whether slower
+    # growth is worth more is a property of the raw model, so it is read before the floor
+    bear_raw, base_raw = val(raw=True, **cases[0][1]), val(raw=True)
+    pack["growth_destroys_value"] = bool(bear_raw is not None and base_raw is not None
+                                         and bear_raw > base_raw)
     pack["story_mc"] = story_mc_young(ydcf, price, lo, hi)
     return priced, pack
 
@@ -279,7 +288,7 @@ def story_mc_young(ydcf, price, margin_lo, margin_hi, sims=MC_SIMS, seed=MC_SEED
                     sales_to_capital=d["sales_to_capital"] * _tri(rnd, 1 - S2C_SPREAD, 1.0, 1 + S2C_SPREAD))
         g = young_dcf.going_concern(dict(d, **over))
         if g is not None:
-            vals.append(p * g["going_concern_per_share"] + (1 - p) * distress)
+            vals.append(young_dcf.floored_value(g["going_concern_per_share"], p, distress)[0])
     return _summary(vals, price, {
         "margin_pct": [round(margin_lo * 100, 2), round(d["target_margin"] * 100, 2), round(margin_hi * 100, 2)],
         "growth": "first-year -/+15pp", "sales_to_capital": "x0.75-1.25", "survival": "+/-20 points"})

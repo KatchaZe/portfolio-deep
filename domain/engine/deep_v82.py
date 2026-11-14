@@ -1120,7 +1120,9 @@ class DeepV82Engine(DeepEngine):
         ex = _execution_inputs(f, cap, acq, gr, notes, ctype)
         # the value range sets how deep a discount the Price pillar asks for
         priced_in, scen = _cross_checks(f, cap, gr, ctype, rf, anc)
-        unc = uncertainty_mod.assess(scen, anc.ydcf)
+        unc = uncertainty_mod.assess(
+            scen, anc.ydcf,
+            floor="Very High" if anc.method.startswith("Young-Company") else None)
         scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype,
                           young_uncertain=bool((anc.ydcf or {}).get("uncertain"))
                           and anc.method.startswith("Young-Company"),

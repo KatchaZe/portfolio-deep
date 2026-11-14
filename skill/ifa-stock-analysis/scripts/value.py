@@ -89,8 +89,8 @@ def _young(y):
     p = y["p_survival"]
     y = dict(y)
     y["value_at_p_survival"] = {
-        round(q, 2): round(young_dcf.failure_adjusted(y["going_concern_per_share"], q,
-                                                      y.get("distress_per_share")), 2)
+        round(q, 2): round(young_dcf.floored_value(y["going_concern_per_share"], q,
+                                                   y.get("distress_per_share"))[0], 2)
         for q in (max(0.0, p - 0.20), p, min(1.0, p + 0.20))}
     return y
 

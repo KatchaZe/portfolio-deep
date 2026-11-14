@@ -199,6 +199,16 @@ def failure_adjusted(per_share_gc, p_survival, distress_per_share):
     return p_survival * per_share_gc + (1 - p_survival) * (distress_per_share or 0.0)
 
 
+def floored_value(per_share_gc, p_survival, distress_per_share):
+    """(value, floored): the failure-adjusted value, never below liquidation value.
+    Equity can always be liquidated for net cash, so a going concern worth zero must
+    not drag the blend under it. The ONE place the floor lives: the point value, the
+    Bear/Base/Bull scenarios, both Monte Carlos and the p_survival table all call this."""
+    v = failure_adjusted(per_share_gc, p_survival, distress_per_share)
+    floor = distress_per_share or 0.0
+    return (floor, True) if v < floor else (v, False)
+
+
 def monte_carlo(d, n_sims=MC_SIMS, seed=MC_SEED, margin_span=MC_MARGIN_SPAN_ASSUMED):
     """Triangular resample of the four inputs that actually carry the uncertainty.
     Seeded, so a refresh with unchanged facts returns an unchanged band.
@@ -220,8 +230,8 @@ def monte_carlo(d, n_sims=MC_SIMS, seed=MC_SEED, margin_span=MC_MARGIN_SPAN_ASSU
         gc = going_concern(s)
         if gc is None:
             continue
-        vals.append(failure_adjusted(gc["going_concern_per_share"], p_surv,
-                                     d.get("distress_value_per_share")))
+        vals.append(floored_value(gc["going_concern_per_share"], p_surv,
+                                  d.get("distress_value_per_share"))[0])
     if len(vals) < n_sims * 0.5:
         return None
     vals.sort()
@@ -303,7 +313,7 @@ def evaluate(f, *, g_stable, wacc, roic_term, invested_capital, debt_eff, tax,
     gc = going_concern(d)
     if gc is None:
         return None
-    point = failure_adjusted(gc["going_concern_per_share"], p_surv, distress)
+    point, floored = floored_value(gc["going_concern_per_share"], p_surv, distress)
     span = MC_MARGIN_SPAN_ANCHORED if target_margin_anchored else MC_MARGIN_SPAN_ASSUMED
     mc = monte_carlo(d, margin_span=span)
 
@@ -349,6 +359,7 @@ def evaluate(f, *, g_stable, wacc, roic_term, invested_capital, debt_eff, tax,
     return {
         "going_concern_per_share": round(gc["going_concern_per_share"], 2),
         "failure_adjusted_per_share": round(point, 2),
+        "floored": floored,
         "p_survival": round(p_surv, 2),
         "distress_per_share": round(distress, 2),
         "monte_carlo": mc,

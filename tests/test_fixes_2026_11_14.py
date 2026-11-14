@@ -531,6 +531,64 @@ def test_contracts_cover_minority_interest():
     print("contracts cover minority_interest OK")
 
 
+# --- Task 4: liquidation floor + young-firm uncertainty floor -------------------
+def test_young_fv_not_below_net_cash():
+    from domain.engine import young_dcf as Y
+    v, floored = Y.floored_value(0.0, 0.85, 7.14)
+    assert v == 7.14 and floored is True
+    v, floored = Y.floored_value(20.0, 0.85, 7.14)
+    assert floored is False and abs(v - Y.failure_adjusted(20.0, 0.85, 7.14)) < 1e-12
+    print("young fv floored at net cash OK")
+
+
+def test_floor_applies_to_scenarios():
+    from domain.engine import scenarios as S, young_dcf as Y
+    d = {"current_revenue": 100.0, "g_high": 0.2, "g_stable": 0.03, "horizon": 10,
+         "current_margin": -0.5, "target_margin": 0.01, "sales_to_capital": 0.3,
+         "tax": 0.2, "wacc": 0.15, "roic_stable": 0.05, "wacc_stable": 0.09,
+         "tax_terminal": 0.25, "net_debt": 0.0, "shares": 10.0,
+         "annual_dilution": 0.0, "p_survival": 0.85, "distress_value_per_share": 7.14}
+    gc = Y.going_concern(d)
+    assert gc["going_concern_per_share"] < 1.0, gc["going_concern_per_share"]
+    ydcf = {"model": d, "p_survival": 0.85, "distress_per_share": 7.14}
+    _, pack = S.young(ydcf, 20.0)
+    vals = [c["value"] for c in pack["cases"]]
+    assert vals and all(v >= 7.14 - 1e-9 for v in vals), vals
+    mc = S.story_mc_young(ydcf, 20.0, 0.0, 0.03)
+    assert mc["p10"] >= 7.14 - 0.011, mc
+    print("floor applies to scenarios and story MC OK")
+
+
+def test_young_mc_floored():
+    from domain.engine import young_dcf as Y
+    d = {"current_revenue": 100.0, "g_high": 0.2, "g_stable": 0.03, "horizon": 10,
+         "current_margin": -0.5, "target_margin": 0.01, "sales_to_capital": 0.3,
+         "tax": 0.2, "wacc": 0.15, "roic_stable": 0.05, "wacc_stable": 0.09,
+         "tax_terminal": 0.25, "net_debt": 0.0, "shares": 10.0,
+         "annual_dilution": 0.0, "p_survival": 0.85, "distress_value_per_share": 7.14}
+    mc = Y.monte_carlo(d, n_sims=300)
+    assert mc["p10"] >= 7.14 - 0.011, mc
+    print("young MC floored OK")
+
+
+def test_young_uncertainty_at_least_very_high():
+    from domain.engine import uncertainty as U
+    sc = {"story_mc": {"p10": 9.0, "p50": 10.0, "p90": 12.0}}   # width 0.3 -> Low
+    assert U.assess(sc)["rating"] == "Low"
+    b = U.assess(sc, None, floor="Very High")
+    assert b["rating"] == "Very High" and b["floored_by"] == "Very High", b
+    assert U.assess(sc, None, floor="Very High")["add_min_mos"] == U.BANDS["Very High"][1]
+    print("young uncertainty floor OK")
+
+
+def test_floor_does_not_lower_extreme():
+    from domain.engine import uncertainty as U
+    sc = {"story_mc": {"p10": 1.0, "p50": 2.0, "p90": 5.0}}     # width 2.0
+    b = U.assess(sc, None, floor="Very High")
+    assert b["rating"] == "Extreme" and "floored_by" not in b, b
+    print("floor does not lower Extreme OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
