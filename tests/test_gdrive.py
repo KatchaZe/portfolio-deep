@@ -160,6 +160,9 @@ def test_push_does_not_hold_the_local_file_open(tmp):
             return {"id": "fid1"}
 
     class _Files:
+        def get(self, fileId=None, fields=None):
+            return type("G", (), {"execute": lambda self: {"version": "1"}})()
+
         def update(self, fileId=None, media_body=None, **kw):
             return _Req(media_body)
 
@@ -171,6 +174,7 @@ def test_push_does_not_hold_the_local_file_open(tmp):
             return _Files()
 
     orig_client, orig_find = gdrive_store._client, gdrive_store._find_id
+    gdrive_store.STATUS["remote_version"] = "1"        # the version the push may overwrite
     gdrive_store._client = lambda: _Svc()
     gdrive_store._find_id = lambda svc, name: "fid1"
     try:

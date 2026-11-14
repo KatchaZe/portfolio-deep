@@ -1,7 +1,7 @@
 // The page shell: tabs, build stamp, persistence badge, keep-alive and boot. Loaded last.
 
 // must equal config.BUILD; a browser still running cached JS shows the mismatch banner
-const DASH_BUILD="2026-11-11a";
+const DASH_BUILD="2026-11-14a";
 
 async function checkBuild(){
   const el=document.getElementById('buildStamp'); if(!el)return;
@@ -63,6 +63,12 @@ async function loadPersist(){
       el.title='ไม่ได้ตั้งค่า Google Drive backup — บน Render free tier ข้อมูลจะหายเมื่อ instance restart (ตั้ง GDRIVE_OAUTH_* ตาม GOOGLE_DRIVE_OAUTH_SETUP.md)';
       return;
     }
+    if(p.push_result==='conflict'){
+      el.className='quota warn'; el.style.color='#d33'; el.innerHTML='Drive &#9888; conflict';
+      el.title='Drive มีไฟล์ใหม่กว่าที่ instance นี้รู้จัก — การ push ถูกบล็อกจนกว่าจะ restart\nสำเนาจาก Drive เก็บไว้ที่ '+(p.conflict_file||'portfolio.json.remote-*')+' ข้างไฟล์ local';
+      return;
+    }
+    el.style.color='';
     const bad=(p.pull_state==='error')||p.push_blocked||(p.push_result==='error');
     if(bad){
       el.className='quota warn'; el.innerHTML='Drive &#10007; error';

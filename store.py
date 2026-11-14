@@ -11,6 +11,7 @@ import os
 import re
 import copy
 import json
+import math
 import threading
 import contextlib
 import datetime as dt
@@ -82,10 +83,16 @@ def save(s):
     """
     os.makedirs(config.DATA_DIR, exist_ok=True)
     tmp = f"{PATH}.{os.getpid()}.tmp"
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(s, fh, indent=2, ensure_ascii=False)
-        fh.flush()
-        os.fsync(fh.fileno())
+    try:
+        with open(tmp, "w", encoding="utf-8") as fh:
+            # NaN/Infinity are not valid JSON: refuse before os.replace, so the
+            # good file on disk is never swapped for one load() cannot parse.
+            json.dump(s, fh, indent=2, ensure_ascii=False, allow_nan=False)
+            fh.flush()
+            os.fsync(fh.fileno())
+    except ValueError:
+        os.remove(tmp)
+        raise
     os.replace(tmp, PATH)
     store_sync.schedule_push(PATH)
 
@@ -210,6 +217,10 @@ def _book_cash(s, d_usd):
 
 
 def set_holding(s, ticker, shares=None, avg_cost=None):
+    """Raises ValueError for a negative or non-finite shares / avg_cost."""
+    for label, v in (("shares", shares), ("avg_cost", avg_cost)):
+        if v is not None and not (math.isfinite(float(v)) and float(v) >= 0):
+            raise ValueError(f"{label} must be a finite number >= 0")
     if ledger_active(s):
         from domain.ledger import LedgerError
         raise LedgerError("ledger ทำงานอยู่ — บันทึกเป็นรายการ BUY / SELL / DEPOSIT / WITHDRAW แทน")

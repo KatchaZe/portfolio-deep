@@ -29,8 +29,10 @@ STATUS = {
     "last_pull": None,        # ISO timestamp of last pull attempt
     "pull_result": None,      # "pulled" | "absent" | "error" | "local-kept"
     "last_push": None,        # ISO timestamp of last push attempt
-    "push_result": None,      # "pushed" | "skipped" | "error"
+    "push_result": None,      # "pushed" | "skipped" | "error" | "conflict"
     "last_error": None,       # str(last exception) from pull or push
+    "remote_version": None,   # Drive `version` of portfolio.json we last pulled/pushed
+    "conflict_file": None,    # local sidecar holding the remote copy after a conflict
 }
 
 REMOTE_NAME = "portfolio.json"
@@ -152,34 +154,41 @@ def _upload_media(data):
                              resumable=False)
 
 
+def remote_version(svc, fid):
+    """Drive's `version` of file `fid` (a monotonically increasing string). Raises."""
+    return str(svc.files().get(fileId=fid, fields="version").execute()["version"])
+
+
 def _create(svc, name, data, retry_any_failure):
-    """Create `name`; returns its id. A hand-made folder may be invisible under the
+    """Create `name`; returns the response dict (id, version). A hand-made folder may be invisible under the
     drive.file scope, so a failed create retries in "My Drive" root. Raises."""
     meta = {"name": name}
     if _folder():
         meta["parents"] = [_folder()]
     try:
         return svc.files().create(body=meta, media_body=_upload_media(data),
-                                  fields="id").execute()["id"]
+                                  fields="id,version").execute()
     except Exception as e:
         if not (_folder() or retry_any_failure):
             raise
         log.warning("Drive: create of %s failed (%s); retrying in My Drive root", name, e)
         meta.pop("parents", None)
         return svc.files().create(body=meta, media_body=_upload_media(data),
-                                  fields="id").execute()["id"]
+                                  fields="id,version").execute()
 
 
 def _upload(name, local_path, retry_any_failure=False):
-    """Create or update the remote `name` from local_path. Raises."""
+    """Create or update the remote `name` from local_path. Returns the new Drive
+    version (str) or None when the response carried none. Raises."""
     with open(local_path, "rb") as fh:      # read + close before the network
         data = fh.read()
     svc = _client()
     fid = _find_id(svc, name)
     if fid:
         try:
-            svc.files().update(fileId=fid, media_body=_upload_media(data)).execute()
-            return
+            return _version_of(svc.files().update(
+                fileId=fid, media_body=_upload_media(data),
+                fields="id,version").execute())
         except Exception as e:
             # The cached id goes stale when the file is deleted/moved in Drive.
             if "404" not in str(e):
@@ -188,9 +197,17 @@ def _upload(name, local_path, retry_any_failure=False):
             _ids[name] = None
             fid = _find_id(svc, name)
             if fid:
-                svc.files().update(fileId=fid, media_body=_upload_media(data)).execute()
-                return
-    _ids[name] = _create(svc, name, data, retry_any_failure)
+                return _version_of(svc.files().update(
+                    fileId=fid, media_body=_upload_media(data),
+                    fields="id,version").execute())
+    made = _create(svc, name, data, retry_any_failure)
+    _ids[name] = made["id"]
+    return _version_of(made)
+
+
+def _version_of(resp):
+    v = (resp or {}).get("version")
+    return str(v) if v is not None else None
 
 
 # --- portfolio.json (status-tracked; store_sync applies the data-loss guard) --- #
@@ -217,6 +234,7 @@ def drive_pull(local_path):
             return "absent"
         data = _download(svc, fid)
         json.loads(data.decode("utf-8"))            # validate before overwriting
+        version = remote_version(svc, fid)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
         # Atomic replace: readers load() lock-free and must never see a half file.
         tmp = f"{local_path}.pull.{os.getpid()}.tmp"
@@ -227,6 +245,7 @@ def drive_pull(local_path):
         os.replace(tmp, local_path)
         log.info("Drive: pulled portfolio.json (%d bytes)", len(data))
         STATUS["pull_result"] = "pulled"
+        STATUS["remote_version"] = version
         STATUS["last_error"] = None
         return "pulled"
     except Exception as e:
@@ -237,13 +256,49 @@ def drive_pull(local_path):
         return "error"
 
 
+def _stash_remote(svc, fid, local_path):
+    """Keep the remote copy beside the local file so neither version is lost."""
+    stamp = _dt.datetime.now().strftime("%Y%m%d-%H%M")
+    side = f"{local_path}.remote-{stamp}"
+    try:
+        with open(side, "wb") as fh:
+            fh.write(_download(svc, fid))
+    except Exception as e:
+        log.warning("Drive: could not save the remote copy on conflict: %s", e)
+        return None
+    return side
+
+
 def drive_push(local_path):
-    """Upload local_path as the remote portfolio.json. True on success."""
+    """Upload local_path as the remote portfolio.json. True on success.
+
+    Optimistic lock: the push goes ahead only when Drive's version still equals the
+    one this process last pulled/pushed. A moved (or unreadable) version means
+    another writer changed the remote, so it is saved beside the local file and the
+    push is refused with push_result == "conflict", which stays until restart."""
     if not enabled():
+        return False
+    if STATUS["push_result"] == "conflict":
         return False
     STATUS["last_push"] = _now()
     try:
-        _upload(REMOTE_NAME, local_path)
+        svc = _client()
+        fid = _find_id(svc, REMOTE_NAME)
+        if fid:
+            try:
+                current = remote_version(svc, fid)
+                moved = current != STATUS["remote_version"]
+                why = f"remote version {current} != last seen {STATUS['remote_version']}"
+            except Exception as e:
+                moved, why = True, f"remote version unreadable: {e}"
+            if moved:
+                side = _stash_remote(svc, fid, local_path)
+                log.error("Drive push BLOCKED (%s); remote copy saved to %s", why, side)
+                STATUS["push_result"] = "conflict"
+                STATUS["conflict_file"] = os.path.basename(side) if side else None
+                STATUS["last_error"] = f"push: conflict - {why}"
+                return False
+        version = _upload(REMOTE_NAME, local_path)
     except Exception as e:
         log.warning("Drive push failed (kept local copy only): %s", e)
         STATUS["push_result"] = "error"
@@ -251,6 +306,7 @@ def drive_push(local_path):
         return False
     log.info("Drive: pushed portfolio.json")
     STATUS["push_result"] = "pushed"
+    STATUS["remote_version"] = version
     STATUS["last_error"] = None
     return True
 

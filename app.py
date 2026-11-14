@@ -355,6 +355,8 @@ def api_set_holding(ticker: str, shares: float = None, avg_cost: float = None):
             st.set_holding(s, t, shares, avg_cost)
     except LedgerError as e:
         return _ledger_conflict(e)
+    except ValueError as e:
+        return _invalid(str(e))
     meta = None
     if t not in s["facts"]:                     # new name: slow fetch OUTSIDE the lock
         meta, s = _fetch_and_commit([t])

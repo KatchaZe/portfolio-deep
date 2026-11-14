@@ -14,6 +14,7 @@ Per-process state: the app must run as exactly ONE worker.
 """
 import os
 import time
+import datetime as _dt
 import logging
 import threading
 
@@ -26,6 +27,8 @@ log = logging.getLogger("portfolio.store_sync")
 #   "pulled"  -> remote restored onto local disk  (push allowed)
 #   "absent"  -> Drive reachable, no remote yet   (push allowed - first run)
 #   "error"   -> pull FAILED -> push BLOCKED until a retry succeeds
+# A push that finds the remote moved sets gdrive_store.STATUS["push_result"] to
+# "conflict"; pushes stay blocked until the process restarts (no automatic retry).
 _pull_state = None
 _last_try = 0.0
 RETRY_SECS = 60           # retry a failed pull at most once a minute
@@ -103,6 +106,7 @@ def ensure_pull(path):
 # time, so repeated saves coalesce and the newest on-disk content always wins.
 _push_lock = threading.Lock()
 _push_thread = None
+_last_backup_day = None  # date of the last dated Drive backup pushed by this process
 _pending = []            # [(path, remote_name)]; remote_name None = guarded portfolio push
 
 
@@ -118,6 +122,17 @@ def _push_worker():
         count = _edit_count()
         if gdrive_store.drive_push(path):
             _mark_mirrored(count)
+            _backup_once_a_day(path)
+
+
+def _backup_once_a_day(path):
+    """A dated copy on Drive, so a bad overwrite is recoverable. Once per day."""
+    global _last_backup_day
+    today = _dt.date.today().isoformat()
+    if _last_backup_day == today:
+        return
+    if gdrive_store.drive_push_json(f"portfolio.backup-{today}.json", path):
+        _last_backup_day = today
 
 
 def _enqueue(path, name):
@@ -142,6 +157,10 @@ def schedule_push(path):
                   _pull_state)
         gdrive_store.STATUS["push_result"] = "skipped"
         return
+    if gdrive_store.STATUS.get("push_result") == "conflict":
+        log.error("Drive push BLOCKED: remote changed under us (conflict). Restart "
+                  "after reconciling the .remote-* file beside the local store.")
+        return
     _enqueue(path, None)
 
 
@@ -164,4 +183,5 @@ def status():
     """Drive persistence health for /api/persist."""
     return {**gdrive_store.status(),
             "pull_state": _pull_state,
-            "push_blocked": bool(gdrive_store.enabled() and not _pull_ok())}
+            "push_blocked": bool(gdrive_store.enabled() and (
+                not _pull_ok() or gdrive_store.STATUS.get("push_result") == "conflict"))}
