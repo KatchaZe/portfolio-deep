@@ -216,7 +216,7 @@ FALLBACK_CLEARS = ("cfo", "total_assets", "interest_expense", "rnd_expense",
                    "receivables", "receivables_prior", "inventory", "inventory_prior",
                    "accounts_payable", "accounts_payable_prior", "deferred_revenue",
                    "deferred_revenue_prior", "equity_prior", "cash_prior", "total_debt_prior",
-                   "operating_leases", "operating_leases_prior", "acquisitions_net",
+                   "operating_leases", "operating_leases_prior", "minority_interest", "acquisitions_net",
                    "impairment_ttm", "restructuring_ttm", "acquired_iprd_ttm")
 # The fields above that carry a CURRENCY, derived from the unit contract so the two
 # lists cannot drift (a hand-typed list once omitted eps_gaap and left TSM's EPS in

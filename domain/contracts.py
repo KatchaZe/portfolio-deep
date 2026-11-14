@@ -86,7 +86,7 @@ CLOCK = {
     "equity_prior": INSTANT, "cash_prior": INSTANT, "total_debt_prior": INSTANT,
     "receivables_prior": INSTANT, "inventory_prior": INSTANT,
     "accounts_payable_prior": INSTANT, "operating_leases_prior": INSTANT,
-    "deferred_revenue_prior": INSTANT,
+    "deferred_revenue_prior": INSTANT, "minority_interest": INSTANT,
 
     # --- fiscal-year series (newest first, NO date attached) ------------------
     "revenue_annuals": FY, "operating_income_annuals": FY, "rnd_annuals": FY,
@@ -145,7 +145,7 @@ UNIT = {
     "accounts_payable": MONEY, "operating_leases": MONEY, "deferred_revenue": MONEY,
     "equity_prior": MONEY, "cash_prior": MONEY, "total_debt_prior": MONEY,
     "receivables_prior": MONEY, "inventory_prior": MONEY, "accounts_payable_prior": MONEY,
-    "operating_leases_prior": MONEY, "deferred_revenue_prior": MONEY,
+    "operating_leases_prior": MONEY, "deferred_revenue_prior": MONEY, "minority_interest": MONEY,
     "revenue_annuals": MONEY, "operating_income_annuals": MONEY, "rnd_annuals": MONEY,
     "revenue_annuals_dated": MONEY, "operating_income_annuals_dated": MONEY,
     "cfo_annuals_dated": MONEY, "capex_annuals_dated": MONEY,

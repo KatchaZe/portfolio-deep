@@ -339,13 +339,15 @@ def _target(f, today):
     """(point, net_debt, why) for the target from its CURRENT facts."""
     x = {k: getattr(f, k, None) for k in ("currency", "revenue", "operating_income",
                                           "total_debt", "operating_leases", "cash",
+                                          "minority_interest",
                                           "revenue_annuals_dated", "shares_diluted")}
     # normalize._resolve_shares already put the count in the price's unit (ADRs), so
     # the target is valued exactly like a peer: price x diluted shares
     tp, why = relative.point(f.ticker, x, f.price, today.isoformat(), today,
                              shares=f.shares_diluted, check_base=False, need_growth=False,
                              margin_floor=False)
-    net_debt = (f.total_debt or 0) + (f.operating_leases or 0) - (f.cash or 0)
+    net_debt = ((f.total_debt or 0) + (f.operating_leases or 0) - (f.cash or 0)
+                + (getattr(f, "minority_interest", None) or 0))
     return tp, net_debt, why
 
 

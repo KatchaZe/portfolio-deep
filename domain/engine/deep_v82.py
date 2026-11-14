@@ -23,6 +23,10 @@ ERP_AS_OF = config.ERP_AS_OF
 ROIC_TERMINAL = 0.15
 REVERSE_HORIZON = 10
 GROWTH_CAP = 0.30
+# The terminal value is NOPAT x (1 - g/ROIC) / (WACC - g): a spread of 2pp makes it
+# 50x NOPAT and every 0.5pp of rate moves it by a quarter. g_stable stays at least this
+# far under the stable-phase WACC (HCA: 6.2% WACC, rf 4.1% left 2.1pp) and Ke.
+WACC_G_MIN_SPREAD = 0.03
 RD_LIFE = 5
 DEFAULT_KD_SPREAD = 0.013
 
@@ -151,6 +155,17 @@ def erp_months_old(as_of=None, today=None):
 
 def _clamp(x, lo=0.0, hi=5.0):
     return max(lo, min(hi, x))
+
+
+def _nci(f):
+    """Noncontrolling interest at book; absent is zero (the bridge is unchanged)."""
+    return getattr(f, "minority_interest", None) or 0.0
+
+
+def _enterprise_value(f, cap):
+    """EV of the firm the WACC priced: market cap + debt (leases included) - cash +
+    noncontrolling interest. One definition for the reverse DCF and the FCF yield."""
+    return cap.mcap + (cap.debt_eff or 0) - (f.cash or 0) + _nci(f)
 
 
 def _add_flag(f, note):
@@ -505,7 +520,7 @@ def _fcff_path_pv(x, m, *, revenue, tax, g, roic_t, wacc_val, wacc_term, margin_
 
 def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, tax, margin,
                 wacc_term=None, roic_term=None, market_cap=None, margin_now=None,
-                actual_growth=None, roic_now=None):
+                actual_growth=None, roic_now=None, minority_interest=0.0):
     """Full-path reverse DCF: solve the revenue CAGR x such that PV(FCFF years 1..H)
     + PV(terminal value) = enterprise value, i.e. what growth the market prices in.
 
@@ -525,7 +540,7 @@ def reverse_dcf(price, shares, revenue, rev_1y, total_debt, cash, wacc_val, g, t
     if not (price and shares and revenue) or wacc_val <= g or wacc_term <= g:
         return {"triggered": False}
     mcap = market_cap if (market_cap and market_cap > 0) else price * shares
-    ev = mcap + (total_debt or 0) - (cash or 0)
+    ev = mcap + (total_debt or 0) - (cash or 0) + (minority_interest or 0)
 
     def implied(m):
         if m <= 0 or ev <= 0:
@@ -1513,7 +1528,13 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
     # in the perpetuity, via terminal_beta). The stable-phase floor is a numerical
     # guard on (Ke - g), since g_stable is derived from it, not a risk view.
     ke_stable = max(cap.ke_term, rf + 0.035)
-    g_stable = min(rf, ke_stable - 0.03)
+    # The ONE g_stable: every consumer (FCFF DCF, young DCF, PEG, exit PE, excess
+    # return, reverse DCF) reads gr.g_stable, never rf, so none can bypass the guard.
+    g_stable = min(rf, ke_stable - 0.03, cap.wacc_term - WACC_G_MIN_SPREAD)
+    if g_stable < rf - 1e-9:
+        _add_flag(f, (f"stable growth {g_stable*100:.1f}% (not rf {rf*100:.1f}%): kept "
+                      f"{WACC_G_MIN_SPREAD*100:.0f}pp under the stable WACC "
+                      f"{cap.wacc_term*100:.1f}% / Ke {ke_stable*100:.1f}%"))
     g_fund = fundamental_growth(f.capex, f.dep_amort, nopat, cap.roic_used, acquisitions=acq)
     if (ctype is not CompanyType.FINANCIAL and g_fund is not None and growth > 0.02
             and growth > 2 * max(g_fund, 0.0)):
@@ -1634,13 +1655,14 @@ def _priced_in(f, cap, gr, rf, ctype=CompanyType.STANDARD):
     built = (_dcf_inputs(f, cap, gr, ctype, rf)
              if (cap.mcap and m_now is not None and m_now > 0) else None)
     if built:
-        ev = cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)
+        ev = _enterprise_value(f, cap)
         rdcf = reverse_dcf_ginzu(built[0], ev, actual_growth=gr.rev_growth_yoy,
                                  roic_term=gr.roic_term)
     else:
         # a pre-profit firm has no margin of its own for the forward model to hold
         rdcf = reverse_dcf(price=f.price, shares=f.shares_diluted, revenue=f.revenue, rev_1y=rev_1y,
-                           total_debt=cap.debt_eff or None, cash=f.cash, wacc_val=cap.wacc, g=rf,
+                           total_debt=cap.debt_eff or None, cash=f.cash, wacc_val=cap.wacc,
+                           g=gr.g_stable, minority_interest=_nci(f),
                            tax=cap.tax, margin=tmargin, wacc_term=cap.wacc_term,
                            roic_term=gr.roic_term, market_cap=cap.mcap, margin_now=m_now,
                            # FY over FY, the rate Demand scores (not TTM over FY-2)
@@ -1938,8 +1960,8 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
               growth_path=g_path, g_stable=gr.g_stable, sales_to_capital=s2c,
               tax_now=cap.tax, tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
               wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
-              cash=f.cash, debt=cap.debt_eff, shares=_quote_shares(f, cap),
-              margin_years=years, fade_start_cap=GROWTH_CAP)
+              cash=f.cash, debt=cap.debt_eff, minority_interest=_nci(f),
+              shares=_quote_shares(f, cap), margin_years=years, fade_start_cap=GROWTH_CAP)
     moat, moat_note = moat_class(cap.roic_map, cap.wacc)
     kw["high_years"], kw["total_years"] = MOAT_PERIODS[moat or "narrow"]
     sources = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
@@ -2073,7 +2095,7 @@ def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf, ctype=CompanyType.STANDARD):
             # a loss-making bank has no FCFF and no young-company story to tell
             method = "No point valuation (loss-making financial)"
         elif not eps_pos:
-            method, value, ydcf = _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf)
+            method, value, ydcf = _young_company_anchor(f, cap, fcff, gr, dil_rate, pi)
         elif cap.spread is not None and cap.spread > 0.10 and (gr.rev_growth_yoy or 0) > 0.15:
             method, value = "Future Value Projection", fv_fvp
         else:
@@ -2099,13 +2121,14 @@ def _anchor(f, cap, fcff, gr, dil_rate, pv, pi, rf, ctype=CompanyType.STANDARD):
                    dcf=dcf, exret=exret)
 
 
-def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi, rf):
+def _young_company_anchor(f, cap, fcff, gr, dil_rate, pi):
     """Pre-profit: the young-company DCF anchors only when its band qualifies;
     otherwise the reverse DCF stands alone. Returns (method, value, ydcf)."""
     ydcf = None
     try:
         ydcf = young_dcf.evaluate(
-            f, rf=rf, wacc=cap.wacc, roic_term=gr.roic_term, invested_capital=cap.ic,
+            f, g_stable=gr.g_stable, minority_interest=_nci(f), wacc=cap.wacc,
+            roic_term=gr.roic_term, invested_capital=cap.ic,
             debt_eff=cap.debt_eff, tax=cap.tax, target_margin=pi.tmargin,
             target_margin_label=pi.tm_label, annual_dilution=dil_rate, fcff=fcff,
             growth_fallback=f.growth_lt, target_margin_anchored=pi.tm_anchored,
@@ -2341,7 +2364,7 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     E_econ = _r_economics(cap.spread, ex.roic_delta, notes, cap_adj=cap_adj, cap_note=cap_note,
                           sector_adj=sec_adj, sector_note=sec_note)
     # the same EV the WACC weights and the reverse DCF were built from
-    ev = (cap.mcap + (cap.debt_eff or 0) - (f.cash or 0)) if cap.mcap else None
+    ev = _enterprise_value(f, cap) if cap.mcap else None
     fy_adj, fy_note = (0.0, None) if fin else fcf_yield_adj(trend_rows, ev, cap.wacc)
     P = _r_price(anchor_value, f.price, notes,
                  fcf_adj=fy_adj, fcf_note=fy_note, uncertainty=uncertainty)

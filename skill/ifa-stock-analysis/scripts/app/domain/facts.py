@@ -53,6 +53,7 @@ class FinancialFacts:
     equity: Optional[float] = None
     operating_leases: Optional[float] = None    # P1-5: lease liability (SEC ASC 842) — treated as debt
     operating_leases_prior: Optional[float] = None  # REV-4: prior-year lease liability (like-for-like IC trend)
+    minority_interest: Optional[float] = None   # NCI at book (balance sheet); a claim on the firm ahead of common equity
 
     # cash flow
     capex: Optional[float] = None

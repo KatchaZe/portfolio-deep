@@ -246,10 +246,10 @@ def _held_to_industry(s2c, label, industry):
     return s2c, label
 
 
-def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
+def evaluate(f, *, g_stable, wacc, roic_term, invested_capital, debt_eff, tax,
              target_margin, target_margin_label, annual_dilution, fcff,
              growth_fallback, target_margin_anchored=False, wacc_stable=None,
-             tax_terminal=None, industry_s2c=None, growth_rows=None):
+             tax_terminal=None, industry_s2c=None, growth_rows=None, minority_interest=0.0):
     """Value a pre-profit company from a FinancialFacts. Returns a dict ready to
     hang off the Valuation, or None when the inputs cannot support a valuation.
 
@@ -284,14 +284,16 @@ def evaluate(f, *, rf, wacc, roic_term, invested_capital, debt_eff, tax,
     cur_margin = (f.operating_income / f.revenue) if f.operating_income is not None else -0.10
     p_surv, p_why = survival_probability(f.cash, f.cfo, fcff, f.revenue)
     # liquidation floor: operations worth nothing, cash net of debt is what is left.
-    distress = max(0.0, (f.cash or 0) - (debt_eff or 0)) / f.shares_diluted
+    # Noncontrolling interest is a claim ahead of the common equity, like debt.
+    nci = minority_interest or 0.0
+    distress = max(0.0, (f.cash or 0) - (debt_eff or 0) - nci) / f.shares_diluted
 
-    d = {"current_revenue": f.revenue, "g_high": g_high, "g_stable": rf, "horizon": 10,
+    d = {"current_revenue": f.revenue, "g_high": g_high, "g_stable": g_stable, "horizon": 10,
          "current_margin": cur_margin, "target_margin": target_margin,
          "sales_to_capital": s2c, "tax": tax, "wacc": wacc, "roic_stable": roic_term,
          "wacc_stable": wacc_stable or wacc,
          "tax_terminal": tax if tax_terminal is None else tax_terminal,
-         "net_debt": (debt_eff or 0) - (f.cash or 0), "shares": f.shares_diluted,
+         "net_debt": (debt_eff or 0) - (f.cash or 0) + nci, "shares": f.shares_diluted,
          # The margins are GAAP, so stock-based pay is already an expense in every
          # projected year. Growing the share count as well charged it twice (-39% at
          # 5%/yr over 10 years); the rate stays in `inputs` as a disclosure only.

@@ -13,6 +13,7 @@ simple Ginzu: revenue growth, operating margin, sales-to-capital, cost of capita
     discount    WACC for years 1-5, then a straight line to the stable-phase WACC
     terminal    NOPAT_11 x (1 - g_stable / ROIC_stable) / (WACC_stable - g_stable)
     equity      = PV(FCFF) + PV(terminal) + cash - debt (leases included)
+                  - minority interest (book; the consolidated FCFF is partly theirs)
     per share   = equity / diluted shares
 
 The margin is the reported operating margin, so stock-based compensation is already an
@@ -30,6 +31,7 @@ def _lerp(a, b, frac):
 
 def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capital,
           tax_now, tax_marginal, wacc, wacc_stable, roic_stable, cash, debt, shares,
+          minority_interest=0.0,
           margin_years=5, growth_path=None, fade_start_cap=None,
           high_years=HIGH_YEARS, total_years=TOTAL_YEARS) -> Optional[dict]:
     """Per-share value and the projection behind it, or None when the inputs cannot
@@ -74,7 +76,7 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
     tv = nopat_t1 * (1 - reinvest_rate) / (wacc_stable - g_stable)
     pv_tv = tv / disc
     firm = pv_sum + pv_tv
-    equity = firm + (cash or 0.0) - (debt or 0.0)
+    equity = firm + (cash or 0.0) - (debt or 0.0) - (minority_interest or 0.0)
     per_share = equity / shares
     return {"per_share": round(per_share, 2) if per_share > 0 else None,
             "equity_value": round(equity, 0), "firm_value": round(firm, 0),

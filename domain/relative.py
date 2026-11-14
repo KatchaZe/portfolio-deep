@@ -74,7 +74,8 @@ def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_
     if not mcap or mcap <= 0:
         return None, "no share count"
     debt = (x.get("total_debt") or 0) + (x.get("operating_leases") or 0)
-    ev = mcap + debt - (x.get("cash") or 0)
+    # noncontrolling interest is a claim on the consolidated firm, like debt
+    ev = mcap + debt - (x.get("cash") or 0) + (x.get("minority_interest") or 0)
     if ev <= 0:
         return None, "enterprise value not positive (cash above market cap + debt)"
     margin = oi / rev
@@ -196,7 +197,7 @@ def fit(peers):
 def implied(model, target, net_debt, shares):
     """Per-share value of the target at the fitted multiple and at the peer median.
 
-    `target` is the target's own point (same clock); `net_debt` = debt + leases - cash;
+    `target` is the target's own point (same clock); `net_debt` = debt + leases - cash + minority interest;
     `shares` is the count the price is quoted on."""
     if not model or not target or not shares or shares <= 0:
         return {}

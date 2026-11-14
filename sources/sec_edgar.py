@@ -786,6 +786,9 @@ FIELD_LADDERS = {
     "operating_leases": (_total_else_legs(_fresh), LEASE_LADDERS),
     "operating_leases_prior": (_total_else_legs(_prior_year), LEASE_LADDERS),
     "eps_annuals_dated": (_annual_dated, (EPS_DILUTED,)),
+    # Noncontrolling interest at book, the latest balance sheet: a claim on the
+    # consolidated firm that is not the common shareholder's (deducted like debt).
+    "minority_interest": (_fresh, ("MinorityInterest", "MinorityInterestInConsolidatedSubsidiaries")),
 }
 
 
@@ -1124,7 +1127,7 @@ POPULATED = (
     "rnd_annuals", "operating_income_annuals",
     "equity_prior", "total_debt_prior", "cash_prior",
     "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
-    "operating_leases", "operating_leases_prior",
+    "operating_leases", "operating_leases_prior", "minority_interest",
     "sbc",
     "shares_diluted_annuals",        # a COUNT, never FX-converted
     "receivables_prior", "inventory", "inventory_prior",

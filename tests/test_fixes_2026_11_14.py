@@ -404,6 +404,133 @@ def test_ttm_gap_boundary_100_and_101_days():
     print("ttm 100/101 day boundary OK")
 
 
+
+# --------------------------------------------------------------------------
+# Task 3 (#2): WACC - g >= 3pp in the terminal, and minority interest (NCI, book
+# value) deducted in every firm -> equity bridge like debt.
+from types import SimpleNamespace                       # noqa: E402
+from domain.facts import FinancialFacts                 # noqa: E402
+from domain.engine import deep_v82 as E, fcff_dcf, young_dcf   # noqa: E402
+
+_HCA_RF = 0.041
+
+
+def _hca_cap(**kw):
+    base = dict(roic_used=0.20, wacc_term=0.062, ke_term=0.085, ic=40e9, nopat=8e9)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def _op_facts(ticker="OPCO", **kw):
+    """A plain profitable operating company (the ELV-shaped fixture)."""
+    base = dict(price=430.0, shares_diluted=219e6, market_cap=93e9, revenue=201e9,
+                operating_income=9.6e9, revenue_annuals=[199e9, 177e9, 171e9, 156e9, 138e9],
+                revenue_annuals_dated=[["2025-12-31", 199e9], ["2024-12-31", 177e9],
+                                       ["2023-12-31", 171e9], ["2022-12-31", 156e9],
+                                       ["2021-12-31", 138e9]],
+                cash=10e9, total_debt=31e9, equity=42e9, income_before_tax=9.9e9,
+                tax_expense=2.0e9, capex=1.3e9, dep_amort=1.4e9, interest_expense=1.4e9,
+                net_income=7.9e9, rev_growth_path=[[0.04, 12], [0.05, 11]],
+                fiscal_year="2025-12-31")
+    base.update(kw)
+    f = FinancialFacts(ticker)
+    for k, v in base.items():
+        setattr(f, k, v)
+    return f
+
+
+def test_terminal_spread_at_least_3pp():
+    f = FinancialFacts("HCAX")
+    gr = E._growth(f, _hca_cap(), None, _HCA_RF)
+    assert E.WACC_G_MIN_SPREAD == 0.03
+    assert gr.g_stable <= 0.062 - 0.03 + 1e-12, gr.g_stable
+    assert gr.g_stable <= _HCA_RF and gr.g_stable <= gr.ke_stable - 0.03 + 1e-12
+    # the guard only binds when it has to: a wide spread keeps g_stable = rf
+    wide = E._growth(FinancialFacts("WIDE"), _hca_cap(wacc_term=0.09), None, _HCA_RF)
+    assert abs(wide.g_stable - _HCA_RF) < 1e-12, wide.g_stable
+    print("g_stable leaves >= 3pp under the terminal WACC OK")
+
+
+def test_young_uses_same_g_stable():
+    from tests.test_young_dcf import PREPROFIT
+    real = E._growth
+    seen = {}
+
+    def spy(*a, **k):
+        gr = real(*a, **k)._replace(g_stable=0.021)   # != rf, so plumbing is visible
+        seen["g"] = gr.g_stable
+        return gr
+    E._growth = spy
+    try:
+        v = E.DeepV82Engine().evaluate(FinancialFacts("YOUNGCO", **PREPROFIT), rf=0.045)
+    finally:
+        E._growth = real
+    y = v.young_dcf
+    assert y and y.get("model"), "young model ran"
+    assert y["model"]["g_stable"] == seen["g"], (y["model"]["g_stable"], seen["g"])
+    print("young-company DCF takes g_stable from _growth OK")
+
+
+def test_nci_deducted():
+    # the bridge itself: firm 100, cash 10, debt 30, NCI 8, 1 share -> equity 72
+    kw = dict(revenue=1000.0, margin_now=0.10, margin_target=0.10, g_high=0.0,
+              g_stable=0.0, sales_to_capital=2.0, tax_now=0.0, tax_marginal=0.0,
+              wacc=0.10, wacc_stable=0.10, roic_stable=0.10, cash=10.0, debt=30.0,
+              shares=1.0, growth_path=[0.0] * 5)
+    out = fcff_dcf.value(**kw, minority_interest=8.0)
+    firm = out["firm_value"]
+    assert abs(firm - 1000.0) < 1, firm            # 100/yr forever at 10%, scaled x10
+    assert abs(out["equity_value"] - (firm + 10 - 30 - 8)) < 1, out["equity_value"]
+    small = fcff_dcf.value(**dict(kw, revenue=100.0), minority_interest=8.0)
+    assert abs(small["equity_value"] - 72.0) < 0.5, small["equity_value"]
+    # young-company leg: NCI sits in net debt and in the distress floor
+    d = dict(current_revenue=100.0, g_high=0.0, g_stable=0.0, horizon=10, current_margin=0.1,
+             target_margin=0.1, sales_to_capital=2.0, tax=0.0, wacc=0.1, roic_stable=0.1,
+             wacc_stable=0.1, tax_terminal=0.0, net_debt=30 - 10 + 8, shares=1.0)
+    gc = young_dcf.going_concern(d)
+    assert abs(gc["equity_value"] - (gc["firm_value"] - 28)) < 1e-6
+    # engine: the same NCI comes off the FCFF DCF equity and onto every EV
+    a = E.DeepV82Engine().evaluate(_op_facts(), rf=0.045)
+    b = E.DeepV82Engine().evaluate(_op_facts(minority_interest=8e9), rf=0.045)
+    assert a.dcf and b.dcf
+    assert abs((a.dcf["equity_value"] - b.dcf["equity_value"]) - 8e9) < 2, \
+        (a.dcf["equity_value"], b.dcf["equity_value"])
+    assert abs((a.dcf["firm_value"] - b.dcf["firm_value"])) < 2
+    ra, rb = a.reverse_dcf, b.reverse_dcf
+    assert ra.get("enterprise_value") and rb.get("enterprise_value"), ra
+    assert abs(rb["enterprise_value"] - ra["enterprise_value"] - 8e9) < 2
+    assert abs((a.anchor_value - b.anchor_value) - 8e9 / 219e6) < 0.02, \
+        (a.anchor_value, b.anchor_value)
+    print("NCI deducted in the equity bridge OK")
+
+
+def test_nci_absent_no_change():
+    kw = dict(revenue=1000.0, margin_now=0.10, margin_target=0.12, g_high=0.05,
+              g_stable=0.02, sales_to_capital=2.0, tax_now=0.2, tax_marginal=0.25,
+              wacc=0.09, wacc_stable=0.08, roic_stable=0.12, cash=10.0, debt=30.0,
+              shares=3.0)
+    assert fcff_dcf.value(**kw) == fcff_dcf.value(**kw, minority_interest=0.0)
+    a = E.DeepV82Engine().evaluate(_op_facts(), rf=0.045)
+    b = E.DeepV82Engine().evaluate(_op_facts(minority_interest=None), rf=0.045)
+    assert a.dcf == b.dcf and a.anchor_value == b.anchor_value
+    assert a.reverse_dcf == b.reverse_dcf and a.composite == b.composite
+    print("NCI absent -> value unchanged OK")
+
+
+def test_contracts_cover_minority_interest():
+    from domain import contracts
+    from pipeline import normalize
+    assert contracts.CLOCK["minority_interest"] == contracts.INSTANT
+    assert contracts.UNIT["minority_interest"] == contracts.MONEY
+    assert "minority_interest" in normalize._MONEY
+    assert hasattr(FinancialFacts("X"), "minority_interest")
+    from sources import sec_edgar as se
+    rule, ladder = se.FIELD_LADDERS["minority_interest"]
+    assert list(ladder) == ["MinorityInterest", "MinorityInterestInConsolidatedSubsidiaries"]
+    assert "minority_interest" in se.POPULATED
+    print("contracts cover minority_interest OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):
