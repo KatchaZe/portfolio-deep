@@ -172,14 +172,17 @@ def test_n2_bottom_up_beta():
           "a profitable firm runs on the re-levered industry beta, flagged", repr(b))
     young = FinancialFacts("RKLB", beta=2.1, beta_unlevered_industry=0.87, market_cap=40e9,
                            total_debt=0.4e9, operating_income=-0.2e9)
-    check(E._bottom_up_beta(young, []) == 2.1, "a pre-profit firm keeps the higher regression beta")
+    yb = E.relevered_beta(0.87, 0.4e9, 40e9)
+    check(abs(E._bottom_up_beta(young, []) - yb) < 1e-9, "a pre-profit firm runs on the industry beta (failure risk is in p_survival)")
     tmdx = FinancialFacts("TMDX", beta=1.88, beta_unlevered_industry=0.86, market_cap=3e9, total_debt=0.5e9,
                           operating_income=0.08e9, revenue=0.6e9,
                           revenue_annuals=[0.605e9, 0.44e9, 0.24e9, 0.094e9])
-    check(E._bottom_up_beta(tmdx, []) == 1.88, "a small firm growing revenue >30%/yr keeps the higher beta")
+    check(abs(E._bottom_up_beta(tmdx, []) - E.relevered_beta(0.86, 0.5e9, 3e9)) < 1e-9,
+          "a small firm growing revenue >30%/yr runs on the industry beta")
     axon = FinancialFacts("AXON", beta=1.40, beta_unlevered_industry=0.87, market_cap=45e9, total_debt=2e9,
                           operating_income=0.02e9, revenue=2.5e9)
-    check(E._bottom_up_beta(axon, []) == 1.40, "an operating margin under 5% keeps the higher beta")
+    check(abs(E._bottom_up_beta(axon, []) - E.relevered_beta(0.87, 2e9, 45e9)) < 1e-9,
+          "an operating margin under 5% runs on the industry beta")
     check(E._bottom_up_beta(FinancialFacts("X", beta=1.3), []) == 1.3,
           "no industry mapping -> regression beta, unchanged")
 

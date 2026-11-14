@@ -617,6 +617,31 @@ def test_non_young_uncertainty_has_no_floored_by():
     print("non-young uncertainty has no floored_by OK")
 
 
+def test_early_stage_uses_industry_beta():
+    f = FinancialFacts("RKLB", beta=2.61, beta_unlevered_industry=1.2, beta_industry="Aerospace/Defense",
+                       market_cap=40e9, total_debt=0.0, operating_income=-0.2e9)
+    b = E._bottom_up_beta(f, [])
+    assert abs(b - E.relevered_beta(1.2, 0.0, 40e9)) < 1e-9 and b < 2.0, b
+    assert any("2.61" in x and "p_survival" in x for x in f.flags), f.flags
+    print("early stage uses industry beta OK")
+
+
+def test_no_industry_beta_keeps_regression():
+    f = FinancialFacts("RKLB", beta=2.61, market_cap=40e9, operating_income=-0.2e9)
+    assert E._bottom_up_beta(f, []) == 2.61
+    print("no industry beta keeps regression OK")
+
+
+def test_early_stage_beta_source_label():
+    f = _op_facts()
+    f.operating_income, f.beta, f.beta_unlevered_industry = -0.2e9, 2.61, 1.2
+    v = E.DeepV82Engine().evaluate(f, rf=0.045)
+    km = v.key_metrics
+    assert km["beta_source"] == "bottom-up industry (early stage: failure risk carried by p_survival)", km
+    assert km["beta_regression"] == 2.61 and km["beta"] < 2.0, km
+    print("early stage beta_source label OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

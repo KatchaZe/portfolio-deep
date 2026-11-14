@@ -7,7 +7,7 @@ c6c0ab72994e  domain/company_type.py
 a907e060f06b  domain/contracts.py
 20a18e546d7c  domain/engine/__init__.py
 aae07948213b  domain/engine/contract.py
-c8c6960d0df1  domain/engine/deep_v82.py
+36e6a018b701  domain/engine/deep_v82.py
 61f631109af4  domain/engine/fcff_dcf.py
 8a275e6d13ca  domain/engine/financial.py
 7c786263fd8d  domain/engine/scenarios.py

@@ -172,15 +172,17 @@ def test_terminal_roic_floor_is_stable_wacc():
           f"roic {i['roic_stable']} wacc_stable {i['wacc_stable']} wacc {i['wacc']}")
 
 
-def test_thin_margin_regression_beta_only_when_small():
-    print("6 a thin margin swaps in the regression beta only for a small firm")
+def test_thin_margin_keeps_industry_beta_at_any_size():
+    print("6 a thin margin keeps the industry beta at any size (B2: failure risk is in p_survival)")
     kw = dict(operating_income=2.0e9, beta=1.9, beta_unlevered_industry=1.3,
               beta_industry="Auto & Truck")
     big = E.DeepV82Engine().evaluate(_operating(market_cap=1400e9, price=1400.0, **kw), rf=RF)
     small = E.DeepV82Engine().evaluate(_operating(market_cap=20e9, price=20.0, **kw), rf=RF)
     check(big.key_metrics["beta"] < 1.5, "a $1.4T firm keeps its bottom-up beta",
           str(big.key_metrics["beta"]))
-    check(abs(small.key_metrics["beta"] - 1.9) < 1e-6, "a $20B firm takes the higher regression beta",
+    check(abs(small.key_metrics["beta"] - big.key_metrics["beta"]) < 0.5
+          and small.key_metrics["beta"] < 1.9 and small.key_metrics["beta_regression"] == 1.9,
+          "a $20B firm also keeps its bottom-up beta; regression 1.9 is only a cross-check",
           str(small.key_metrics["beta"]))
 
 

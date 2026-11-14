@@ -1318,7 +1318,8 @@ def _financial_beta(f):
 def _bottom_up_beta(f, notes):
     """The beta Ke runs on. Industry unlevered beta re-levered at the firm's market D/E
     when the industry is known (Damodaran: a single-stock regression beta is too noisy,
-    NVO read 0.35 against a pharma industry at 0.98); the regression beta otherwise;
+    NVO read 0.35 against a pharma industry at 0.98), early-stage firms included: their
+    failure risk is separate from the discount rate (see young_dcf); the regression beta otherwise;
     1.0 when neither exists. Debt includes capitalized operating leases, the same D
     the WACC weights use."""
     reg = f.beta
@@ -1329,13 +1330,13 @@ def _bottom_up_beta(f, notes):
         b = relevered_beta(bu, debt, mcap)
         why = (f"beta bottom-up {b:.2f} = {f.beta_industry or 'industry'} unlevered "
                f"{bu:.2f} re-levered at D/E {debt / mcap:.0%}")
-        # A pre-profit firm is riskier than the mature industry it will grow into
-        # (Damodaran starts young firms at a high-growth beta that fades). The mature
-        # industry beta alone would discount RKLB at ~8.6%, so it keeps the higher one.
+        # An early-stage firm's failure risk is NOT a beta premium: young_dcf carries it
+        # in p_survival, so a high regression beta here would count it twice.
         stage = _early_stage(f, mcap)
-        if stage and reg and reg > b:
-            _add_flag(f, why + f" - {stage}, so the higher regression beta {reg:.2f} is used")
-            return reg
+        if stage and reg:
+            _add_flag(f, why + f" - {stage}: failure risk carried by p_survival, "
+                              f"not the discount rate (regression beta {reg:.2f} kept as a cross-check)")
+            return b
         _add_flag(f, why + (f" (regression beta {reg:.2f} kept as a cross-check)" if reg else ""))
         return b
     return reg or 1.0
@@ -2465,8 +2466,8 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "terminal_wacc_pct": round(cap.wacc_term * 100, 2),
             "growth_pct": round(gr.growth * 100, 1), "beta": round(cap.beta, 2),
             "beta_regression": round(f.beta, 2) if f.beta else None,
-            "beta_source": (("regression (early stage: higher than the industry beta)"
-                             if (f.beta and f.beta_unlevered_industry and cap.beta == f.beta)
+            "beta_source": (("bottom-up industry (early stage: failure risk carried by p_survival)"
+                             if _early_stage(f, f.market_cap or ((f.price or 0) * (f.shares_diluted or 0)) or None)
                              else "bottom-up: " + (f.beta_industry or "industry"))
                             if f.beta_unlevered_industry else ("regression" if f.beta else "default 1.0")),
             # consensus growth drives the FV, realised growth drives Demand: both
