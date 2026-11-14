@@ -2,8 +2,8 @@
 // renders as MUTED_DASH in HTML, or as a bare '—' where the text goes into a tooltip.
 // Colours are theme tokens (dashboard.css): a map value is a token name such as '--bull'.
 const MUTED_DASH='<span class="muted">&mdash;</span>';
-const RECO_COLOR={"BUY":"--bull","HOLD / Accumulate":"--accent","HOLD":"--base","SELL / AVOID":"--bear"};
-const RECO_LABEL={"BUY":"BUY","HOLD / Accumulate":"ACCUMULATE","HOLD":"HOLD","SELL / AVOID":"SELL / AVOID"};
+const RECO_COLOR={"BUY":"--bull","HOLD / Accumulate":"--accent","HOLD":"--base","SELL / AVOID":"--bear","NOT RATED":"--muted"};
+const RECO_LABEL={"BUY":"BUY","HOLD / Accumulate":"ACCUMULATE","HOLD":"HOLD","SELL / AVOID":"SELL / AVOID","NOT RATED":"ไม่จัดอันดับ"};
 const ACT_COLOR={"BUY":"--bull","ACCUMULATE":"--bull","WAIT":"--warn","WATCH":"--warn","HOLD":"--muted","HOLD?":"--muted","NO ADD":"--warn","REDUCE":"--bear","TRIM":"--bear","ADD":"--bull"};
 const MOMV2_COLOR={"Strong":"--bull","Positive":"--bull","Neutral":"--muted","Weak":"--warn","Negative":"--bear"};
 const RANK_COLOR={"Top":"--bull","Mid":"--muted","Bottom":"--bear"};

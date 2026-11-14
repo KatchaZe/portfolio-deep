@@ -6,7 +6,8 @@ Target weights from a risk budget, and the band rebalance around them.
    price offers over the cost of equity (the implied return, P1-4) and scaled down by
    the value's uncertainty (P1-3). A SELL gets no budget; a holding with no fair value
    (a bond or gold fund, a name not yet valued) keeps its current weight, since the
-   valuation has no opinion on it.
+   valuation has no opinion on it. A NOT RATED holding keeps its current weight too,
+   caps included: no rating, no trade either way (B1).
 2. Weights. The weights whose risk contributions match the budget (risk budgeting,
    solved by the standard multiplicative iteration on the covariance), on the
    invested share of the book.
@@ -18,8 +19,9 @@ Target weights from a risk budget, and the band rebalance around them.
 4. Bands (Vanguard's 200 / 175). A holding more than BAND_TRIGGER from its target is
    traded back to BAND_DEST from it, on the side it drifted; inside the band, no trade.
 
-Every input past the covariance is [JUDG]; the output is a proposal next to the
-cap-based rebalance, not a replacement for it. Pure: no I/O.
+Every input past the covariance is [JUDG]. These rows are the Risk Desk's one
+recommendation set: the Rebalance table is these rows in dollars and shares
+(portfolio.trades_from_targets, B6). Pure: no I/O.
 """
 import math
 
@@ -28,12 +30,15 @@ TILT_PER_PP, TILT_MIN, TILT_MAX = 0.10, 0.5, 1.5
 UNCERTAINTY_SCALE = {"Low": 1.0, "Medium": 0.9, "High": 0.75, "Very High": 0.6,
                      "Extreme": 0.5, "Unrated": 0.75, None: 0.75}
 _NO_BUDGET = ("SELL",)
+NOT_RATED = "NOT RATED"
 
 
 def budget(v):
     """(risk budget before normalising, why) for one holding's value dict; budget
     None = no valuation opinion, the holding keeps its current weight."""
     v = v or {}
+    if v.get("rating") == NOT_RATED:                # whole-word, before the SELL check
+        return None, "ไม่จัดอันดับ → คงน้ำหนักเดิม"
     if any(k in str(v.get("rating") or "").upper() for k in _NO_BUDGET):
         return 0.0, f"rating {v.get('rating')} → ไม่มี budget"
     if v.get("net_mos") is None and v.get("excess_pct") is None:
@@ -70,11 +75,12 @@ def risk_budget_weights(cov, budgets, iters=500, tol=1e-10):
     return w
 
 
-def _sector_fit(tgt, sec_of, sector_cap, notes):
-    """Scale each sector's targets down to the sector cap."""
+def _sector_fit(tgt, sec_of, sector_cap, notes, fixed=()):
+    """Scale each sector's targets down to the sector cap; `fixed` names (NOT RATED)
+    keep theirs and the rest of the sector makes room."""
     for sec in {s for s in sec_of.values() if s}:
-        names = [t for t in tgt if sec_of.get(t) == sec]
-        limit = sector_cap
+        names = [t for t in tgt if sec_of.get(t) == sec and t not in fixed]
+        limit = max(0.0, sector_cap - sum(tgt[t] for t in fixed if sec_of.get(t) == sec))
         tot = sum(tgt[t] for t in names)
         if tot > limit + 1e-9:
             for t in names:
@@ -107,7 +113,9 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
     tgt = {t: cur[t] for t in held}
     tgt.update({tickers[i]: raw[k] * room for k, i in enumerate(free)})
     notes = {t: why[i] for i, t in enumerate(tickers)}
-    ceiling = {t: (min(caps.get(t, 1.0), cur[t]) if blocked.get(t) else caps.get(t, 1.0))
+    unrated = {t for t in held if ((value or {}).get(t) or {}).get("rating") == NOT_RATED}
+    ceiling = {t: (cur[t] if t in unrated
+                   else min(caps.get(t, 1.0), cur[t]) if blocked.get(t) else caps.get(t, 1.0))
                for t in tickers}
     for t in tickers:
         if tgt[t] > ceiling[t]:
@@ -115,7 +123,7 @@ def targets(tickers, cov, weights, value, sizing_rows, cash_frac=0.0, total_valu
             notes[t] += (f" · ADD blocked ({blocked[t]})" if blocked.get(t) and ceiling[t] == cur[t]
                          and cur[t] < caps.get(t, 1.0) else f" · cap {ceiling[t] * 100:.1f}%")
     if sector_cap:
-        _sector_fit(tgt, sec_of, sector_cap, notes)
+        _sector_fit(tgt, sec_of, sector_cap, notes, fixed=unrated)
     share = {tickers[i]: raw[k] for k, i in enumerate(free)}
     for _ in range(len(tickers)):                 # hand what was cut to who can take it
         left = invest - sum(tgt.values())

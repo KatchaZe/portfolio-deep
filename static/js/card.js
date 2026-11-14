@@ -144,14 +144,14 @@ document.addEventListener('toggle',e=>{
 const VIEW={q:'',g:'all',sort:'mos'};
 try{Object.assign(VIEW,JSON.parse(localStorage.getItem('deep-view')||'{}'));}catch(e){}
 function saveView(){try{localStorage.setItem('deep-view',JSON.stringify(VIEW));}catch(e){}}
-const RGROUP={"BUY":"buy","HOLD / Accumulate":"hold","HOLD":"hold","SELL / AVOID":"sell"};
+const RGROUP={"BUY":"buy","HOLD / Accumulate":"hold","HOLD":"hold","SELL / AVOID":"sell","NOT RATED":"nr"};
 const SORTS={mos:["MoS สูง → ต่ำ",(a,b)=>(mosOf(b)??-1e9)-(mosOf(a)??-1e9)],w:["น้ำหนักพอร์ต",(a,b)=>(b._w||0)-(a._w||0)],comp:["คะแนน DEEP",(a,b)=>(b.composite||0)-(a.composite||0)],pl:["กำไร/ขาดทุน %",(a,b)=>(b.pl_pct??-1e9)-(a.pl_pct??-1e9)],t:["Ticker A → Z",(a,b)=>String(a.ticker).localeCompare(String(b.ticker))]};
 function summaryBand(rows,t,bench,phil){
   const mv=t.market_value||0, CL=100, X=v=>Math.max(-CL,Math.min(CL,v));
   const valued=rows.filter(r=>mosOf(r)!=null);
   const sorted=[...valued].sort(SORTS.mos[1]);
   const above=mv?valued.filter(r=>mosOf(r)<0).reduce((s,r)=>s+(r.market_value||0),0)/mv*100:null;
-  const groups=[["BUY","--bull"],["HOLD / Accumulate","--accent"],["HOLD","--base"],["SELL / AVOID","--bear"]].map(([k,c])=>{const rs=rows.filter(r=>r.recommendation===k);return {l:RECO_LABEL[k],c,n:rs.length,w:mv?rs.reduce((s,r)=>s+(r.market_value||0),0)/mv*100:0};}).filter(g=>g.n);
+  const groups=[["BUY","--bull"],["HOLD / Accumulate","--accent"],["HOLD","--base"],["SELL / AVOID","--bear"],["NOT RATED","--muted"]].map(([k,c])=>{const rs=rows.filter(r=>r.recommendation===k);return {l:RECO_LABEL[k],c,n:rs.length,w:mv?rs.reduce((s,r)=>s+(r.market_value||0),0)/mv*100:0};}).filter(g=>g.n);
   const pm=portMoS(), b=bench||{}, p=phil||{};
   const pl=t.pl==null?'':`<div style="margin-top:4px" class="${upcls(t.pl)}"><b class="num">${arrow(t.pl)}${usd(Math.abs(t.pl))} (${sgn(t.pl_pct)})</b> <span class="muted">จากต้นทุน ${usd(t.cost_basis)}</span></div>`;
   return `<div class="grid12">
@@ -180,7 +180,7 @@ function summaryBand(rows,t,bench,phil){
 function cardToolbar(n){
   return `<div class="toolbar" role="toolbar" aria-label="กรองและเรียงการ์ด">
     <label class="sr" for="cardQ">ค้นหา ticker</label><input id="cardQ" class="search" type="search" placeholder="ค้นหา ticker / ชื่อ" value="${esc(VIEW.q)}" oninput="VIEW.q=this.value;saveView();drawCards()">
-    <div class="seg" role="group" aria-label="กรองตาม rating">${[["all","ทั้งหมด"],["buy","BUY"],["hold","HOLD"],["sell","SELL"]].map(([k,l])=>`<button type="button" data-g="${k}" aria-pressed="${VIEW.g===k}" onclick="VIEW.g='${k}';saveView();drawCards()">${l}</button>`).join('')}</div>
+    <div class="seg" role="group" aria-label="กรองตาม rating">${[["all","ทั้งหมด"],["buy","BUY"],["hold","HOLD"],["sell","SELL"],["nr","ไม่จัดอันดับ"]].map(([k,l])=>`<button type="button" data-g="${k}" aria-pressed="${VIEW.g===k}" onclick="VIEW.g='${k}';saveView();drawCards()">${l}</button>`).join('')}</div>
     <label class="sr" for="cardSort">เรียงตาม</label><select id="cardSort" class="btn" onchange="VIEW.sort=this.value;saveView();drawCards()">${Object.entries(SORTS).map(([k,[l]])=>`<option value="${k}"${VIEW.sort===k?' selected':''}>เรียง: ${l}</option>`).join('')}</select>
     <span class="grow"></span><span class="count" id="cardCount" aria-live="polite"></span></div><div class="cards" id="cards"></div>`;
 }

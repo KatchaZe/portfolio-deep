@@ -230,6 +230,7 @@ def _hard_cap(w, arc, asset_class, single_name_cap, risk_share_cap, pricing_cap)
 
 
 SELL_RATINGS = ("SELL", "AVOID")
+NOT_RATED = "NOT RATED"          # no rating: never added to, never sold for its rating
 ADD_MIN_NET_MOS = 0.15          # S4/S12: add only with a margin of safety that is "enough"
 
 
@@ -244,7 +245,7 @@ def add_blocker(v, add_min_mos=ADD_MIN_NET_MOS):
     name's own when its value carries one (`add_min_mos`, from its uncertainty rating:
     a wider value range asks for a deeper discount), else `add_min_mos`."""
     v = v or {}
-    if _sells(v.get("rating")):
+    if _sells(v.get("rating")) or v.get("rating") == NOT_RATED:
         return f"rating {v.get('rating')}"
     m = v.get("net_mos")
     if m is None:
@@ -311,9 +312,11 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CA
             binding = (f"sector cap ({sec} {sw * 100:.1f}% > {(sector_cap + SECTOR_BAND) * 100:.0f}%"
                        f" → กลับไป {sector_cap * 100:.0f}%)")
         soft = hard * 0.8
-        blocker = add_blocker((value or {}).get(r["ticker"])) if value is not None else None
+        v = (value or {}).get(r["ticker"]) or {}
+        blocker = add_blocker(v) if value is not None else None
         if blocker is None and sector_full:
             blocker = f"sector {sec} {sw * 100:.1f}% ≥ เพดาน {sector_cap * 100:.0f}%"
+        unrated = v.get("rating") == NOT_RATED
         out.append({
             "ticker": r["ticker"],
             "sector": sec,
@@ -323,7 +326,9 @@ def position_sizing(rc_rows, sectors, single_name_cap=0.20, sector_cap=SECTOR_CA
             "binding_cap": binding,
             "abs_risk_share_pct": r.get("abs_risk_share_pct"),
             "add_blocker": blocker,
-            "action": _sizing_action(w, hard, soft, blocker),
+            # no rating: the weight is kept, caps included (B1) - never TRIM/ADD here
+            "action": ("HOLD (ไม่จัดอันดับ: คงน้ำหนักเดิม)" if unrated
+                       else _sizing_action(w, hard, soft, blocker)),
         })
     return out
 
@@ -360,9 +365,66 @@ def _trade_costs(t, cut_w, side, value, total_value, cost_bps):
     return round(dollars, 2), round(gain, 2), round(tax, 2), round(cost, 2)
 
 
+def trades_from_targets(target_rows, weights, sizing_rows, total_value, cost_bps, value=None):
+    """The Risk Desk's Rebalance table: the Targets rows (domain/risk/targets.py) in
+    dollars, realized gain, tax and trading cost, in the dict shape the post-trade
+    check and the UI read. Targets is the one recommendation set (B6): a row inside
+    its band is not traded, a BUY is an ADD, a SELL a TRIM (to 0 for a SELL-rated
+    exit). `weights` are the current weights of the WHOLE portfolio (cash = 1 - sum);
+    names without a target row keep theirs. `value` carries price, average cost and
+    tax rate for the tax on a sale."""
+    hard = {s["ticker"]: (s.get("hard_max_pct") or 100.0) / 100.0 for s in sizing_rows or []}
+    proposed = dict(weights)
+    trades = []
+    for r in target_rows or []:
+        t, act = r["ticker"], r.get("action")
+        if act not in ("BUY", "SELL") or not r.get("trade_pct"):
+            continue
+        w = weights.get(t, (r.get("current_pct") or 0) / 100.0)
+        exit_ = act == "SELL" and r.get("target_pct") == 0
+        # an exit sells the whole position: trade_pct is rounded, the weight is not
+        new = 0.0 if exit_ else max(0.0, w + r["trade_pct"] / 100.0)
+        proposed[t] = new
+        if exit_:
+            why = "Must (rating SELL → ออกทั้งตัว)"
+        elif act == "SELL" and w > hard.get(t, 1.0) + 1e-6:
+            why = "Must (เกิน hard cap)"
+        else:
+            why = "Should (หลุด band)"
+        trades.append({"ticker": t, "action": "TRIM" if act == "SELL" else "ADD",
+                       "from_pct": round(w * 100, 1), "to_pct": round(new * 100, 1),
+                       "amount_pct": round(abs(new - w) * 100, 1), "priority": why,
+                       "_w": abs(new - w), "_side": "sell" if act == "SELL" else "buy"})
+    trades.sort(key=lambda x: (not x["priority"].startswith("Must"), x["_side"] != "sell",
+                               -x["_w"]))
+    tax = cost = 0.0
+    for tr in trades:
+        d, g, tx, c = _trade_costs(tr["ticker"], tr.pop("_w"), tr.pop("_side"), value,
+                                   total_value, cost_bps)
+        tr.update({"amount_usd": d, "realized_gain_usd": g, "tax_usd": tx, "cost_usd": c})
+        tax += tx
+        cost += c
+    cash_now = 1.0 - sum(weights.values())
+    cash_after = 1.0 - sum(proposed.values())
+    return {
+        "no_trade": len(trades) == 0,
+        "proposed_weights": {t: round(w, 4) for t, w in proposed.items()},
+        "cash_pct_after": round(cash_after * 100, 1),
+        "to_cash_pct": round(max(0.0, cash_after - cash_now) * 100, 1),
+        "trades": trades,
+        "costs": {"tax_usd": round(tax, 2), "trading_usd": round(cost, 2),
+                  "total_usd": round(tax + cost, 2),
+                  "turnover_pct": round(sum(t["amount_pct"] for t in trades) / 2, 1)},
+        "rule": ("จาก Targets (risk budget): เทรดเฉพาะตัวที่หลุด band กลับเข้า band · "
+                 "SELL rating ออกทั้งตัว · ไม่จัดอันดับ / ไม่มี fair value = คงน้ำหนักเดิม"),
+    }
+
+
 def rebalance(weights, sizing_rows, min_cash_pct=0.0, value=None, cash_frac=0.0,
               total_value=None, cost_bps=0, add_min_mos=ADD_MIN_NET_MOS, sector_cap=SECTOR_CAP):
-    """Trim over-cap names to their hard cap and SELL-rated names above their soft max.
+    """Cap-based plan, kept for its tests; the Risk Desk no longer calls it (its
+    Rebalance table is trades_from_targets, B6 2026-11-15).
+    Trim over-cap names to their hard cap and SELL-rated names above their soft max.
     With `value` the freed weight goes only to names whose margin of safety after cost
     and tax clears `add_min_mos`, in proportion to that MoS and within each name's soft
     max; what nobody can take stays CASH (S35: no diluting into names the valuation

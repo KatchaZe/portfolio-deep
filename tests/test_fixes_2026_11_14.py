@@ -642,6 +642,222 @@ def test_early_stage_beta_source_label():
     print("early stage beta_source label OK")
 
 
+
+# --- Task 6 (B1 + B6): NOT RATED, and one recommendation set on the Risk Desk ---
+def _anc(method="FCFF DCF", dcf=None, ydcf=None):
+    return E._Anchor(method=method, value=10.0, fv_peg=None, fv_fvp=None, ydcf=ydcf, dcf=dcf)
+
+
+_GOOD = {"D": 4.5, "E_exec": 4.5, "E_econ": 4.5, "P": 4.5}
+
+
+def test_not_rated_each_reason():
+    ok_unc = {"rating": "Medium"}
+    cases = {
+        "extreme": (dict(unc={"rating": "Extreme"}, anc=_anc(dcf={"terminal_share_pct": 60})), []),
+        "floored": (dict(unc={"rating": "Very High", "floored_by": "liquidation"},
+                         anc=_anc("Young-Company DCF (failure-adjusted)",
+                                  ydcf={"floored": True, "terminal_share_of_value_pct": 40})), []),
+        "terminal": (dict(unc=ok_unc, anc=_anc(dcf={"terminal_share_pct": 125.0})), []),
+        "young_terminal": (dict(unc=ok_unc, anc=_anc("Young-Company DCF (failure-adjusted)",
+                                                     ydcf={"floored": False,
+                                                           "terminal_share_of_value_pct": 130.0})), []),
+        "ttm": (dict(unc=ok_unc, anc=_anc(dcf={"terminal_share_pct": 60})),
+                ["TTM: quarters not contiguous (revenue)"]),
+    }
+    for name, (kw, flags) in cases.items():
+        f = FinancialFacts("NRX")
+        f.flags = list(flags)
+        why = E.not_rated_reasons(kw["unc"], kw["anc"], f)
+        assert why, (name, why)
+        f.flags = list(flags)
+        comp, reco = E._overall(f, dict(_GOOD), [], kw["unc"], kw["anc"])
+        assert reco == "NOT RATED" and comp is not None, (name, comp, reco)
+        assert any(x.startswith("NOT RATED") for x in f.flags), (name, f.flags)
+    # the share the primary model does NOT use cannot rate a row out
+    f = FinancialFacts("NRX")
+    assert E.not_rated_reasons(ok_unc, _anc(dcf={"terminal_share_pct": 99.9},
+                                            ydcf={"terminal_share_of_value_pct": 150}), f) == []
+    # floored but not the anchor (FCFF DCF primary) -> rated
+    assert E.not_rated_reasons(ok_unc, _anc(dcf={"terminal_share_pct": 50},
+                                            ydcf={"floored": True}), f) == []
+    comp, reco = E._overall(f, dict(_GOOD), [], ok_unc, _anc(dcf={"terminal_share_pct": 50}))
+    assert reco == "BUY", reco
+    print("NOT RATED for each of the four reasons, rated otherwise OK")
+
+
+def test_floored_young_engine_row_is_not_rated():
+    from tests.test_young_dcf import PREPROFIT, RF
+    r = 0.5e9
+    kw = dict(PREPROFIT, revenue=r, cash=1.0e9, total_debt=0.0, operating_income=-0.5e9,
+              cfo=-0.5e9, revenue_annuals=[r, r * .8, r * .6, r * .4],
+              growth_lt=0.05, fwd_growth_near=0.05)
+    v = E.DeepV82Engine().evaluate(FinancialFacts("YNGCO", **kw), rf=RF)
+    assert v.young_dcf["floored"] is True
+    assert v.recommendation == "NOT RATED" and v.signal is None, (v.recommendation, v.signal)
+    assert v.composite is not None and v.stars, v.composite        # fundamentals still shown
+    assert any("liquidation" in x for x in v.flags if x.startswith("NOT RATED")), v.flags
+    assert v.verdict.startswith("NOT RATED"), v.verdict
+    print("floored young engine row -> NOT RATED, signal None OK")
+
+
+def test_signal_not_rated_is_none():
+    assert E._signal("NOT RATED") is None
+    assert E._signal("SELL / AVOID") == "SELL" and E._signal("HOLD / Accumulate") == "HOLD"
+    print("_signal(NOT RATED) is None OK")
+
+
+def test_advice_not_rated_allows_hold_only():
+    from domain import advice
+    assert advice.align("NOT RATED", "REDUCE")[0] == "HOLD"
+    assert advice.align("NOT RATED", "BUY")[0] == "HOLD"
+    assert advice.align("NOT RATED", "ACCUMULATE")[0] == "HOLD"
+    for keep in ("HOLD", "HOLD?", "WATCH"):
+        assert advice.align("NOT RATED", keep) == (keep, None), keep
+    print("advice: NOT RATED allows HOLD / HOLD? / WATCH only OK")
+
+
+def _tg_val(rating="BUY", **kw):
+    return dict({"rating": rating, "net_mos": 0.30, "excess_pct": 2.0, "uncertainty": "Medium"}, **kw)
+
+
+def test_targets_keep_weight_for_not_rated():
+    from domain.risk import targets as T, portfolio as RP
+    assert T.budget({"rating": "NOT RATED", "net_mos": 0.3}) == (None, "ไม่จัดอันดับ → คงน้ำหนักเดิม")
+    assert RP.add_blocker({"rating": "NOT RATED", "net_mos": 0.5}) == "rating NOT RATED"
+    tk = ["A", "B", "N"]
+    cov = [[0.04, 0.01, 0.01], [0.01, 0.04, 0.01], [0.01, 0.01, 0.04]]
+    w = {"A": 0.30, "B": 0.10, "N": 0.60}
+    # N is far over its 20% cap and far from any budget weight: still kept as is
+    sizing = [{"ticker": t, "hard_max_pct": 20.0} for t in tk]
+    out = T.targets(tk, cov, w, {"A": _tg_val(), "B": _tg_val(), "N": _tg_val("NOT RATED")},
+                    sizing, total_value=10000)
+    n = {r["ticker"]: r for r in out["rows"]}["N"]
+    assert n["action"] == "HOLD" and n["trade_pct"] == 0 and n["target_pct"] == 60.0, n
+    assert "ไม่จัดอันดับ" in n["basis"], n
+    # a full sector trims the others, never the NOT RATED name
+    sec = [{"ticker": t, "hard_max_pct": 100.0, "sector": "Tech"} for t in tk]
+    out = T.targets(tk, cov, w, {"A": _tg_val(), "B": _tg_val(), "N": _tg_val("NOT RATED")},
+                    sec, total_value=10000, sector_cap=0.40)
+    by = {r["ticker"]: r for r in out["rows"]}
+    assert by["N"]["action"] == "HOLD" and by["N"]["target_pct"] == 60.0, by["N"]
+    assert by["A"]["target_pct"] == 0.0 and by["B"]["target_pct"] == 0.0, by
+    print("targets keep a NOT RATED holding at its weight OK")
+
+
+def test_existing_sell_still_exits():
+    from domain.risk import targets as T
+    assert T.budget({"rating": "SELL / AVOID", "net_mos": 0.3})[0] == 0.0
+    tk = ["A", "B", "S"]
+    cov = [[0.04, 0.01, 0.01], [0.01, 0.04, 0.01], [0.01, 0.01, 0.04]]
+    out = T.targets(tk, cov, {"A": 0.4, "B": 0.4, "S": 0.2},
+                    {"A": _tg_val(), "B": _tg_val(), "S": _tg_val("SELL / AVOID")},
+                    [{"ticker": t, "hard_max_pct": 100.0} for t in tk], total_value=10000)
+    s = {r["ticker"]: r for r in out["rows"]}["S"]
+    assert s["action"] == "SELL" and s["target_pct"] == 0.0 and s["trade_pct"] == -20.0, s
+    print("SELL / AVOID still exits whole OK")
+
+
+def test_trades_from_targets_shape_and_costs():
+    from domain.risk import portfolio as RP
+    rows = [{"ticker": "A", "current_pct": 40.0, "target_pct": 20.0, "action": "SELL",
+             "trade_pct": -18.25, "trade_usd": -1825},
+            {"ticker": "B", "current_pct": 10.0, "target_pct": 30.0, "action": "BUY",
+             "trade_pct": 18.25, "trade_usd": 1825},
+            {"ticker": "C", "current_pct": 30.0, "target_pct": 0.0, "action": "SELL",
+             "trade_pct": -30.0, "trade_usd": -3000},
+            {"ticker": "D", "current_pct": 10.0, "target_pct": 11.0, "action": "HOLD",
+             "trade_pct": 0.0, "trade_usd": 0}]
+    w = {"A": 0.40, "B": 0.10, "C": 0.30, "D": 0.10}           # 10% cash
+    sizing = [{"ticker": "A", "hard_max_pct": 20.0}, {"ticker": "B", "hard_max_pct": 40.0},
+              {"ticker": "C", "hard_max_pct": 40.0}, {"ticker": "D", "hard_max_pct": 40.0}]
+    value = {"A": {"price": 120.0, "avg_cost": 100.0, "tax_rate": 0.15},
+             "C": {"price": 50.0, "avg_cost": 80.0, "tax_rate": 0.15}}
+    reb = RP.trades_from_targets(rows, w, sizing, 10000, 20, value=value)
+    tr = {t["ticker"]: t for t in reb["trades"]}
+    assert set(tr) == {"A", "B", "C"}, tr                       # D inside the band
+    assert tr["A"]["action"] == "TRIM" and tr["A"]["from_pct"] == 40.0 and tr["A"]["to_pct"] == 21.8
+    assert tr["A"]["priority"].startswith("Must"), tr["A"]      # over its hard cap
+    assert tr["C"]["action"] == "TRIM" and tr["C"]["to_pct"] == 0.0 and "SELL" in tr["C"]["priority"]
+    assert tr["B"]["action"] == "ADD" and tr["B"]["to_pct"] == 28.2, tr["B"]
+    for t in tr.values():
+        for k in ("amount_usd", "realized_gain_usd", "tax_usd", "cost_usd", "priority"):
+            assert k in t, (k, t)
+    # A: $1,825 sold at 120 over 100 -> gain 304.17, tax 45.63; C sold at a loss: no tax
+    assert abs(tr["A"]["realized_gain_usd"] - 304.17) < 0.01 and abs(tr["A"]["tax_usd"] - 45.625) < 0.01
+    assert tr["C"]["realized_gain_usd"] < 0 and tr["C"]["tax_usd"] == 0.0
+    assert tr["A"]["cost_usd"] == round(1825 * 20 / 2 / 10000, 2)
+    pw = reb["proposed_weights"]
+    assert abs(pw["A"] - 0.2175) < 1e-9 and pw["C"] == 0 and abs(pw["D"] - 0.10) < 1e-9, pw
+    assert reb["cash_pct_after"] == 40.0 and reb["to_cash_pct"] == 30.0, reb
+    assert reb["no_trade"] is False and "Targets" in reb["rule"], reb
+    assert RP.trades_from_targets([], w, sizing, 10000, 20)["no_trade"] is True
+    print("trades_from_targets: shape, costs, cash OK")
+
+
+def test_rebalance_matches_targets():
+    from tests.test_alloc_corr import _store, _provider
+    from pipeline import risk_report
+    import random
+    random.seed(11)
+    spec = {"AA": dict(sector="Technology", shares=60), "BB": dict(sector="Healthcare", shares=5),
+            "CC": dict(sector="Energy", shares=20), "DD": dict(sector="Utilities", shares=15),
+            "NR": dict(sector="Industrials", shares=30)}
+    s = _store(spec)
+    s["results"] = {"AA": {"recommendation": "HOLD", "anchor_value": 105.0},
+                    "BB": {"recommendation": "BUY", "anchor_value": 180.0},
+                    "CC": {"recommendation": "SELL / AVOID", "anchor_value": 60.0},
+                    "DD": {"recommendation": "HOLD / Accumulate", "anchor_value": 130.0},
+                    "NR": {"recommendation": "NOT RATED", "anchor_value": 200.0}}
+    series = {t: [random.gauss(0.0004, 0.015) for _ in range(250)] for t in spec}
+    p, _ = risk_report.build(s, "", 0, 250, 20.0, 1.0, False,
+                             fetch_returns=_provider(series), fetch_long=lambda t: {})
+    tg, reb = p["targets"], p["rebalance"]
+    assert tg["status"] == "ok", tg
+    trades = {t["ticker"]: t for t in reb["trades"]}
+    moved = 0
+    for r in tg["rows"]:
+        if r["action"] == "HOLD":
+            assert r["ticker"] not in trades, (r, trades.get(r["ticker"]))
+            continue
+        moved += 1
+        t = trades[r["ticker"]]
+        assert t["action"] == ("TRIM" if r["action"] == "SELL" else "ADD"), (r, t)
+        assert abs(t["amount_usd"] - abs(r["trade_usd"])) <= 1.0, (r, t)
+    assert moved and len(trades) == moved, (tg["rows"], trades)
+    nr = {r["ticker"]: r for r in tg["rows"]}["NR"]
+    assert nr["action"] == "HOLD" and "NR" not in trades, nr
+    assert "CC" in trades and trades["CC"]["to_pct"] == 0.0, trades.get("CC")
+    assert trades["CC"]["priority"].startswith("Must") and reb["proposed_weights"]["CC"] == 0
+    # the sizing table may not contradict the plan: NR is over its 20% cap but kept
+    nr_size = {r["ticker"]: r for r in p["position_sizing"]}["NR"]
+    assert nr_size["action"].startswith("HOLD (ไม่จัดอันดับ"), nr_size
+    assert reb["after"] is not None and "Targets" in reb["rule"], reb
+    print("Risk Desk rebalance = Targets in shares/dollars OK:", sorted(trades))
+
+
+def test_ui_and_docs_name_not_rated():
+    import subprocess
+    import shutil
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    html = open(os.path.join(root, "index.html"), encoding="utf-8").read()
+    assert "ไม่จัดอันดับ" in html and "NOT RATED" in html, "How-to/Ref must explain NOT RATED"
+    row = html.split("<b>DEEP recommendation</b>", 1)[1].split("</tr>", 1)[0]
+    for why in ("ไม่จัดอันดับ", "NOT RATED", "Extreme", "liquidation", "terminal", "TTM"):
+        assert why in row, why
+    card = open(os.path.join(root, "static", "js", "card.js"), encoding="utf-8").read()
+    assert '"NOT RATED":"nr"' in card and '["nr","ไม่จัดอันดับ"]' in card, "card filter group"
+    assert '["NOT RATED","--muted"]' in card, "summary band group"
+    risk = open(os.path.join(root, "static", "js", "risk.js"), encoding="utf-8").read()
+    assert "จาก Targets" in risk
+    if shutil.which("node"):
+        js = open(os.path.join(root, "static", "js", "format.js"), encoding="utf-8").read()
+        out = subprocess.run(["node", "-e", js + ';console.log(JSON.stringify([RECO_LABEL["NOT RATED"],'
+                              'RECO_COLOR["NOT RATED"]]))'], capture_output=True, text=True)
+        assert json.loads(out.stdout.strip().splitlines()[-1]) == ["ไม่จัดอันดับ", "--muted"], out
+    print("UI + How-to name NOT RATED (ไม่จัดอันดับ) OK")
+
+
 if __name__ == "__main__":
     for name, fn in list(globals().items()):
         if name.startswith("test_") and callable(fn):

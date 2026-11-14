@@ -25,7 +25,7 @@ class Valuation:
     P: Optional[float] = None
     composite: Optional[float] = None
     stars: str = ""
-    recommendation: Optional[str] = None        # BUY / HOLD / Accumulate / SELL ...
+    recommendation: Optional[str] = None        # "BUY" | "HOLD / Accumulate" | "HOLD" | "SELL / AVOID" | "NOT RATED"
     signal: Optional[str] = None                 # BUY / HOLD / SELL (for daily action grid)
 
     # fair value (per share)

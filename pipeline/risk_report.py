@@ -303,7 +303,7 @@ def _bootstrap_var(rdata, tickers, weights, horizon_years):
 
 def _value_inputs(s, tickers, book):
     """{ticker: rating, gross and net margin of safety, price, average cost, tax rate}
-    for the value-aware rebalance. Net MoS is the card's net upside (after the round-trip
+    for the targets and their rebalance. Net MoS is the card's net upside (after the round-trip
     cost and capital-gains tax, domain/costs) put on the MoS scale (V - P)/V."""
     from domain import costs
     res, hold = s.get("results", {}) or {}, s.get("holdings", {}) or {}
@@ -649,9 +649,10 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
     sizing = riskeng.position_sizing(rc_total, sectors, sector_cap=config.SECTOR_CAP,
                                      asset_class=asset_class,
                                      pricing_cap=config.PRICING_ASSET_CAP, value=value)
-    reb = riskeng.rebalance(weights, sizing, value=value, cash_frac=cash_frac,
-                            total_value=invested + cash, cost_bps=config.TRADING_COST_BPS,
-                            sector_cap=config.SECTOR_CAP)
+    targets = _targets(tickers, cov, weights, value, sizing, cash_frac, invested + cash)
+    # one recommendation set (B6): the Rebalance table is the Targets rows in dollars
+    reb = riskeng.trades_from_targets(targets.get("rows") or [], w_total, sizing,
+                                      invested + cash, config.TRADING_COST_BPS, value=value)
     reb["vol_now_pct"] = round(port_vol_total * 100, 1) if port_vol else None
     after = _after_rebalance(reb, tickers, cov, betas, sectors, book.industries)
 
@@ -722,7 +723,7 @@ def build(s, fmp_key, quota_used, quota_cap, tolerance_pct, horizon_years,
         "suitability": suit,
         "position_sizing": sizing,
         "rebalance": {**reb, "after": after},
-        "targets": _targets(tickers, cov, weights, value, sizing, cash_frac, invested + cash),
+        "targets": targets,
         "meta": {
             "cov_mode": cov_mode, "cov_tag": cov_tag, "shrinkage": shrinkage, "cache": rmeta.get("cache"),
             "quota_degraded": rmeta.get("quota_degraded"),

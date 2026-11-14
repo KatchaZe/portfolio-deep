@@ -1090,12 +1090,43 @@ def stars(c):
     return "★" * full + ("½" if h else "") + "☆" * (5 - full - (1 if h else 0))
 
 
+NOT_RATED = "NOT RATED"
+TERMINAL_SHARE_UNRATABLE = 100.0     # % of value in the terminal: past this the
+                                     # explicit years subtract value - no rating holds
+_TTM_GAP = "TTM: quarters not contiguous"
+
+
+def not_rated_reasons(unc, anc, f):
+    """Why this row cannot carry a rating (empty = it can). Any one is enough: the
+    value range is Extreme; the fair value is the liquidation floor, not a going
+    concern; the primary model puts over 100% of its value in the terminal; or a
+    TTM field had no value because its quarters were not contiguous. The composite
+    is still computed and shown; only the recommendation is withheld (B1)."""
+    out = []
+    if (unc or {}).get("rating") == "Extreme":
+        out.append("uncertainty Extreme - the value range is too wide to rate")
+    method = (anc.method if anc else None) or ""
+    young = method.startswith("Young-Company")
+    y = (anc.ydcf if anc else None) or {}
+    if young and y.get("floored"):
+        out.append("fair value is the liquidation floor, not a going-concern value")
+    share = (y.get("terminal_share_of_value_pct") if young
+             else ((anc.dcf or {}).get("terminal_share_pct") if anc and method == "FCFF DCF"
+                   else None))
+    if share is not None and share > TERMINAL_SHARE_UNRATABLE:
+        out.append(f"terminal value is {share:g}% of the value (> {TERMINAL_SHARE_UNRATABLE:g}%)")
+    gaps = [x for x in (getattr(f, "flags", None) or []) if _TTM_GAP in str(x)]
+    if gaps:
+        out.append("TTM incomplete - " + "; ".join(gaps))
+    return out
+
+
 def recommendation(c):
     return "BUY" if c >= 4 else "HOLD / Accumulate" if c >= 3 else "HOLD" if c >= 2 else "SELL / AVOID"
 
 
 def _signal(reco):
-    if reco is None:
+    if reco is None or reco == NOT_RATED:
         return None
     return "BUY" if reco == "BUY" else "HOLD" if reco.startswith("HOLD") else "SELL"
 
@@ -1127,7 +1158,7 @@ class DeepV82Engine(DeepEngine):
                           young_uncertain=bool((anc.ydcf or {}).get("uncertain"))
                           and anc.method.startswith("Young-Company"),
                           uncertainty=unc)
-        comp, reco = _overall(f, scores, notes)
+        comp, reco = _overall(f, scores, notes, unc, anc)
 
         # EVA on ONE basis: the measured return on the capital it was measured on
         # (R&D-capitalized ROIC x R&D-capitalized capital). The median-damped scoring
@@ -2392,8 +2423,9 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     return {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
 
 
-def _overall(f, scores, notes):
-    """Composite and recommendation, with the caps for unmeasured pillars.
+def _overall(f, scores, notes, unc=None, anc=None):
+    """Composite and recommendation, with the caps for unmeasured pillars, then
+    NOT RATED when the value cannot carry a rating (not_rated_reasons).
     Returns (composite, recommendation)."""
     comp = composite(scores)
     # Say so when composite()'s neutral bound moved the score. This float renorm
@@ -2417,6 +2449,11 @@ def _overall(f, scores, notes):
         reco, why = cap_reco(reco, scores[pillar])
         if why:
             _add_flag(f, why)
+    why_not = not_rated_reasons(unc, anc, f)
+    if why_not and reco is not None:
+        for w in why_not:
+            _add_flag(f, f"NOT RATED: {w} (composite {comp:.2f} shown, no rating)")
+        reco = NOT_RATED
     return comp, reco
 
 

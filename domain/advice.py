@@ -150,6 +150,8 @@ _ALLOWED = {
                           "ACCUMULATE"),
     "HOLD": ({"WATCH", "NO ADD", "HOLD", "HOLD?", "REDUCE"}, "HOLD"),
     "SELL / AVOID": ({"REDUCE"}, "REDUCE"),
+    # no rating = no view to act on: keep the weight (B1)
+    "NOT RATED": ({"HOLD", "HOLD?", "WATCH"}, "HOLD"),
 }
 
 
