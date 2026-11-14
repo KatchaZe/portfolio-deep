@@ -228,6 +228,66 @@ def test_save_refuses_nan():
     print("save refuses NaN OK")
 
 
+def _pull_with(tmp, local_bytes, remote_bytes):
+    drive = FakeDrive(push_version="9")
+    path = _setup(tmp, drive, remote_version=None)
+    gdrive_store._download = lambda svc, fid: remote_bytes
+    gdrive_store.STATUS["local_sidecar"] = None
+    if local_bytes is None:
+        os.remove(path)
+    else:
+        with open(path, "wb") as fh:
+            fh.write(local_bytes)
+    return path, gdrive_store.drive_pull(path)
+
+
+def test_pull_keeps_differing_local_as_sidecar():
+    with tempfile.TemporaryDirectory() as tmp:
+        try:
+            path, res = _pull_with(tmp, b'{"local": "post-conflict edit"}', b'{"remote": 1}')
+            assert res == "pulled"
+            side = glob.glob(path + ".local-*")
+            assert len(side) == 1, side
+            assert open(side[0], "rb").read() == b'{"local": "post-conflict edit"}'
+            assert open(path, "rb").read() == b'{"remote": 1}'
+            assert gdrive_store.STATUS["local_sidecar"] == os.path.basename(side[0])
+        finally:
+            _teardown()
+    print("pull keeps differing local OK")
+
+
+def test_pull_identical_or_missing_local_makes_no_sidecar():
+    for local in (b'{"same": 1}', None):
+        with tempfile.TemporaryDirectory() as tmp:
+            try:
+                path, res = _pull_with(tmp, local, b'{"same": 1}')
+                assert res == "pulled"
+                assert glob.glob(path + ".local-*") == []
+                assert gdrive_store.STATUS["local_sidecar"] is None
+            finally:
+                _teardown()
+    print("pull without differing local makes no sidecar OK")
+
+
+def test_holding_422_for_input_but_500_for_save_fault():
+    from fastapi.testclient import TestClient
+    import app
+    with tempfile.TemporaryDirectory() as tmp:
+        _fresh_store(tmp)
+        client = TestClient(app.app, raise_server_exceptions=False)
+        assert client.post("/api/holding?ticker=NVDA&shares=-5").status_code == 422
+        real = store.save
+        def bad_save(s):
+            raise ValueError("Out of range float values are not JSON compliant")
+        store.save = bad_save
+        try:
+            r = client.post("/api/holding?ticker=NVDA&shares=5")
+        finally:
+            store.save = real
+        assert r.status_code == 500, (r.status_code, r.text)
+    print("422 for input, 500 for save fault OK")
+
+
 def test_holding_endpoint_returns_422():
     from fastapi.testclient import TestClient
     import app

@@ -216,11 +216,16 @@ def _book_cash(s, d_usd):
         perf["pending_flow"] = (perf.get("pending_flow") or 0.0) + d_usd
 
 
-def set_holding(s, ticker, shares=None, avg_cost=None):
+def validate_holding(shares=None, avg_cost=None):
     """Raises ValueError for a negative or non-finite shares / avg_cost."""
     for label, v in (("shares", shares), ("avg_cost", avg_cost)):
         if v is not None and not (math.isfinite(float(v)) and float(v) >= 0):
             raise ValueError(f"{label} must be a finite number >= 0")
+
+
+def set_holding(s, ticker, shares=None, avg_cost=None):
+    """Raises ValueError for a negative or non-finite shares / avg_cost."""
+    validate_holding(shares, avg_cost)
     if ledger_active(s):
         from domain.ledger import LedgerError
         raise LedgerError("ledger ทำงานอยู่ — บันทึกเป็นรายการ BUY / SELL / DEPOSIT / WITHDRAW แทน")

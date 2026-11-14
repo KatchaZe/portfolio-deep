@@ -1,7 +1,7 @@
 // The page shell: tabs, build stamp, persistence badge, keep-alive and boot. Loaded last.
 
 // must equal config.BUILD; a browser still running cached JS shows the mismatch banner
-const DASH_BUILD="2026-11-14a";
+const DASH_BUILD="2026-11-15a";
 
 async function checkBuild(){
   const el=document.getElementById('buildStamp'); if(!el)return;
@@ -58,6 +58,7 @@ async function loadPersist(){
   const el=document.getElementById('persist'); if(!el)return;
   try{
     const p=await (await fetch('/api/persist')).json();
+    const kept=p.local_sidecar?'\nสำเนา local เดิมที่ถูก pull ทับ: '+p.local_sidecar:'';
     if(!p.configured){
       el.className='quota'; el.innerHTML='local only';
       el.title='ไม่ได้ตั้งค่า Google Drive backup — บน Render free tier ข้อมูลจะหายเมื่อ instance restart (ตั้ง GDRIVE_OAUTH_* ตาม GOOGLE_DRIVE_OAUTH_SETUP.md)';
@@ -65,7 +66,7 @@ async function loadPersist(){
     }
     if(p.push_result==='conflict'){
       el.className='quota warn'; el.style.color='#d33'; el.innerHTML='Drive &#9888; conflict';
-      el.title='Drive มีไฟล์ใหม่กว่าที่ instance นี้รู้จัก — การ push ถูกบล็อกจนกว่าจะ restart\nสำเนาจาก Drive เก็บไว้ที่ '+(p.conflict_file||'portfolio.json.remote-*')+' ข้างไฟล์ local';
+      el.title='Drive มีไฟล์ใหม่กว่าที่ instance นี้รู้จัก — การ push ถูกบล็อกจนกว่าจะ restart\nสำเนาจาก Drive เก็บไว้ที่ '+(p.conflict_file||'portfolio.json.remote-*')+' ข้างไฟล์ local\nrestart แล้ว instance จะ pull ทับไฟล์ local (ข้อมูลที่แก้หลังเกิด conflict จะถูกเก็บไว้ที่ portfolio.json.local-* ก่อนถูกทับ) — ตรวจสอบไฟล์ทั้งสองก่อน restart'+kept;
       return;
     }
     el.style.color='';
@@ -77,7 +78,7 @@ async function loadPersist(){
         +'\nถ้าค้างนาน: refresh token อาจหมดอายุ (OAuth consent screen สถานะ Testing = token หมดใน 7 วัน — กด PUBLISH APP เป็น In production แล้วสร้าง token ใหม่)';
     }else{
       el.className='quota'; el.innerHTML='Drive &#10003;';
-      el.title=`Google Drive backup ทำงานปกติ (${p.auth_mode})\nlast pull: ${p.last_pull||'—'} (${p.pull_state||p.pull_result||'—'})\nlast push: ${p.last_push||'—'} (${p.push_result||'—'})`;
+      el.title=`Google Drive backup ทำงานปกติ (${p.auth_mode})\nlast pull: ${p.last_pull||'—'} (${p.pull_state||p.pull_result||'—'})\nlast push: ${p.last_push||'—'} (${p.push_result||'—'})${kept}`;
     }
   }catch(e){el.innerHTML='Drive ?';}
 }

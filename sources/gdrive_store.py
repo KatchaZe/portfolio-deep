@@ -32,6 +32,7 @@ STATUS = {
     "push_result": None,      # "pushed" | "skipped" | "error" | "conflict"
     "last_error": None,       # str(last exception) from pull or push
     "remote_version": None,   # Drive `version` of portfolio.json we last pulled/pushed
+    "local_sidecar": None,    # local copy kept when a pull replaced a different file
     "conflict_file": None,    # local sidecar holding the remote copy after a conflict
 }
 
@@ -211,6 +212,23 @@ def _version_of(resp):
 
 
 # --- portfolio.json (status-tracked; store_sync applies the data-loss guard) --- #
+def _keep_differing_local(local_path, remote_bytes):
+    """About to overwrite an existing local file with different bytes: keep it."""
+    try:
+        with open(local_path, "rb") as fh:
+            local = fh.read()
+    except FileNotFoundError:
+        return
+    if local == remote_bytes:
+        return
+    side = f"{local_path}.local-{_dt.datetime.now().strftime('%Y%m%d-%H%M')}"
+    with open(side, "wb") as fh:
+        fh.write(local)
+    STATUS["local_sidecar"] = os.path.basename(side)
+    log.warning("Drive pull is replacing a different local %s; the old local copy "
+                "was saved to %s", local_path, side)
+
+
 def drive_pull(local_path):
     """Download the remote portfolio.json onto local_path. Returns:
       "pulled" -- remote existed and was written locally
@@ -236,6 +254,8 @@ def drive_pull(local_path):
         json.loads(data.decode("utf-8"))            # validate before overwriting
         version = remote_version(svc, fid)
         os.makedirs(os.path.dirname(local_path), exist_ok=True)
+        if not local_path.endswith(".remote"):      # the local-wins sidecar is a scratch copy
+            _keep_differing_local(local_path, data)
         # Atomic replace: readers load() lock-free and must never see a half file.
         tmp = f"{local_path}.pull.{os.getpid()}.tmp"
         with open(tmp, "wb") as fh:
