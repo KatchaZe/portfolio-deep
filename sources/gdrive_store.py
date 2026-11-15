@@ -16,6 +16,7 @@ Auth precedence (first one whose env vars are present wins):
 With neither set every function is a no-op. No function here ever raises.
 """
 import os
+import hashlib
 import io
 import re
 import json
@@ -34,6 +35,7 @@ STATUS = {
     "push_result": None,      # "pushed" | "skipped" | "error" | "conflict"
     "last_error": None,       # str(last exception) from pull or push
     "remote_version": None,   # Drive `version` of portfolio.json we last pulled/pushed
+    "remote_md5": None,       # md5 of the bytes we last pulled/pushed (content lock)
     "local_sidecar": None,    # local copy kept when a pull replaced a different file
     "conflict_file": None,    # local sidecar holding the remote copy after a conflict
     "conflict_remote": None,  # Drive name of this instance's copy during a conflict
@@ -160,7 +162,17 @@ def _upload_media(data):
 
 def remote_version(svc, fid):
     """Drive's `version` of file `fid` (a monotonically increasing string). Raises."""
-    return str(svc.files().get(fileId=fid, fields="version").execute()["version"])
+    return remote_state(svc, fid)[0]
+
+
+def remote_state(svc, fid):
+    """(version, md5Checksum or None) of file `fid`. Raises."""
+    meta = svc.files().get(fileId=fid, fields="version,md5Checksum").execute()
+    return str(meta["version"]), meta.get("md5Checksum")
+
+
+def _md5(data):
+    return hashlib.md5(data).hexdigest()
 
 
 def _create(svc, name, data, retry_any_failure):
@@ -183,9 +195,14 @@ def _create(svc, name, data, retry_any_failure):
 
 def _upload(name, local_path, retry_any_failure=False):
     """Create or update the remote `name` from local_path. Returns the new Drive
-    version (str) or None when the response carried none. Raises."""
+    version (str) or None when the response carried none, and the md5 of the bytes
+    sent. Raises."""
     with open(local_path, "rb") as fh:      # read + close before the network
         data = fh.read()
+    return _send(name, data, retry_any_failure), _md5(data)
+
+
+def _send(name, data, retry_any_failure):
     svc = _client()
     fid = _find_id(svc, name)
     if fid:
@@ -271,6 +288,7 @@ def drive_pull(local_path):
         log.info("Drive: pulled portfolio.json (%d bytes)", len(data))
         STATUS["pull_result"] = "pulled"
         STATUS["remote_version"] = version
+        STATUS["remote_md5"] = _md5(data)
         STATUS["last_error"] = None
         return "pulled"
     except Exception as e:
@@ -345,15 +363,18 @@ def drive_push(local_path):
         fid = _find_id(svc, REMOTE_NAME)
         if fid:
             try:
-                current = remote_version(svc, fid)
-                moved = current != STATUS["remote_version"]
+                current, md5 = remote_state(svc, fid)
+                # Drive also bumps `version` without new bytes (seen live right after
+                # our own upload): a moved version over the same content is ours.
+                moved = (current != STATUS["remote_version"]
+                         and not (md5 and md5 == STATUS.get("remote_md5")))
                 why = f"remote version {current} != last seen {STATUS['remote_version']}"
             except Exception as e:
                 moved, why = True, f"remote version unreadable: {e}"
             if moved:
                 enter_conflict(local_path, why, _stash_remote(svc, fid, local_path))
                 return False
-        version = _upload(REMOTE_NAME, local_path)
+        version, md5 = _upload(REMOTE_NAME, local_path)
     except Exception as e:
         log.warning("Drive push failed (kept local copy only): %s", e)
         STATUS["push_result"] = "error"
@@ -362,6 +383,7 @@ def drive_push(local_path):
     log.info("Drive: pushed portfolio.json")
     STATUS["push_result"] = "pushed"
     STATUS["remote_version"] = version
+    STATUS["remote_md5"] = md5
     STATUS["last_error"] = None
     return True
 

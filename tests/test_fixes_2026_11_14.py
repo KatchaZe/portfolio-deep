@@ -60,7 +60,7 @@ class FakeDrive:
         def run():
             if self.get_raises:
                 raise RuntimeError("boom")
-            return {"version": self.versions[0]}
+            return {"version": self.versions[0], "md5Checksum": getattr(self, "md5", None)}
         return _Req(run)
 
     def get_media(self, fileId):
@@ -1338,6 +1338,46 @@ def test_badge_names_conflict_copy_without_restart_advice():
     assert "portfolio.conflict-srv-20261115-0900.json" in el["title"], el
     assert "ข้างไฟล์ local" not in el["title"] and "ก่อน restart" not in el["title"], el["title"]
     print("conflict badge names the Drive conflict copy OK")
+
+
+def test_version_bump_with_same_content_is_not_a_conflict():
+    """Live 2026-11-15: Drive bumped portfolio.json's version after our own upload
+    (755 -> 756) with the bytes unchanged, and the next push read it as a conflict.
+    The lock compares content (md5) when the version alone moved."""
+    import hashlib
+    with tempfile.TemporaryDirectory() as tmp:
+        drive = FakeDrive(push_version="7")
+        path = _setup(tmp, drive, remote_version="7")
+        try:
+            assert gdrive_store.drive_push(path) is True          # we push '{"local": true}'
+            ours = hashlib.md5(b'{"local": true}').hexdigest()
+            assert gdrive_store.STATUS["remote_md5"] == ours
+            drive.versions = ["102"]                               # Drive bumped, same bytes
+            drive.md5 = ours
+            assert gdrive_store.drive_push(path) is True, gdrive_store.STATUS["last_error"]
+            assert gdrive_store.STATUS["push_result"] == "pushed"
+            drive.versions = ["999"]                               # real change elsewhere
+            drive.md5 = hashlib.md5(b"other writer").hexdigest()
+            assert gdrive_store.drive_push(path) is False
+            assert gdrive_store.STATUS["push_result"] == "conflict"
+        finally:
+            gdrive_store.STATUS["remote_md5"] = None
+            _teardown()
+    print("same-content version bump is not a conflict OK")
+
+
+def test_pull_records_md5_of_downloaded_bytes():
+    import hashlib
+    with tempfile.TemporaryDirectory() as tmp:
+        drive = FakeDrive(push_version="7")
+        path = _setup(tmp, drive, remote_version=None)
+        try:
+            assert gdrive_store.drive_pull(path) == "pulled"
+            assert gdrive_store.STATUS["remote_md5"] == hashlib.md5(b'{"remote": true}').hexdigest()
+        finally:
+            gdrive_store.STATUS["remote_md5"] = None
+            _teardown()
+    print("pull records md5 OK")
 
 
 if __name__ == "__main__":
