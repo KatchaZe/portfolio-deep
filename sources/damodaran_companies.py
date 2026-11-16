@@ -116,15 +116,22 @@ def frames_year(today):
     return today.year - 1 if today.month >= 4 else today.year - 2
 
 
-def load_revenue_frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
-    """({cik: revenue}, note) for calendar year `year`, the larger of the two revenue
-    concepts per filer. Never raises."""
+def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
+    """({cik: revenue}, {cik: period end}, note) for calendar year `year`: the larger of
+    the two revenue concepts per filer, and the end date of the period SEC's frame put
+    in that year (a June filer's FY lands in the CY frames chose, not one we assume).
+    A cache written before the end dates were kept returns an empty end map."""
     now = now or time.time()
     path = os.path.join(cache_dir, f"sec_frames_revenue_CY{year}.json")
     cached = _read(path)
+
+    def _from(c):
+        return ({int(k): v for k, v in c["rev"].items()},
+                {int(k): v for k, v in (c.get("end") or {}).items()})
+
     if cached and now - cached.get("at", 0) < FRAMES_TTL_DAYS * 86400:
-        return {int(k): v for k, v in cached["rev"].items()}, None
-    out = {}
+        return (*_from(cached), None)
+    out, end = {}, {}
     try:
         import requests as _r
         rq = requests_mod or _r
@@ -134,13 +141,47 @@ def load_revenue_frames(cache_dir, year, user_agent, requests_mod=None, timeout=
             r.raise_for_status()
             for d in r.json().get("data") or []:
                 if d.get("cik") and isinstance(d.get("val"), (int, float)):
-                    out[int(d["cik"])] = max(out.get(int(d["cik"]), 0), d["val"])
+                    cik = int(d["cik"])
+                    if d["val"] > out.get(cik, 0):
+                        out[cik], end[cik] = d["val"], d.get("end")
+                    else:
+                        out.setdefault(cik, 0)
         if out:
-            _write(path, {"at": now, "rev": out})
-            return out, None
+            _write(path, {"at": now, "rev": out, "end": end})
+            return out, end, None
         raise ValueError("empty frames")
     except Exception as e:
         log.warning("SEC frames CY%s failed: %s", year, e)
         if cached:
-            return {int(k): v for k, v in cached["rev"].items()}, "SEC revenue frames from cache (refresh failed)"
-        return {}, f"SEC revenue frames unavailable ({type(e).__name__})"
+            return (*_from(cached), "SEC revenue frames from cache (refresh failed)")
+        return {}, {}, f"SEC revenue frames unavailable ({type(e).__name__})"
+
+
+def load_revenue_frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
+    """({cik: revenue}, note) for calendar year `year`, the larger of the two revenue
+    concepts per filer. Never raises."""
+    rev, _end, note = _frames(cache_dir, year, user_agent, requests_mod, timeout, now)
+    return rev, note
+
+
+PANEL_YEARS = 5
+
+
+def panel_years(today):
+    """The calendar years the industry-share panel covers, oldest first."""
+    last = frames_year(today)
+    return list(range(last - PANEL_YEARS + 1, last + 1))
+
+
+def load_revenue_frames_years(cache_dir, today, user_agent, requests_mod=None, timeout=60, now=None):
+    """({CY: {cik: [revenue, period end]}}, notes) for panel_years(today), one cache file
+    per year (the same files load_revenue_frames reads). A year that fails is absent
+    and named in the notes. Never raises."""
+    out, notes = {}, []
+    for year in panel_years(today):
+        rev, end, note = _frames(cache_dir, year, user_agent, requests_mod, timeout, now)
+        if rev:
+            out[year] = {cik: [v, end.get(cik)] for cik, v in rev.items()}
+        if note:
+            notes.append(f"CY{year}: {note}")
+    return out, notes
