@@ -67,3 +67,17 @@ Signals:
 Label: null when fewer than 2 signals; else sum of directions >= +2 improving,
 <= -2 eroding, otherwise stable. A missing signal is never counted as 0.
 Source hints are worded "consistent with", never as findings.
+
+## Resolutions 2026-11-16 (binding for implementer and verifier)
+R1 Units: ratios and shares are fractions; HHI on 0-1; fields ending `_pp` are percentage points (x100).
+R2 op_margin_ttm and ev_ebit use the one-time add-back EBIT (same as the relative block); each row also stores `addback` (fraction of revenue) so GAAP is recoverable.
+R3 stats exclude the target row; quantiles by linear interpolation (Python statistics.quantiles method="inclusive"); IQR fence 1.5x.
+R4 rank3: scale = revenue_ttm, growth = cagr3_fy, margin = op_margin_ttm; terciles over peers plus target; 1 = top third.
+R5 pe = market_cap / net_income_ttm, null when net income <= 0; EV as domain/relative.point (mcap + debt + leases - cash + minority interest).
+R6 growth_fy = revenue FY0 / FY-1 - 1 (dated join).
+R7 S2 value = share_change_pp / (100 x target share 3 CY earlier); null when that share is 0 or missing.
+R8 S4 value = incremental margin - average margin FY0 (fraction).
+R9 S3 peer median excludes the target; each peer uses its own FY0 and FY3.
+R10 Each row stores `fy0_end` and `frames_cy`. CY assignment: SEC's own `frame` tag on the fact when present; else calendar year of (fy end - 180 days). Not "majority of days" (MSFT FY ending 2025-06-30 is CY2025 per SEC tags; ORCL FY ending 2025-05-31 is CY2024).
+R11 Restatements: the latest filing with filed <= as_of wins.
+R12 period_end = extract()'s latest_period_end, as the relative block already stores.
