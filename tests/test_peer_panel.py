@@ -767,5 +767,29 @@ class Guards(unittest.TestCase):
                 getattr(store_sync, name)("x")
 
 
+class Probe(unittest.TestCase):
+    def test_probe_runs_offline_read_only_with_zero_fmp_calls(self):
+        import config
+        from tools import panel_probe
+        tmp = tempfile.mkdtemp()
+        path = os.path.join(tmp, "portfolio.json")
+        f = {k: v for k, v in vars(tfacts()).items() if k not in ("ticker", "tax_rate")}
+        with open(path, "w") as fh:
+            json.dump({"holdings": {"T0": {}}, "facts": {"T0": f},
+                       "results": {"T0": {"key_metrics": {"wacc_pct": 8.0}}}}, fh)
+        def state():
+            with open(path) as fh:
+                return os.path.getmtime(path), fh.read()
+        before = state()
+        cache = config.CACHE_DIR
+        try:
+            rep = panel_probe.main([], path=path, today=TODAY)
+        finally:
+            config.CACHE_DIR = cache
+        self.assertEqual(rep["T0"].get("fmp_calls"), 0, rep)
+        self.assertEqual(state(), before)
+        self.assertTrue(rep["T0"]["flags"], "offline, every missing input is named")
+
+
 if __name__ == "__main__":
     unittest.main()
