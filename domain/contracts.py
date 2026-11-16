@@ -216,6 +216,70 @@ ALLOWED = {
 }
 
 
+# --- the peer panel and moat trend (docs/peer-panel/SPEC.md) -----------------
+# Display-only blocks, not FinancialFacts fields, so they get their own tables: every
+# key the two blocks emit declares its clock and unit here, and
+# tests/test_peer_panel.py walks a built panel and fails on an undeclared key.
+# CY is a calendar year as SEC frames assign it; DERIVED is a summary of other
+# declared values (a statistic, a change, a vote) on the clock its metric names.
+CY, DERIVED = "CY", "DERIVED"
+PANEL_CLOCK = {
+    # stored peer point / table row identity
+    "symbol": STATIC, "source": STATIC, "sic": STATIC, "currency": STATIC,
+    "accounting_standard": STATIC, "is_target": STATIC, "period_end": STATIC,
+    "price_date": STATIC, "fy0_end": STATIC, "frames_cy": STATIC, "gp_basis": STATIC,
+    "rank3": DERIVED, "outlier": DERIVED, "scale": DERIVED, "growth": DERIVED, "margin": DERIVED,
+    # TTM (one TTM point; EV and market cap at the T-1 close)
+    "revenue_ttm": TTM, "ebit_ttm": TTM, "net_income_ttm": TTM, "op_margin_ttm": TTM,
+    "addback": TTM, "price": SPOT, "ev": SPOT, "market_cap": SPOT,
+    "ev_sales": TTM, "ev_ebit": TTM, "pe": TTM,
+    # each company's own fiscal years, joined by date
+    "fy0": FY_DATED, "fy1": FY_DATED, "fy3": FY_DATED,
+    "end": STATIC, "revenue": FY_DATED, "gross_profit": FY_DATED, "operating_income": FY_DATED,
+    "growth_fy": FY, "cagr3_fy": FY, "gross_margin_fy": FY,
+    # industry share, SEC frames calendar years
+    "group": STATIC, "years": STATIC, "n_members": STATIC, "n_with_revenue": CY,
+    "coverage": CY, "target_share": CY, "top5_share": CY, "hhi": CY,
+    "target_frames_end": CY, "share_change_pp": CY, "top5_change_pp": CY,
+    # panel / moat envelope and summaries
+    "as_of": STATIC, "version": STATIC, "industry": STATIC, "industry_basis": STATIC,
+    "table": STATIC, "rows": STATIC, "stats": DERIVED, "target_vs_median": DERIVED,
+    "industry_share": STATIC, "flags": STATIC,
+    "n": DERIVED, "max": DERIVED, "p75": DERIVED, "median": DERIVED, "p25": DERIVED, "min": DERIVED,
+    "label": DERIVED, "n_signals": DERIVED, "signals": STATIC, "name": STATIC, "value": DERIVED,
+    "unit": STATIC, "direction": DERIVED, "window": STATIC, "source_hints": STATIC,
+    "type": STATIC, "strength": STATIC, "evidence": STATIC, "thresholds": STATIC,
+}
+PANEL_UNIT = {
+    "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
+    "market_cap": MONEY, "revenue": MONEY, "gross_profit": MONEY, "operating_income": MONEY,
+    "price": PER_SHARE,
+    "addback": RATIO, "op_margin_ttm": RATIO, "growth_fy": RATIO, "cagr3_fy": RATIO,
+    "gross_margin_fy": RATIO, "ev_sales": RATIO, "ev_ebit": RATIO, "pe": RATIO,
+    "target_share": RATIO, "top5_share": RATIO, "hhi": RATIO, "coverage": RATIO,
+    "share_change_pp": RATIO, "top5_change_pp": RATIO,     # points (x100), SPEC R1
+    "n_members": COUNT, "n_with_revenue": COUNT, "n": COUNT, "n_signals": COUNT,
+    "rank3": COUNT, "direction": COUNT, "version": COUNT, "years": COUNT, "frames_cy": COUNT,
+}
+
+
+def undeclared_panel_keys(obj, path=""):
+    """Keys anywhere in a peer_panel / moat_trend block with no PANEL_CLOCK entry.
+    Keys that are themselves calendar years ("2025") or metric names inside stats /
+    target_vs_median / rank3 are values of a declared key, not new fields."""
+    out = []
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            ks = str(k)
+            if not (ks.isdigit() or ks in PANEL_CLOCK):
+                out.append(f"{path}.{ks}")
+            out += undeclared_panel_keys(v, f"{path}.{ks}")
+    elif isinstance(obj, list):
+        for i, v in enumerate(obj):
+            out += undeclared_panel_keys(v, f"{path}[{i}]")
+    return out
+
+
 # --- G3: what CLOCK a function parameter expects -----------------------------
 # Closes the cross-function hole. The alias tracker stops at the function boundary, but
 # the P3-1 shape at the CALL SITE is visible without any interprocedural analysis:

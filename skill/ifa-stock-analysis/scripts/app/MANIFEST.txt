@@ -4,7 +4,7 @@ change the app, then run  python -m tools.build_skill
 47c55d0f26ba  config.py
 da39a3ee5e6b  domain/__init__.py
 c6c0ab72994e  domain/company_type.py
-a907e060f06b  domain/contracts.py
+5328568f0df2  domain/contracts.py
 20a18e546d7c  domain/engine/__init__.py
 362d46c1e3bc  domain/engine/contract.py
 4fe603c1cc6a  domain/engine/deep_v82.py

@@ -18,6 +18,8 @@ TWO code paths, and every one of them was a real defect first:
       (B6: Yahoo returns newest-first, everything else oldest-first)
   I9  no pillar may score above 5 or below 0, and the composite must lie between the
       pillars that produced it
+  PP1 the peer panel and moat trend never move a score, fair value or recommendation
+      (E18 in docs/peer-panel/PAST_ERRORS.md)
 
 WHY A SEPARATE FILE
 -------------------
@@ -314,6 +316,90 @@ def test_contract_scanner_is_clean_and_declared():
 
 
 # --------------------------------------------------------------------------
+# PP1 the peer panel and moat trend are display only
+# --------------------------------------------------------------------------
+PP1_FIELDS = ("composite", "recommendation", "signal", "D", "E_exec", "E_econ", "P",
+              "anchor_method", "anchor_value", "range_low", "range_high", "fv_dcf",
+              "fv_excess_return", "fv_peg", "fv_fvp", "stars")
+PP1_ROW = ("composite", "recommendation", "anchor_value", "upside_pct", "advice")
+
+
+def _pp1_run(attach):
+    """{ticker: (valuation fields, display-row fields, panel)} after the real
+    fundamentals._attach_relative, with the network parts faked (a fixed relative block
+    holding panel points, a fixture universe) and `attach` as the panel hook."""
+    import copy
+    import datetime as dt
+    from types import SimpleNamespace
+    from domain import peer_panel as PPm
+    from pipeline import fundamentals, peers, rows
+    from domain import advice
+
+    today = dt.date(2026, 11, 16)
+    snap = lambda r: PPm.fy_snapshot([[f"{y}-12-31", r * (1 - .1 * i)] for i, y in enumerate(range(2025, 2020, -1))],
+                                     [[f"{y}-12-31", r * .4] for y in range(2025, 2020, -1)])
+    pts = [dict({"symbol": f"Z{i}", "source": "damodaran", "currency": "USD", "accounting_standard": "us-gaap",
+                 "period_end": "2026-09-30", "price_date": "2026-11-13", "revenue_ttm": 1e9 * (i + 1),
+                 "ebit_ttm": 2e8 * (i + 1), "net_income_ttm": 1e8 * (i + 1), "ev": 3e9 * (i + 1),
+                 "market_cap": 2.5e9 * (i + 1), "addback": 0.0}, **snap(1e9 * (i + 1))) for i in range(6)]
+    block = {"model": {"panel_points": pts, "version": peers.MODEL_VERSION}, "excluded": [], "notes": []}
+    tickers = [t for t, _ff, _v in ROWS]
+    members = {f"Z{i}": ["Software", "1", "United States"] for i in range(6)}
+    members.update({t: ["Software", "1", "United States"] for t in tickers})
+    ciks = {t: str(n + 1).zfill(10) for n, t in enumerate(sorted(members))}
+    frames = {y: {int(c): [1e9, f"{y}-12-31"] for c in ciks.values()} for y in range(2021, 2026)}
+    uni = peers.Universe(members, {}, {}, as_of="2026-01", frames=frames)
+    saved = (peers.relative_value, peers.Universe.lazy, peers.resolve_cik, fundamentals.attach_panel)
+    peers.relative_value = lambda f, *a, **k: (copy.deepcopy(block), 0)
+    peers.Universe.lazy = classmethod(lambda cls, today, **k: uni)
+    peers.resolve_cik = lambda t: (ciks.get(t), t)
+    fundamentals.attach_panel = attach
+    try:
+        fetched = {t: (ff, copy.deepcopy(v)) for t, ff, v in ROWS}
+        fundamentals._attach_relative(fetched, "", None, {}, today=today)
+    finally:
+        peers.relative_value, peers.Universe.lazy, peers.resolve_cik, fundamentals.attach_panel = saved
+    out = {}
+    for t, (ff, v) in fetched.items():
+        f, vd = ff.to_dict(), v.to_dict()
+        row = rows.valuation_row(t, f, vd, {}, None, rev_surprises=f.get("rev_surprises_fmp"),
+                                 has_new_schema=True, fmp_on=False)
+        row["advice"] = advice.build(row)
+        out[t] = ({k: vd.get(k) for k in PP1_FIELDS}, {k: row.get(k) for k in PP1_ROW},
+                  vd.get("peer_panel"), vd.get("moat_trend"))
+    return out
+
+
+def _pp1_diffs(a, b):
+    bad = []
+    for t in a:
+        for i, what in ((0, "valuation"), (1, "row")):
+            for k in a[t][i]:
+                if a[t][i][k] != b[t][i][k]:
+                    bad.append(f"{t} {what}.{k}: {a[t][i][k]!r} vs {b[t][i][k]!r}")
+    return bad
+
+
+def test_peer_panel_never_moves_a_score():
+    """PP1 (E18: REV-23 was a display feature that moved a routing decision).
+
+    Every stored ticker is taken through the real wiring twice, once with the panel
+    computed and once with it removed. The composite, every pillar, the fair value,
+    the recommendation and the display row's verdict must be identical, and the panel
+    must actually have been built (a PP1 over empty panels proves nothing)."""
+    print("PP1 peer panel and moat trend are display only")
+    from pipeline import fundamentals
+    on = _pp1_run(fundamentals.attach_panel)
+    off = _pp1_run(lambda *a, **k: None)
+    built = [t for t in on if (on[t][2] or {}).get("table") and on[t][3]]
+    check(len(built) == len(on) and on, f"the panel was built for every row ({len(built)}/{len(on)})")
+    check(all(not off[t][2] and not off[t][3] for t in off), "the removed run carries no panel")
+    bad = _pp1_diffs(on, off)
+    check(not bad, f"composite, pillars, fair value and recommendation identical ({len(on)} rows)",
+          "; ".join(bad[:5]))
+
+
+# --------------------------------------------------------------------------
 # MUTATION SELF-TEST
 # --------------------------------------------------------------------------
 def test_the_invariants_can_actually_fail():
@@ -419,6 +505,18 @@ def test_the_invariants_can_actually_fail():
           "the scanner goes red on a cross-clock CALL ARGUMENT (G3)")
     check(bool(_scan("def g(f):\n    return f.revenue / f.eps_gaap\n")),
           "the scanner goes red on a cross-UNIT division (G1)")
+
+    # PP1: a panel hook that leaks into a score must turn the check red
+    from pipeline import fundamentals
+    real = fundamentals.attach_panel
+
+    def leaky(ff, val, block, universe, today):
+        real(ff, val, block, universe, today)
+        if val.P is not None and (val.peer_panel or {}).get("table"):
+            val.P = round(val.P + 0.25, 2)            # the panel "nudges" the Price pillar
+    leaked = _pp1_diffs(_pp1_run(leaky), _pp1_run(lambda *a, **k: None))
+    check(bool(leaked), "PP1 goes red when the panel leaks into a pillar",
+          "no difference detected")
 
 
 if __name__ == "__main__":

@@ -707,5 +707,50 @@ class Wiring(unittest.TestCase):
         self.assertEqual((d["peer_panel"], d["moat_trend"]), ({}, {}))
 
 
+class Guards(unittest.TestCase):
+    def built(self):
+        sh = PP.industry_share({f"T{i}": str(i + 1) for i in range(10)},
+                               frames_for(Y5, {i + 1: [10.0] * 5 for i in range(10)}), "1", Y5, AS_OF)
+        panel = PP.build(pp("T"), [pp(f"P{i}", ebit=e) for i, e in enumerate([1e9, 2e9, 3e9, 4e9])],
+                         AS_OF, "Software", "b", sh)
+        moat = MT.build({}, snap(100, 80, oi0=30, oi3=10, gm0=.5, gm3=.4),
+                        [snap(10, 8, gm0=.3, gm3=.3)] * 3, sh, 8.0)
+        return panel, moat
+
+    def test_E1_every_new_field_declares_a_clock(self):
+        from domain import contracts as C
+        panel, moat = self.built()
+        point = PP.compact(dict(pp("P"), addback=0.0, sic=["7372", "x"], price=20.0))
+        for name, obj in (("peer_panel", panel), ("moat_trend", moat), ("point", point)):
+            self.assertEqual(C.undeclared_panel_keys(obj), [], name)
+        for m in ("growth_fy", "cagr3_fy", "gross_margin_fy"):
+            self.assertEqual(C.PANEL_CLOCK[m], C.FY)
+        for m in ("revenue_ttm", "op_margin_ttm", "ev_sales", "ev_ebit", "pe", "ebit_ttm", "net_income_ttm"):
+            self.assertEqual(C.PANEL_CLOCK[m], C.TTM)
+        for m in ("target_share", "top5_share", "hhi", "share_change_pp"):
+            self.assertEqual(C.PANEL_CLOCK[m], C.CY)
+        for m in PP.METRICS:
+            self.assertIn(m, C.PANEL_UNIT, f"{m} has no unit")
+        self.assertEqual(C.undeclared_panel_keys({"rows": [{"new_metric": 1}]}), [".rows[0].new_metric"])
+
+    def test_E16_no_new_global_allowed_entries(self):
+        from domain import contracts as C
+        self.assertEqual(list(C.ALLOWED), [("revenue", "revenue_annuals", "reverse_dcf")])
+        self.assertTrue(all(k[2] for k in C.ALLOWED), "every exception is scoped to a function")
+
+    def test_E17_every_test_here_asserts(self):
+        import ast
+        with open(__file__, encoding="utf-8") as fh:
+            tree = ast.parse(fh.read())
+        bare = [f.name for f in ast.walk(tree) if isinstance(f, ast.FunctionDef) and f.name.startswith("test_")
+                and not any(isinstance(n, ast.Attribute) and n.attr.startswith("assert") for n in ast.walk(f))]
+        self.assertEqual(bare, [])
+
+    def test_E19_this_suite_cannot_reach_real_storage(self):
+        for name in ("ensure_pull", "mark_local_edit"):
+            with self.assertRaises(AssertionError, msg=name):
+                getattr(store_sync, name)("x")
+
+
 if __name__ == "__main__":
     unittest.main()
