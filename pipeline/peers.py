@@ -25,7 +25,7 @@ import threading
 import config
 from types import SimpleNamespace
 
-from domain import one_time, relative, pricing
+from domain import one_time, peer_panel, relative, pricing
 from pipeline import batch, lastgood
 from pipeline.cik import resolve_cik
 from sources import fmp, sec_edgar, sec_gap, stooq, yahoo
@@ -39,7 +39,8 @@ MODEL_TTL_DAYS = 7
 # bump when the way peers are chosen changes: a stored fit from the old method is not
 # reused for its remaining week (live 2026-10-24: MSFT/NVDA kept their FMP-peer fits
 # for days after the Damodaran list went in)
-MODEL_VERSION = 2
+# 3 (2026-11-16): stored points carry the peer panel's fields (model["panel_points"])
+MODEL_VERSION = 3
 PEER_LIST_CALLS = 1
 
 
@@ -157,6 +158,7 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
     if p:
         p["sic"] = cf.get("_sic")
         p["addback"] = round(addback / x["revenue"], 4) if addback and x.get("revenue") else 0.0
+        p.update(peer_panel.point_fields(x, today.isoformat()))
     return p, why
 
 
@@ -233,6 +235,8 @@ def fit_points(pts, excluded, today, target_sic=None):
     excluded += [{"symbol": s, "reason": "EV/Sales outlier (IQR fence)"} for s in model["outliers"]]
     model["as_of"] = today.isoformat()
     model["version"] = MODEL_VERSION
+    # every usable point, the EV/Sales outliers included: the panel flags its own outliers
+    model["panel_points"] = [peer_panel.compact(p) for p in pts]
     model["industry_note"] = note
     same = len(ours) + sum(1 for p in fmp_pts if (sic_level(p.get("sic"), target_sic) or 0) >= SIC_MATCH_MIN)
     if note and "all kept" in note and same < len(pts) / 2:
