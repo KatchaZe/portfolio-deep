@@ -13,7 +13,7 @@ from types import SimpleNamespace
 import store_sync
 from domain import moat_trend as MT
 from domain import peer_panel as PP
-from pipeline import peers
+from pipeline import fundamentals, peers
 from sources import damodaran_companies as dc
 
 
@@ -610,6 +610,101 @@ class Moat(unittest.TestCase):
         self.assertEqual(h, [])
         h = MT.source_hints(snap(10, 8, gm0=.40, gm3=.5), peers_, share_of(.1, .10))
         self.assertEqual([(x["type"], x["strength"]) for x in h], [("intangible", "weak"), ("scale", "weak")])
+
+
+def tfacts(**kw):
+    """The target as FinancialFacts-shaped attributes (EBIT already normalized)."""
+    x = ext()
+    base = dict(ticker="T0", currency="USD", accounting_standard="us-gaap", revenue=10e9,
+                operating_income=2.5e9, operating_income_gaap=2e9, net_income=1.5e9,
+                total_debt=1e9, operating_leases=0, cash=.5e9, minority_interest=0,
+                shares_diluted=1e9, price=30.0, revenue_quarters={"2026-09-30": 2.6e9, "2026-06-30": 2.5e9},
+                revenue_annuals_dated=x["revenue_annuals_dated"],
+                gross_profit_annuals_dated=x["gross_profit_annuals_dated"],
+                cost_of_revenue_annuals_dated=None,
+                operating_income_annuals_dated=x["operating_income_annuals_dated"],
+                ic_components_dated={d: {"equity": 5e9, "cash": 0, "debt": 0} for d in YEARS},
+                tax_rate=0.2, damodaran_industry=None)
+    base.update(kw)
+    return SimpleNamespace(**base)
+
+
+def universe(n=10, years=Y5):
+    rows = {f"T{i}": ["Software", "7372", "United States"] for i in range(n)}
+    rows["FOREIGN"] = ["Software", "7372", "Israel"]
+    rows["OTHER"] = ["Retail", "5311", "United States"]
+    fr = frames_for(years, {i + 1: [10.0] * len(years) for i in range(n)})
+    return peers.Universe(rows, {}, {}, as_of="2026-01", frames=fr)
+
+
+class Wiring(unittest.TestCase):
+    def setUp(self):
+        self._cik = peers.resolve_cik
+        peers.resolve_cik = lambda t: ((str(int(t[1:]) + 1).zfill(10), t) if t[1:].isdigit() else (None, None))
+        self._fmp = {n: getattr(peers.fmp, n) for n in dir(peers.fmp) if n.startswith("fetch")}
+        for n in self._fmp:
+            setattr(peers.fmp, n, _refuse)
+
+    def tearDown(self):
+        peers.resolve_cik = self._cik
+        for n, fn in self._fmp.items():
+            setattr(peers.fmp, n, fn)
+
+    def block(self, pts):
+        return {"model": {"panel_points": pts, "version": peers.MODEL_VERSION}, "excluded": [],
+                "notes": []}
+
+    def val(self):
+        return SimpleNamespace(key_metrics={"wacc_pct": 8.0})
+
+    def test_panel_and_moat_end_to_end_without_fmp(self):
+        pts = [PP.compact(dict(pp(f"P{i}", ebit=e), addback=0.0)) for i, e in enumerate([1e9, 2e9, 3e9, 4e9])]
+        panel, moat = peers.panel_and_moat(tfacts(), self.val(), self.block(pts), universe(), TODAY)
+        self.assertEqual(panel["industry"], "Software")
+        rows = panel["table"]["rows"]
+        self.assertEqual(rows[0]["symbol"], "T0")
+        self.assertEqual((rows[0]["period_end"], rows[0]["addback"]), ("2026-09-30", 0.05))
+        self.assertAlmostEqual(rows[0]["op_margin_ttm"], 0.25)
+        sh = panel["industry_share"]
+        self.assertEqual(sh["n_members"], 10, "Israel-domiciled and other-industry rows are out")
+        self.assertAlmostEqual(sh["target_share"]["2025"], .1)
+        self.assertEqual(moat["thresholds"], "provisional")
+        self.assertIn("spread_slope", {s["name"] for s in moat["signals"]})
+        json.dumps([panel, moat])
+
+    def test_E15_a_v2_fit_without_panel_points_gives_a_flagged_panel(self):
+        block = {"model": {"version": 2}, "excluded": [], "notes": []}
+        panel, moat = peers.panel_and_moat(tfacts(), self.val(), block, universe(), TODAY)
+        self.assertIsNone(panel["table"])
+        self.assertTrue(any("predates the panel" in f for f in panel["flags"]))
+        self.assertIsNotNone(panel["industry_share"])
+        self.assertTrue(any(f.startswith("S3") for f in moat["flags"]))
+
+    def test_E13_no_industry_and_no_frames_are_flagged(self):
+        u = peers.Universe({}, {}, {}, frames={})
+        panel, _ = peers.panel_and_moat(tfacts(), self.val(), None, u, TODAY)
+        self.assertIsNone(panel["industry_share"])
+        self.assertTrue(any("no Damodaran industry" in f for f in panel["flags"]))
+        u = universe()
+        u._frames = ({}, ["CY2025: SEC revenue frames unavailable (ConnectionError)"])
+        panel, _ = peers.panel_and_moat(tfacts(), self.val(), None, u, TODAY)
+        self.assertTrue(any("unavailable" in f for f in panel["flags"]))
+        self.assertTrue(any("no SEC revenue frames" in f for f in panel["flags"]))
+
+    def test_a_panel_failure_leaves_relative_and_the_valuation_alone(self):
+        val = SimpleNamespace(relative={"model": 1}, peer_panel={}, moat_trend={}, P=3.0)
+        orig = peers.panel_and_moat
+        peers.panel_and_moat = lambda *a, **k: 1 / 0
+        try:
+            fundamentals.attach_panel(tfacts(), val, val.relative, universe(), TODAY)
+        finally:
+            peers.panel_and_moat = orig
+        self.assertEqual((val.relative, val.peer_panel, val.moat_trend, val.P), ({"model": 1}, {}, {}, 3.0))
+
+    def test_the_valuation_carries_the_two_blocks(self):
+        from domain.engine.contract import Valuation
+        d = Valuation(version="x").to_dict()
+        self.assertEqual((d["peer_panel"], d["moat_trend"]), ({}, {}))
 
 
 if __name__ == "__main__":

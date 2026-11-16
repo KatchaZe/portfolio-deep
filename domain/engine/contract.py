@@ -67,6 +67,10 @@ class Valuation:
     # relative valuation on the firm's own peers (pipeline/peers.py): weekly peer fit,
     # target side recomputed each refresh; a cross-check, never the anchor
     relative: dict = field(default_factory=dict)
+    # the peer table + industry revenue share, and the moat-trend signals
+    # (domain/peer_panel.py, domain/moat_trend.py): display only, never a score input
+    peer_panel: dict = field(default_factory=dict)
+    moat_trend: dict = field(default_factory=dict)
 
     verdict: str = ""                                  # short ifa-style summary line
     flags: list = field(default_factory=list)

@@ -25,7 +25,7 @@ import threading
 import config
 from types import SimpleNamespace
 
-from domain import one_time, peer_panel, relative, pricing
+from domain import moat_trend, one_time, peer_panel, relative, pricing
 from pipeline import batch, lastgood
 from pipeline.cik import resolve_cik
 from sources import fmp, sec_edgar, sec_gap, stooq, yahoo
@@ -158,7 +158,8 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
     if p:
         p["sic"] = cf.get("_sic")
         p["addback"] = round(addback / x["revenue"], 4) if addback and x.get("revenue") else 0.0
-        p.update(peer_panel.point_fields(x, today.isoformat()))
+        p.update(peer_panel.point_fields(x, today.isoformat(),
+                                         peer_panel.frame_tags(cf, today.isoformat())))
     return p, why
 
 
@@ -255,10 +256,14 @@ class Universe:
     """Damodaran's company list, SEC revenue frames and psdata, loaded once per run.
     Every part is optional: a missing part only removes what it feeds, with a note."""
 
-    def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None):
+    def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None,
+                 frames=None, frames_loader=None):
         self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
                                           [n for n in notes if n], as_of)
         self._loader, self._lock = loader, threading.Lock()
+        # the peer panel's five calendar years of frames, loaded only when a panel asks
+        self._frames = None if frames_loader else (frames or {}, [])
+        self._frames_loader = frames_loader
 
     def _get(self):
         with self._lock:
@@ -270,6 +275,18 @@ class Universe:
                     self._data = ({}, {}, {}, [f"peer universe unavailable ({type(e).__name__})"], None)
             return self._data
 
+    def _get_frames(self):
+        with self._lock:
+            if self._frames is None:
+                try:
+                    self._frames = self._frames_loader()
+                except Exception as e:          # never fails the refresh
+                    log.warning("peer panel frames failed to load: %s", e)
+                    self._frames = ({}, [f"SEC revenue frames unavailable ({type(e).__name__})"])
+            return self._frames
+
+    frames = property(lambda self: self._get_frames()[0])
+    frame_notes = property(lambda self: self._get_frames()[1])
     rows = property(lambda self: self._get()[0])
     rev = property(lambda self: self._get()[1])
     psdata = property(lambda self: self._get()[2])
@@ -291,7 +308,11 @@ class Universe:
             vintage = (f"{damodaran._snap.AS_OF} (bundled)" if ps.get("snapshot") else
                        f"{today.year if today.month >= 2 else today.year - 1}-01")
             return rows or {}, rev or {}, ps, [n for n in (n1, n2) if n], vintage
-        return cls(loader=load)
+        def load_frames():
+            from sources import damodaran_companies as dc
+            return dc.load_revenue_frames_years(cache_dir or config.CACHE_DIR, today,
+                                                user_agent or config.SEC_USER_AGENT)
+        return cls(loader=load, frames_loader=load_frames)
 
     def industry_of(self, f):
         """(Damodaran industry, basis): his own classification when he lists the
@@ -407,3 +428,49 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, univers
     elif model is not None:
         block.update(relative.implied(model, tp, net_debt, f.shares_diluted))
     return block, calls
+
+
+TARGET_PANEL_FIELDS = ("currency", "accounting_standard", "revenue", "operating_income", "net_income",
+                       "revenue_annuals_dated", "gross_profit_annuals_dated",
+                       "cost_of_revenue_annuals_dated", "operating_income_annuals_dated")
+
+
+def _target_panel_point(f, today):
+    """The target on the panel's clocks, from its CURRENT facts (EBIT already
+    normalized), or None when it cannot be put on the common clock."""
+    tp, _nd, _why = _target(f, today)
+    if tp is None:
+        return None
+    x = {k: getattr(f, k, None) for k in TARGET_PANEL_FIELDS}
+    # FinancialFacts keeps no latest_period_end: the newest quarter its TTM sums is it
+    q = getattr(f, "revenue_quarters", None)
+    end = max(q) if isinstance(q, dict) and q else None
+    gaap = getattr(f, "operating_income_gaap", None)
+    addback = (round((f.operating_income - gaap) / f.revenue, 4)
+               if gaap is not None and f.operating_income is not None and f.revenue else 0.0)
+    return dict(tp, symbol=f.ticker, source="target", period_end=end, addback=addback,
+                **peer_panel.point_fields(x, today.isoformat()))
+
+
+def panel_and_moat(f, val, block, universe, today):
+    """(peer_panel, moat_trend) for one ticker. Display only: reads the relative block
+    and the facts, writes nothing back into either, and no score reads its output
+    (invariant PP1). The peers are the stored panel points of this week's fit; the
+    industry share uses Damodaran's industry members only."""
+    from sources import damodaran_companies as dc
+    as_of = today.isoformat()
+    block = block or {}
+    industry, basis = universe.industry_of(f)
+    target = _target_panel_point(f, today)
+    pts = (block.get("model") or {}).get("panel_points")
+    share = None
+    if industry:
+        members = {t: resolve_cik(t)[0] for t in dc.members(universe.rows, industry)}
+        tcik, _ = resolve_cik(f.ticker)
+        share = peer_panel.industry_share(members, universe.frames, tcik, dc.panel_years(today), as_of)
+    notes = list(universe.frame_notes) + list(block.get("notes") or [])
+    panel = peer_panel.build(target, pts, as_of, industry, basis, share,
+                             block.get("excluded") or [], notes)
+    kept = peer_panel.peer_set(target, pts, as_of)[0] if pts else []
+    wacc = ((getattr(val, "key_metrics", None) or {}).get("wacc_pct"))
+    return panel, moat_trend.build(f, target, kept, share, wacc)

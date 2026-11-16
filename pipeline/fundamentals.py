@@ -646,7 +646,17 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
             continue
         calls += c
         fetched[t][1].relative = block
+        attach_panel(fetched[t][0], fetched[t][1], block, universe, today)
     return calls
+
+
+def attach_panel(ff, val, block, universe, today):
+    """val.peer_panel / val.moat_trend (display only). A failure leaves both empty
+    with a log line; it never touches the relative block or a score."""
+    try:
+        val.peer_panel, val.moat_trend = peers.panel_and_moat(ff, val, block, universe, today)
+    except Exception as e:
+        log.warning("%s peer panel failed: %s", ff.ticker, e)
 
 
 def commit_fundamentals(s, fetched, skipped=None, now=None):

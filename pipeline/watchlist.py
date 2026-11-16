@@ -28,11 +28,13 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None, spy=None, pre
                                           roc_table=fundamentals.fetch_roc_table(),
                                           **({"prev": prev["facts"]} if prev.get("facts") else {}))
     today = today or lastgood.date_of(fundamentals.pricing.ny_today())
+    universe = universe or peers.Universe.lazy(today)
     try:
         block, c = peers.relative_value(ff, fmp_key, today, prev.get("relative"), budget, memo,
-                                        universe or peers.Universe.lazy(today))
+                                        universe)
         calls += c
         val.relative = block
+        fundamentals.attach_panel(ff, val, block, universe, today)
     except Exception as e:
         log.warning("%s watchlist relative valuation failed: %s", t, e)
     mom = {}
