@@ -701,6 +701,21 @@ class Wiring(unittest.TestCase):
             peers.panel_and_moat = orig
         self.assertEqual((val.relative, val.peer_panel, val.moat_trend, val.P), ({"model": 1}, {}, {}, 3.0))
 
+    def test_E18_attaching_the_panel_writes_only_the_two_display_blocks(self):
+        pts = [PP.compact(dict(pp(f"P{i}"), addback=0.0)) for i in range(4)]
+        val = SimpleNamespace(D=3.0, E_exec=2.0, E_econ=4.0, P=1.5, composite=2.7, recommendation="HOLD",
+                              anchor_value=50.0, key_metrics={"wacc_pct": 8.0}, relative=self.block(pts),
+                              peer_panel={}, moat_trend={})
+        before = json.dumps({k: v for k, v in vars(val).items() if k not in ("peer_panel", "moat_trend")},
+                            sort_keys=True)
+        f = tfacts()
+        facts_before = json.dumps(vars(f), sort_keys=True, default=str)
+        fundamentals.attach_panel(f, val, val.relative, universe(), TODAY)
+        self.assertTrue(val.peer_panel.get("table") and val.moat_trend.get("signals"))
+        self.assertEqual(json.dumps({k: v for k, v in vars(val).items() if k not in ("peer_panel", "moat_trend")},
+                                    sort_keys=True), before)
+        self.assertEqual(json.dumps(vars(f), sort_keys=True, default=str), facts_before)
+
     def test_the_valuation_carries_the_two_blocks(self):
         from domain.engine.contract import Valuation
         d = Valuation(version="x").to_dict()
