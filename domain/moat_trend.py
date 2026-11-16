@@ -7,7 +7,8 @@ label (docs/peer-panel/SPEC.md). Display only: nothing here feeds a score (PP1).
     S3 gm_gap_change       (target GM - peer median GM) at FY0 minus the same at FY3
     S4 incremental_margin  operating margin on the revenue added FY3 -> FY0, vs FY0's own
 
-Each signal votes +1 / 0 / -1 against its band below. A signal that cannot be measured
+Values are fractions except S1 (pp per year); the bands below are in points. Each
+signal votes +1 / 0 / -1 against its band. A signal that cannot be measured
 is ABSENT (with a flag), never a 0 vote: "unknown" is not "stable". Fewer than two
 signals gives no label. Pure: no network, no clock.
 """
@@ -101,14 +102,15 @@ def gm_gap_change(target, peers):
         return None, f"S3: {len(both)} peers with gross margin at FY0 and FY3 (need {MIN_PEERS_GM})"
     gap0 = t0 - _median([a for a, _ in both])
     gap3 = t3 - _median([b for _, b in both])
-    v = (gap0 - gap3) * 100
-    return {"name": "gm_gap_change", "value": round(v, 2), "unit": "pp",
-            "direction": direction(v, GM_GAP_PP),
+    v = gap0 - gap3
+    return {"name": "gm_gap_change", "value": round(v, 6), "unit": "fraction",
+            "direction": direction(v, GM_GAP_PP / 100),
             "window": f"FY{target['fy3']['end'][:4]}..FY{target['fy0']['end'][:4]}"}, None
 
 
 def incremental_margin(target):
-    """(signal, reason): (OI FY0 - OI FY3)/(Rev FY0 - Rev FY3) minus OI/Rev at FY0, pp.
+    """(signal, reason): (OI FY0 - OI FY3)/(Rev FY0 - Rev FY3) minus OI/Rev at FY0, as a
+    fraction (SPEC R8); the band INC_PP is in points.
     Only when revenue grew: on shrinking revenue the ratio's sign flips its meaning."""
     f0, f3 = target.get("fy0") or {}, target.get("fy3") or {}
     r0, r3, o0, o3 = f0.get("revenue"), f3.get("revenue"), f0.get("operating_income"), f3.get("operating_income")
@@ -116,9 +118,9 @@ def incremental_margin(target):
         return None, "S4: revenue or operating income missing at FY0 or FY3"
     if r0 <= 0 or r3 <= 0 or r0 <= r3:
         return None, "S4: revenue did not grow FY3 -> FY0"
-    v = ((o0 - o3) / (r0 - r3) - o0 / r0) * 100
-    return {"name": "incremental_margin", "value": round(v, 2), "unit": "pp",
-            "direction": direction(v, INC_PP),
+    v = (o0 - o3) / (r0 - r3) - o0 / r0
+    return {"name": "incremental_margin", "value": round(v, 6), "unit": "fraction",
+            "direction": direction(v, INC_PP / 100),
             "window": f"FY{f3['end'][:4]}..FY{f0['end'][:4]}"}, None
 
 

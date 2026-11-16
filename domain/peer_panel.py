@@ -11,6 +11,8 @@ Pure: no network, no clock of its own. Every number sits on one declared clock
   CY   industry share, from the SEC frames calendar years
 """
 import datetime as dt
+import re
+import statistics
 
 from domain import trend
 
@@ -30,7 +32,38 @@ def _days(a, b):
     return (da - db).days if da and db else None
 
 
-def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=None):
+REVENUE_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
+_CY = re.compile(r"^CY(\d{4})$")
+CY_SHIFT_DAYS = 180
+
+
+def frame_tags(companyfacts, as_of=None):
+    """{FY end: calendar year} from SEC's own `frame` tag on the annual revenue facts
+    (CY2025, not CY2025Q4I). Per end date the latest filing with filed <= as_of wins."""
+    ns = (companyfacts or {}).get("facts", {}).get("us-gaap") or {}
+    best = {}
+    for concept in REVENUE_CONCEPTS:
+        for e in ((ns.get(concept) or {}).get("units") or {}).get("USD") or []:
+            m = _CY.match(str(e.get("frame") or ""))
+            filed = str(e.get("filed") or "")
+            if not m or not e.get("end") or (as_of and filed > str(as_of)[:10]):
+                continue
+            if e["end"] not in best or filed > best[e["end"]][0]:
+                best[e["end"]] = (filed, int(m.group(1)))
+    return {end: cy for end, (_f, cy) in best.items()}
+
+
+def frames_cy(end, tags=None):
+    """The calendar year SEC frames put a fiscal year in: SEC's own tag when there is
+    one, else the calendar year of (FY end - 180 days). Not "most days": SEC tags MSFT's
+    FY ending 2025-06-30 CY2025 and ORCL's ending 2025-05-31 CY2024."""
+    if tags and end in tags:
+        return tags[end]
+    d = _d(end)
+    return (d - dt.timedelta(days=CY_SHIFT_DAYS)).year if d else None
+
+
+def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=None, tags=None):
     """{fy0, fy1, fy3} for one filer, each {end, revenue, gross_profit, operating_income}
     or None, plus gp_basis. FY0 is the newest fiscal year ending on or before `as_of`;
     FY1 and FY3 come from the contiguous run of fiscal-year ends behind it (trend._window),
@@ -44,8 +77,8 @@ def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=
     oi = trend._pairs(oi_dated)
 
     def leg(d):
-        return {"end": d, "revenue": rev.get(d), "gross_profit": gp.get(d),
-                "operating_income": oi.get(d)}
+        return {"end": d, "frames_cy": frames_cy(d, tags), "revenue": rev.get(d),
+                "gross_profit": gp.get(d), "operating_income": oi.get(d)}
 
     out = {"fy0": None, "fy1": None, "fy3": None, "gp_basis": gp_basis}
     if not win:
@@ -65,12 +98,13 @@ POINT_KEYS = ("symbol", "source", "sic", "currency", "accounting_standard", "per
               "market_cap", "addback", "fy0", "fy1", "fy3", "gp_basis")
 
 
-def point_fields(x, as_of=None):
+def point_fields(x, as_of=None, tags=None):
     """The panel's fields from a sec_edgar.extract() dict (EBIT already normalized),
-    to merge into a relative.point."""
+    to merge into a relative.point. `tags` = frame_tags(companyfacts) when the raw
+    facts are at hand."""
     snap = fy_snapshot(x.get("revenue_annuals_dated"), x.get("gross_profit_annuals_dated"),
                        x.get("cost_of_revenue_annuals_dated"),
-                       x.get("operating_income_annuals_dated"), as_of)
+                       x.get("operating_income_annuals_dated"), as_of, tags)
     return {"currency": x.get("currency") or "USD",
             "accounting_standard": x.get("accounting_standard"),
             "revenue_ttm": x.get("revenue"), "ebit_ttm": x.get("operating_income"),
@@ -117,7 +151,8 @@ def table_row(p, is_target=False):
     ev, rev = p.get("ev"), p.get("revenue_ttm")
     return {"symbol": p.get("symbol"), "is_target": bool(is_target), "source": p.get("source"),
             "period_end": p.get("period_end"), "fy0_end": fy0.get("end"),
-            "price_date": p.get("price_date"),
+            "frames_cy": fy0.get("frames_cy"), "price_date": p.get("price_date"),
+            "addback": p.get("addback"),
             "revenue_ttm": rev if _pos(rev) else None,
             "growth_fy": None if g is None else g - 1,
             "cagr3_fy": c3 ** (1 / 3) - 1 if c3 and c3 > 0 else None,
@@ -130,26 +165,21 @@ def table_row(p, is_target=False):
             "rank3": {k: None for k in RANK_METRICS}, "outlier": []}
 
 
-def _quantile(v, q):
-    i = q * (len(v) - 1)
-    lo = int(i)
-    return v[lo] + (v[min(lo + 1, len(v) - 1)] - v[lo]) * (i - lo)
-
-
 def stats(values):
-    """{n, max, p75, median, p25, min} of the numbers present (missing are not zeros)."""
+    """{n, max, p75, median, p25, min} of the numbers present (missing are not zeros);
+    quartiles by statistics.quantiles(method="inclusive")."""
     v = sorted(x for x in values if _num(x))
     if not v:
         return {"n": 0, "max": None, "p75": None, "median": None, "p25": None, "min": None}
-    return {"n": len(v), "max": v[-1], "p75": _quantile(v, .75), "median": _quantile(v, .5),
-            "p25": _quantile(v, .25), "min": v[0]}
+    q1, q2, q3 = statistics.quantiles(v, n=4, method="inclusive") if len(v) > 1 else (v[0],) * 3
+    return {"n": len(v), "max": v[-1], "p75": q3, "median": q2, "p25": q1, "min": v[0]}
 
 
 def flag_outliers(rows):
-    """Each row's `outlier` lists the metrics where it sits outside the IQR fence of all
-    rows (needs 4 values of that metric)."""
+    """Each row's `outlier` lists the metrics where it sits outside the IQR fence of the
+    PEER rows (needs 4 peer values of that metric); the target is judged by that fence."""
     for m in METRICS:
-        st = stats(r[m] for r in rows)
+        st = stats(r[m] for r in rows if not r["is_target"])
         if st["n"] < 4:
             continue
         iqr = st["p75"] - st["p25"]
@@ -277,7 +307,7 @@ def industry_share(members, frames, target_cik, years, as_of):
             continue
         total = sum(vals.values())
         out["top5_share"][k] = sum(sorted(vals.values(), reverse=True)[:TOP_N]) / total
-        out["hhi"][k] = sum((v / total * 100) ** 2 for v in vals.values())
+        out["hhi"][k] = sum((v / total) ** 2 for v in vals.values())
         if tc in vals:
             out["target_share"][k] = vals[tc] / total
         else:

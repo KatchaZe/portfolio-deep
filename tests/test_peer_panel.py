@@ -281,6 +281,38 @@ class Table(unittest.TestCase):
         hi = st["p75"] + 1.5 * (st["p75"] - st["p25"])
         self.assertEqual(["ev_sales" in r["outlier"] for r in out], [False] * 4 + [5.6 > hi])
 
+    def test_R3_the_fence_and_stats_are_the_peers_alone(self):
+        rows = [dict(PP.table_row(pp("T"), True), ev_sales=3)] + \
+            [dict(PP.table_row(pp(f"P{i}")), ev_sales=x) for i, x in enumerate([1, 1, 1, 1, 3])]
+        PP.flag_outliers(rows)
+        self.assertEqual([("ev_sales" in r["outlier"]) for r in rows], [True, False, False, False, False, True])
+
+    def test_R10_frames_cy_follows_sec_not_majority_of_days(self):
+        self.assertEqual(PP.frames_cy("2025-06-30"), 2025)          # MSFT
+        self.assertEqual(PP.frames_cy("2025-05-31"), 2024)          # ORCL
+        self.assertEqual(PP.frames_cy("2025-12-31"), 2025)
+        self.assertEqual(PP.frames_cy("2025-05-31", {"2025-05-31": 2025}), 2025, "SEC's tag wins")
+        r = PP.table_row(pp("ORCL", fy=ext(ends=("2025-05-31", "2024-05-31", "2023-05-31", "2022-05-31", "2021-05-31"))))
+        self.assertEqual((r["fy0_end"], r["frames_cy"]), ("2025-05-31", 2024))
+
+    def test_R10_R11_frame_tags_take_the_latest_filing_on_or_before_as_of(self):
+        def e(end, frame, filed, start="2024-07-01"):
+            return {"start": start, "end": end, "frame": frame, "filed": filed, "val": 1}
+        cf = {"facts": {"us-gaap": {"Revenues": {"units": {"USD": [
+            e("2025-06-30", "CY2024", "2025-07-30"),
+            e("2025-06-30", "CY2025", "2025-09-01"),           # a later filing re-tags it
+            e("2025-06-30", "CY2025Q2", "2025-07-30", "2025-04-01"),
+            e("2024-06-30", None, "2024-07-30")]}}}}}
+        self.assertEqual(PP.frame_tags(cf), {"2025-06-30": 2025})
+        self.assertEqual(PP.frame_tags(cf, as_of="2025-08-01"), {"2025-06-30": 2024})
+        self.assertEqual(PP.frame_tags(cf, as_of="2025-07-29"), {})
+
+    def test_R2_row_keeps_the_addback_and_margins_use_the_addback_ebit(self):
+        r = PP.table_row(dict(pp("A", ebit=3e9), addback=0.1))
+        self.assertEqual(r["addback"], 0.1)
+        self.assertAlmostEqual(r["op_margin_ttm"], 0.3)
+        self.assertAlmostEqual(r["ev_ebit"], 10.0)
+
     def test_rank3_terciles(self):
         rows = [dict(PP.table_row(pp(f"P{i}", rev=r))) for i, r in enumerate([9e9, 8e9, 7e9, 6e9, 5e9, 4e9])]
         PP.rank_terciles(rows)
@@ -350,7 +382,7 @@ class Share(unittest.TestCase):
         self.assertAlmostEqual(sh["target_share"]["2022"], 10 / 100)
         self.assertAlmostEqual(sh["share_change_pp"], (40 / 130 - 10 / 100) * 100)
         self.assertAlmostEqual(sh["top5_share"]["2025"], 80 / 130)
-        self.assertAlmostEqual(sh["hhi"]["2021"], 10 * 10 ** 2)
+        self.assertAlmostEqual(sh["hhi"]["2021"], 10 * 0.1 ** 2)                 # 0-1 (R1)
         self.assertEqual(sh["target_frames_end"]["2025"], "2025-12-31")
 
     def test_coverage_threshold_on_both_sides(self):
@@ -449,7 +481,7 @@ class Panel(unittest.TestCase):
                                       "industry_share", "flags"})
         self.assertEqual(set(panel["table"]), {"rows", "stats", "target_vs_median"})
         row = set(panel["table"]["rows"][0])
-        for k in ("symbol", "is_target", "period_end", "fy0_end", "price_date", "revenue_ttm",
+        for k in ("symbol", "is_target", "period_end", "fy0_end", "frames_cy", "addback", "price_date", "revenue_ttm",
                   "growth_fy", "cagr3_fy", "gross_margin_fy", "op_margin_ttm", "ev_sales", "ev_ebit",
                   "pe", "rank3", "outlier"):
             self.assertIn(k, row)
@@ -525,7 +557,8 @@ class Moat(unittest.TestCase):
             sig, _ = MT.gm_gap_change(snap(10, 8, gm0=t0, gm3=.40), peers_)
             self.assertEqual(sig["direction"], want, f"target GM {t0}")
         sig, _ = MT.gm_gap_change(snap(10, 8, gm0=.50, gm3=.45), [snap(10, 8, gm0=.30, gm3=.35)] * 3)
-        self.assertAlmostEqual(sig["value"], ((.50 - .30) - (.45 - .35)) * 100)
+        self.assertAlmostEqual(sig["value"], (.50 - .30) - (.45 - .35))      # a fraction (R1)
+        self.assertEqual(sig["unit"], "fraction")
 
     def test_S3_needs_three_peers_with_both_years(self):
         peers_ = [snap(10, 8, gm0=.4, gm3=.4)] * 2 + [snap(10, 8, gm0=.4, gm3=None)]
