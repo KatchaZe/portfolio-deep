@@ -9,6 +9,7 @@ Hand-checked figures are the ones each company printed on its income statement:
 import copy
 import os
 import unittest
+from pathlib import Path
 
 from verify import compare as C
 from verify import reference as R
@@ -350,6 +351,54 @@ class ShareRules(unittest.TestCase):
         panel["industry_share"]["share_change_pp"] = 3.0
         panel["industry_share"]["n_with_revenue"]["2025"] = 6      # 60% coverage, share still shown
         self.assertTrue(any("coverage" in x["field"] for x in fails(C.compare_share(panel))))
+
+
+class ToolOffline(unittest.TestCase):
+    """tools/panel_verify.py with SEC stubbed: exit code, read-only store, no User-Agent in output."""
+
+    def run_tool(self, panel, moat):
+        import contextlib
+        import hashlib
+        import io
+        import json
+        import tempfile
+        from unittest import mock
+        from tools import panel_verify as P
+        d = tempfile.mkdtemp()
+        store = os.path.join(d, "portfolio.json")
+        with open(store, "w") as fh:
+            json.dump({"holdings": {"MSFT": {}}, "facts": {"MSFT": {"price": PRICES["MSFT"]}},
+                       "results": {"MSFT": {"peer_panel": panel, "moat_trend": moat}}}, fh)
+        digest = hashlib.sha256(Path(store).read_bytes()).hexdigest()
+        buf = io.StringIO()
+        with mock.patch.object(P, "cik_map", lambda c: {t: i for i, t in enumerate(TICKERS, 1)}), \
+                mock.patch.object(P, "fetch", lambda url, c, name, max_age_h=12: FACTS[name.split("_")[1].split(".")[0]]), \
+                mock.patch.object(P.config, "SEC_USER_AGENT", "PortfolioDeepApp secret-contact"), \
+                contextlib.redirect_stdout(buf):
+            code = P.main(["--store", store, "--no-frames", "--cache-dir", d])
+        self.assertEqual(hashlib.sha256(Path(store).read_bytes()).hexdigest(), digest)
+        self.assertEqual(os.listdir(d), ["portfolio.json"])
+        self.assertNotIn("secret-contact", buf.getvalue())
+        return code, buf.getvalue()
+
+    def moat_for(self, refs):
+        m = R.moat_reference(refs["MSFT"], [refs[t] for t in refs if t != "MSFT"])
+        fy = "FY%s..FY%s" % (m["window_fy"][0][:4], m["window_fy"][1][:4])
+        sig = [{"name": "gm_gap_change", "value": m["gm_gap_change"], "direction": 0, "window": fy},
+               {"name": "incremental_margin", "value": m["incremental_margin"]["value"], "direction": 1, "window": fy}]
+        return {"label": "stable", "n_signals": 2, "signals": sig, "source_hints": [],
+                "thresholds": "provisional", "flags": []}
+
+    def test_exit_codes(self):
+        panel, refs = build_panel("MSFT", ["ORCL", "AVGO", "ABBV"], "2025-06-30")
+        code, out = self.run_tool(panel, self.moat_for(refs))
+        self.assertEqual(code, 0, [x for x in out.splitlines() if x.startswith("FAIL")])
+        panel["table"]["rows"][0]["cagr3_fy"] += 0.01
+        code, out = self.run_tool(panel, self.moat_for(refs))
+        self.assertEqual(code, 1)
+        self.assertIn("cagr3_fy", out)
+        code, out = self.run_tool(None, None)
+        self.assertEqual(code, 1)                  # a holding without a panel is a failure
 
 
 if __name__ == "__main__":
