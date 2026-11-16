@@ -207,5 +207,256 @@ class PeerPoint(unittest.TestCase):
         self.assertEqual(set(model["panel_points"][0]), set(PP.POINT_KEYS))
 
 
+def pp(sym, rev=10e9, ebit=2e9, ni=1.5e9, ev=30e9, mcap=25e9, fy=None, ccy="USD", std="us-gaap",
+       period_end="2026-09-30", price_date="2026-11-13", source="damodaran"):
+    """A stored peer point (PP.POINT_KEYS) with its FY legs."""
+    x = ext() if fy is None else fy
+    snap = PP.fy_snapshot(x["revenue_annuals_dated"], x.get("gross_profit_annuals_dated"), None,
+                          x.get("operating_income_annuals_dated"))
+    return dict({"symbol": sym, "source": source, "currency": ccy, "accounting_standard": std,
+                 "period_end": period_end, "price_date": price_date, "revenue_ttm": rev,
+                 "ebit_ttm": ebit, "net_income_ttm": ni, "ev": ev, "market_cap": mcap}, **snap)
+
+
+AS_OF = "2026-11-16"
+
+
+class Table(unittest.TestCase):
+    def test_row_known_answer(self):
+        r = PP.table_row(pp("A"))
+        self.assertAlmostEqual(r["growth_fy"], 10 / 9 - 1)
+        self.assertAlmostEqual(r["cagr3_fy"], (10 / 7) ** (1 / 3) - 1)
+        self.assertAlmostEqual(r["gross_margin_fy"], .5)
+        self.assertAlmostEqual(r["op_margin_ttm"], .2)
+        self.assertAlmostEqual(r["ev_sales"], 3.0)
+        self.assertAlmostEqual(r["ev_ebit"], 15.0)
+        self.assertAlmostEqual(r["pe"], 25 / 1.5)
+        self.assertEqual(r["fy0_end"], "2025-12-31")
+
+    def test_E1_fy_metrics_never_read_ttm_and_ttm_never_read_fy(self):
+        base = PP.table_row(pp("A"))
+        moved_ttm = PP.table_row(pp("A", rev=40e9, ebit=9e9))
+        for m in ("growth_fy", "cagr3_fy", "gross_margin_fy"):
+            self.assertEqual(base[m], moved_ttm[m], f"{m} moved with TTM revenue")
+        moved_fy = PP.table_row(pp("A", fy=ext(fy_rev=(50e9, 9e9, 8e9, 7e9, 6e9))))
+        for m in ("op_margin_ttm", "ev_sales", "ev_ebit", "pe", "revenue_ttm"):
+            self.assertEqual(base[m], moved_fy[m], f"{m} moved with a fiscal-year revenue")
+
+    def test_E14_gross_margin_needs_both_legs_from_one_fiscal_year(self):
+        x = ext()
+        x["gross_profit_annuals_dated"] = [r for r in x["gross_profit_annuals_dated"] if r[0] != "2025-12-31"]
+        x["cost_of_revenue_annuals_dated"] = None
+        self.assertIsNone(PP.table_row(pp("A", fy=x))["gross_margin_fy"])
+
+    def test_E6_multiples_on_a_non_positive_denominator_are_null(self):
+        self.assertIsNotNone(PP.table_row(pp("A", ebit=1.0))["ev_ebit"])
+        for ebit in (0, -1e9):
+            r = PP.table_row(pp("A", ebit=ebit))
+            self.assertIsNone(r["ev_ebit"])
+            self.assertIsNotNone(r["op_margin_ttm"])            # a loss margin is still a margin
+        self.assertIsNotNone(PP.table_row(pp("A", ni=1.0))["pe"])
+        for ni in (0, -1e9):
+            self.assertIsNone(PP.table_row(pp("A", ni=ni))["pe"])
+        self.assertIsNone(PP.table_row(pp("A", ev=-1e9))["ev_sales"])
+        for base, want_none in ((7e9, False), (0, True), (-1e9, True)):
+            r = PP.table_row(pp("A", fy=ext(fy_rev=(10e9, 9e9, 8e9, base, 6e9))))
+            self.assertEqual(r["cagr3_fy"] is None, want_none, f"FY3 revenue {base}")
+
+    def test_stats_known_answer_and_missing_is_not_zero(self):
+        st = PP.stats([4, None, 1, 3, 2])
+        self.assertEqual(st, {"n": 4, "max": 4, "p75": 3.25, "median": 2.5, "p25": 1.75, "min": 1})
+        self.assertEqual(PP.stats([None])["n"], 0)
+
+    def test_iqr_fence_on_both_sides(self):
+        def rows(v):
+            return [dict(PP.table_row(pp(f"P{i}")), ev_sales=x) for i, x in enumerate(v)]
+        # 1,2,3,4: p25 1.75, p75 3.25, fence [-0.5, 5.5]
+        inside = rows([1, 2, 3, 4, 5.5])
+        PP.flag_outliers(inside)
+        self.assertFalse(any("ev_sales" in r["outlier"] for r in inside))
+        out = rows([1, 2, 3, 4, 5.6])
+        PP.flag_outliers(out)
+        st = PP.stats([1, 2, 3, 4, 5.6])
+        hi = st["p75"] + 1.5 * (st["p75"] - st["p25"])
+        self.assertEqual(["ev_sales" in r["outlier"] for r in out], [False] * 4 + [5.6 > hi])
+
+    def test_rank3_terciles(self):
+        rows = [dict(PP.table_row(pp(f"P{i}", rev=r))) for i, r in enumerate([9e9, 8e9, 7e9, 6e9, 5e9, 4e9])]
+        PP.rank_terciles(rows)
+        self.assertEqual([r["rank3"]["scale"] for r in rows], [1, 1, 2, 2, 3, 3])
+        two = [dict(PP.table_row(pp(f"P{i}", rev=r))) for i, r in enumerate([9e9, 8e9])]
+        PP.rank_terciles(two)
+        self.assertEqual([r["rank3"]["scale"] for r in two], [None, None])
+
+    def test_target_vs_median_units(self):
+        peers_ = [pp(f"P{i}", ebit=e, ev=v) for i, (e, v) in enumerate([(1e9, 20e9), (2e9, 30e9), (3e9, 40e9)])]
+        tbl, _ = PP.table(pp("T", ebit=4e9, ev=60e9), peers_, AS_OF)
+        tv = tbl["target_vs_median"]
+        self.assertAlmostEqual(tv["op_margin_ttm"], (0.4 - 0.2) * 100)   # pp
+        self.assertAlmostEqual(tv["ev_sales"], 6.0 - 3.0)                 # x
+        self.assertEqual(tbl["stats"]["ev_sales"]["n"], 3, "the median is over the peers, not the target")
+        self.assertTrue(tbl["rows"][0]["is_target"])
+
+    def test_E8_foreign_currency_and_ifrs_peers_are_excluded_with_reason(self):
+        tbl, excl = PP.table(pp("T"), [pp("A"), pp("B", ccy="EUR"), pp("C", std="ifrs-full"),
+                                        pp("D", std=None)], AS_OF)
+        self.assertEqual([r["symbol"] for r in tbl["rows"]], ["T", "A"])
+        why = {e["symbol"]: e["reason"] for e in excl}
+        self.assertIn("EUR", why["B"])
+        self.assertIn("ifrs-full", why["C"])
+        self.assertIn("unknown standard", why["D"])
+
+    def test_E4_a_row_whose_newest_year_lags_is_dropped_with_a_flag(self):
+        lag400 = ext(ends=("2024-11-26", "2023-11-26", "2022-11-26", "2021-11-26", "2020-11-26"))
+        lag401 = ext(ends=("2024-11-25", "2023-11-25", "2022-11-25", "2021-11-25", "2020-11-25"))
+        tbl, excl = PP.table(pp("T"), [pp("OK", fy=lag400), pp("OLD", fy=lag401)], AS_OF)
+        self.assertEqual([r["symbol"] for r in tbl["rows"]], ["T", "OK"])
+        self.assertIn("lags", excl[0]["reason"])
+        panel = PP.build(pp("T"), [pp("OLD", fy=lag401)], AS_OF, "Software", "x")
+        self.assertTrue(any(f.startswith("OLD:") and "lags" in f for f in panel["flags"]))
+
+    def test_E22_peer_facts_after_as_of_are_excluded(self):
+        _, excl = PP.table(pp("T"), [pp("A", price_date="2026-11-17")], AS_OF)
+        self.assertIn("after 2026-11-16", excl[0]["reason"])
+        tbl, excl = PP.table(pp("T"), [pp("A", price_date="2026-11-16")], AS_OF)
+        self.assertEqual(excl, [])
+
+    def test_E10_filters_run_before_anything_is_counted(self):
+        tbl, _ = PP.table(pp("T"), [pp("X", ccy="EUR", rev=999e9)] + [pp(f"P{i}") for i in range(3)], AS_OF)
+        self.assertEqual(tbl["stats"]["revenue_ttm"]["max"], 10e9)
+
+
+def frames_for(years, rows):
+    """{CY: {cik: [revenue, end]}} from {cik: [rev per year]}."""
+    return {y: {c: [v[i], f"{y}-12-31"] for c, v in rows.items() if v[i] is not None}
+            for i, y in enumerate(years)}
+
+
+Y5 = [2021, 2022, 2023, 2024, 2025]
+
+
+class Share(unittest.TestCase):
+    def members(self, n=10):
+        return {f"T{i}": str(i + 1).zfill(10) for i in range(n)}
+
+    def test_known_answer_share_top5_hhi_and_change(self):
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        rows[1] = [10.0, 10.0, 20.0, 30.0, 40.0]          # the target grows into the industry
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertEqual(sh["n_members"], 10)
+        self.assertEqual(sh["n_with_revenue"]["2025"], 10)
+        self.assertAlmostEqual(sh["target_share"]["2025"], 40 / 130)
+        self.assertAlmostEqual(sh["target_share"]["2022"], 10 / 100)
+        self.assertAlmostEqual(sh["share_change_pp"], (40 / 130 - 10 / 100) * 100)
+        self.assertAlmostEqual(sh["top5_share"]["2025"], 80 / 130)
+        self.assertAlmostEqual(sh["hhi"]["2021"], 10 * 10 ** 2)
+        self.assertEqual(sh["target_frames_end"]["2025"], "2025-12-31")
+
+    def test_coverage_threshold_on_both_sides(self):
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        for c in (8, 9, 10):
+            rows[c] = [10.0, 10.0, 10.0, 10.0, None]           # 7 of 10 in CY2025: exactly 70%
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertAlmostEqual(sh["target_share"]["2025"], 1 / 7)
+        rows[7] = [10.0, 10.0, 10.0, 10.0, None]               # 6 of 10: 60%
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertIsNone(sh["target_share"]["2025"])
+        self.assertIsNone(sh["hhi"]["2025"])
+        self.assertIsNone(sh["share_change_pp"], "a nulled newest year leaves no change")
+        self.assertTrue(any("CY2025" in f and "60%" in f for f in sh["flags"]))
+        # 69 of 100 just under the line, 70 of 100 on it
+        big = {f"T{i}": str(i + 1).zfill(10) for i in range(100)}
+        r69 = {i + 1: [1.0] * 5 if i < 69 else [None] * 5 for i in range(100)}
+        self.assertIsNone(PP.industry_share(big, frames_for(Y5, r69), "0000000001", Y5, AS_OF)["hhi"]["2025"])
+        r70 = {i + 1: [1.0] * 5 if i < 70 else [None] * 5 for i in range(100)}
+        self.assertIsNotNone(PP.industry_share(big, frames_for(Y5, r70), "0000000001", Y5, AS_OF)["hhi"]["2025"])
+
+    def test_share_classes_of_one_filer_count_once(self):
+        m = dict(self.members(), GOOG="0000000001")
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        sh = PP.industry_share(m, frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertEqual(sh["n_members"], 10)
+        self.assertAlmostEqual(sh["target_share"]["2025"], .1)
+
+    def test_E11_only_damodaran_industry_members_enter_the_share(self):
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        rows[999] = [1e6] * 5                                  # a filer outside the industry
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertAlmostEqual(sh["target_share"]["2025"], .1)
+
+    def test_E10_top5_is_taken_after_dropping_non_positive_revenue(self):
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        rows[2] = [-50.0] * 5
+        rows[3] = [0.0] * 5
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertEqual(sh["n_with_revenue"]["2025"], 8)
+        self.assertAlmostEqual(sh["top5_share"]["2025"], 50 / 80)
+
+    def test_E6_share_change_with_a_missing_base_is_null(self):
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        rows[1] = [10.0, None, 10.0, 10.0, 10.0]               # target absent in the base year
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertIsNone(sh["target_share"]["2022"])
+        self.assertIsNone(sh["share_change_pp"])
+        self.assertIsNotNone(sh["top5_change_pp"])
+        self.assertTrue(any("CY2022: no revenue frame for the target" in f for f in sh["flags"]))
+
+    def test_E22_a_calendar_year_not_over_by_as_of_is_not_used(self):
+        rows = {i + 1: [10.0] * 6 for i in range(10)}
+        sh = PP.industry_share(self.members(), frames_for(Y5 + [2026], rows), "0000000001",
+                               Y5 + [2026], AS_OF)
+        self.assertEqual(sh["years"], Y5)
+        sh = PP.industry_share(self.members(), frames_for(Y5, rows), "0000000001", Y5, "2025-06-30")
+        self.assertEqual(sh["years"], [2021, 2022, 2023, 2024])
+
+    def test_E21_the_target_frames_end_is_what_sec_assigned(self):
+        fr = frames_for(Y5, {i + 1: [10.0] * 5 for i in range(10)})
+        fr[2025][1] = [10.0, "2025-06-30"]                     # a June filer, as frames placed it
+        sh = PP.industry_share(self.members(), fr, "0000000001", Y5, AS_OF)
+        self.assertEqual(sh["target_frames_end"]["2025"], "2025-06-30")
+
+    def test_E13_every_early_return_says_why(self):
+        sh = PP.industry_share({"A": None}, {}, None, Y5, AS_OF)
+        self.assertTrue(any("no industry members" in f for f in sh["flags"]))
+        sh = PP.industry_share(self.members(), {}, "0000000001", Y5, AS_OF)
+        self.assertEqual(sum("no SEC revenue frames" in f for f in sh["flags"]), 5)
+        sh = PP.industry_share(self.members(), frames_for(Y5, {1: [1.0] * 5}), None, Y5, AS_OF)
+        self.assertTrue(any("target has no SEC CIK" in f for f in sh["flags"]))
+
+
+class Panel(unittest.TestCase):
+    def test_E15_no_stored_points_is_a_flag_not_an_error(self):
+        panel = PP.build(pp("T"), None, AS_OF, "Software", "Damodaran company list")
+        self.assertIsNone(panel["table"])
+        self.assertTrue(any("predates the panel" in f for f in panel["flags"]))
+
+    def test_E13_every_missing_input_is_flagged(self):
+        panel = PP.build(None, [], AS_OF)
+        f = " | ".join(panel["flags"])
+        for want in ("no Damodaran industry", "no usable peers", "no target row"):
+            self.assertIn(want, f)
+        panel = PP.build(pp("T"), [pp("B", ccy="EUR")], AS_OF, "x", "y",
+                         excluded=[{"symbol": "Z", "reason": "not an SEC filer"}])
+        f = " | ".join(panel["flags"])
+        for want in ("every peer was excluded", "Z: not an SEC filer", "B: reports in EUR"):
+            self.assertIn(want, f)
+
+    def test_panel_shape_matches_the_spec(self):
+        sh = PP.industry_share({"T": "1"}, frames_for(Y5, {1: [1.0] * 5}), "1", Y5, AS_OF)
+        panel = PP.build(pp("T"), [pp(f"P{i}") for i in range(4)], AS_OF, "Software", "b", sh)
+        self.assertEqual(set(panel), {"as_of", "version", "industry", "industry_basis", "table",
+                                      "industry_share", "flags"})
+        self.assertEqual(set(panel["table"]), {"rows", "stats", "target_vs_median"})
+        row = set(panel["table"]["rows"][0])
+        for k in ("symbol", "is_target", "period_end", "fy0_end", "price_date", "revenue_ttm",
+                  "growth_fy", "cagr3_fy", "gross_margin_fy", "op_margin_ttm", "ev_sales", "ev_ebit",
+                  "pe", "rank3", "outlier"):
+            self.assertIn(k, row)
+        for k in ("group", "years", "n_members", "n_with_revenue", "target_share", "top5_share",
+                  "hhi", "share_change_pp", "top5_change_pp"):
+            self.assertIn(k, panel["industry_share"])
+        json.dumps(panel)
+
+
 if __name__ == "__main__":
     unittest.main()
