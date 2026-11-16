@@ -11,6 +11,7 @@ import unittest
 from types import SimpleNamespace
 
 import store_sync
+from domain import moat_trend as MT
 from domain import peer_panel as PP
 from pipeline import peers
 from sources import damodaran_companies as dc
@@ -456,6 +457,126 @@ class Panel(unittest.TestCase):
                   "hhi", "share_change_pp", "top5_change_pp"):
             self.assertIn(k, panel["industry_share"])
         json.dumps(panel)
+
+
+def roic(vals, ends=None):
+    ends = ends or ["2021-12-31", "2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31"]
+    return {d: {"roic": v} for d, v in zip(ends, vals)}
+
+
+def snap(rev0, rev3, oi0=None, oi3=None, gm0=None, gm3=None):
+    leg = lambda end, r, o, g: {"end": end, "revenue": r, "operating_income": o,
+                                "gross_profit": None if g is None else r * g}
+    return {"fy0": leg("2025-12-31", rev0, oi0, gm0), "fy3": leg("2022-12-31", rev3, oi3, gm3)}
+
+
+def share_of(old, new):
+    return {"years": Y5, "target_share": {"2022": old, "2025": new}}
+
+
+class Moat(unittest.TestCase):
+    def test_provisional_thresholds_are_declared(self):
+        self.assertEqual((MT.SPREAD_SLOPE_PP, MT.SHARE_REL, MT.GM_GAP_PP, MT.INC_PP), (1.0, 0.10, 2.0, 5.0))
+        out = MT.build({}, None, [], None, None)
+        self.assertEqual(out["thresholds"], "provisional")
+
+    def test_S1_slope_known_answer_and_both_sides_of_the_band(self):
+        dates = ["2021-12-31", "2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31"]
+        span = MT._years(dates[0], dates[-1]) / 4                  # ~1 year between ends
+        for per_year, want in ((1.01, 1), (0.99, 0), (-0.99, 0), (-1.01, -1)):
+            m = roic([10 + per_year * MT._years(dates[0], d) for d in dates])
+            sig, _ = MT.spread_slope(m, 8.0)
+            self.assertAlmostEqual(sig["value"], per_year, places=2)
+            self.assertEqual(sig["direction"], want, f"slope {per_year}")
+        self.assertAlmostEqual(span, 1.0, places=2)
+        sig, _ = MT.spread_slope(roic([10, 11, 12, 13, 14]), 30.0)
+        self.assertEqual((sig["window"], sig["unit"]), ("FY2021..FY2025", "pp/yr"))
+
+    def test_E3_S1_reads_only_the_contiguous_recent_run(self):
+        ends = ["2018-12-31", "2019-12-31", "2023-12-31", "2024-12-31", "2025-12-31"]
+        sig, _ = MT.spread_slope(roic([50, 50, 10, 12, 14], ends), 8.0)
+        self.assertEqual(sig["window"], "FY2023..FY2025")
+        self.assertAlmostEqual(sig["value"], 2.0, places=1)       # not the fall from 2019's 50
+        sig, why = MT.spread_slope(roic([50, 50, 10, 12], ends[:2] + ends[3:]), 8.0)
+        self.assertIsNone(sig)
+        self.assertIn("2 contiguous", why)
+
+    def test_E5_S1_without_wacc_is_absent(self):
+        sig, why = MT.spread_slope(roic([10, 11, 12]), None)
+        self.assertIsNone(sig)
+        self.assertIn("no WACC", why)
+
+    def test_S2_relative_share_change_both_sides(self):
+        for new, want in ((0.1101, 1), (0.1099, 0), (0.0901, 0), (0.0899, -1)):
+            sig, _ = MT.share_change(share_of(0.10, new))
+            self.assertEqual(sig["direction"], want, f"share 0.10 -> {new}")
+        self.assertEqual(MT.share_change(share_of(0.10, 0.12))[0]["window"], "CY2022..CY2025")
+
+    def test_E6_S2_with_a_zero_or_missing_base_is_absent(self):
+        for old in (0.0, None):
+            sig, why = MT.share_change(share_of(old, 0.05))
+            self.assertIsNone(sig, f"base {old}")
+            self.assertTrue(why.startswith("S2"))
+        self.assertIsNone(MT.share_change(None)[0])
+
+    def test_S3_gm_gap_change_both_sides(self):
+        peers_ = [snap(10, 8, gm0=.40, gm3=.40) for _ in range(3)]
+        for t0, want in ((.4202, 1), (.4198, 0), (.3802, 0), (.3798, -1)):
+            sig, _ = MT.gm_gap_change(snap(10, 8, gm0=t0, gm3=.40), peers_)
+            self.assertEqual(sig["direction"], want, f"target GM {t0}")
+        sig, _ = MT.gm_gap_change(snap(10, 8, gm0=.50, gm3=.45), [snap(10, 8, gm0=.30, gm3=.35)] * 3)
+        self.assertAlmostEqual(sig["value"], ((.50 - .30) - (.45 - .35)) * 100)
+
+    def test_S3_needs_three_peers_with_both_years(self):
+        peers_ = [snap(10, 8, gm0=.4, gm3=.4)] * 2 + [snap(10, 8, gm0=.4, gm3=None)]
+        sig, why = MT.gm_gap_change(snap(10, 8, gm0=.5, gm3=.4), peers_)
+        self.assertIsNone(sig)
+        self.assertIn("2 peers", why)
+
+    def test_S4_incremental_margin_both_sides(self):
+        # FY0 margin 20%, FY3 revenue 80: incremental - average = (16 - o3) / 20
+        for o3, want in ((14.98, 1), (15.02, 0), (16.98, 0), (17.02, -1)):
+            sig, _ = MT.incremental_margin(snap(100, 80, oi0=20, oi3=o3))
+            self.assertEqual(sig["direction"], want, f"FY3 OI {o3} -> {sig['value']}")
+
+    def test_E6_S4_only_when_revenue_grew(self):
+        for r3 in (100, 120, 0, -5):
+            sig, why = MT.incremental_margin(snap(100, r3, oi0=20, oi3=10))
+            self.assertIsNone(sig, f"FY3 revenue {r3}")
+            self.assertIn("did not grow", why)
+
+    def test_E5_label_is_null_under_two_signals_and_missing_is_not_zero(self):
+        up = {"direction": 1}
+        self.assertIsNone(MT.label([up]))
+        self.assertEqual(MT.label([up, up]), "improving")           # two votes, two absent
+        self.assertEqual(MT.label([up, up, {"direction": -1}]), "stable")
+        self.assertEqual(MT.label([{"direction": -1}] * 2), "eroding")
+        self.assertEqual(MT.label([up, {"direction": 0}]), "stable")
+        out = MT.build({}, snap(100, 80, oi0=30, oi3=10), [], share_of(.10, .20), 8.0)
+        self.assertEqual((out["n_signals"], out["label"]), (2, "improving"))
+        self.assertEqual({s["name"] for s in out["signals"]}, {"share_change", "incremental_margin"})
+        self.assertEqual(len(out["flags"]), 2, "each absent signal says why")
+        one = MT.build({}, None, [], share_of(.10, .20), 8.0)
+        self.assertIsNone(one["label"])
+        self.assertTrue(any("no label" in f for f in one["flags"]))
+
+    def test_S1_from_stored_facts(self):
+        f = {"operating_income_annuals_dated": [[f"{y}-12-31", 10 + 2 * i] for i, y in enumerate(range(2021, 2026))],
+             "ic_components_dated": {f"{y}-12-31": {"equity": 100, "cash": 0, "debt": 0} for y in range(2021, 2026)},
+             "income_before_tax": 100, "tax_expense": 20}
+        out = MT.build(f, None, [], None, 5.0)
+        self.assertEqual(out["signals"][0]["name"], "spread_slope")
+        self.assertAlmostEqual(out["signals"][0]["value"], 1.6, places=1)   # 2 x (1 - 20%) per year
+
+    def test_source_hints_say_consistent_with_never_a_finding(self):
+        peers_ = [snap(10, 8, gm0=.30, gm3=.30)] * 3
+        h = MT.source_hints(snap(10, 8, gm0=.55, gm3=.5), peers_, share_of(.1, .3))
+        self.assertEqual([(x["type"], x["strength"]) for x in h], [("intangible", "moderate"), ("scale", "moderate")])
+        self.assertTrue(all("consistent with" in x["evidence"] for x in h))
+        h = MT.source_hints(snap(10, 8, gm0=.399, gm3=.5), peers_, share_of(.1, .099))
+        self.assertEqual(h, [])
+        h = MT.source_hints(snap(10, 8, gm0=.40, gm3=.5), peers_, share_of(.1, .10))
+        self.assertEqual([(x["type"], x["strength"]) for x in h], [("intangible", "weak"), ("scale", "weak")])
 
 
 if __name__ == "__main__":

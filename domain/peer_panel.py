@@ -191,13 +191,19 @@ def eligible(points, as_of, ref_fy0=None):
     return kept, out
 
 
-def table(target, peers, as_of):
-    """(table, excluded) for the target point and its peer points."""
+def peer_set(target, peers, as_of):
+    """eligible() against the target's newest fiscal year (the newest peer FY when the
+    target has none). The table and the moat signals read the same set."""
     ref = (target.get("fy0") or {}).get("end") if target else None
     if not ref:
         ref = max(((p.get("fy0") or {}).get("end") for p in peers if (p.get("fy0") or {}).get("end")),
                   default=None)
-    kept, excluded = eligible(peers, as_of, ref)
+    return eligible(peers, as_of, ref)
+
+
+def table(target, peers, as_of):
+    """(table, excluded) for the target point and its peer points."""
+    kept, excluded = peer_set(target, peers, as_of)
     rows = ([table_row(target, True)] if target else []) + [table_row(p) for p in kept]
     flag_outliers(rows)
     rank_terciles(rows)
