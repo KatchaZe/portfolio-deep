@@ -128,5 +128,64 @@ class D_TargetRow(unittest.TestCase):
                         panel["flags"])
 
 
+class FramesByConcept:
+    """SEC frames keyed by (concept, year); a concept/year with no entry answers 404,
+    as SEC does for a concept nobody filed that year."""
+
+    def __init__(self, answers):
+        self.answers, self.calls = answers, []
+
+    def get(self, url, **k):
+        from types import SimpleNamespace
+        concept = url.split("/us-gaap/")[1].split("/")[0]
+        year = int(url.split("/CY")[1].split(".")[0])
+        self.calls.append((concept, year))
+        if (concept, year) not in self.answers:
+            import requests
+            err = requests.HTTPError("404 Client Error")
+            err.response = SimpleNamespace(status_code=404)
+
+            def boom():
+                raise err
+            return SimpleNamespace(status_code=404, raise_for_status=boom, json=lambda: {})
+        return SimpleNamespace(status_code=200, raise_for_status=lambda: None,
+                               json=lambda: {"data": self.answers[(concept, year)]})
+
+
+class A_FramesConcepts(unittest.TestCase):
+    def test_R2_A_a_filer_tagging_only_another_revenue_concept_is_counted(self):
+        from sources import damodaran_companies as dc
+        import tempfile
+        y = 2025
+        ans = {("Revenues", y): [{"cik": 1, "val": 10, "end": "2025-12-31"}],
+               ("RevenueFromContractWithCustomerExcludingAssessedTax", y): [{"cik": 2, "val": 5, "end": "2025-12-31"}],
+               ("SalesRevenueNet", y): [{"cik": 3, "val": 7, "end": "2025-09-30"},
+                                        {"cik": 1, "val": 4, "end": "2025-12-31"}],
+               ("RevenueFromContractWithCustomerIncludingAssessedTax", y): [{"cik": 4, "val": 8, "end": "2025-06-30"},
+                                                                            {"cik": 2, "val": 6, "end": "2025-12-30"}]}
+        rev, end, note = dc._frames(tempfile.mkdtemp(), y, "ua", requests_mod=FramesByConcept(ans))
+        self.assertIsNone(note)
+        self.assertEqual(rev, {1: 10, 2: 6, 3: 7, 4: 8})          # the largest concept per filer
+        self.assertEqual(end[2], "2025-12-30")
+
+    def test_R2_A_a_concept_with_no_frame_that_year_is_skipped_not_a_failed_year(self):
+        from sources import damodaran_companies as dc
+        import tempfile
+        ans = {("Revenues", 2025): [{"cik": 1, "val": 10, "end": "2025-12-31"}]}
+        rev, _end, note = dc._frames(tempfile.mkdtemp(), 2025, "ua", requests_mod=FramesByConcept(ans))
+        self.assertEqual((rev, note), ({1: 10}, None))
+
+    def test_R2_A_a_cache_built_on_a_shorter_concept_list_is_refreshed(self):
+        from sources import damodaran_companies as dc
+        import json, os, tempfile, time
+        tmp = tempfile.mkdtemp()
+        with open(os.path.join(tmp, "sec_frames_revenue_CY2025.json"), "w") as fh:
+            json.dump({"at": time.time(), "rev": {"1": 5}, "end": {"1": "2025-12-31"}}, fh)
+        rq = FramesByConcept({("SalesRevenueNet", 2025): [{"cik": 3, "val": 7, "end": "2025-09-30"}]})
+        rev, _end, note = dc._frames(tmp, 2025, "ua", requests_mod=rq)
+        self.assertEqual((rev, note), ({3: 7}, None))
+        self.assertTrue(rq.calls)
+
+
 if __name__ == "__main__":
     unittest.main()

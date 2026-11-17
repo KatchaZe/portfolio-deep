@@ -85,7 +85,10 @@ class Frames(unittest.TestCase):
         with open(os.path.join(tmp, "sec_frames_revenue_CY2025.json"), "w") as fh:
             json.dump({"at": time.time(), "rev": {"1": 5}}, fh)
         rev, end, note = dc._frames(tmp, 2025, "ua", requests_mod=FakeFrames({}))
-        self.assertEqual((rev, end, note), ({1: 5}, {}, None))
+        # written on the two-concept ladder too, so it is refreshed; the refresh finds
+        # nothing and the old cache is served with a note, never an error
+        self.assertEqual((rev, end), ({1: 5}, {}))
+        self.assertIn("from cache", note)
 
 
 YEARS = ("2025-12-31", "2024-12-31", "2023-12-31", "2022-12-31", "2021-12-31")

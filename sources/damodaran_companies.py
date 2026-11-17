@@ -28,7 +28,11 @@ SHEET = "By industry"
 MIN_ROWS = 1000                  # a parse with fewer US rows is a format change, not data
 
 FRAMES_URL = "https://data.sec.gov/api/xbrl/frames/us-gaap/{concept}/USD/CY{year}.json"
-FRAMES_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
+# Every us-gaap revenue concept a filer may tag its top line with: on the first two
+# alone MSFT's industry had 167 of 194 filers and pharma fell under 70% coverage
+# (live 2026-11-17). The largest per filer wins, as before. One call per concept a year.
+FRAMES_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+                   "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax")
 FRAMES_TTL_DAYS = 30
 
 
@@ -117,8 +121,8 @@ def frames_year(today):
 
 
 def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
-    """({cik: revenue}, {cik: period end}, note) for calendar year `year`: the larger of
-    the two revenue concepts per filer, and the end date of the period SEC's frame put
+    """({cik: revenue}, {cik: period end}, note) for calendar year `year`: the largest of
+    the FRAMES_CONCEPTS per filer, and the end date of the period SEC's frame put
     in that year (a June filer's FY lands in the CY frames chose, not one we assume).
     A cache written before the end dates were kept returns an empty end map."""
     now = now or time.time()
@@ -129,7 +133,9 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
         return ({int(k): v for k, v in c["rev"].items()},
                 {int(k): v for k, v in (c.get("end") or {}).items()})
 
-    if cached and now - cached.get("at", 0) < FRAMES_TTL_DAYS * 86400:
+    # a cache read on a shorter concept list undercounts the industry: refresh it
+    same_ladder = bool(cached) and cached.get("concepts") == list(FRAMES_CONCEPTS)
+    if same_ladder and now - cached.get("at", 0) < FRAMES_TTL_DAYS * 86400:
         return (*_from(cached), None)
     out, end = {}, {}
     try:
@@ -138,6 +144,8 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
         for concept in FRAMES_CONCEPTS:
             r = rq.get(FRAMES_URL.format(concept=concept, year=year),
                        headers={"User-Agent": user_agent}, timeout=timeout)
+            if getattr(r, "status_code", 200) == 404:
+                continue                        # nobody tagged this concept that year
             r.raise_for_status()
             for d in r.json().get("data") or []:
                 if d.get("cik") and isinstance(d.get("val"), (int, float)):
@@ -147,7 +155,7 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
                     else:
                         out.setdefault(cik, 0)
         if out:
-            _write(path, {"at": now, "rev": out, "end": end})
+            _write(path, {"at": now, "concepts": list(FRAMES_CONCEPTS), "rev": out, "end": end})
             return out, end, None
         raise ValueError("empty frames")
     except Exception as e:
@@ -158,8 +166,8 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
 
 
 def load_revenue_frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
-    """({cik: revenue}, note) for calendar year `year`, the larger of the two revenue
-    concepts per filer. Never raises."""
+    """({cik: revenue}, note) for calendar year `year`, the largest revenue concept per
+    filer. Never raises."""
     rev, _end, note = _frames(cache_dir, year, user_agent, requests_mod, timeout, now)
     return rev, note
 

@@ -32,7 +32,10 @@ def _days(a, b):
     return (da - db).days if da and db else None
 
 
-REVENUE_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
+# the frames ladder (sources/damodaran_companies.FRAMES_CONCEPTS): the FY -> CY tag is
+# read from whichever of them the filer used
+REVENUE_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
+                    "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax")
 _CY = re.compile(r"^CY(\d{4})$")
 CY_SHIFT_DAYS = 180
 
