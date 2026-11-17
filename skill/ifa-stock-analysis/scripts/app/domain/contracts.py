@@ -241,6 +241,8 @@ PANEL_CLOCK = {
     "group": STATIC, "years": STATIC, "n_members": STATIC, "n_with_revenue": CY,
     "coverage": CY, "target_share": CY, "top5_share": CY, "hhi": CY,
     "target_frames_end": CY, "share_change_pp": CY, "top5_change_pp": CY,
+    "matched_n": CY, "matched_share_then": CY, "matched_share_now": CY,
+    "matched_top5_then": CY, "matched_top5_now": CY,
     # panel / moat envelope and summaries
     "as_of": STATIC, "version": STATIC, "industry": STATIC, "industry_basis": STATIC,
     "table": STATIC, "rows": STATIC, "stats": DERIVED, "target_vs_median": DERIVED,
@@ -258,6 +260,8 @@ PANEL_UNIT = {
     "gross_margin_fy": RATIO, "ev_sales": RATIO, "ev_ebit": RATIO, "pe": RATIO,
     "target_share": RATIO, "top5_share": RATIO, "hhi": RATIO, "coverage": RATIO,
     "share_change_pp": RATIO, "top5_change_pp": RATIO,     # points (x100), SPEC R1
+    "matched_share_then": RATIO, "matched_share_now": RATIO, "matched_top5_then": RATIO,
+    "matched_top5_now": RATIO, "matched_n": COUNT,
     "n_members": COUNT, "n_with_revenue": COUNT, "n": COUNT, "n_signals": COUNT,
     "rank3": COUNT, "direction": COUNT, "version": COUNT, "years": COUNT, "frames_cy": COUNT,
 }

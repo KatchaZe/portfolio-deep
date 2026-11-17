@@ -275,7 +275,9 @@ def industry_share(members, frames, target_cik, years, as_of):
     out = {"group": GROUP, "years": ys, "n_members": len(ciks), "n_with_revenue": {},
            "coverage": {}, "target_share": {}, "top5_share": {}, "hhi": {},
            "target_frames_end": {}, "share_change_pp": None, "top5_change_pp": None,
-           "flags": flags}
+           "matched_n": None, "matched_share_then": None, "matched_share_now": None,
+           "matched_top5_then": None, "matched_top5_now": None, "flags": flags}
+    shown = {}                   # CY -> {cik: revenue} for the years that pass coverage
     if not ciks:
         flags.append("no industry members with an SEC CIK")
         return out
@@ -305,6 +307,7 @@ def industry_share(members, frames, target_cik, years, as_of):
             for m in ("target_share", "top5_share", "hhi"):
                 out[m][k] = None
             continue
+        shown[y] = vals
         total = sum(vals.values())
         out["top5_share"][k] = sum(sorted(vals.values(), reverse=True)[:TOP_N]) / total
         out["hhi"][k] = sum((v / total) ** 2 for v in vals.values())
@@ -315,16 +318,77 @@ def industry_share(members, frames, target_cik, years, as_of):
             if tc is not None:
                 flags.append(f"CY{y}: no revenue frame for the target")
     if ys:
-        new, old = str(ys[-1]), str(ys[-1] - SHARE_LOOKBACK)
-        for m, dst in (("target_share", "share_change_pp"), ("top5_share", "top5_change_pp")):
-            a, b = out[m].get(new), out[m].get(old)
-            out[dst] = (a - b) * 100 if _num(a) and _num(b) else None
+        new = ys[-1]
+        matched_change(out, shown.get(new), shown.get(new - SHARE_LOOKBACK), tc, new - SHARE_LOOKBACK, new)
     return out
+
+
+def matched_change(out, now, then, tc, old, new):
+    """SPEC R13: share_change_pp and top5_change_pp on the filers with revenue in BOTH
+    years, so a filer missing from one year (a May fiscal year not yet in the newest CY)
+    cannot move the share. Null when either year failed its own coverage (its flag
+    already says so) or the matched set is under COVERAGE_MIN of the older year's filers."""
+    if now is None or then is None:
+        return
+    both = sorted(set(now) & set(then))
+    out["matched_n"] = len(both)
+    window = f"CY{old}..CY{new}"
+    if len(both) < COVERAGE_MIN * len(then):
+        out["flags"].append(f"{window}: {len(both)} of the {len(then)} CY{old} filers report in CY{new} "
+                            f"({len(both) / len(then):.0%} < {COVERAGE_MIN:.0%}): no share change")
+        return
+    if len(both) < max(len(now), len(then)):
+        out["flags"].append(f"{window}: share change over the {len(both)} filers with revenue in both years "
+                            f"({len(then) - len(both)} only in CY{old}, {len(now) - len(both)} only in CY{new})")
+    tn, tt = sum(now[c] for c in both), sum(then[c] for c in both)
+    top = lambda v, total: sum(sorted((v[c] for c in both), reverse=True)[:TOP_N]) / total
+    out["matched_top5_then"], out["matched_top5_now"] = top(then, tt), top(now, tn)
+    out["top5_change_pp"] = (out["matched_top5_now"] - out["matched_top5_then"]) * 100
+    if tc in both:
+        out["matched_share_then"], out["matched_share_now"] = then[tc] / tt, now[tc] / tn
+        out["share_change_pp"] = (out["matched_share_now"] - out["matched_share_then"]) * 100
 
 
 # --------------------------------------------------------------------------- #
 #  The panel                                                                  #
 # --------------------------------------------------------------------------- #
+def why_null(p, m):
+    """Why table_row left metric `m` empty for point `p`: its first missing leg."""
+    fy0, fy1, fy3 = (p.get(k) or {} for k in ("fy0", "fy1", "fy3"))
+    end, r0 = fy0.get("end"), fy0.get("revenue")
+    rev, ev = p.get("revenue_ttm"), p.get("ev")
+    gp = ("no GrossProfit or CostOfRevenue" if p.get("gp_basis") in (None, "not filed")
+          else f"no {p['gp_basis']} value")
+    fy = [(end, "no fiscal year on or before as-of"), (_pos(r0), f"no positive revenue for FY0 ({end})")]
+    legs = {
+        "revenue_ttm": [(_pos(rev), "no positive TTM revenue")],
+        "growth_fy": fy + [(fy1, f"no fiscal year about one year before FY0 ({end})"),
+                           (_pos(fy1.get("revenue")), f"FY-1 ({fy1.get('end')}) revenue not positive")],
+        "cagr3_fy": fy + [(fy3, f"no contiguous fiscal year three years before FY0 ({end})"),
+                          (_pos(fy3.get("revenue")), f"FY3 ({fy3.get('end')}) revenue not positive")],
+        "gross_margin_fy": fy + [(_num(fy0.get("gross_profit")), f"{gp} for FY0 ({end})")],
+        "op_margin_ttm": [(_pos(rev), "no positive TTM revenue"),
+                          (_num(p.get("ebit_ttm")), "no TTM operating income")],
+        "ev_sales": [(_pos(ev), "enterprise value missing or not positive"),
+                     (_pos(rev), "no positive TTM revenue")],
+        "ev_ebit": [(_pos(ev), "enterprise value missing or not positive"),
+                    (_pos(p.get("ebit_ttm")), "TTM EBIT not positive")],
+        "pe": [(_pos(p.get("market_cap")), "no market cap"),
+               (_pos(p.get("net_income_ttm")), "TTM net income not positive")],
+    }
+    return next((why for ok, why in legs[m] if not ok), "not computable from its legs")
+
+
+def null_flags(tbl, target, peers):
+    """One flag per empty metric on each row: row, metric and the missing leg."""
+    by = {p.get("symbol"): p for p in peers}
+    out = []
+    for r in tbl["rows"]:
+        p = target if r["is_target"] else by.get(r["symbol"]) or {}
+        out += [f"{r['symbol']} {m}: {why_null(p, m)}" for m in METRICS if r[m] is None]
+    return out
+
+
 def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=(), notes=()):
     """results[ticker]["peer_panel"]. `peers` None = no stored peer points (a fit from
     before the panel existed, or no fit this week): the table is absent with a flag."""
@@ -341,6 +405,7 @@ def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=
         tbl, excl = table(target, peers, as_of)
         if not tbl["rows"] or all(r["is_target"] for r in tbl["rows"]):
             flags.append("every peer was excluded: no peer statistics")
+        flags += null_flags(tbl, target, peers)
     for e in list(excluded) + excl:
         flags.append(f"{e.get('symbol')}: {e.get('reason')}")
     if share:

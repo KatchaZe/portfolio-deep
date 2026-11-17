@@ -5,6 +5,7 @@ Offline: analyze / price ladders / treasury are monkeypatched — no network.
 import os
 import sys
 import threading
+from types import SimpleNamespace
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -41,7 +42,7 @@ def test_parallel_fundamentals():
             seen.append(t)
         if t == "BAD":
             raise RuntimeError("boom")
-        return FF(t), object(), 3
+        return FF(t), SimpleNamespace(), 3        # a Valuation takes the display blocks
 
     fundamentals.analyze = fake_analyze
     fundamentals.yahoo.fetch_treasury_10y = lambda **k: (0.043, True)

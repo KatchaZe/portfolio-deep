@@ -67,14 +67,15 @@ def spread_slope(roic_map, wacc_pct):
 
 
 def share_change(share):
-    """(signal, reason) from peer_panel.industry_share."""
+    """(signal, reason) from peer_panel.industry_share, on the matched set of filers
+    with revenue in both years (SPEC R13)."""
     if not share or not share.get("years"):
         return None, "S2: no industry share"
     new = share["years"][-1]
     old = new - peer_panel.SHARE_LOOKBACK
-    a, b = share["target_share"].get(str(new)), share["target_share"].get(str(old))
+    a, b = share.get("matched_share_now"), share.get("matched_share_then")
     if a is None or b is None:
-        return None, f"S2: target share missing in CY{old} or CY{new}"
+        return None, f"S2: no target share on the filers reporting in both CY{old} and CY{new}"
     if b <= 0:
         return None, f"S2: target share in CY{old} is zero: no relative change"
     rel = (a - b) / b

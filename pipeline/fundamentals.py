@@ -643,6 +643,7 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
             block, c = fut.result()
         except Exception as e:
             log.warning("%s relative valuation failed: %s", t, e)
+            panel_failed(fetched[t][1], e)
             continue
         calls += c
         fetched[t][1].relative = block
@@ -650,13 +651,21 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
     return calls
 
 
+def panel_failed(val, e):
+    """Both display blocks say the build failed, so the row is told apart from one
+    stored before the panel existed ({}). Never touches the relative block or a score."""
+    val.peer_panel = {"flags": [f"peer panel failed: {type(e).__name__}"]}
+    val.moat_trend = {"flags": [f"peer panel failed: {type(e).__name__}"]}
+
+
 def attach_panel(ff, val, block, universe, today):
-    """val.peer_panel / val.moat_trend (display only). A failure leaves both empty
-    with a log line; it never touches the relative block or a score."""
+    """val.peer_panel / val.moat_trend (display only). A failure leaves both holding
+    only a flag, with a log line; it never touches the relative block or a score."""
     try:
         val.peer_panel, val.moat_trend = peers.panel_and_moat(ff, val, block, universe, today)
     except Exception as e:
         log.warning("%s peer panel failed: %s", ff.ticker, e)
+        panel_failed(val, e)
 
 
 def commit_fundamentals(s, fetched, skipped=None, now=None):

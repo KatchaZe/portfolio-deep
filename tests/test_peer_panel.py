@@ -503,7 +503,8 @@ def snap(rev0, rev3, oi0=None, oi3=None, gm0=None, gm3=None):
 
 
 def share_of(old, new):
-    return {"years": Y5, "target_share": {"2022": old, "2025": new}}
+    return {"years": Y5, "target_share": {"2022": old, "2025": new},
+            "matched_share_then": old, "matched_share_now": new}
 
 
 class Moat(unittest.TestCase):
@@ -705,7 +706,21 @@ class Wiring(unittest.TestCase):
             fundamentals.attach_panel(tfacts(), val, val.relative, universe(), TODAY)
         finally:
             peers.panel_and_moat = orig
-        self.assertEqual((val.relative, val.peer_panel, val.moat_trend, val.P), ({"model": 1}, {}, {}, 3.0))
+        failed = {"flags": ["peer panel failed: ZeroDivisionError"]}
+        self.assertEqual((val.relative, val.peer_panel, val.moat_trend, val.P), ({"model": 1}, failed, failed, 3.0),
+                         "E13: a failed build is told apart from a row that predates the panel ({})")
+
+    def test_E13_relative_value_raising_leaves_a_flagged_panel_not_an_empty_one(self):
+        val = SimpleNamespace(relative=None, peer_panel={}, moat_trend={}, P=3.0)
+        orig, lazy = peers.relative_value, peers.Universe.lazy
+        peers.relative_value = lambda *a, **k: [][0]
+        peers.Universe.lazy = classmethod(lambda cls, today, **k: universe())
+        try:
+            fundamentals._attach_relative({"T0": (tfacts(), val)}, None, None, {}, TODAY)
+        finally:
+            peers.relative_value, peers.Universe.lazy = orig, lazy
+        failed = {"flags": ["peer panel failed: IndexError"]}
+        self.assertEqual((val.relative, val.peer_panel, val.moat_trend, val.P), (None, failed, failed, 3.0))
 
     def test_E18_attaching_the_panel_writes_only_the_two_display_blocks(self):
         pts = [PP.compact(dict(pp(f"P{i}"), addback=0.0)) for i in range(4)]
@@ -799,3 +814,114 @@ class Probe(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+FIX_AS_OF = "2026-05-15"
+FIX_SYMS = ("MSFT", "ORCL", "AVGO", "ABBV")
+
+
+def fixture_cf(sym):
+    import config
+    with open(os.path.join(config.FIXTURE_DIR, sym, "sec_companyfacts.json"), encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def fixture_frames(syms=FIX_SYMS, as_of=FIX_AS_OF):
+    """({CY: {cik: [revenue, end]}}, {sym: cik}) from the fixtures' own CY-tagged annual
+    revenue, filed on or before as_of, the larger concept per filer."""
+    import re
+    out, ciks = {}, {}
+    for s in syms:
+        cf = fixture_cf(s)
+        ciks[s] = int(cf["cik"])
+        ns = cf["facts"]["us-gaap"]
+        for c in PP.REVENUE_CONCEPTS:
+            for e in ((ns.get(c) or {}).get("units") or {}).get("USD") or []:
+                m = re.match(r"^CY(\d{4})$", str(e.get("frame") or ""))
+                if m and e.get("filed", "") <= as_of:
+                    row = out.setdefault(int(m.group(1)), {})
+                    if e["val"] > row.get(ciks[s], [0])[0]:
+                        row[ciks[s]] = [e["val"], e["end"]]
+    return out, ciks
+
+
+class MatchedShare(unittest.TestCase):
+    """SPEC R13: the share change is measured on the filers reporting in both years."""
+
+    def test_R13_share_change_on_the_matched_set_fixture(self):
+        fr, ciks = fixture_frames()
+        self.assertNotIn(ciks["ORCL"], fr[2025], "fixture premise: ORCL (May FY) has no CY2025 frame yet")
+        self.assertIn(ciks["ORCL"], fr[2022])
+        sh = PP.industry_share({s: str(c) for s, c in ciks.items()}, fr, ciks["MSFT"], Y5, FIX_AS_OF)
+        m = ciks["MSFT"]
+        self.assertAlmostEqual(sh["target_share"]["2025"], fr[2025][m][0] / sum(v[0] for v in fr[2025].values()),
+                               msg="the per-year share stays on that year's own filers (display)")
+        sig, _ = MT.share_change(sh)
+        self.assertAlmostEqual(sig["value"], 0.0114, places=4)
+        self.assertEqual(sig["direction"], 0, "+1.1% on the matched set is inside the 10% band")
+        both = [c for c in fr[2025] if c in fr[2022]]
+        then = fr[2022][m][0] / sum(fr[2022][c][0] for c in both)
+        now = fr[2025][m][0] / sum(fr[2025][c][0] for c in both)
+        self.assertEqual(sh["matched_n"], 3)
+        self.assertAlmostEqual(sh["matched_share_then"], then)
+        self.assertAlmostEqual(sh["matched_share_now"], now)
+        self.assertAlmostEqual(sh["share_change_pp"], (now - then) * 100)
+        self.assertTrue(any("CY2022..CY2025" in f and "both years" in f for f in sh["flags"]))
+
+    def test_R13_matched_set_below_70pct_of_the_older_year_nulls_the_change(self):
+        members = {f"T{i}": str(i + 1).zfill(10) for i in range(10)}
+        rows = {i + 1: [10.0] * 5 for i in range(10)}
+        for c in (9, 10):
+            rows[c] = [10.0, None, 10.0, 10.0, 10.0]                # 8 filers in CY2022
+        for c in (6, 7, 8):
+            rows[c] = [10.0, 10.0, 10.0, 10.0, None]
+        rows[9] = rows[10] = [10.0, None, 10.0, 10.0, 10.0]          # CY2025: 1-5, 9, 10 (7 of 10)
+        sh = PP.industry_share(members, frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertIsNotNone(sh["target_share"]["2025"], "each year passes its own coverage")
+        self.assertEqual(sh["matched_n"], 5)                         # 5 of 8 = 62.5%
+        self.assertIsNone(sh["share_change_pp"])
+        self.assertIsNone(sh["top5_change_pp"])
+        self.assertTrue(any("5 of the 8 CY2022 filers" in f for f in sh["flags"]))
+        rows[6] = [10.0] * 5                                         # 6 of 8 = 75%
+        sh = PP.industry_share(members, frames_for(Y5, rows), "0000000001", Y5, AS_OF)
+        self.assertEqual(sh["matched_n"], 6)
+        self.assertIsNotNone(sh["share_change_pp"])
+
+
+class NullFlags(unittest.TestCase):
+    def test_F3_a_null_metric_names_row_metric_and_reason_ORCL(self):
+        cf = fixture_cf("ORCL")
+        cik, ext_ = peers.resolve_cik, peers.sec_edgar.extract
+        peers.resolve_cik = lambda s: ("0001341439", s)
+        try:
+            p, why = peers.peer_point("ORCL", dt.date(2026, 5, 15), fetch_facts=lambda c: cf, complete=None,
+                                      fetch_price=lambda s, d: (160.0, "2026-05-14", "fixed"))
+        finally:
+            peers.resolve_cik, peers.sec_edgar.extract = cik, ext_
+        self.assertIsNone(why)
+        panel = PP.build(pp("T"), [p], FIX_AS_OF, "x", "y")
+        row = next(r for r in panel["table"]["rows"] if r["symbol"] == "ORCL")
+        self.assertIsNone(row["gross_margin_fy"])
+        end = p["fy0"]["end"]
+        self.assertIn(f"ORCL gross_margin_fy: no GrossProfit or CostOfRevenue for FY0 ({end})", panel["flags"])
+        nulls = [(r["symbol"], m) for r in panel["table"]["rows"] for m in PP.METRICS if r[m] is None]
+        for s, m in nulls:
+            self.assertTrue(any(f.startswith(f"{s} {m}: ") for f in panel["flags"]), (s, m))
+
+    def test_F3_each_reason_names_the_missing_leg(self):
+        t = pp("T", ni=-1.0, ebit=-1.0)
+        panel = PP.build(t, [pp(f"P{i}") for i in range(3)], AS_OF, "x", "y")
+        self.assertIn("T pe: TTM net income not positive", panel["flags"])
+        self.assertIn("T ev_ebit: TTM EBIT not positive", panel["flags"])
+
+
+class FiledAfterAsOf(unittest.TestCase):
+    def test_F4_a_filing_after_as_of_says_so(self):
+        from domain import relative
+        x = ext(latest_period_end="2027-03-31")
+        p, why = relative.point("P", x, 20.0, "2026-11-13", TODAY)
+        self.assertIsNone(p)
+        self.assertIn("after as-of", why)
+        self.assertNotIn("older than", why)
+        p, why = relative.point("P", ext(latest_period_end="2025-12-31"), 20.0, "2026-11-13", TODAY)
+        self.assertIn("older than 6 months", why)

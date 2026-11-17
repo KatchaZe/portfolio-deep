@@ -65,6 +65,8 @@ def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_
         return None, "no operating income"
     end = x.get("latest_period_end")
     age = _days(end, today)
+    if check_base and end and _date(end) and _date(end) > _date(today):
+        return None, f"latest filing {str(end)[:10]} filed after as-of {_date(today)}"
     if check_base and (age is None or age > STALE_BASE_DAYS):
         return None, f"latest filing {end or 'unknown'} older than 6 months"
     if not price or price <= 0 or not price_date:
