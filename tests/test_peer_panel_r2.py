@@ -308,6 +308,28 @@ class B_TargetSide(_PanelRun):
         self.assertEqual(ff.revenue_fy_dated[0], ["2025-12-31", 140e9 * 0.15])
 
 
+class G_Diag(unittest.TestCase):
+    def test_R2_G_panel_diag_prints_the_sources_offline_and_writes_nothing(self):
+        import contextlib, hashlib, io, json, os, tempfile
+        import config
+        from tools import panel_diag
+        store = os.path.join(tempfile.mkdtemp(), "portfolio.json")
+        row = {"symbol": "MSFT", "is_target": False, "cagr3_fy": 0.1}
+        with open(store, "w") as fh:
+            json.dump({"results": {"ORCL": {"peer_panel": {"as_of": "2026-05-15", "table": {"rows": [row]}}}}}, fh)
+        before = hashlib.sha256(open(store, "rb").read()).hexdigest()
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            code = panel_diag.main(["MSFT", "--store", store, "--facts-dir", config.FIXTURE_DIR, "--no-frames"])
+        out = buf.getvalue()
+        self.assertEqual(code, 0)
+        self.assertIn("stored row in ORCL's panel", out)
+        self.assertIn("FY3: {'end': '2022-06-30'", out)
+        self.assertIn("TTM revenue built from (RevenueFromContractWithCustomerExcludingAssessedTax): FY", out)
+        self.assertIn("revenue  RevenueFromContractWithCustomerExcludingAssessedTax  USD  2021-07-01  2022-06-30", out)
+        self.assertEqual(hashlib.sha256(open(store, "rb").read()).hexdigest(), before)
+
+
 def point_on(sym, cf, today):
     saved = peers.resolve_cik
     peers.resolve_cik = lambda s: ("0000000001", s)
