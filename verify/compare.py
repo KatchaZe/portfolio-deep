@@ -222,16 +222,21 @@ def compare_share(panel, target_ref=None, member_revenue_by_year=None, target_ke
             out.append(_res("industry_share.%s" % y, "implied industry revenue >= target + panel peers",
                             total, known, "PASS" if total >= known * (1 - MONEY_REL) else "FAIL",
                             "target CY revenue / target_share; fiscal year %s" % target_ref["frames"][y]["fy_end"]))
-    for name, src in (("share_change_pp", "target_share"), ("top5_change_pp", "top5_share")):
-        new = _get(sh.get(src), years[-1]) if years else None
-        old = _get(sh.get(src), int(years[-1]) - 3) if years else None
+    for name, src in (("share_change_pp", "matched_share"), ("top5_change_pp", "matched_top5")):
+        new, old = sh.get(src + "_now"), sh.get(src + "_then")
         want = (new - old) * (100.0 / sscale) if new is not None and old is not None else None
         got = sh.get(name)
         ok = (got is None and want is None) or (got is not None and want is not None and abs(got - want) <= 0.01)
         out.append(_res("industry_share", name, got, want, "PASS" if ok else "FAIL",
-                        "newest minus 3 calendar years earlier, null if either is missing"))
+                        "R13: matched-set share newest minus 3 calendar years earlier, null if either is missing"))
     if member_revenue_by_year:
         ref = R.share_reference(member_revenue_by_year, target_key, n_mem)
+        out.append(cmp_exact("industry_share", "matched_n (recomputed from frames)", sh.get("matched_n"), ref["matched_n"]))
+        for k in ("share_change_pp", "top5_change_pp"):
+            got, want = sh.get(k), ref[k]
+            ok = (got is None and want is None) or (got is not None and want is not None and abs(got - want) <= 0.01)
+            out.append(_res("industry_share", k + " (R13, recomputed from frames)", got, want, "PASS" if ok else "FAIL",
+                            "matched set: members with revenue in both years"))
         for y in years:
             for k in ("target_share", "top5_share"):
                 out.append(cmp_ratio("industry_share.%s" % y, k + " (recomputed from frames)",
@@ -299,8 +304,7 @@ def compare_moat(moat, panel=None, target_ref=None, peer_refs=None):
     sh = (panel or {}).get("industry_share") or {}
     if s2 and s2.get("value") is not None:
         years = [str(y) for y in sh.get("years") or []]
-        new = _get(sh.get("target_share"), years[-1]) if years else None
-        old = _get(sh.get("target_share"), int(years[-1]) - 3) if years else None
+        new, old = sh.get("matched_share_now"), sh.get("matched_share_then")
         if new is None or old is None or old <= 0:
             out.append(_res("moat.share_change", "value", s2["value"], None, "FAIL",
                             "E6: a share change reported on a missing or non-positive base"))
@@ -309,7 +313,7 @@ def compare_moat(moat, panel=None, target_ref=None, peer_refs=None):
             ok = min(abs(s2["value"] - rel), abs(s2["value"] - rel * 100)) <= 0.002 * (100 if abs(s2["value"]) > 1.5 else 1) + 1e-9 \
                 or abs(s2["value"] - rel * 100) <= RATIO_PP
             out.append(_res("moat.share_change", "value", s2["value"], rel, "PASS" if ok else "FAIL",
-                            "relative change = share_newest/share_3y_earlier - 1 (fraction or percent)"))
+                            "R13 relative change = matched share newest / 3y earlier - 1 (fraction or percent)"))
             out.append(cmp_exact("moat.share_change", "window", s2.get("window"),
                                  "CY%s..CY%s" % (int(years[-1]) - 3, years[-1])))
     elif s2 is None and sh.get("share_change_pp") is not None:

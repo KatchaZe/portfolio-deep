@@ -333,6 +333,11 @@ class ShareRules(unittest.TestCase):
         self.assertAlmostEqual(s["target_share"]["2022"], 0.10)
         self.assertAlmostEqual(s["hhi"]["2025"], 0.09 + 0.09 + 0.16)
         self.assertAlmostEqual(s["share_change_pp"], 20.0)
+        gone = {"2022": {"T": 10.0, "a": 30.0, "b": 60.0, "c": 100.0},
+                "2025": {"T": 30.0, "a": 30.0, "b": 40.0}}          # c absent from CY2025 (R13)
+        g = R.share_reference(gone, "T", 4)
+        self.assertEqual(g["matched_n"], 3)
+        self.assertAlmostEqual(g["share_change_pp"], 20.0, msg="c leaves both denominators")
         thin = R.share_reference(by_year, "T", 5)                  # 3 of 5 = 60% coverage
         self.assertIsNone(thin["target_share"]["2025"])
         self.assertIsNone(thin["share_change_pp"])
@@ -344,7 +349,9 @@ class ShareRules(unittest.TestCase):
             "target_share": {"2021": 0.09, "2022": 0.10, "2023": 0.11, "2024": 0.12, "2025": 0.13},
             "top5_share": {str(y): 0.7 for y in range(2021, 2026)},
             "hhi": {str(y): 0.15 for y in range(2021, 2026)},
-            "share_change_pp": 3.0, "top5_change_pp": 0.0}}
+            "share_change_pp": 3.0, "top5_change_pp": 0.0, "matched_n": 9,
+            "matched_share_then": 0.10, "matched_share_now": 0.13,
+            "matched_top5_then": 0.7, "matched_top5_now": 0.7}}       # SPEC R13
         self.assertEqual(fails(C.compare_share(panel)), [])
         panel["industry_share"]["share_change_pp"] = 4.0           # newest minus 4 years earlier
         self.assertTrue(any(x["field"] == "share_change_pp" for x in fails(C.compare_share(panel))))

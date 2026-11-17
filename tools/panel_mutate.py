@@ -39,6 +39,13 @@ MUTANTS = [
     ("M10 the negative band never votes", MT, "    if value < -band:\n        return -1\n", "", "both_sides"),
     ("M11 no-usable-peers return is silent", PP, '        flags.append("no usable peers: no table")\n', "", "test_E13"),
     ("M12 S4 on shrinking revenue", MT, "if r0 <= 0 or r3 <= 0 or r0 <= r3:", "if r0 <= 0 or r3 <= 0:", "test_E6_S4"),
+    ("M14 share change over each year's own filers (unmatched sets)", PP,
+     "tn, tt = sum(now[c] for c in both), sum(then[c] for c in both)",
+     "tn, tt = sum(now.values()), sum(then.values())", "test_R13_share_change_on_the_matched_set"),
+    ("M15 a null metric is silent", PP, "        flags += null_flags(tbl, target, peers)\n", "",
+     "test_F3_a_null_metric"),
+    ("M16 a failed panel build leaves {}", FU, "        panel_failed(val, e)\n", "        pass\n",
+     "test_a_panel_failure"),
 ]
 PP1 = ("M13 the panel nudges the Price pillar", FU,
        "        val.peer_panel, val.moat_trend = peers.panel_and_moat(ff, val, block, universe, today)\n",

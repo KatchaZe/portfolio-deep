@@ -445,12 +445,42 @@ def share_reference(member_revenue_by_year, target_key, n_members):
         out["target_share"][cy] = pos.get(target_key, 0) / total if target_key in pos else None
         out["top5_share"][cy] = sum(sorted(pos.values(), reverse=True)[:5]) / total
         out["hhi"][cy] = sum((v / total) ** 2 for v in pos.values())
-    years = sorted(member_revenue_by_year)
-    for name, src in (("share_change_pp", "target_share"), ("top5_change_pp", "top5_share")):
-        new = out[src].get(years[-1]) if years else None
-        old = out[src].get(str(int(years[-1]) - 3)) if years else None
-        out[name] = (new - old) * 100 if new is not None and old is not None else None
+    out.update(matched_reference(member_revenue_by_year, target_key, out))
     return out
+
+
+def matched_reference(member_revenue_by_year, target_key, per_year):
+    """SPEC R13 (2026-11-17), from its text: share_change_pp, top5_change_pp and S2 on
+    the MATCHED set = members with positive revenue in both the newest CY and the CY
+    3 years earlier. Null when either year fails its own coverage (its per-year
+    top5 is None here) or the matched set is under 70% of the older year's filers;
+    share_change_pp also null when the target is not matched."""
+    res = {"matched_n": None, "matched_share_then": None, "matched_share_now": None,
+           "matched_top5_then": None, "matched_top5_now": None,
+           "share_change_pp": None, "top5_change_pp": None}
+    years = sorted(member_revenue_by_year, key=int)
+    if not years:
+        return res
+    ny, oy = years[-1], str(int(years[-1]) - 3)
+    if oy not in member_revenue_by_year or per_year["top5_share"].get(ny) is None \
+            or per_year["top5_share"].get(oy) is None:
+        return res
+    pos = lambda y: {k: v for k, v in member_revenue_by_year[y].items()
+                     if isinstance(v, (int, float)) and v > 0}
+    now, then = pos(ny), pos(oy)
+    matched = [k for k in then if k in now]
+    res["matched_n"] = len(matched)
+    if len(matched) < 0.70 * len(then):
+        return res
+    tot_now, tot_then = sum(now[k] for k in matched), sum(then[k] for k in matched)
+    t5 = lambda d, tot: sum(sorted((d[k] for k in matched), reverse=True)[:5]) / tot
+    res["matched_top5_then"], res["matched_top5_now"] = t5(then, tot_then), t5(now, tot_now)
+    res["top5_change_pp"] = (res["matched_top5_now"] - res["matched_top5_then"]) * 100
+    if target_key in matched:
+        res["matched_share_then"] = then[target_key] / tot_then
+        res["matched_share_now"] = now[target_key] / tot_now
+        res["share_change_pp"] = (res["matched_share_now"] - res["matched_share_then"]) * 100
+    return res
 
 
 def moat_reference(target, peers):

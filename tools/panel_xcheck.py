@@ -162,12 +162,12 @@ def adjudicate(o, refs):
             vals = sorted((r[m] for r in rows.values() if r[m] is not None), reverse=True)
             want = {s: 1 + 3 * vals.index(r[m]) // len(vals) for s, r in rows.items() if r[m] is not None}
             if want == {s: r["rank3"][f] for s, r in rows.items()}:
-                verdict, why = "ALLOWED", "R4 terciles over %d rows (floor(3i/n)+1) recomputed here: %s; the reference ranks ordinally" % (len(vals), want)
+                verdict, why = "ALLOWED", "R4/R14 terciles over %d rows (floor(3i/n)+1) recomputed here: %s; the reference ranks ordinally" % (len(vals), want)
         elif sym == "moat.gm_gap_change" and x["app"] is None:
             n = sum(1 for s, r in rows.items() if not r["is_target"]
                     and refs[s].get("gross_margin_fy0") is not None and refs[s].get("gross_margin_fy3") is not None)
             if n < 3 and any(str(fl).startswith("S3:") for fl in moat["flags"]):
-                verdict, why = "ALLOWED", "builder needs 3 peers with gross margin at FY0 and FY3 (not in SPEC), has %d, and says so in flags" % n
+                verdict, why = "ALLOWED", "R14 S3 needs 3 peers with gross margin at FY0 and FY3, has %d, and says so in flags" % n
         elif sym == "moat.incremental_margin":
             t = refs[o["target"]]
             want = ((t["op_income_fy0"] - t["op_income_fy3"]) / (t["revenue_fy0"] - t["revenue_fy3"])
