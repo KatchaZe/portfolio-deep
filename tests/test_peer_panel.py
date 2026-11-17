@@ -672,6 +672,12 @@ class Wiring(unittest.TestCase):
         self.assertIn("spread_slope", {s["name"] for s in moat["signals"]})
         json.dumps([panel, moat])
 
+    def test_the_target_row_carries_the_closes_own_date_not_the_as_of(self):
+        pts = [PP.compact(dict(pp(f"P{i}"), addback=0.0)) for i in range(4)]
+        f = tfacts(provenance={"price": "yahoo close 2026-11-13 (T-1)"})
+        panel, _ = peers.panel_and_moat(f, self.val(), self.block(pts), universe(), TODAY)
+        self.assertEqual(panel["table"]["rows"][0]["price_date"], "2026-11-13")
+
     def test_E15_a_v2_fit_without_panel_points_gives_a_flagged_panel(self):
         block = {"model": {"version": 2}, "excluded": [], "notes": []}
         panel, moat = peers.panel_and_moat(tfacts(), self.val(), block, universe(), TODAY)

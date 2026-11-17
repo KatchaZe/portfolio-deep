@@ -448,7 +448,9 @@ def _target_panel_point(f, today):
     gaap = getattr(f, "operating_income_gaap", None)
     addback = (round((f.operating_income - gaap) / f.revenue, 4)
                if gaap is not None and f.operating_income is not None and f.revenue else 0.0)
+    # _target stamps the as-of date; the price is the T-1 close and the row says which day
     return dict(tp, symbol=f.ticker, source="target", period_end=end, addback=addback,
+                price_date=_price_date(f) or tp.get("price_date"),
                 **peer_panel.point_fields(x, today.isoformat()))
 
 
