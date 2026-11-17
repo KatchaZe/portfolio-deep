@@ -163,6 +163,7 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
     if p:
         p["sic"] = cf.get("_sic")
         p["addback"] = round(addback / x["revenue"], 4) if addback and x.get("revenue") else 0.0
+        p.update({k: x.get(k) for k in peer_panel.EV_LEGS})
         p.update(peer_panel.point_fields(x, today.isoformat(),
                                          peer_panel.frame_tags(cf, today.isoformat())))
     return p, why
@@ -457,7 +458,8 @@ def _target_panel_point(f, today):
     addback = (round((f.operating_income - gaap) / f.revenue, 4)
                if gaap is not None and f.operating_income is not None and f.revenue else 0.0)
     # _target stamps the as-of date; the price is the T-1 close and the row says which day
-    return dict(tp, symbol=f.ticker, source="target", period_end=str(end)[:10] if end else None,
+    return dict(tp, **{k: getattr(f, k, None) for k in peer_panel.EV_LEGS},
+                symbol=f.ticker, source="target", period_end=str(end)[:10] if end else None,
                 addback=addback, price_date=_price_date(f) or tp.get("price_date"),
                 **peer_panel.point_fields(x, today.isoformat())), None
 

@@ -67,6 +67,8 @@ def frames_cy(end, tags=None):
 
 
 FY_HIST = 5                      # fiscal years a stored point keeps (FY0..FY-4)
+# the balance-sheet legs of EV (domain/relative.point), kept so the row can be checked leg by leg
+EV_LEGS = ("total_debt", "operating_leases", "cash", "minority_interest")
 
 
 def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=None, tags=None):
@@ -105,7 +107,7 @@ def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=
 # what a stored peer point carries for the table, beyond relative.point's own keys
 POINT_KEYS = ("symbol", "source", "sic", "currency", "accounting_standard", "period_end",
               "price_date", "price", "revenue_ttm", "ebit_ttm", "net_income_ttm", "ev",
-              "market_cap", "addback", "fy0", "fy1", "fy3", "gp_basis", "fy_hist")
+              "market_cap", "addback", "fy0", "fy1", "fy3", "gp_basis", "fy_hist") + EV_LEGS
 # the panel's fiscal-year inputs: sec_edgar.panel_fy_series (one value per year-end
 # date, revenue merged across concepts), else the scored series on facts stored before it
 FY_INPUTS = (("revenue_fy_dated", "revenue_annuals_dated"),
@@ -166,7 +168,8 @@ def table_row(p, is_target=False):
     return {"symbol": p.get("symbol"), "is_target": bool(is_target), "source": p.get("source"),
             "period_end": p.get("period_end"), "fy0_end": fy0.get("end"),
             "frames_cy": fy0.get("frames_cy"), "price_date": p.get("price_date"),
-            "addback": p.get("addback"),
+            "addback": p.get("addback"), "market_cap": p.get("market_cap"),
+            **{k: p.get(k) for k in EV_LEGS},
             "revenue_ttm": rev if _pos(rev) else None,
             "growth_fy": None if g is None else g - 1,
             "cagr3_fy": c3 ** (1 / 3) - 1 if c3 and c3 > 0 else None,

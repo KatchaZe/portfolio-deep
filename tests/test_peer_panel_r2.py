@@ -308,6 +308,20 @@ class B_TargetSide(_PanelRun):
         self.assertEqual(ff.revenue_fy_dated[0], ["2025-12-31", 140e9 * 0.15])
 
 
+class H_EvLegs(_PanelRun):
+    def test_R2_H_rows_store_the_ev_legs_so_a_verifier_can_check_them_directly(self):
+        cf = company(YEARS5, [100e9, 110e9, 120e9, 130e9, 140e9],
+                     extra={"MinorityInterest": [inst("2026-09-30", .3e9)]})
+        p, _ = point("ELV", cf)
+        row = PP.table_row(PP.compact(p))
+        self.assertEqual((row["total_debt"], row["operating_leases"], row["cash"], row["minority_interest"]),
+                         (2e9, None, 1e9, .3e9))
+        self.assertEqual(row["market_cap"], 50e9)
+        t = self.run_panel(self.T.tfacts(minority_interest=.2e9))["table"]["rows"][0]
+        self.assertEqual((t["total_debt"], t["operating_leases"], t["cash"], t["minority_interest"]),
+                         (1e9, 0, .5e9, .2e9))
+
+
 class G_Diag(unittest.TestCase):
     def test_R2_G_panel_diag_prints_the_sources_offline_and_writes_nothing(self):
         import contextlib, hashlib, io, json, os, tempfile
@@ -317,7 +331,8 @@ class G_Diag(unittest.TestCase):
         row = {"symbol": "MSFT", "is_target": False, "cagr3_fy": 0.1}
         with open(store, "w") as fh:
             json.dump({"results": {"ORCL": {"peer_panel": {"as_of": "2026-05-15", "table": {"rows": [row]}}}}}, fh)
-        before = hashlib.sha256(open(store, "rb").read()).hexdigest()
+        with open(store, "rb") as fh:
+            before = hashlib.sha256(fh.read()).hexdigest()
         buf = io.StringIO()
         with contextlib.redirect_stdout(buf):
             code = panel_diag.main(["MSFT", "--store", store, "--facts-dir", config.FIXTURE_DIR, "--no-frames"])
@@ -327,7 +342,8 @@ class G_Diag(unittest.TestCase):
         self.assertIn("FY3: {'end': '2022-06-30'", out)
         self.assertIn("TTM revenue built from (RevenueFromContractWithCustomerExcludingAssessedTax): FY", out)
         self.assertIn("revenue  RevenueFromContractWithCustomerExcludingAssessedTax  USD  2021-07-01  2022-06-30", out)
-        self.assertEqual(hashlib.sha256(open(store, "rb").read()).hexdigest(), before)
+        with open(store, "rb") as fh:
+            self.assertEqual(hashlib.sha256(fh.read()).hexdigest(), before)
 
 
 def point_on(sym, cf, today):

@@ -237,6 +237,7 @@ PANEL_CLOCK = {
     # TTM (one TTM point; EV and market cap at the T-1 close)
     "revenue_ttm": TTM, "ebit_ttm": TTM, "net_income_ttm": TTM, "op_margin_ttm": TTM,
     "addback": TTM, "price": SPOT, "ev": SPOT, "market_cap": SPOT,
+    "total_debt": INSTANT, "operating_leases": INSTANT, "cash": INSTANT, "minority_interest": INSTANT,
     "ev_sales": TTM, "ev_ebit": TTM, "pe": TTM,
     # each company's own fiscal years, joined by date
     "fy0": FY_DATED, "fy1": FY_DATED, "fy3": FY_DATED, "fy_hist": FY_DATED,
@@ -260,6 +261,7 @@ PANEL_CLOCK = {
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
     "market_cap": MONEY, "revenue": MONEY, "gross_profit": MONEY, "operating_income": MONEY,
+    "total_debt": MONEY, "operating_leases": MONEY, "cash": MONEY, "minority_interest": MONEY,
     "price": PER_SHARE,
     "addback": RATIO, "op_margin_ttm": RATIO, "growth_fy": RATIO, "cagr3_fy": RATIO,
     "gross_margin_fy": RATIO, "ev_sales": RATIO, "ev_ebit": RATIO, "pe": RATIO,
