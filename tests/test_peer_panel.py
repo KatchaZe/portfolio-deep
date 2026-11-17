@@ -153,7 +153,7 @@ class PeerPoint(unittest.TestCase):
     def setUp(self):
         self._cik, self._extract = peers.resolve_cik, peers.sec_edgar.extract
         peers.resolve_cik = lambda s: ("0000000001", s)
-        peers.sec_edgar.extract = lambda cf: {k: v for k, v in cf.items() if not k.startswith("_")}
+        peers.sec_edgar.extract = lambda cf, **k: {a: v for a, v in cf.items() if not a.startswith("_")}
 
     def tearDown(self):
         peers.resolve_cik, peers.sec_edgar.extract = self._cik, self._extract

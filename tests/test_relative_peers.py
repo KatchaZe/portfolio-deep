@@ -187,7 +187,7 @@ class Pipeline(unittest.TestCase):
         self.calls = {"list": 0, "sec": 0, "price": 0}
         peers.resolve_cik, self._cik = (lambda s: ("0000000001", s)), peers.resolve_cik
         self._extract = peers.sec_edgar.extract
-        peers.sec_edgar.extract = lambda cf: cf
+        peers.sec_edgar.extract = lambda cf, **k: cf
         self._pp = peers.peer_point
 
     def tearDown(self):

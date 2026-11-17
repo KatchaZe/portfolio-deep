@@ -29,6 +29,7 @@ from domain import moat_trend, one_time, peer_panel, relative, pricing
 from pipeline import batch, lastgood
 from pipeline.cik import resolve_cik
 from sources import fmp, sec_edgar, sec_gap, stooq, yahoo
+from sources.industries import securities_are_operating
 
 log = logging.getLogger("portfolio.peers")
 
@@ -140,7 +141,9 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
     try:
         cf = fetch_facts(cik)
         cf = complete(cik, cf) if complete else cf
-        x = sec_edgar.extract(cf)
+        # a health insurer's short-term investments back claim reserves: not cash
+        # (user rule 2026-10-18), on a peer exactly as on the target
+        x = sec_edgar.extract(cf, cash_excludes_securities=securities_are_operating(sym))
     except Exception as e:
         return None, f"SEC facts unavailable ({str(e)[:40]})"
     if cf.get("_stale_cache"):
