@@ -439,22 +439,23 @@ TARGET_PANEL_FIELDS = ("currency", "accounting_standard", "revenue", "operating_
 
 
 def _target_panel_point(f, today):
-    """The target on the panel's clocks, from its CURRENT facts (EBIT already
-    normalized), or None when it cannot be put on the common clock."""
-    tp, _nd, _why = _target(f, today)
+    """(point, why): the target on the panel's clocks from its CURRENT facts (EBIT
+    already normalized), or (None, the reason it cannot be put on the common clock)."""
+    tp, _nd, why = _target(f, today)
     if tp is None:
-        return None
+        return None, why
     x = {k: getattr(f, k, None) for k in TARGET_PANEL_FIELDS}
-    # FinancialFacts keeps no latest_period_end: the newest quarter its TTM sums is it
+    # the newest quarter the TTM sums; a 20-F filer has no SEC quarters and its TTM end
+    # (the quarterly fallback's, after FX) is the facts' fiscal_year
     q = getattr(f, "revenue_quarters", None)
-    end = max(q) if isinstance(q, dict) and q else None
+    end = max(q) if isinstance(q, dict) and q else getattr(f, "fiscal_year", None)
     gaap = getattr(f, "operating_income_gaap", None)
     addback = (round((f.operating_income - gaap) / f.revenue, 4)
                if gaap is not None and f.operating_income is not None and f.revenue else 0.0)
     # _target stamps the as-of date; the price is the T-1 close and the row says which day
-    return dict(tp, symbol=f.ticker, source="target", period_end=end, addback=addback,
-                price_date=_price_date(f) or tp.get("price_date"),
-                **peer_panel.point_fields(x, today.isoformat()))
+    return dict(tp, symbol=f.ticker, source="target", period_end=str(end)[:10] if end else None,
+                addback=addback, price_date=_price_date(f) or tp.get("price_date"),
+                **peer_panel.point_fields(x, today.isoformat())), None
 
 
 def panel_and_moat(f, val, block, universe, today):
@@ -466,7 +467,7 @@ def panel_and_moat(f, val, block, universe, today):
     as_of = today.isoformat()
     block = block or {}
     industry, basis = universe.industry_of(f)
-    target = _target_panel_point(f, today)
+    target, target_why = _target_panel_point(f, today)
     pts = (block.get("model") or {}).get("panel_points")
     share = None
     if industry:
@@ -475,7 +476,7 @@ def panel_and_moat(f, val, block, universe, today):
         share = peer_panel.industry_share(members, universe.frames, tcik, dc.panel_years(today), as_of)
     notes = list(universe.frame_notes) + list(block.get("notes") or [])
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,
-                             block.get("excluded") or [], notes)
+                             block.get("excluded") or [], notes, target_why)
     kept = peer_panel.peer_set(target, pts, as_of)[0] if pts else []
     wacc = ((getattr(val, "key_metrics", None) or {}).get("wacc_pct"))
     return panel, moat_trend.build(f, target, kept, share, wacc)

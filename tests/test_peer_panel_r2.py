@@ -95,5 +95,38 @@ class F_ManagedCareCash(unittest.TestCase):
         self.assertEqual(q["ev"], 50e9 + 2e9 - 5e9)          # cash + securities for anyone else
 
 
+class D_TargetRow(unittest.TestCase):
+    def setUp(self):
+        from tests import test_peer_panel as T
+        self.T = T
+        self._cik = peers.resolve_cik
+        peers.resolve_cik = lambda t: ((str(int(t[1:]) + 1).zfill(10), t) if t[1:].isdigit() else (None, None))
+
+    def tearDown(self):
+        peers.resolve_cik = self._cik
+
+    def run_panel(self, f):
+        T = self.T
+        pts = [PP.compact(dict(T.pp(f"P{i}"), addback=0.0)) for i in range(4)]
+        block = {"model": {"panel_points": pts, "version": peers.MODEL_VERSION}, "excluded": [], "notes": []}
+        from types import SimpleNamespace
+        return peers.panel_and_moat(f, SimpleNamespace(key_metrics={"wacc_pct": 8.0}), block,
+                                    T.universe(), TODAY)[0]
+
+    def test_R2_D_a_foreign_target_without_sec_quarters_keeps_its_ttm_period_end(self):
+        # TSM / NVO / ASML: 20-F filers, TTM from the quarterly fallback, FX converted;
+        # the facts keep the TTM end in fiscal_year and no SEC revenue quarters
+        f = self.T.tfacts(revenue_quarters={}, fiscal_year="2026-09-30")
+        row = self.run_panel(f)["table"]["rows"][0]
+        self.assertTrue(row["is_target"])
+        self.assertEqual(row["period_end"], "2026-09-30")
+
+    def test_R2_D_a_target_that_cannot_form_a_row_says_why(self):
+        panel = self.run_panel(self.T.tfacts(revenue=None))           # SPCX: no TTM revenue
+        self.assertFalse(any(r["is_target"] for r in panel["table"]["rows"]))
+        self.assertTrue(any("no target row" in f and "no TTM revenue" in f for f in panel["flags"]),
+                        panel["flags"])
+
+
 if __name__ == "__main__":
     unittest.main()

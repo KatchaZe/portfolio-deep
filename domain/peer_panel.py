@@ -389,7 +389,8 @@ def null_flags(tbl, target, peers):
     return out
 
 
-def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=(), notes=()):
+def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=(), notes=(),
+          target_why=None):
     """results[ticker]["peer_panel"]. `peers` None = no stored peer points (a fit from
     before the panel existed, or no fit this week): the table is absent with a flag."""
     flags = [n for n in notes if n]
@@ -411,6 +412,7 @@ def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=
     if share:
         flags += share.get("flags") or []
     if target is None:
-        flags.append("target not on the common clock: no target row")
+        flags.append("target not on the common clock: no target row"
+                     + (f" ({target_why})" if target_why else ""))
     return {"as_of": as_of, "version": VERSION, "industry": industry, "industry_basis": basis,
             "table": tbl, "industry_share": share, "flags": flags}
