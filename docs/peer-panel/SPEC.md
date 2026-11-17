@@ -5,9 +5,10 @@ the recommendation, the DCF length, or the ADD gate. Invariant PP1 enforces this
 
 ## Sources (no new vendor)
 - Industry membership: Damodaran `indname.xls` (sources/damodaran_companies.py, cached).
-- Industry revenue by year: SEC XBRL frames `Revenues` and
-  `RevenueFromContractWithCustomerExcludingAssessedTax`, USD, CY{year}, the larger per CIK
-  (existing `load_revenue_frames`). Five calendar years: frames_year(today) and the 4 before.
+- Industry revenue by year: SEC XBRL frames `Revenues`,
+  `RevenueFromContractWithCustomerExcludingAssessedTax`, `SalesRevenueNet` and
+  `RevenueFromContractWithCustomerIncludingAssessedTax`, USD, CY{year}, the largest per CIK
+  (`load_revenue_frames`; R15). Five calendar years: frames_year(today) and the 4 before.
 - Peer and target fundamentals: SEC companyfacts via the existing peer points
   (pipeline/peers.py), same one-time add-back as the target.
 - Prices: existing T-1 close (Yahoo, then Stooq).
@@ -100,3 +101,22 @@ R14 rank3 terciles: rank = floor(3i/n) + 1, i the 0-based index of the row's val
 of peers plus target sorted descending (ties take the first index), n the count of rows with the
 value; none under 3 values. S3 needs >= 3 peers with gross margin at both their FY0 and FY3
 (the peer medians at FY0 and FY3 are over that same set); else S3 is absent with a flag.
+
+## Resolutions 2026-11-17b (first live verifier run, fix round 2)
+R15 Frames read the four revenue concepts above; a concept SEC has no frame for in a year (404)
+is skipped, not a failed year; a cache written on another concept list is refreshed.
+R16 Share group: the US-domiciled members of the Damodaran industry plus the US-listed members
+domiciled elsewhere whose CIK is in SEC frames in one of the panel years (a 10-K filer in USD,
+such as MELI; a 20-F filer never is). The flag says how many such members were counted.
+R17 The panel's fiscal years come from `sec_edgar.panel_fy_series`: one value per year-end DATE
+(two year ends in one calendar year both kept), revenue merged across the revenue ladder where a
+filler concept agrees with the merged series within 2% on every shared year; the FY window is
+contiguous when consecutive ends are 330-400 days apart (52/53-week years). Points and the target
+keep `fy_hist`: up to five years of revenue and gross profit, newest first. Scored series are
+unchanged.
+R18 Rows store the EV legs: `total_debt`, `operating_leases`, `cash`, `minority_interest`,
+`market_cap`. A managed-care peer (sources.industries.MANAGED_CARE) counts cash and equivalents
+only, as the target does.
+R19 The target row's period_end is its newest TTM quarter, else facts.fiscal_year (the TTM end
+of a 20-F filer after the quarterly fallback and FX). When the target cannot form a row, the flag
+carries relative.point's reason.

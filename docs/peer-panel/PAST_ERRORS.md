@@ -27,3 +27,16 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E20 | git write commands from the mounted sandbox left index.lock | Work in a clone; deliver a bundle |
 | E21 | Fiscal-year to calendar-year mapping assumed | Store each filer's fy end and the frames CY it landed in |
 | E22 | Look-ahead: using a fact filed after the as-of date | Point-in-time backtest asserts filed <= as_of |
+| E23 | One concept's FY series with a hole after a concept switch: GOOGL FY2022 filed only under ASC 606, so FY3 was null (live verifier 2026-11-17) | Panel revenue merged across concepts by date, a filler must agree within 2% (test_R2_B_a_revenue_concept_switch, test_R2_B_a_fill_from_a_concept_that_disagrees; mutants M18, M19) |
+| E24 | Fiscal years collapsed by calendar year: JNJ FY2022 ends 2023-01-01, EXEL/STAA FY2024 ends 2025-01-03 (live 2026-11-17) | One value per year-end date and a 330-400 day window (test_R2_B_52_53_week_years; mutant M17) |
+| E25 | A target-path rule missing on the peer path: ELV as a peer counted claim-reserve securities as cash (live 2026-11-17) | peer_point passes cash_excludes_securities (test_R2_F; mutant M20) |
+| E26 | Share group filtered by domicile dropped the target itself (MELI, Uruguay) and every foreign 10-K filer | Foreign-domiciled members in frames are counted (test_R2_C; mutant M21) |
+| E27 | Industry frames on two of the revenue concepts; one missing concept would have failed a whole year | Four concepts, 404 skipped, old cache refreshed (test_R2_A_*; mutants M22, M23) |
+| E28 | Target row without period_end for 20-F filers; a missing target row with a generic flag (TSM, NVO, ASML, SPCX) | fiscal_year fallback and the reason in the flag (test_R2_D_*; mutant M24) |
+| E29 | Verifier rules drifting from SPEC resolutions (ordinal ranks, S3/S4 in pp, net debt backed out of multiples, largest-concept revenue taking stale or mis-tagged years) | verify/ implements R2, R5, R8, R9, R14 and latest-filing revenue (test_R2_H_*) |
+
+Open, outside this feature (scored EBIT path, not changed in this round; the verifier now reports it):
+sec_edgar._pick accepts a stale OperatingIncomeLoss (ASTS: last filed for 2021-03-31, TTM -2.4M)
+instead of the pretax + interest fallback, and _derived_ebit takes the first interest concept with
+any data however old (LLY: InterestExpense ends 2024-03-31, InterestExpenseNonoperating is current).
+
