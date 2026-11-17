@@ -115,6 +115,13 @@ def members(rows, industry, exclude=()):
             if ind == industry and ctry == "United States" and t not in ex]
 
 
+def foreign_members(rows, industry):
+    """US-listed members domiciled elsewhere (MELI: Uruguay). Some file 10-Ks in USD and
+    sit in SEC's frames; the industry share counts those (peer_panel.industry_share)."""
+    return [t for t, (ind, _sic, ctry) in (rows or {}).items()
+            if ind == industry and ctry != "United States"]
+
+
 def frames_year(today):
     """The last calendar year SEC frames have complete (10-Ks land by ~March)."""
     return today.year - 1 if today.month >= 4 else today.year - 2

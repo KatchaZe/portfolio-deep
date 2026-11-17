@@ -262,12 +262,23 @@ TOP_N = 5
 SHARE_LOOKBACK = 3
 
 
-def industry_share(members, frames, target_cik, years, as_of):
+def _in_frames(frames, cik, ys):
+    for y in ys:
+        yr = (frames or {}).get(y) or (frames or {}).get(str(y)) or {}
+        if cik in yr or str(cik) in yr:
+            return True
+    return False
+
+
+def industry_share(members, frames, target_cik, years, as_of, foreign=None):
     """Share of revenue among the US SEC filers in one Damodaran industry, per calendar
-    year. `members` {ticker: cik or None} is the industry's own member list (no other
-    peer source); share classes of one filer count once. `frames` {CY: {cik: [revenue,
-    end]}}. A year with fewer than COVERAGE_MIN of the filers reporting revenue is
-    flagged and its shares are null. Calendar years not complete by as_of are not used."""
+    year. `members` {ticker: cik or None} is the industry's own US-domiciled list (no
+    other peer source); `foreign` the US-listed members domiciled elsewhere, counted
+    when SEC's frames hold their revenue in one of the years (a 10-K filer in USD like
+    MELI; a 20-F filer is never in frames). Share classes of one filer count once.
+    `frames` {CY: {cik: [revenue, end]}}. A year with fewer than COVERAGE_MIN of the
+    filers reporting revenue is flagged and its shares are null. Calendar years not
+    complete by as_of are not used."""
     flags = []
     ciks = {int(c) for c in members.values() if c}
     no_cik = sorted(t for t, c in members.items() if not c)
@@ -275,6 +286,11 @@ def industry_share(members, frames, target_cik, years, as_of):
         flags.append(f"{len(no_cik)} industry members have no SEC CIK (not counted)")
     tc = int(target_cik) if target_cik else None
     ys = sorted(y for y in years if not as_of or int(y) < _d(as_of).year)
+    filers = {int(c) for c in (foreign or {}).values() if c} - ciks
+    filers = {c for c in filers if _in_frames(frames, c, ys)}
+    if filers:
+        ciks |= filers
+        flags.append(f"{len(filers)} members not US-domiciled file us-gaap revenue with the SEC (counted)")
     out = {"group": GROUP, "years": ys, "n_members": len(ciks), "n_with_revenue": {},
            "coverage": {}, "target_share": {}, "top5_share": {}, "hhi": {},
            "target_frames_end": {}, "share_change_pp": None, "top5_change_pp": None,

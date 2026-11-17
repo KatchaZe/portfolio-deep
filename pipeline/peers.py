@@ -472,8 +472,10 @@ def panel_and_moat(f, val, block, universe, today):
     share = None
     if industry:
         members = {t: resolve_cik(t)[0] for t in dc.members(universe.rows, industry)}
+        foreign = {t: resolve_cik(t)[0] for t in dc.foreign_members(universe.rows, industry)}
         tcik, _ = resolve_cik(f.ticker)
-        share = peer_panel.industry_share(members, universe.frames, tcik, dc.panel_years(today), as_of)
+        share = peer_panel.industry_share(members, universe.frames, tcik, dc.panel_years(today), as_of,
+                                          foreign)
     notes = list(universe.frame_notes) + list(block.get("notes") or [])
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,
                              block.get("excluded") or [], notes, target_why)

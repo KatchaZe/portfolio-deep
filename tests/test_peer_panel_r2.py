@@ -187,5 +187,33 @@ class A_FramesConcepts(unittest.TestCase):
         self.assertTrue(rq.calls)
 
 
+class C_ShareGroup(unittest.TestCase):
+    def setUp(self):
+        self._cik = peers.resolve_cik
+        peers.resolve_cik = lambda t: ((str(int(t[1:]) + 1).zfill(10), t) if t[1:].isdigit() else (None, None))
+
+    def tearDown(self):
+        peers.resolve_cik = self._cik
+
+    def test_R2_C_a_foreign_domiciled_us_gaap_filer_counts_in_the_share_group(self):
+        # MELI is domiciled in Uruguay and files a 10-K in USD: it is in SEC's frames,
+        # so it belongs to "US SEC filers in the industry" and has a share. A foreign
+        # member absent from every year's frames (a 20-F filer) is not a member.
+        from tests import test_peer_panel as T
+        from types import SimpleNamespace
+        rows = {f"T{i}": ["Retail", "5311", "United States"] for i in range(1, 9)}
+        rows["T0"] = ["Retail", "5960", "Uruguay"]            # the target, in frames
+        rows["T9"] = ["Retail", "5311", "Mexico"]             # 20-F filer, no frames
+        fr = T.frames_for(T.Y5, {i + 1: [10.0] * 5 for i in range(9)})
+        u = peers.Universe(rows, {}, {}, as_of="2026-01", frames=fr)
+        panel, _ = peers.panel_and_moat(T.tfacts(), SimpleNamespace(key_metrics={"wacc_pct": 8.0}),
+                                        None, u, TODAY)
+        sh = panel["industry_share"]
+        self.assertEqual(sh["n_members"], 9)
+        self.assertAlmostEqual(sh["target_share"]["2025"], 1 / 9)
+        self.assertEqual(sh["n_with_revenue"]["2025"], 9)
+        self.assertTrue(any("not US-domiciled" in f for f in sh["flags"]), sh["flags"])
+
+
 if __name__ == "__main__":
     unittest.main()
