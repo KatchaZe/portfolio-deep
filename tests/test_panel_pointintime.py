@@ -38,9 +38,9 @@ def build_panel(target, peers, as_of, price_date=None):
         rows.append(row)
     tr = R.table_reference(rows)
     for key, m in (("scale", "revenue_ttm"), ("growth", "cagr3_fy"), ("margin", "op_margin_ttm")):
-        order = sorted((x for x in rows if x[m] is not None), key=lambda x: -x[m])
+        ranks = R.rank3({x["symbol"]: x[m] for x in rows})       # SPEC R14 terciles
         for x in rows:
-            x.setdefault("rank3", {})[key] = order.index(x) + 1 if x in order[:3] else None
+            x.setdefault("rank3", {})[key] = ranks.get(x["symbol"])
     for x in rows:
         x["outlier"] = sorted(m for m in R.METRICS if R.iqr_outlier(x[m], tr["stats"][m]))
     tvm = {m: (v * 100 if v is not None and m in R.RATIO_METRICS else v)
@@ -320,8 +320,9 @@ class MoatRules(unittest.TestCase):
         t, peers = ref("MSFT", "2025-06-30"), [ref("AVGO", "2025-06-30"), ref("ABBV", "2025-06-30")]
         m = R.moat_reference(t, peers)
         inc = (109_433 - 69_916) / (245_122 - 168_088)            # MSFT operating income FY2024, FY2021
-        self.assertAlmostEqual(m["incremental_margin"]["incremental"], inc * 100, places=6)
-        self.assertAlmostEqual(m["incremental_margin"]["average"], 109_433 / 245_122 * 100, places=6)
+        self.assertAlmostEqual(m["incremental_margin"]["incremental"], inc, places=8)    # fractions (R1)
+        self.assertAlmostEqual(m["incremental_margin"]["average"], 109_433 / 245_122, places=8)
+        self.assertAlmostEqual(m["incremental_margin"]["value"], inc - 109_433 / 245_122, places=8)  # R8
         shrinking = dict(t, revenue_fy0=t["revenue_fy3"] - 1)
         self.assertIsNone(R.moat_reference(shrinking, peers)["incremental_margin"])
 
@@ -393,7 +394,8 @@ class ToolOffline(unittest.TestCase):
         fy = "FY%s..FY%s" % (m["window_fy"][0][:4], m["window_fy"][1][:4])
         sig = [{"name": "gm_gap_change", "value": m["gm_gap_change"], "direction": 0, "window": fy},
                {"name": "incremental_margin", "value": m["incremental_margin"]["value"], "direction": 1, "window": fy}]
-        return {"label": "stable", "n_signals": 2, "signals": sig, "source_hints": [],
+        sig = [x for x in sig if x["value"] is not None]          # R9 may leave S3 absent
+        return {"label": "stable" if len(sig) >= 2 else None, "n_signals": len(sig), "signals": sig, "source_hints": [],
                 "thresholds": "provisional", "flags": []}
 
     def test_exit_codes(self):
