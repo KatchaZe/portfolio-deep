@@ -82,6 +82,31 @@ def _window(dates, years=MAX_YEARS):
     return list(reversed(run))
 
 
+FY_STEP_DAYS = (330, 400)        # consecutive fiscal-year ends, 52/53-week years included
+
+
+def _window_by_date(dates, years=MAX_YEARS):
+    """_window with contiguity measured in DAYS between consecutive year ends instead of
+    calendar-year numbers. A 52/53-week filer's FY2024 can end 2025-01-03 (EXEL) and its
+    FY2022 2023-01-01 beside FY2023's 2023-12-31 (JNJ): the year numbers skip or repeat
+    while the fiscal years are contiguous. A real filing gap (> 400 days) still breaks it."""
+    ds = sorted(dates, reverse=True)
+    if not ds:
+        return []
+    run = [ds[0]]
+    for d in ds[1:]:
+        try:
+            gap = (dt.date.fromisoformat(run[-1][:10]) - dt.date.fromisoformat(d[:10])).days
+        except (TypeError, ValueError):
+            break
+        if not FY_STEP_DAYS[0] <= gap <= FY_STEP_DAYS[1]:
+            break
+        run.append(d)
+        if len(run) >= years:
+            break
+    return list(reversed(run))
+
+
 def _cagr_pct(points):
     """Compound annual growth across the window, oldest->newest. None unless the
     starting value is positive: a CAGR out of zero or a loss is not a growth rate,

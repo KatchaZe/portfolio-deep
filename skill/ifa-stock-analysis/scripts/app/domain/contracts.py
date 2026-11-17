@@ -101,6 +101,9 @@ CLOCK = {
     "acquisitions_annuals_dated": FY_DATED, "restructuring_annuals_dated": FY_DATED,
     "impairment_annuals_dated": FY_DATED,
     "acquired_iprd_annuals_dated": FY_DATED,
+    # peer panel only: one value per year-end DATE (sec_edgar.panel_fy_series)
+    "revenue_fy_dated": FY_DATED, "gross_profit_fy_dated": FY_DATED,
+    "cost_of_revenue_fy_dated": FY_DATED, "operating_income_fy_dated": FY_DATED,
 
     # --- quarterly -----------------------------------------------------------
     "revenue_quarters": QUARTER, "operating_income_quarters": QUARTER,
@@ -151,6 +154,8 @@ UNIT = {
     "cfo_annuals_dated": MONEY, "capex_annuals_dated": MONEY,
     "sbc_annuals_dated": MONEY,
     "gross_profit_annuals_dated": MONEY, "cost_of_revenue_annuals_dated": MONEY,
+    "revenue_fy_dated": MONEY, "gross_profit_fy_dated": MONEY,
+    "cost_of_revenue_fy_dated": MONEY, "operating_income_fy_dated": MONEY,
     "ic_components_dated": MONEY, "revenue_quarters": MONEY,
     "operating_income_quarters": MONEY, "market_cap": MONEY,
     # share counts — deliberately NOT converted
@@ -232,9 +237,10 @@ PANEL_CLOCK = {
     # TTM (one TTM point; EV and market cap at the T-1 close)
     "revenue_ttm": TTM, "ebit_ttm": TTM, "net_income_ttm": TTM, "op_margin_ttm": TTM,
     "addback": TTM, "price": SPOT, "ev": SPOT, "market_cap": SPOT,
+    "total_debt": INSTANT, "operating_leases": INSTANT, "cash": INSTANT, "minority_interest": INSTANT,
     "ev_sales": TTM, "ev_ebit": TTM, "pe": TTM,
     # each company's own fiscal years, joined by date
-    "fy0": FY_DATED, "fy1": FY_DATED, "fy3": FY_DATED,
+    "fy0": FY_DATED, "fy1": FY_DATED, "fy3": FY_DATED, "fy_hist": FY_DATED,
     "end": STATIC, "revenue": FY_DATED, "gross_profit": FY_DATED, "operating_income": FY_DATED,
     "growth_fy": FY, "cagr3_fy": FY, "gross_margin_fy": FY,
     # industry share, SEC frames calendar years
@@ -255,6 +261,7 @@ PANEL_CLOCK = {
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
     "market_cap": MONEY, "revenue": MONEY, "gross_profit": MONEY, "operating_income": MONEY,
+    "total_debt": MONEY, "operating_leases": MONEY, "cash": MONEY, "minority_interest": MONEY,
     "price": PER_SHARE,
     "addback": RATIO, "op_margin_ttm": RATIO, "growth_fy": RATIO, "cagr3_fy": RATIO,
     "gross_margin_fy": RATIO, "ev_sales": RATIO, "ev_ebit": RATIO, "pe": RATIO,
