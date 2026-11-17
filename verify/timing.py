@@ -184,6 +184,8 @@ def check_no_mixing(row, ref, scale=1.0):
             out.append(_skip("f.mixing." + field, "app %s, reference %s" % (app, pure)))
             continue
         app = app / scale
+        if field == "op_margin_ttm":
+            app -= row.get("addback") or 0      # R2: the stored add-back explains that gap
         hit = [name for name, v in variants.items()
                if v is not None and abs(v - pure) > 2 * RATIO_TOL and abs(app - v) <= RATIO_TOL < abs(app - pure)]
         out.append(_r("f.mixing." + field, not hit,

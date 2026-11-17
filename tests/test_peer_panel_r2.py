@@ -322,6 +322,70 @@ class H_EvLegs(_PanelRun):
                          (1e9, 0, .5e9, .2e9))
 
 
+class H_Verifier(unittest.TestCase):
+    """The independent verifier's own rules (verify/), on the same synthetic facts."""
+
+    def test_R2_H_reference_revenue_takes_the_latest_filing_not_the_largest(self):
+        from verify import reference as R
+        # ASTS: an old filing mis-tags 13.8M as FY2024 under the ASC 606 concept; the
+        # FY2025 10-K files 4.4M for FY2024 under the including-tax concept
+        cf = company(YEARS5, [12e6, 13.8e6, 1e6, 4.4e6, 70.9e6], rev_concept="RevenueFromContractWithCustomerIncludingAssessedTax")
+        cf["facts"]["us-gaap"]["RevenueFromContractWithCustomerExcludingAssessedTax"] = {"units": {"USD": [
+            dur("2024-12-31", 13.8e6, filed="2025-03-03")]}}
+        for e in cf["facts"]["us-gaap"]["RevenueFromContractWithCustomerIncludingAssessedTax"]["units"]["USD"]:
+            e["filed"] = "2026-03-02" if e["end"] <= "2025-12-31" else e["filed"]
+        r = R.company_reference(cf, "2026-11-16", symbol="ASTS")
+        self.assertAlmostEqual(r["growth_fy"], 70.9 / 4.4 - 1)
+
+    def test_R2_H_reference_ebit_falls_back_to_pretax_plus_interest(self):
+        from verify import reference as R
+        cf = company(YEARS5, [10e9] * 5)
+        g = cf["facts"]["us-gaap"]
+        oi = g.pop("OperatingIncomeLoss")["units"]["USD"]
+        g["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest"] = {
+            "units": {"USD": [dict(e, val=e["val"] - 1e8) for e in oi]}}
+        g["InterestExpense"] = {"units": {"USD": [dict(e, val=1e8) for e in oi]}}
+        r = R.company_reference(cf, "2026-11-16", symbol="LLY")
+        self.assertEqual(r["ebit_basis"], "pretax + interest expense")
+        self.assertAlmostEqual(r["op_margin_ttm"], 0.2)
+
+    def test_R2_H_reference_cash_for_managed_care_is_cash_only(self):
+        from verify import reference as R
+        cf = company(YEARS5, [10e9] * 5, latest="2025-12-31")
+        self.assertEqual(R.company_reference(cf, "2026-11-16", symbol="ELV")["cash"], 1e9)
+        self.assertEqual(R.company_reference(cf, "2026-11-16", symbol="MSFT")["cash"], 5e9)
+
+    def test_R2_H_op_margin_passes_only_when_the_gap_is_the_stored_addback(self):
+        from verify import compare as Cm
+        ok = Cm._addback(Cm.cmp_ratio("X", "op_margin_ttm", 0.25, 0.20, 1.0), {"addback": 0.05}, 1.0)
+        bad = Cm._addback(Cm.cmp_ratio("X", "op_margin_ttm", 0.25, 0.20, 1.0), {"addback": 0.01}, 1.0)
+        self.assertEqual((ok["status"], bad["status"]), ("PASS", "FAIL"))
+
+    def test_R2_H_rank3_reference_is_r14_terciles(self):
+        from verify import compare as Cm
+        rows = [{"symbol": s, "revenue_ttm": v, "cagr3_fy": None, "op_margin_ttm": None,
+                 "rank3": {"scale": k, "growth": None, "margin": None}}
+                for s, v, k in (("A", 40, 1), ("B", 30, 1), ("C", 20, 2), ("D", 10, 3))]
+        got = {x["field"]: x["status"] for x in Cm._ranks(rows)}
+        self.assertEqual(got["scale"], "PASS")
+        rows[1]["rank3"]["scale"] = 2                       # ordinal "top three" would say 2
+        self.assertEqual({x["field"]: x["status"] for x in Cm._ranks(rows)}["scale"], "FAIL")
+
+    def test_R2_H_implied_industry_revenue_counts_member_peers_only(self):
+        from verify import compare as Cm
+        panel = {"industry_share": {"years": [2025], "target_share": {"2025": 0.5}, "top5_share": {"2025": 0.9},
+                                    "hhi": {"2025": 0.3}, "n_with_revenue": {"2025": 4}, "n_members": 4,
+                                    "group": "damodaran_industry_us_sec_filers"}, "flags": []}
+        tref = {"frames": {"2025": {"revenue": 10, "fy_end": "2025-12-31"}}}
+        fmp_peer = {"symbol": "OTHER", "excluded": None, "frames": {"2025": {"revenue": 100}}}
+        res = [x for x in Cm.compare_share(panel, tref, peer_refs=[fmp_peer], industry_members={"T"})
+               if x["field"].startswith("implied industry revenue")]
+        self.assertEqual(res[0]["status"], "PASS")
+        res = [x for x in Cm.compare_share(panel, tref, peer_refs=[fmp_peer], industry_members={"T", "OTHER"})
+               if x["field"].startswith("implied industry revenue")]
+        self.assertEqual(res[0]["status"], "FAIL")
+
+
 class G_Diag(unittest.TestCase):
     def test_R2_G_panel_diag_prints_the_sources_offline_and_writes_nothing(self):
         import contextlib, hashlib, io, json, os, tempfile

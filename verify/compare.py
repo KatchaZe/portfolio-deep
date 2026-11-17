@@ -68,41 +68,90 @@ def compare_rows(panel, refs):
             continue
         out.append(cmp_exact(s, "period_end", x.get("period_end"), ref["period_end"]))
         out.append(cmp_exact(s, "fy0_end", x.get("fy0_end"), ref["fy0_end"]))
-        out.append(cmp_money(s, "revenue_ttm", x.get("revenue_ttm"), ref["revenue_ttm"], "TTM"))
+        out.append(_concept_choice(cmp_money(s, "revenue_ttm", x.get("revenue_ttm"), ref["revenue_ttm"], "TTM"),
+                                   ref, scale))
         for m in ("growth_fy", "cagr3_fy", "gross_margin_fy"):
-            out.append(cmp_ratio(s, m, x.get(m), ref[m], scale, "FY"))
-        r = cmp_ratio(s, "op_margin_ttm", x.get("op_margin_ttm"), ref["op_margin_ttm"], scale, "TTM, GAAP")
-        if r["status"] == "FAIL" and r["abs"] is not None and r["abs"] > 0:
-            r["note"] += ". App is higher: consistent with a one-time add-back the reference does not apply"
-        out.append(r)
-        out += _multiples(s, x, ref)
+            out.append(_concept_choice(cmp_ratio(s, m, x.get(m), ref[m], scale, "FY"), ref, scale))
+        out.append(_addback(cmp_ratio(s, "op_margin_ttm", x.get("op_margin_ttm"), ref["op_margin_ttm"], scale,
+                                      "TTM, reference GAAP EBIT (%s)" % ref.get("ebit_basis")), x, scale))
+        out += _multiples(s, x, ref, scale)
     return out, scale
 
 
-def _multiples(s, x, ref):
+def _concept_choice(res, ref, scale):
+    """A FAIL the same metric computed on ONE revenue concept alone reproduces is the app's
+    concept choice (its documented ladder), not an arithmetic error: PASS, named."""
+    if res["status"] != "FAIL" or res["app"] is None:
+        return res
+    money = res["field"] == "revenue_ttm"
+    for c, m in (ref.get("by_concept") or {}).items():
+        v = m.get(res["field"])
+        if v is None:
+            continue
+        ok = abs(res["app"] - v) <= MONEY_REL * abs(v) if money else abs(res["app"] / scale - v) * 100 <= RATIO_PP
+        if ok:
+            res["status"] = "PASS"
+            res["note"] += ". Equals the reference on %s alone: the app's revenue concept, not the largest" % c
+            return res
+    return res
+
+
+def _addback(res, row, scale):
+    """R2: op_margin_ttm uses the one-time add-back EBIT and the row stores the add-back
+    (fraction of revenue). PASS when app minus GAAP equals that add-back within 0.2pp."""
+    add = row.get("addback") or 0
+    if res["app"] is None or res["ref"] is None:
+        return res
+    gap = res["app"] / scale - res["ref"] / scale
+    ok = abs(gap - add) * 100 <= RATIO_PP
+    res["status"] = "PASS" if ok else "FAIL"
+    res["note"] += ". App - GAAP = %.4f, stored addback %.4f" % (gap, add)
+    return res
+
+
+EV_LEGS = ("total_debt", "operating_leases", "cash", "minority_interest")
+
+
+def _multiples(s, x, ref, scale=1.0):
     out = []
     es, ee, pe = x.get("ev_sales"), x.get("ev_ebit"), x.get("pe")
+    if any(k in x for k in EV_LEGS):
+        # R5 leg by leg against the reference's own balance-sheet ladder (managed care: cash only)
+        for leg in EV_LEGS:
+            a, b = x.get(leg), ref.get(leg)
+            if leg == "minority_interest":
+                a, b = a or 0, b or 0
+            out.append(cmp_money(s, leg, a, b, "balance sheet %s, reference ladder" % ref.get("balance_date")))
+        legs = [x.get(k) for k in ("market_cap", "total_debt", "operating_leases", "cash", "minority_interest")]
+        if es is not None and x.get("revenue_ttm") and legs[0] is not None:
+            ev = legs[0] + (legs[1] or 0) + (legs[2] or 0) - (legs[3] or 0) + (legs[4] or 0)
+            out.append(cmp_money(s, "EV = market cap + debt + leases - cash + minority (row's own legs)",
+                                 es * x["revenue_ttm"], ev, "R5"))
     if ref.get("ev_sales") is not None:
-        for m, v in (("ev_sales", es), ("ev_ebit", ee), ("pe", pe)):
-            out.append(cmp_money(s, m, v, ref[m], "price supplied; debt/cash ladder is the reference's own"))
+        add = x.get("addback") or 0
+        ebit = ref["op_income_ttm"] + add * ref["revenue_ttm"] if ref.get("op_income_ttm") is not None else None
+        want_ee = R._ratio(ref["ev"], ebit) if ebit is not None else None
+        for m, v, want, why in (("ev_sales", es, ref["ev_sales"], ""),
+                                ("ev_ebit", ee, want_ee, "; R2: EBIT = GAAP + stored addback %.4f of revenue" % add),
+                                ("pe", pe, ref["pe"], "")):
+            out.append(cmp_money(s, m, v, want, "price supplied; debt/cash ladder is the reference's own" + why))
         return out
-    # No price for this symbol: check what the three multiples imply together.
     rev, oi, ni = ref["revenue_ttm"], ref["op_income_ttm"], ref["net_income_ttm"]
     if es is None or rev is None:
         out.append(_res(s, "ev_sales", es, None, "SKIP", "no price and no EV/Sales to back out"))
         return out
     ev = es * rev
-    if ee is not None:
-        out.append(cmp_money(s, "ebit_ttm implied by ev_sales/ev_ebit", ev / ee, oi,
-                             "EV/Sales and EV/EBIT must share one EV; a gap is an add-back or a clock mix"))
-    elif oi is not None and oi > 0:
+    if ee is not None and oi is not None:
+        r = cmp_money(s, "ebit_ttm implied by ev_sales/ev_ebit", ev / ee, oi,
+                      "EV/Sales and EV/EBIT share one EV; GAAP EBIT (%s) plus the stored add-back" % ref.get("ebit_basis"))
+        add = x.get("addback") or 0
+        gap = (ev / ee - oi) / rev
+        r["status"] = "PASS" if abs(gap - add) * 100 <= RATIO_PP else "FAIL"
+        r["note"] += ": (implied - GAAP) / revenue = %.4f, addback %.4f" % (gap, add)
+        out.append(r)
+    elif ee is None and oi is not None and oi > 0:
         out.append(_res(s, "ev_ebit", None, None, "FAIL", "null although TTM operating income is positive"))
-    if pe is not None and ni and ref["net_debt_and_leases"] is not None:
-        out.append(cmp_money(s, "net debt + leases implied by ev_sales and pe", ev - pe * ni,
-                             ref["net_debt_and_leases"],
-                             "EV - market cap; tolerance 0.5%% of EV = %.0f" % (MONEY_REL * ev)))
-        out[-1]["status"] = "PASS" if abs(out[-1]["abs"]) <= MONEY_REL * ev else "FAIL"
-    elif pe is None and ni is not None and ni > 0:
+    if pe is None and ni is not None and ni > 0:
         out.append(_res(s, "pe", None, None, "FAIL", "null although TTM net income is positive"))
     if pe is not None and ni is not None and ni <= 0:
         out.append(_res(s, "pe", pe, None, "FAIL", "P/E reported on a TTM loss"))
@@ -151,29 +200,19 @@ def compare_table(panel, scale):
     return out
 
 
-RANK_CANDIDATES = {"scale": ("revenue_ttm",), "growth": ("cagr3_fy", "growth_fy"),
-                   "margin": ("op_margin_ttm", "gross_margin_fy")}
+RANK_METRICS = {"scale": "revenue_ttm", "growth": "cagr3_fy", "margin": "op_margin_ttm"}
 
 
 def _ranks(rows):
+    """SPEC R4/R14: terciles over peers plus target, descending, ties take the first index."""
     out = []
-    for key, metrics in RANK_CANDIDATES.items():
+    for key, m in RANK_METRICS.items():
         got = {x.get("symbol"): (x.get("rank3") or {}).get(key) for x in rows}
-        match, tried = None, {}
-        for m in metrics:
-            ordered = sorted((x for x in rows if x.get(m) is not None), key=lambda x: -x[m])
-            want = {x.get("symbol"): None for x in rows}
-            for i, x in enumerate(ordered[:3]):
-                want[x.get("symbol")] = i + 1
-            tried[m] = want
-            if want == got:
-                match = m
-                break
-        bad = [v for v in got.values() if v not in (None, 1, 2, 3)]
+        want = R.rank3({x.get("symbol"): x.get(m) for x in rows})
+        want = {k: want.get(k) for k in got}
         out.append(_res("table.rank3", key, {k: v for k, v in got.items() if v},
-                        {k: v for k, v in tried[match or metrics[0]].items() if v},
-                        "PASS" if match and not bad else "FAIL",
-                        "top three by %s, largest first" % (match or " or ".join(metrics))))
+                        {k: v for k, v in want.items() if v}, "PASS" if got == want else "FAIL",
+                        "R14 floor(3i/n)+1 on %s, descending" % m))
     return out
 
 
@@ -182,7 +221,8 @@ def _get(d, y):
     return d.get(str(y), d.get(int(y)) if str(y).isdigit() else None)
 
 
-def compare_share(panel, target_ref=None, member_revenue_by_year=None, target_key=None, peer_refs=()):
+def compare_share(panel, target_ref=None, member_revenue_by_year=None, target_key=None, peer_refs=(),
+                  industry_members=None):
     sh = panel.get("industry_share")
     flags = panel.get("flags") or []
     if not sh:
@@ -217,11 +257,14 @@ def compare_share(panel, target_ref=None, member_revenue_by_year=None, target_ke
                             "between top5^2/5 and top5^2 + (1-top5)*top5/5"))
         if ts and target_ref and y in target_ref["frames"]:
             total = target_ref["frames"][y]["revenue"] / (ts / sscale)
-            known = target_ref["frames"][y]["revenue"] + sum(
-                p["frames"][y]["revenue"] for p in peer_refs if not p["excluded"] and y in p["frames"])
+            # table peers can be FMP fill-ins from other industries: only Damodaran members count
+            members = [p for p in peer_refs if not p["excluded"] and y in p["frames"]
+                       and (industry_members is None or str(p.get("symbol")).upper() in industry_members)]
+            known = target_ref["frames"][y]["revenue"] + sum(p["frames"][y]["revenue"] for p in members)
             out.append(_res("industry_share.%s" % y, "implied industry revenue >= target + panel peers",
                             total, known, "PASS" if total >= known * (1 - MONEY_REL) else "FAIL",
-                            "target CY revenue / target_share; fiscal year %s" % target_ref["frames"][y]["fy_end"]))
+                            "target CY revenue / target_share; fiscal year %s; %d member peers"
+                            % (target_ref["frames"][y]["fy_end"], len(members))))
     for name, src in (("share_change_pp", "matched_share"), ("top5_change_pp", "matched_top5")):
         new, old = sh.get(src + "_now"), sh.get(src + "_then")
         want = (new - old) * (100.0 / sscale) if new is not None and old is not None else None
@@ -288,15 +331,12 @@ def compare_moat(moat, panel=None, target_ref=None, peer_refs=None):
         ref = R.moat_reference(target_ref, peer_refs or [])
         fy = "FY%s..FY%s" % ((ref["window_fy"][0] or "?")[:4], (ref["window_fy"][1] or "?")[:4])
         s3, s4 = _sig(moat, "gm_gap_change"), _sig(moat, "incremental_margin")
-        out.append(_pp("moat.gm_gap_change", s3, ref["gm_gap_change"], "peers = rows with facts, target excluded"))
+        out.append(_frac("moat.gm_gap_change", s3, ref["gm_gap_change"],
+                         "R9: %d peers with GM at their own FY0 and FY3, target excluded" % ref["gm_gap_peers"]))
         inc = ref["incremental_margin"]
-        if s4 and s4.get("value") is not None and inc:
-            hit = min((inc["value"], inc["incremental"]), key=lambda w: abs(s4["value"] - w))
-            out.append(_pp("moat.incremental_margin", s4, hit,
-                           "incremental %.2f%%, average %.2f%%; value may be the gap or the incremental"
-                           % (inc["incremental"], inc["average"])))
-        else:
-            out.append(_pp("moat.incremental_margin", s4, inc and inc["value"], "only when revenue grew"))
+        out.append(_frac("moat.incremental_margin", s4, inc and inc["value"],
+                         "R8: incremental minus average, only when revenue grew%s"
+                         % ("; incremental %.4f, average %.4f" % (inc["incremental"], inc["average"]) if inc else "")))
         for name, s in (("gm_gap_change", s3), ("incremental_margin", s4)):
             if s and s.get("value") is not None:
                 out.append(cmp_exact("moat." + name, "window", s.get("window"), fy, "by fiscal-year date"))
@@ -322,14 +362,15 @@ def compare_moat(moat, panel=None, target_ref=None, peer_refs=None):
     return out
 
 
-def _pp(scope, sig, want, note):
+def _frac(scope, sig, want, note):
+    """A signal value in fractions (SPEC R1) against the reference, within 0.2pp."""
     got = sig.get("value") if sig else None
     if got is None and want is None:
         return _res(scope, "value", got, want, "PASS", "both absent. " + note)
     if got is None or want is None:
         return _res(scope, "value", got, want, "FAIL", "one side absent. " + note)
-    ok = min(abs(got - want), abs(got * 100 - want)) <= RATIO_PP
-    return _res(scope, "value", got, want, "PASS" if ok else "FAIL", "pp. " + note)
+    return _res(scope, "value", got, want, "PASS" if abs(got - want) * 100 <= RATIO_PP else "FAIL",
+                "fraction. " + note)
 
 
 def threshold_consistency(moats):
@@ -360,14 +401,14 @@ def compare_flags(panel):
                  "PASS" if not silent else "FAIL", "silent: %s" % silent[:6] if silent else "")]
 
 
-def compare_all(panel, moat, refs, member_revenue_by_year=None, target_key=None):
+def compare_all(panel, moat, refs, member_revenue_by_year=None, target_key=None, industry_members=None):
     rows = (panel.get("table") or {}).get("rows") or []
     target = next((x.get("symbol") for x in rows if x.get("is_target")), None)
     tref = refs.get(target)
     peers = [refs[x["symbol"]] for x in rows if not x.get("is_target") and x.get("symbol") in refs]
     out, scale = compare_rows(panel, refs)
     out += compare_table(panel, scale)
-    out += compare_share(panel, tref, member_revenue_by_year, target_key, peers)
+    out += compare_share(panel, tref, member_revenue_by_year, target_key, peers, industry_members)
     out += compare_flags(panel)
     if moat is not None:
         out += compare_moat(moat, panel, tref, peers)

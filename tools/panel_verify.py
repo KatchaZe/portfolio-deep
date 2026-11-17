@@ -11,7 +11,9 @@ SEC companyfacts for the target and every peer, recomputes each number with
 verify/reference.py as of the panel's own as_of date, runs verify/timing.py, and prints
 app value, reference value, absolute and relative difference, PASS or FAIL.
 Tolerances: 0.5% money and multiples, 0.2 percentage points ratios, exact dates.
-Exit code 1 when anything fails.
+A FAIL that one revenue concept alone reproduces is reported as PASS and named (the
+app's concept choice); op margin and implied EBIT pass when the gap equals the row's
+stored add-back. Exit code 1 when anything fails.
 """
 import argparse
 import json
@@ -28,7 +30,8 @@ from verify import timing as T
 FACTS_URL = "https://data.sec.gov/api/xbrl/companyfacts/CIK%010d.json"
 TICKERS_URL = "https://www.sec.gov/files/company_tickers.json"
 FRAMES_URL = "https://data.sec.gov/api/xbrl/frames/us-gaap/%s/USD/CY%s.json"
-FRAMES_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax")
+# the reference's own revenue ladder; the largest per filer, as SPEC says for frames
+FRAMES_CONCEPTS = tuple(R.REV["us-gaap"])
 INDNAME_CACHE = os.path.join(config.CACHE_DIR, "damodaran_indname.json")
 MIN_INTERVAL = 0.2
 _last = [0.0]
@@ -76,20 +79,21 @@ def line(status, scope, field, app="", ref="", diff="", rel="", note=""):
 
 
 def industry_revenue(panel, ciks, cache_dir):
-    """{CY: {ticker: revenue}} for the Damodaran industry members, from SEC frames.
-    Returns (data, target_key, why_not). Membership comes from the app's cached
-    Damodaran list, read only."""
+    """({CY: {ticker: revenue}}, why, members) for the Damodaran industry members, from
+    SEC frames. Every US-listed member counts whatever its domicile: frames hold only
+    us-gaap USD filers, so a 20-F filer never has revenue here. Membership comes from
+    the app's cached Damodaran list, read only."""
     sh = panel.get("industry_share") or {}
     years = [str(y) for y in sh.get("years") or []]
     if not years:
-        return None, "no industry_share.years"
+        return None, "no industry_share.years", None
     if not os.path.exists(INDNAME_CACHE):
-        return None, "no Damodaran list at data/cache/damodaran_indname.json"
+        return None, "no Damodaran list at data/cache/damodaran_indname.json", None
     with open(INDNAME_CACHE, encoding="utf-8") as fh:
         rows = (json.load(fh) or {}).get("rows") or {}
     members = [t for t, v in rows.items() if v and v[0] == panel.get("industry")]
     if not members:
-        return None, "no member of '%s' in the Damodaran list" % panel.get("industry")
+        return None, "no member of '%s' in the Damodaran list" % panel.get("industry"), None
     out = {}
     for y in years:
         by_cik = {}
@@ -99,7 +103,7 @@ def industry_revenue(panel, ciks, cache_dir):
                 if isinstance(d.get("val"), (int, float)):
                     by_cik[int(d["cik"])] = max(by_cik.get(int(d["cik"]), 0), d["val"])
         out[y] = {t: by_cik[ciks[t.upper()]] for t in members if ciks.get(t.upper()) in by_cik}
-    return out, "%d Damodaran members" % len(members)
+    return out, "%d Damodaran members" % len(members), {t.upper() for t in members}
 
 
 def verify_ticker(t, store, ciks, cache_dir, args):
@@ -130,12 +134,12 @@ def verify_ticker(t, store, ciks, cache_dir, args):
         facts[x.get("symbol")] = cf
         refs[x.get("symbol")] = R.company_reference(cf, as_of, price=price if x.get("is_target") else None,
                                                     symbol=x.get("symbol"))
-    members = target_key = None
+    members = target_key = industry = None
     if not args.no_frames:
-        members, why = industry_revenue(panel, ciks, cache_dir)
+        members, why, industry = industry_revenue(panel, ciks, cache_dir)
         rows_out.append(C._res(t, "industry revenue recompute", None, None, "PASS" if members else "SKIP", why))
         target_key = next((k for k in (members or {}).get(next(iter(members or {}), ""), {}) if k.upper() == t.upper()), t)
-    cmp_rows, scale = C.compare_all(panel, moat, refs, members, target_key)
+    cmp_rows, scale = C.compare_all(panel, moat, refs, members, target_key, industry)
     rows_out += cmp_rows
     for g in T.run_all(panel, facts, refs, scale):
         rows_out.append({"scope": g.get("symbol", t), "field": g["check"], "app": None, "ref": None,

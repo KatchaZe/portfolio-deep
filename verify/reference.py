@@ -5,21 +5,32 @@ Point in time: Company(cf, as_of) sees only facts with filed <= as_of, and for a
 period reported more than once it takes the latest filing visible at as_of.
 
 Concept choices (mine, not the app's):
-  revenue      per period, the LARGEST of RevenueFromContractWithCustomerExcludingAssessedTax,
-               Revenues, SalesRevenueNet, RevenueFromContractWithCustomerIncludingAssessedTax
-               (ifrs-full: Revenue). Same "larger" rule SPEC gives for frames.
+  revenue      per period, the value of the LATEST filing among
+               RevenueFromContractWithCustomerExcludingAssessedTax, Revenues, SalesRevenueNet,
+               RevenueFromContractWithCustomerIncludingAssessedTax (ifrs-full: Revenue); within
+               that filing the largest. Largest alone took a stale pre-restatement year (SNPS)
+               and a mis-tagged one (ASTS FY2024, live 2026-11-17). Every metric is also
+               computed on each concept alone (by_concept), so a difference that is only the
+               app's concept choice is named as such.
   gross profit GrossProfit for the exact FY period; else revenue - cost of revenue
                (CostOfRevenue, CostOfGoodsAndServicesSold, CostOfGoodsSold; ifrs CostOfSales)
                for the same period; else None with a flag. Never an older year.
   op income    OperatingIncomeLoss (ifrs ProfitLossFromOperatingActivities). GAAP, no add-back.
+               A filer with no OperatingIncomeLoss period ending within 2 years of its newest
+               revenue period (LLY, PFE, JNJ, HCA): pretax income + interest expense for the
+               same period (the documented EBIT fallback, 2026-08-02).
   net income   NetIncomeLoss, else ProfitLoss for a period NetIncomeLoss lacks.
   shares       WeightedAverageNumberOfDilutedSharesOutstanding, the shortest duration
                ending at the newest end date. No split adjustment.
   debt         DebtLongtermAndShorttermCombinedAmount; else LongTermDebt + short-term
-               (ShortTermBorrowings, CommercialPaper); else noncurrent + current legs.
+               (ShortTermBorrowings, CommercialPaper); else noncurrent + current legs; else
+               LongTermNotesAndLoans + NotesPayableCurrent. Plus finance lease liabilities.
   leases       OperatingLeaseLiability, else Noncurrent + Current.
   cash         CashCashEquivalentsAndShortTermInvestments, else
-               CashAndCashEquivalentsAtCarryingValue + ShortTermInvestments.
+               CashAndCashEquivalentsAtCarryingValue + ShortTermInvestments (else current
+               available-for-sale debt securities, else current marketable securities). Managed care
+               (MANAGED_CARE): cash and equivalents only (user rule 2026-10-18).
+  minority     MinorityInterest at the balance-sheet date, else 0.
 Ratios are fractions (0.25 = 25%). Money is in the filer's reporting currency.
 """
 import datetime as dt
@@ -33,6 +44,11 @@ GP = {"us-gaap": ["GrossProfit"], "ifrs-full": ["GrossProfit"]}
 COST = {"us-gaap": ["CostOfRevenue", "CostOfGoodsAndServicesSold", "CostOfGoodsSold"],
         "ifrs-full": ["CostOfSales"]}
 OI = {"us-gaap": ["OperatingIncomeLoss"], "ifrs-full": ["ProfitLossFromOperatingActivities"]}
+PRETAX = ["IncomeLossFromContinuingOperationsBeforeIncomeTaxesExtraordinaryItemsNoncontrollingInterest",
+          "IncomeLossFromContinuingOperationsBeforeIncomeTaxesMinorityInterestAndIncomeLossFromEquityMethodInvestments"]
+INTEREST = ["InterestExpense", "InterestExpenseNonoperating", "InterestAndDebtExpense", "InterestExpenseDebt"]
+OI_STALE_DAYS = 730
+MANAGED_CARE = {"UNH", "ELV", "CI", "CVS", "HUM", "CNC", "MOH"}
 NI = {"us-gaap": ["NetIncomeLoss", "ProfitLoss"], "ifrs-full": ["ProfitLoss"]}
 SHARES = ["WeightedAverageNumberOfDilutedSharesOutstanding"]
 
@@ -105,7 +121,8 @@ class Company:
 
     def durations(self, concepts, unit=None, pick="first"):
         """{(start, end): fact}. Per concept the latest filing wins; across concepts the
-        first in the ladder (pick="first") or the largest value (pick="max")."""
+        first in the ladder (pick="first"), the largest value (pick="max"), or the latest
+        filing and within it the largest (pick="latest")."""
         unit = unit or self.currency
         per = []
         for c in concepts:
@@ -120,7 +137,11 @@ class Company:
         out = {}
         for m in per:
             for k, f in m.items():
-                if k not in out or (pick == "max" and f["val"] > out[k]["val"]):
+                if k not in out:
+                    out[k] = f
+                elif pick == "max" and f["val"] > out[k]["val"]:
+                    out[k] = f
+                elif pick == "latest" and (f["filed"], f["val"]) > (out[k]["filed"], out[k]["val"]):
                     out[k] = f
         return out
 
@@ -218,7 +239,7 @@ def _ratio(a, b):
     return a / b if a is not None and b not in (None, 0) and b > 0 else None
 
 
-def _balance(co, bs_date):
+def _balance(co, bs_date, cash_only=False):
     """(debt, leases, cash, used) at bs_date. Every leg from the same balance-sheet date."""
     used = []
 
@@ -246,6 +267,18 @@ def _balance(co, bs_date):
             cur = first("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent", "DebtCurrent")
             if non is not None:
                 debt = non + (cur or 0) + short
+            else:
+                notes = at("LongTermNotesAndLoans")         # ORCL tags its bonds as notes
+                if notes is not None:
+                    debt = notes + (at("NotesPayableCurrent") or 0) + short
+    if debt is not None:
+        # finance leases are debt (Damodaran; SPEC R5 takes EV from relative.point, whose
+        # debt carries them): MSFT's are $63B beside $40B of bonds
+        fin = at("FinanceLeaseLiability")
+        if fin is None:
+            fn, fc = at("FinanceLeaseLiabilityNoncurrent"), at("FinanceLeaseLiabilityCurrent")
+            fin = (fn or 0) + (fc or 0) if fn is not None else None
+        debt += fin or 0
     leases = None
     lease_dates = sorted((d for d in co.instants("OperatingLeaseLiabilityNoncurrent")
                           if d <= bs_date and (D(bs_date) - D(d)).days <= 370), reverse=True)
@@ -258,11 +291,43 @@ def _balance(co, bs_date):
             if d != bs_date:
                 co.flags.append("operating leases from %s, balance sheet %s" % (d, bs_date))
             break
-    cash = at("CashCashEquivalentsAndShortTermInvestments")
-    if cash is None:
+    cash = None if cash_only else at("CashCashEquivalentsAndShortTermInvestments")
+    if cash_only:
+        cash = at("CashAndCashEquivalentsAtCarryingValue")
+    elif cash is None:
         c = at("CashAndCashEquivalentsAtCarryingValue")
-        cash = c + (at("ShortTermInvestments") or 0) if c is not None else None
+        sti = first("ShortTermInvestments", "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+                    "MarketableSecuritiesCurrent")
+        cash = c + (sti or 0) if c is not None else None
     return debt, leases, cash, used
+
+
+def ebit_fallback(co):
+    """{(start, end): fact} of pretax income + interest expense, same period. A period with
+    no interest fact takes pretax alone (no debt, or interest netted elsewhere)."""
+    pre, intr = co.durations(PRETAX), co.durations(INTEREST)
+    out = {}
+    for k, f in pre.items():
+        i = intr.get(k)
+        out[k] = dict(f, val=f["val"] + (i["val"] if i else 0), concept=f["concept"] + (" + " + i["concept"] if i else ""))
+    return out
+
+
+def concept_metrics(rev, gp, cost):
+    """growth, CAGR, gross margin and TTM revenue on ONE revenue concept's own periods."""
+    ann = annuals(rev)
+    fy0 = max(ann) if ann else None
+    fy1 = fy_near(ann, years_before(fy0, 1)) if fy0 else None
+    fy3 = fy_near(ann, years_before(fy0, 3)) if fy0 else None
+    v = lambda e: ann[e]["val"] if e else None
+    g0 = None
+    if fy0:
+        k = (ann[fy0]["start"], fy0)
+        g0 = gp[k]["val"] if k in gp else (v(fy0) - cost[k]["val"] if k in cost else None)
+    t = ttm(rev)
+    return {"fy0_end": fy0, "revenue_ttm": t["val"] if t else None,
+            "growth_fy": v(fy0) / v(fy1) - 1 if v(fy0) and v(fy1) and v(fy1) > 0 else None,
+            "cagr3_fy": _g(v(fy0), v(fy3), 3), "gross_margin_fy": _ratio(g0, v(fy0))}
 
 
 def company_reference(companyfacts, as_of=None, price=None, symbol=None):
@@ -273,8 +338,16 @@ def company_reference(companyfacts, as_of=None, price=None, symbol=None):
     if co.taxonomy != "us-gaap" or co.currency != "USD":
         r["excluded"] = "not us-gaap/USD (%s, %s)" % (co.taxonomy, co.currency)
     tx = co.taxonomy if co.taxonomy in REV else "us-gaap"
-    rev = co.durations(REV[tx], pick="max")
+    rev = co.durations(REV[tx], pick="latest")
     oi = co.durations(OI[tx])
+    newest_rev = max((e for (_s, e) in rev), default=None)
+    newest_oi = max((e for (_s, e) in oi), default=None)
+    r["ebit_basis"] = "OperatingIncomeLoss"
+    if tx == "us-gaap" and newest_rev and (not newest_oi or (D(newest_rev) - D(newest_oi)).days > OI_STALE_DAYS):
+        oi = ebit_fallback(co)
+        r["ebit_basis"] = "pretax + interest expense"
+        co.flags.append("no OperatingIncomeLoss within %d days of %s (newest %s): EBIT = pretax + interest"
+                        % (OI_STALE_DAYS, newest_rev, newest_oi))
     ni = co.durations(NI[tx])
     gp = co.durations(GP[tx])
     cost = co.durations(COST[tx])
@@ -319,6 +392,8 @@ def company_reference(companyfacts, as_of=None, price=None, symbol=None):
     if fy0 and not fy3:
         co.flags.append("no fiscal year within %d days of 3 years before %s" % (YEAR_TOL_DAYS, fy0))
 
+    r["by_concept"] = {c: concept_metrics(co.durations([c]), gp, cost) for c in REV[tx]
+                       if annuals(co.durations([c]))}
     t_rev, t_oi, t_ni = ttm(rev), ttm(oi), ttm(ni)
     r["period_end"] = t_rev["end"] if t_rev else None
     r["ttm_window"] = (t_rev["start"], t_rev["end"]) if t_rev and t_rev["val"] is not None else None
@@ -349,12 +424,14 @@ def company_reference(companyfacts, as_of=None, price=None, symbol=None):
     bs = max((d for d in cash_dates if not r["period_end"] or d <= r["period_end"]), default=None)
     debt = leases = cash = None
     if bs:
-        debt, leases, cash, bused = _balance(co, bs)
+        debt, leases, cash, bused = _balance(co, bs, cash_only=str(symbol or "").upper() in MANAGED_CARE)
         r["used"]["balance_sheet"] = bused
-    r.update(balance_date=bs, total_debt=debt, operating_leases=leases, cash=cash)
+        mi = co.instants("MinorityInterest").get(bs)
+    r.update(balance_date=bs, total_debt=debt, operating_leases=leases, cash=cash,
+             minority_interest=(mi["val"] if bs and mi else 0) if bs else None)
     if bs and debt is None:
         co.flags.append("no debt concept of the reference ladder at %s: EV not computed" % bs)
-    r["net_debt_and_leases"] = ((debt or 0) + (leases or 0) - cash
+    r["net_debt_and_leases"] = ((debt or 0) + (leases or 0) - cash + (r["minority_interest"] or 0)
                                 if cash is not None and debt is not None else None)
     r.update(ev_sales=None, ev_ebit=None, pe=None, market_cap=None, ev=None)
     if price and r["shares_diluted"] and r["net_debt_and_leases"] is not None:
@@ -484,26 +561,40 @@ def matched_reference(member_revenue_by_year, target_key, per_year):
 
 
 def moat_reference(target, peers):
-    """S3 and S4 from company_reference outputs (target, list of peers). S1 needs the
-    app's ROIC and WACC and S2 needs industry_share; compare.py checks those from the
-    stored panel instead. Values in percentage points."""
+    """S3 and S4 from company_reference outputs, as FRACTIONS (SPEC R1, R8, R9). S1 needs
+    the app's ROIC and WACC and S2 needs industry_share; compare.py checks those from the
+    stored panel instead.
+    S3 (R9, R14): the peers with a gross margin at both their own FY0 and FY3 (at least
+    3); the target's gap to their median at FY0 minus the same at FY3.
+    S4 (R8): (OI FY0 - OI FY3) / (Rev FY0 - Rev FY3) minus OI FY0 / Rev FY0, only when
+    revenue grew."""
     out = {}
-    def gap(name):
-        ps = [p[name] for p in peers if not p["excluded"] and p[name] is not None]
-        if target[name] is None or not ps:
-            return None
-        return target[name] - statistics.median(ps)
-    g0, g3 = gap("gross_margin_fy0"), gap("gross_margin_fy3")
-    out["gm_gap_change"] = (g0 - g3) * 100 if g0 is not None and g3 is not None else None
+    both = [(p["gross_margin_fy0"], p["gross_margin_fy3"]) for p in peers
+            if not p["excluded"] and p["gross_margin_fy0"] is not None and p["gross_margin_fy3"] is not None]
+    t0, t3 = target["gross_margin_fy0"], target["gross_margin_fy3"]
+    out["gm_gap_change"] = None
+    out["gm_gap_peers"] = len(both)
+    if t0 is not None and t3 is not None and len(both) >= 3:
+        out["gm_gap_change"] = ((t0 - statistics.median(a for a, _ in both))
+                                - (t3 - statistics.median(b for _, b in both)))
     r0, r3, o0, o3 = (target[k] for k in ("revenue_fy0", "revenue_fy3", "op_income_fy0", "op_income_fy3"))
-    if None not in (r0, r3, o0, o3) and r0 > r3:
+    if None not in (r0, r3, o0, o3) and r3 > 0 and r0 > r3:
         inc, avg = (o0 - o3) / (r0 - r3), o0 / r0
-        out["incremental_margin"] = {"incremental": inc * 100, "average": avg * 100,
-                                     "value": (inc - avg) * 100}
+        out["incremental_margin"] = {"incremental": inc, "average": avg, "value": inc - avg}
     else:
         out["incremental_margin"] = None
     out["window_fy"] = (target["fy3_end"], target["fy0_end"])
     return out
+
+
+def rank3(values):
+    """SPEC R14: {key: 1..3} by floor(3i/n) + 1, i the first index of the value in the
+    values sorted descending, n the count; {} under 3 values."""
+    vals = [v for v in values.values() if isinstance(v, (int, float))]
+    if len(vals) < 3:
+        return {}
+    desc = sorted(vals, reverse=True)
+    return {k: 3 * desc.index(v) // len(vals) + 1 for k, v in values.items() if isinstance(v, (int, float))}
 
 
 def load(path):

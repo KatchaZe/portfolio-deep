@@ -8,9 +8,8 @@ relative.point, peer_panel.point_fields); the target through normalize.build and
 peers.panel_and_moat. Prices are fixed synthetic closes; the frames map is built from
 the fixtures' own CY-tagged annual revenue facts. No network, no storage.
 
-Every reference FAIL is then adjudicated with numbers: ALLOWED when a SPEC resolution
-explains the whole gap (the residual is re-compared at the same tolerance), DEFECT
-otherwise. Extra checks cover what the reference cannot see (X1 EV and P/E where its
+Every reference FAIL is a DEFECT (the reference implements the SPEC resolutions
+itself since fix round 2). Extra checks cover what the reference cannot see (X1 EV and P/E where its
 debt ladder found nothing, X2 the share change on a constant member set, X3 the
 target's price date, X4 restated fiscal years a point-in-time run would leak).
 Exit 1 on any DEFECT."""
@@ -133,50 +132,15 @@ def _close(a, b, tol=C.MONEY_REL):
 
 
 def adjudicate(o, refs):
-    """Turn each reference FAIL into ALLOWED (with the residual) or DEFECT, in place."""
-    rows = {r["symbol"]: r for r in o["panel"]["table"]["rows"]}
-    moat = o["moat"]
+    """Every reference FAIL is a DEFECT, in place. The SPEC resolutions this used to
+    allow (R2 add-back, R5 EV legs, R8, R9, R14) are now the reference's own rules."""
     for x in o["compare"]:
         if x["status"] != "FAIL":
             continue
-        sym, f = x["scope"], x["field"]
-        row, ref = rows.get(sym), refs.get(sym)
-        verdict, why = "DEFECT", "no SPEC resolution explains the gap"
-        if row and f == "op_margin_ttm":
-            res = row["op_margin_ttm"] - (row["addback"] or 0) - ref["op_margin_ttm"]
-            if row["addback"] and abs(res) * 100 <= C.RATIO_PP:
-                verdict, why = "ALLOWED", "R2 add-back %.4f of revenue; app - addback - ref = %+.4fpp" % (row["addback"], res * 100)
-        elif row and f.startswith("ebit_ttm implied"):
-            gaap = x["app"] * (1 - row["addback"] / row["op_margin_ttm"])
-            if row["addback"] and _close(gaap, x["ref"]):
-                verdict, why = "ALLOWED", "R2 add-back; app EBIT less the add-back = %.0f vs %.0f" % (gaap, x["ref"])
-        elif row and f in ("ev_sales", "ev_ebit"):
-            ev, _m = hand_ev(sym, ref)
-            base = ref["revenue_ttm"] if f == "ev_sales" else ref["op_income_ttm"] + (row["addback"] or 0) * ref["revenue_ttm"]
-            want = ev / base if ev else None
-            if _close(x["app"], want):
-                verdict, why = "ALLOWED", ("R5 EV with finance leases and minority interest%s; hand value %.4f, rel %+.4f"
-                                           % (", R2 add-back EBIT" if f == "ev_ebit" and row["addback"] else "", want, x["app"] / want - 1))
-        elif sym == "table.rank3":
-            m = PP.RANK_METRICS[f]
-            vals = sorted((r[m] for r in rows.values() if r[m] is not None), reverse=True)
-            want = {s: 1 + 3 * vals.index(r[m]) // len(vals) for s, r in rows.items() if r[m] is not None}
-            if want == {s: r["rank3"][f] for s, r in rows.items()}:
-                verdict, why = "ALLOWED", "R4/R14 terciles over %d rows (floor(3i/n)+1) recomputed here: %s; the reference ranks ordinally" % (len(vals), want)
-        elif sym == "moat.gm_gap_change" and x["app"] is None:
-            n = sum(1 for s, r in rows.items() if not r["is_target"]
-                    and refs[s].get("gross_margin_fy0") is not None and refs[s].get("gross_margin_fy3") is not None)
-            if n < 3 and any(str(fl).startswith("S3:") for fl in moat["flags"]):
-                verdict, why = "ALLOWED", "R14 S3 needs 3 peers with gross margin at FY0 and FY3, has %d, and says so in flags" % n
-        elif sym == "moat.incremental_margin":
-            t = refs[o["target"]]
-            want = ((t["op_income_fy0"] - t["op_income_fy3"]) / (t["revenue_fy0"] - t["revenue_fy3"])
-                    - t["op_income_fy0"] / t["revenue_fy0"])
-            if abs(x["app"] - want) * 100 <= C.RATIO_PP:
-                verdict, why = "ALLOWED", "R8 value = incremental - average = %.6f; the reference compared the incremental alone" % want
-        elif f.startswith("flags name every row"):
+        why = "no SPEC resolution explains the gap"
+        if x["field"].startswith("flags name every row"):
             why = "SPEC flags: nothing missing is silent. " + x["note"]
-        x["status"], x["note"] = verdict, why
+        x["status"], x["note"] = "DEFECT", why
 
 
 def extra_checks(o, refs, fr):
