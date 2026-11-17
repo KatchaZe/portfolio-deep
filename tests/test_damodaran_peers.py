@@ -244,7 +244,7 @@ class Sources(unittest.TestCase):
         class R:
             def get(self, url, **k):
                 c = url.split("/us-gaap/")[1].split("/")[0]
-                return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": answers[c]})
+                return SimpleNamespace(raise_for_status=lambda: None, json=lambda: {"data": answers.get(c, [])})
         rev, note = dc.load_revenue_frames(tmp, 2025, "ua", requests_mod=R())
         self.assertEqual(rev, {1: 10, 2: 5, 3: 9})
         self.assertEqual(dc.frames_year(dt.date(2026, 3, 1)), 2024)

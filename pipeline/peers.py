@@ -41,7 +41,9 @@ MODEL_TTL_DAYS = 7
 # reused for its remaining week (live 2026-10-24: MSFT/NVDA kept their FMP-peer fits
 # for days after the Damodaran list went in)
 # 3 (2026-11-16): stored points carry the peer panel's fields (model["panel_points"])
-MODEL_VERSION = 3
+# 4 (2026-11-17): points' fiscal years by year-end date across revenue concepts (GOOGL,
+#   JNJ, EXEL had no FY3); health-insurer peers count cash only
+MODEL_VERSION = 4
 PEER_LIST_CALLS = 1
 
 
@@ -435,7 +437,9 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, univers
 
 TARGET_PANEL_FIELDS = ("currency", "accounting_standard", "revenue", "operating_income", "net_income",
                        "revenue_annuals_dated", "gross_profit_annuals_dated",
-                       "cost_of_revenue_annuals_dated", "operating_income_annuals_dated")
+                       "cost_of_revenue_annuals_dated", "operating_income_annuals_dated",
+                       "revenue_fy_dated", "gross_profit_fy_dated", "cost_of_revenue_fy_dated",
+                       "operating_income_fy_dated")
 
 
 def _target_panel_point(f, today):

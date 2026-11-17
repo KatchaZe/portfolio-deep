@@ -180,6 +180,12 @@ class FinancialFacts:
     restructuring_annuals_dated: list = field(default_factory=list)
     impairment_annuals_dated: list = field(default_factory=list)
     acquired_iprd_annuals_dated: list = field(default_factory=list)
+    # peer panel only (display): one value per fiscal-year END DATE, revenue merged
+    # across concepts (sec_edgar.panel_fy_series); no score reads these
+    revenue_fy_dated: list = field(default_factory=list)
+    gross_profit_fy_dated: list = field(default_factory=list)
+    cost_of_revenue_fy_dated: list = field(default_factory=list)
+    operating_income_fy_dated: list = field(default_factory=list)
     # {FY_end: {equity, cash, debt, lt_source}} at the income-statement year-ends —
     # invested capital per year, so ROIC can be a SERIES rather than one snapshot.
     # A dict, not a list: FX conversion handles it separately (see normalize).

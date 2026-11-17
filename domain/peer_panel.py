@@ -66,16 +66,21 @@ def frames_cy(end, tags=None):
     return (d - dt.timedelta(days=CY_SHIFT_DAYS)).year if d else None
 
 
+FY_HIST = 5                      # fiscal years a stored point keeps (FY0..FY-4)
+
+
 def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=None, tags=None):
     """{fy0, fy1, fy3} for one filer, each {end, revenue, gross_profit, operating_income}
-    or None, plus gp_basis. FY0 is the newest fiscal year ending on or before `as_of`;
-    FY1 and FY3 come from the contiguous run of fiscal-year ends behind it (trend._window),
-    each checked to be about one / three years before FY0 by date. A leg with no value
-    filed AT THAT DATE is None: gross profit from another year never fills it."""
+    or None, plus gp_basis and fy_hist (the contiguous run's revenue and gross profit,
+    newest first, up to FY_HIST years). FY0 is the newest fiscal year ending on or before
+    `as_of`; FY1 and FY3 come from the contiguous run of fiscal-year ends behind it
+    (trend._window_by_date: consecutive ends 330-400 days apart, so a 52/53-week year
+    counts), each checked to be about one / three years before FY0 by date. A leg with no
+    value filed AT THAT DATE is None: gross profit from another year never fills it."""
     rev = trend._pairs(rev_dated)
     if as_of:
         rev = {d: v for d, v in rev.items() if _d(d) and _d(d) <= _d(as_of)}
-    win = trend._window(rev, 4)
+    win = trend._window_by_date(rev, FY_HIST)
     gp, gp_basis = trend.gross_profit(gp_dated, rev_dated, cost_dated)
     oi = trend._pairs(oi_dated)
 
@@ -83,31 +88,37 @@ def fy_snapshot(rev_dated, gp_dated=None, cost_dated=None, oi_dated=None, as_of=
         return {"end": d, "frames_cy": frames_cy(d, tags), "revenue": rev.get(d),
                 "gross_profit": gp.get(d), "operating_income": oi.get(d)}
 
-    out = {"fy0": None, "fy1": None, "fy3": None, "gp_basis": gp_basis}
+    out = {"fy0": None, "fy1": None, "fy3": None, "gp_basis": gp_basis,
+           "fy_hist": {"revenue": [[d, rev[d]] for d in reversed(win)],
+                       "gross_profit": [[d, gp.get(d)] for d in reversed(win)]}}
     if not win:
         return out
     fy0 = win[-1]
     out["fy0"] = leg(fy0)
     if len(win) >= 2 and FY_GAP[0] <= _days(fy0, win[-2]) <= FY_GAP[1]:
         out["fy1"] = leg(win[-2])
-    if len(win) == 4 and FY3_GAP[0] <= _days(fy0, win[0]) <= FY3_GAP[1]:
-        out["fy3"] = leg(win[0])
+    if len(win) >= 4 and FY3_GAP[0] <= _days(fy0, win[-4]) <= FY3_GAP[1]:
+        out["fy3"] = leg(win[-4])
     return out
 
 
 # what a stored peer point carries for the table, beyond relative.point's own keys
 POINT_KEYS = ("symbol", "source", "sic", "currency", "accounting_standard", "period_end",
               "price_date", "price", "revenue_ttm", "ebit_ttm", "net_income_ttm", "ev",
-              "market_cap", "addback", "fy0", "fy1", "fy3", "gp_basis")
+              "market_cap", "addback", "fy0", "fy1", "fy3", "gp_basis", "fy_hist")
+# the panel's fiscal-year inputs: sec_edgar.panel_fy_series (one value per year-end
+# date, revenue merged across concepts), else the scored series on facts stored before it
+FY_INPUTS = (("revenue_fy_dated", "revenue_annuals_dated"),
+             ("gross_profit_fy_dated", "gross_profit_annuals_dated"),
+             ("cost_of_revenue_fy_dated", "cost_of_revenue_annuals_dated"),
+             ("operating_income_fy_dated", "operating_income_annuals_dated"))
 
 
 def point_fields(x, as_of=None, tags=None):
     """The panel's fields from a sec_edgar.extract() dict (EBIT already normalized),
     to merge into a relative.point. `tags` = frame_tags(companyfacts) when the raw
     facts are at hand."""
-    snap = fy_snapshot(x.get("revenue_annuals_dated"), x.get("gross_profit_annuals_dated"),
-                       x.get("cost_of_revenue_annuals_dated"),
-                       x.get("operating_income_annuals_dated"), as_of, tags)
+    snap = fy_snapshot(*(x.get(new) or x.get(old) for new, old in FY_INPUTS), as_of=as_of, tags=tags)
     return {"currency": x.get("currency") or "USD",
             "accounting_standard": x.get("accounting_standard"),
             "revenue_ttm": x.get("revenue"), "ebit_ttm": x.get("operating_income"),

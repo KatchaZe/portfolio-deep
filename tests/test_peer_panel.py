@@ -205,7 +205,7 @@ class PeerPoint(unittest.TestCase):
             pts.append(p)
         model, _, why = peers.fit_points(pts, [], TODAY)
         self.assertIsNone(why)
-        self.assertEqual(model["version"], 3)
+        self.assertEqual(model["version"], peers.MODEL_VERSION)
         self.assertEqual(model["outliers"], ["P6"])
         self.assertEqual([p["symbol"] for p in model["panel_points"]], [f"P{i}" for i in range(7)])
         self.assertEqual(set(model["panel_points"][0]), set(PP.POINT_KEYS))

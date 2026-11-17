@@ -161,6 +161,16 @@ class _Xbrl:
         annuals = _newest_first(e for e in self.entries(concept, prefer) if _is_annual(e))
         return [[e["end"], e["val"]] for e in _one_per_year(annuals)]
 
+    def fy_series_dated(self, concept, prefer=USD):
+        """{FY_end: value}, one per fiscal-year END DATE (latest filing wins). Unlike
+        annual_series_dated this keeps two year ends in one calendar year (JNJ's FY2022
+        ends 2023-01-01, FY2023 2023-12-31) and never drops a 52/53-week year."""
+        best = {}
+        for e in self.entries(concept, prefer):
+            if _is_annual(e) and (e["end"] not in best or e.get("filed", "") > best[e["end"]].get("filed", "")):
+                best[e["end"]] = e
+        return {d: e["val"] for d, e in best.items()}
+
     def annual_series(self, concept, prefer=USD):
         return [v for _, v in self.annual_series_dated(concept, prefer)]
 
@@ -896,6 +906,64 @@ def _gap_flags(x, at, rev_tags, op_tags, ni_tags, out):
     return sorted((GAP_FLAG if f in driving else GAP_INFO) % f for f in gapped)
 
 
+# --------------------------------------------------------------------------- #
+#  Fiscal-year series for the peer panel (display only)                        #
+# --------------------------------------------------------------------------- #
+FY_FILL_AGREE = 0.02            # a fill concept must match the primary within 2% where both are filed
+
+
+def _dated(m):
+    return [[d, m[d]] for d in sorted(m, reverse=True)]
+
+
+def _merged_fy(x, primary, ladder):
+    """The primary concept's fiscal years, each year it lacks filled from the next
+    concept of the ladder that files it, provided that concept agrees with the merged
+    series within FY_FILL_AGREE on every year both file (and shares at least one).
+    GOOGL moved revenue to `Revenues` in its FY2025 10-K: FY2022 is filed only under the
+    ASC 606 concept, which matches `Revenues` exactly where both exist. MELI's ASC 606
+    figure leaves out credit income and disagrees by 20%+, so it never fills."""
+    out = x.fy_series_dated(primary) if primary else {}
+    for c in ladder:
+        if c == primary:
+            continue
+        alt = x.fy_series_dated(c)
+        both = set(alt) & set(out)
+        if not both or not (set(alt) - set(out)):
+            continue
+        if all(out[d] and abs(alt[d] - out[d]) <= FY_FILL_AGREE * abs(out[d]) for d in both):
+            out.update({d: v for d, v in alt.items() if d not in out})
+    return _dated(out)
+
+
+def _first_fy(x, ladder, at):
+    """The first live tag with two or more fiscal years (no merge: see _trend_series)."""
+    for t, p in _live_tags(x, ladder, at):
+        s = x.fy_series_dated(t, p)
+        if len(s) >= 2:
+            return _dated(s)
+    return []
+
+
+def panel_fy_series(x, rev_concept, op_concept, at):
+    """The peer panel's fiscal-year series, one value per year-end DATE: revenue merged
+    across the revenue ladder (_merged_fy), gross profit and cost of revenue from their
+    first live tag, operating income from the chosen concept or pretax + interest
+    (_derived_ebit's rule). The scored *_annuals_dated series are left as they are."""
+    if op_concept:
+        oi = _dated(x.fy_series_dated(op_concept))
+    else:
+        pre_c = next((t for t in PRETAX if x.latest_end(t)), None)
+        int_c = next((t for t in INT_EXP if x.latest_end(t)), None)
+        pa = x.fy_series_dated(pre_c) if pre_c else {}
+        ia = x.fy_series_dated(int_c) if int_c else {}
+        oi = _dated({d: v + ia.get(d, 0) for d, v in pa.items()})
+    return {"revenue_fy_dated": _merged_fy(x, rev_concept, REV),
+            "gross_profit_fy_dated": _first_fy(x, GROSS_PROFIT_TAGS, at),
+            "cost_of_revenue_fy_dated": _first_fy(x, COST_OF_REV_TAGS, at),
+            "operating_income_fy_dated": oi}
+
+
 def _series(x, concept, name):
     return {name + "_annuals": x.annual_series(concept),
             name + "_annuals_dated": x.annual_series_dated(concept),
@@ -937,6 +1005,7 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
         **operating,
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
         "q4_derived_ends": sorted(x.q4_derived),
+        **panel_fy_series(x, rev_concept, op_concept, at),
     }
     out["xbrl_flags"] = _gap_flags(
         x, at, rev_concept is None and REV,
@@ -1155,7 +1224,9 @@ POPULATED = (
     "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
     "ic_components_dated",
     "acquisitions_annuals_dated", "impairment_ttm", "impairment_annuals_dated", "restructuring_ttm",
-    "restructuring_annuals_dated", "acquired_iprd_ttm", "acquired_iprd_annuals_dated")
+    "restructuring_annuals_dated", "acquired_iprd_ttm", "acquired_iprd_annuals_dated",
+    "revenue_fy_dated", "gross_profit_fy_dated", "cost_of_revenue_fy_dated",
+    "operating_income_fy_dated")
 EBIT_DERIVED = ("operating_income", "operating_income_annuals", "operating_income_quarters")
 QUARTER_FIELDS = ("revenue_quarters", "operating_income_quarters", "eps_quarters")
 

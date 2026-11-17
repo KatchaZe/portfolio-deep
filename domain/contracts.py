@@ -101,6 +101,9 @@ CLOCK = {
     "acquisitions_annuals_dated": FY_DATED, "restructuring_annuals_dated": FY_DATED,
     "impairment_annuals_dated": FY_DATED,
     "acquired_iprd_annuals_dated": FY_DATED,
+    # peer panel only: one value per year-end DATE (sec_edgar.panel_fy_series)
+    "revenue_fy_dated": FY_DATED, "gross_profit_fy_dated": FY_DATED,
+    "cost_of_revenue_fy_dated": FY_DATED, "operating_income_fy_dated": FY_DATED,
 
     # --- quarterly -----------------------------------------------------------
     "revenue_quarters": QUARTER, "operating_income_quarters": QUARTER,
@@ -151,6 +154,8 @@ UNIT = {
     "cfo_annuals_dated": MONEY, "capex_annuals_dated": MONEY,
     "sbc_annuals_dated": MONEY,
     "gross_profit_annuals_dated": MONEY, "cost_of_revenue_annuals_dated": MONEY,
+    "revenue_fy_dated": MONEY, "gross_profit_fy_dated": MONEY,
+    "cost_of_revenue_fy_dated": MONEY, "operating_income_fy_dated": MONEY,
     "ic_components_dated": MONEY, "revenue_quarters": MONEY,
     "operating_income_quarters": MONEY, "market_cap": MONEY,
     # share counts — deliberately NOT converted
@@ -234,7 +239,7 @@ PANEL_CLOCK = {
     "addback": TTM, "price": SPOT, "ev": SPOT, "market_cap": SPOT,
     "ev_sales": TTM, "ev_ebit": TTM, "pe": TTM,
     # each company's own fiscal years, joined by date
-    "fy0": FY_DATED, "fy1": FY_DATED, "fy3": FY_DATED,
+    "fy0": FY_DATED, "fy1": FY_DATED, "fy3": FY_DATED, "fy_hist": FY_DATED,
     "end": STATIC, "revenue": FY_DATED, "gross_profit": FY_DATED, "operating_income": FY_DATED,
     "growth_fy": FY, "cagr3_fy": FY, "gross_margin_fy": FY,
     # industry share, SEC frames calendar years

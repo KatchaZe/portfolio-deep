@@ -15,16 +15,17 @@ import tempfile
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PP, MT, FU = "domain/peer_panel.py", "domain/moat_trend.py", "pipeline/fundamentals.py"
-SUITE = ["-m", "unittest", "tests.test_peer_panel"]
+SE, PE, DC = "sources/sec_edgar.py", "pipeline/peers.py", "sources/damodaran_companies.py"
+SUITE = ["-m", "unittest", "tests.test_peer_panel", "tests.test_peer_panel_r2"]
 MUTANTS = [
     # (id, file, old, new, guard expected red)
     ("M1 FY3 by list position (alone: the date check still guards)", PP,
-     "win = trend._window(rev, 4)", "win = sorted(rev)[-4:]", "test_E3_fy3_never_reaches"),
-    ("M1b FY3 without the date check (alone: trend._window still guards)", PP,
-     "if len(win) == 4 and FY3_GAP[0] <= _days(fy0, win[0]) <= FY3_GAP[1]:", "if len(win) == 4:", "test_E3_fy3_never_reaches"),
+     "win = trend._window_by_date(rev, FY_HIST)", "win = sorted(rev)[-FY_HIST:]", "test_E3_fy3_never_reaches"),
+    ("M1b FY3 without the date check (alone: the window still guards)", PP,
+     "if len(win) >= 4 and FY3_GAP[0] <= _days(fy0, win[-4]) <= FY3_GAP[1]:", "if len(win) >= 4:", "test_E3_fy3_never_reaches"),
     ("M1c both FY3 guards removed", PP,
-     ("win = trend._window(rev, 4)", "if len(win) == 4 and FY3_GAP[0] <= _days(fy0, win[0]) <= FY3_GAP[1]:"),
-     ("win = sorted(rev)[-4:]", "if len(win) == 4:"), "test_E3_fy3_never_reaches"),
+     ("win = trend._window_by_date(rev, FY_HIST)", "if len(win) >= 4 and FY3_GAP[0] <= _days(fy0, win[-4]) <= FY3_GAP[1]:"),
+     ("win = sorted(rev)[-FY_HIST:]", "if len(win) >= 4:"), "test_E3_fy3_never_reaches"),
     ("M2 gross profit borrowed from another fiscal year", PP,
      '"gross_margin_fy": _ratio(fy0.get("gross_profit"), r0)',
      '"gross_margin_fy": _ratio(fy0.get("gross_profit") or fy1.get("gross_profit"), r0)', "test_E14"),
@@ -46,6 +47,30 @@ MUTANTS = [
      "test_F3_a_null_metric"),
     ("M16 a failed panel build leaves {}", FU, "        panel_failed(val, e)\n", "        pass\n",
      "test_a_panel_failure"),
+    # fix round 2 (live verifier 2026-11-17)
+    ("M17 fiscal years contiguous by calendar-year number (52/53-week years break)", PP,
+     "win = trend._window_by_date(rev, FY_HIST)", "win = trend._window(rev, FY_HIST)", "test_R2_B_52_53_week"),
+    ("M18 panel revenue from the chosen concept alone (GOOGL hole)", SE,
+     '"revenue_fy_dated": _merged_fy(x, rev_concept, REV)', '"revenue_fy_dated": _dated(x.fy_series_dated(rev_concept))',
+     "test_R2_B_a_revenue_concept_switch"),
+    ("M19 a concept that disagrees fills a missing year (MELI ASC 606)", SE,
+     "if all(out[d] and abs(alt[d] - out[d]) <= FY_FILL_AGREE * abs(out[d]) for d in both):", "if True:",
+     "test_R2_B_a_fill_from_a_concept_that_disagrees"),
+    ("M20 health-insurer peers count securities as cash", PE,
+     "cash_excludes_securities=securities_are_operating(sym))", "cash_excludes_securities=False)",
+     "test_R2_F"),
+    ("M21 foreign-domiciled 10-K filers left out of the share group", PE,
+     "foreign = {t: resolve_cik(t)[0] for t in dc.foreign_members(universe.rows, industry)}", "foreign = {}",
+     "test_R2_C"),
+    ("M22 a concept with no frame that year fails the whole year", DC,
+     "            if getattr(r, \"status_code\", 200) == 404:\n                continue                        # nobody tagged this concept that year\n",
+     "", "test_R2_A_a_concept_with_no_frame"),
+    ("M23 the frames ladder back to two concepts", DC,
+     '                   "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax")', ")",
+     "test_R2_A_a_filer_tagging_only"),
+    ("M24 a 20-F target row has no period_end", PE,
+     'end = max(q) if isinstance(q, dict) and q else getattr(f, "fiscal_year", None)',
+     "end = max(q) if isinstance(q, dict) and q else None", "test_R2_D_a_foreign_target"),
 ]
 PP1 = ("M13 the panel nudges the Price pillar", FU,
        "        val.peer_panel, val.moat_trend = peers.panel_and_moat(ff, val, block, universe, today)\n",
