@@ -24,6 +24,12 @@ WANT = {
     "LLY": REV + OP + PRE + INT,
     "BJ": REV + LEASE,
     "DG": REV + LEASE,
+    # verifier fixtures (verify/reference.py)
+    "OPCH": REV,
+    "TGT": REV + ["Assets", "CashAndCashEquivalentsAtCarryingValue",
+                  "CashCashEquivalentsAndShortTermInvestments"],
+    "NVDA": REV + ["Assets", "CashAndCashEquivalentsAtCarryingValue", "DebtSecuritiesCurrent",
+                   "MarketableSecuritiesCurrent", "ShortTermInvestments"],
 }
 
 if __name__ == "__main__":

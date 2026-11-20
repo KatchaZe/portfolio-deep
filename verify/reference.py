@@ -3,15 +3,24 @@
 Computed from raw SEC companyfacts only. Imports nothing from the app.
 Point in time: Company(cf, as_of) sees only facts with filed <= as_of, and for a
 period reported more than once it takes the latest filing visible at as_of.
+Only facts from periodic reports count (10-K, 10-Q, their amendments and transition
+reports, 20-F, 40-F): a DEF 14A pay-versus-performance table tags net income with the
+sign flipped (INGN FY2025) or in thousands (AVAH, CHE).
 
 Concept choices (mine, not the app's):
-  revenue      per period, the value of the LATEST filing among
+  revenue      ONE concept: the one the newest fiscal year takes when, per period, the
+               value of the LATEST filing wins among
                RevenueFromContractWithCustomerExcludingAssessedTax, Revenues, SalesRevenueNet,
-               RevenueFromContractWithCustomerIncludingAssessedTax (ifrs-full: Revenue); within
-               that filing the largest. Largest alone took a stale pre-restatement year (SNPS)
-               and a mis-tagged one (ASTS FY2024, live 2026-11-17). Every metric is also
-               computed on each concept alone (by_concept), so a difference that is only the
-               app's concept choice is named as such.
+               RevenueFromContractWithCustomerIncludingAssessedTax (ifrs-full: Revenue), within
+               that filing the largest. Its own periods are used; another concept fills only a
+               period it lacks. Per-period switching read OPCH FY2025 from the ASC 606 concept
+               and FY2022 from the larger Revenues line in the same 10-K. Largest alone took a
+               stale pre-restatement year (SNPS) and a mis-tagged one (ASTS FY2024, live
+               2026-11-17). Every metric is also computed on each concept alone (by_concept),
+               so a difference that is only the app's concept choice is named as such.
+  TTM          four contiguous quarters; when they disagree with FY + YTD - prior YTD, the
+               latter (the newest 10-Q's own year to date): INGN's standalone Q1/Q2 were
+               never re-filed after its Q3 10-Q restated them.
   gross profit GrossProfit for the exact FY period; else revenue - cost of revenue
                (CostOfRevenue, CostOfGoodsAndServicesSold, CostOfGoodsSold; ifrs CostOfSales)
                for the same period; else None with a flag. Never an older year.
@@ -25,10 +34,15 @@ Concept choices (mine, not the app's):
   debt         DebtLongtermAndShorttermCombinedAmount; else LongTermDebt + short-term
                (ShortTermBorrowings, CommercialPaper); else noncurrent + current legs; else
                LongTermNotesAndLoans + NotesPayableCurrent. Plus finance lease liabilities.
-  leases       OperatingLeaseLiability, else Noncurrent + Current.
+  leases       OperatingLeaseLiability, else Noncurrent + Current, at the balance-sheet date;
+               a date that has the noncurrent leg alone while the filer tags a current leg on
+               other dates is incomplete, and the newest complete date within a year is used.
+  balance date the newest Assets date on or before the TTM end (a cash concept's newest
+               date took TGT 2017, BIIB 2019, GILD 2022 once they stopped tagging it).
   cash         CashCashEquivalentsAndShortTermInvestments, else
                CashAndCashEquivalentsAtCarryingValue + ShortTermInvestments (else current
-               available-for-sale debt securities, else current marketable securities). Managed care
+               available-for-sale debt securities, else current marketable securities, else
+               DebtSecuritiesCurrent, NVDA's line since 2025). Managed care
                (MANAGED_CARE): cash and equivalents only (user rule 2026-10-18).
   minority     MinorityInterest at the balance-sheet date, else 0.
 Ratios are fractions (0.25 = 25%). Money is in the filer's reporting currency.
@@ -55,6 +69,7 @@ SHARES = ["WeightedAverageNumberOfDilutedSharesOutstanding"]
 FY_DAYS = (350, 380)
 Q_DAYS = (80, 100)
 YTD9_DAYS = (260, 290)
+TTM_AGREE = 0.001           # 4Q and FY + YTD within 0.1% are the same figure (NVDA: $1M rounding)
 TTM_DAYS = (355, 380)
 YEAR_TOL_DAYS = 20          # 52/53-week filers move their year end by a few days
 MONEY_METRICS = ("revenue_ttm",)
@@ -91,6 +106,18 @@ def frame_cy(start, end):
     return (D(end) - dt.timedelta(days=180)).year
 
 
+def periodic_form(form, foreign=False):
+    """10-K, 10-Q, 20-F, 40-F, their /A amendments, and the 10-KT/10-QT transition reports;
+    for a foreign private issuer also 6-K, which carries its annual and interim reports
+    (NVO's FY2015-2018 are filed only there). A fact with no form is a hand-built test
+    fact and is kept."""
+    if form is None:
+        return True
+    base, _, amend = form.partition("/")
+    bases = ("10-K", "10-Q", "10-KT", "10-QT", "20-F", "40-F") + (("6-K",) if foreign else ())
+    return base in bases and amend in ("", "A") and not (amend and base in ("10-KT", "10-QT"))
+
+
 class Company:
     def __init__(self, companyfacts, as_of=None):
         self.cf = companyfacts
@@ -98,6 +125,9 @@ class Company:
         facts = companyfacts.get("facts") or {}
         self.taxonomy = "us-gaap" if "us-gaap" in facts else ("ifrs-full" if "ifrs-full" in facts else None)
         self.node = facts.get(self.taxonomy) or {}
+        self.foreign = any(str(e.get("form", "")).split("/")[0] in ("20-F", "40-F")
+                           for n in self.node.values() for u in (n.get("units") or {}).values()
+                           for e in u)
         self.currency = self._currency()
         self.flags = []
 
@@ -113,6 +143,8 @@ class Company:
         out = []
         for e in ((self.node.get(concept) or {}).get("units") or {}).get(unit, []):
             if self.as_of and e.get("filed", "9999") > self.as_of:
+                continue
+            if not periodic_form(e.get("form"), self.foreign):
                 continue
             f = dict(e)
             f["concept"] = concept
@@ -209,16 +241,42 @@ def ttm(durs):
     if not last_q:
         return None
     four = sorted(qs.values(), key=lambda x: x["end"])[-4:]
+    ytd = _fy_plus_ytd(durs, ann, last_fy, last_q)
     if len(four) < 4 or not _contiguous(four):
         return {"start": None, "end": last_q, "val": None, "parts": [],
-                "basis": "gap", "ends": [x["end"] for x in four]}
+                       "basis": "gap", "ends": [x["end"] for x in four]}
     days = span_days(four[0]["start"], four[-1]["end"])
     if not TTM_DAYS[0] <= days <= TTM_DAYS[1]:
         return {"start": None, "end": last_q, "val": None, "parts": [], "basis": "span %d" % days}
-    return {"start": four[0]["start"], "end": four[-1]["end"],
-            "val": sum(x["val"] for x in four),
-            "parts": [p for x in four for p in x["parts"]], "basis": "4Q",
-            "quarters": [(x["start"], x["end"]) for x in four]}
+    q4 = {"start": four[0]["start"], "end": four[-1]["end"],
+          "val": sum(x["val"] for x in four),
+          "parts": [p for x in four for p in x["parts"]], "basis": "4Q",
+          "quarters": [(x["start"], x["end"]) for x in four]}
+    if (ytd and (ytd["start"], ytd["end"]) == (q4["start"], q4["end"])
+            and abs(ytd["val"] - q4["val"]) > TTM_AGREE * max(abs(q4["val"]), 1)):
+        return dict(ytd, basis="FY+YTD (4Q %s disagrees)" % q4["val"])
+    return q4
+
+
+def _fy_plus_ytd(durs, ann, last_fy, last_q):
+    """FY + the year to date ending last_q - the same year to date a year earlier, or None."""
+    if not last_fy or not last_q or last_q <= last_fy:
+        return None
+    fy = ann[last_fy]
+    cur = [f for (s, e), f in durs.items() if e == last_q and 0 < (D(s) - D(last_fy)).days <= 8]
+    if not cur:
+        return None
+    c = cur[0]
+    n = span_days(c["start"], c["end"])
+    prior = [f for (s, e), f in durs.items()
+             if abs(span_days(s, e) - n) <= 10 and abs((D(s) - D(fy["start"])).days) <= 8
+             and abs((D(c["end"]) - D(e)).days - 365) <= 10]
+    if not prior:
+        return None
+    p = prior[0]
+    start = (D(p["end"]) + dt.timedelta(days=1)).isoformat()
+    return {"start": start, "end": last_q, "val": fy["val"] + c["val"] - p["val"],
+            "parts": [fy, c, p], "basis": "FY+YTD"}
 
 
 def fy_near(ann, target_date):
@@ -282,10 +340,15 @@ def _balance(co, bs_date, cash_only=False):
     leases = None
     lease_dates = sorted((d for d in co.instants("OperatingLeaseLiabilityNoncurrent")
                           if d <= bs_date and (D(bs_date) - D(d)).days <= 370), reverse=True)
-    for d in [bs_date] + lease_dates:
+    tags_current = bool(co.instants("OperatingLeaseLiabilityCurrent"))
+    total_dates = sorted((d for d in co.instants("OperatingLeaseLiability")
+                          if d <= bs_date and (D(bs_date) - D(d)).days <= 370), reverse=True)
+    for d in [bs_date] + sorted(set(lease_dates + total_dates), reverse=True):
         leases = at("OperatingLeaseLiability", d)
         if leases is None:
             non, cur = at("OperatingLeaseLiabilityNoncurrent", d), at("OperatingLeaseLiabilityCurrent", d)
+            if non is not None and cur is None and tags_current:
+                continue
             leases = (non or 0) + (cur or 0) if non is not None else None
         if leases is not None:
             if d != bs_date:
@@ -296,8 +359,10 @@ def _balance(co, bs_date, cash_only=False):
         cash = at("CashAndCashEquivalentsAtCarryingValue")
     elif cash is None:
         c = at("CashAndCashEquivalentsAtCarryingValue")
+        if c is None:                      # BIIB, GILD tag only the restricted-inclusive line
+            c = at("CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents")
         sti = first("ShortTermInvestments", "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
-                    "MarketableSecuritiesCurrent")
+                    "MarketableSecuritiesCurrent", "DebtSecuritiesCurrent")
         cash = c + (sti or 0) if c is not None else None
     return debt, leases, cash, used
 
@@ -339,6 +404,10 @@ def company_reference(companyfacts, as_of=None, price=None, symbol=None):
         r["excluded"] = "not us-gaap/USD (%s, %s)" % (co.taxonomy, co.currency)
     tx = co.taxonomy if co.taxonomy in REV else "us-gaap"
     rev = co.durations(REV[tx], pick="latest")
+    rev_a0 = annuals(rev)
+    if rev_a0:
+        lead = rev_a0[max(rev_a0)]["concept"]
+        rev = co.durations([lead] + [c for c in REV[tx] if c != lead])
     oi = co.durations(OI[tx])
     newest_rev = max((e for (_s, e) in rev), default=None)
     newest_oi = max((e for (_s, e) in oi), default=None)
@@ -420,8 +489,8 @@ def company_reference(companyfacts, as_of=None, price=None, symbol=None):
         used("shares_diluted", sh[k])
     else:
         r["shares_diluted"] = None
-    cash_dates = set(co.instants("CashAndCashEquivalentsAtCarryingValue"))
-    bs = max((d for d in cash_dates if not r["period_end"] or d <= r["period_end"]), default=None)
+    bs_dates = set(co.instants("Assets")) or set(co.instants("CashAndCashEquivalentsAtCarryingValue"))
+    bs = max((d for d in bs_dates if not r["period_end"] or d <= r["period_end"]), default=None)
     debt = leases = cash = None
     if bs:
         debt, leases, cash, bused = _balance(co, bs, cash_only=str(symbol or "").upper() in MANAGED_CARE)

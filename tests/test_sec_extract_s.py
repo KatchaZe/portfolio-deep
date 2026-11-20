@@ -9,6 +9,7 @@ import unittest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from sources import sec_edgar as S  # noqa: E402
+from verify import reference as R  # noqa: E402
 
 FIX = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "sec_s")
 
@@ -75,6 +76,39 @@ class SecExtractS(unittest.TestCase):
         d = extract("DG")
         self.assertEqual(d["operating_leases"], 9630280000 + 1572005000)
         self.assertEqual(d["operating_leases_prior"], 9820261000 + 1502571000)  # 2025-08-01
+
+
+
+def reference(t):
+    with open(os.path.join(FIX, t + ".json")) as fh:
+        return R.company_reference(json.load(fh), symbol=t)
+
+
+class Reference(unittest.TestCase):
+    """verify/reference.py, the independent verifier, on the same trimmed facts."""
+
+    def test_S1_reference_ignores_the_proxy_statement(self):
+        self.assertEqual(reference("INGN")["net_income_ttm"], -22747000 - 28329000 + 15620000)
+
+    def test_reference_ttm_follows_the_latest_ytd_when_quarters_disagree(self):
+        # INGN's Q3 10-Q: 9M2026 233.122M; its standalone Q1 + Q2 were never re-filed
+        self.assertEqual(reference("INGN")["revenue_ttm"], 348668000 + 233122000 - 226732000)
+
+    def test_reference_revenue_stays_on_one_concept_across_years(self):
+        # OPCH's FY2025 10-K files FY2022 at 3,869.0M (ASC 606) and 3,944.7M (Revenues)
+        r = reference("OPCH")
+        self.assertEqual(r["revenue_fy3"], 3869036000)
+        self.assertAlmostEqual(r["cagr3_fy"], (5649519000 / 3869036000) ** (1 / 3) - 1, places=12)
+
+    def test_reference_balance_sheet_is_the_newest_one(self):
+        # TGT stopped tagging CashAndCashEquivalentsAtCarryingValue in 2017
+        r = reference("TGT")
+        self.assertEqual(r["balance_date"], "2026-08-01")
+        self.assertEqual(r["cash"], 5411000000)
+
+    def test_reference_cash_includes_current_debt_securities(self):
+        # NVDA 2026-07-26: cash 22,443M + DebtSecuritiesCurrent 34,143M
+        self.assertEqual(reference("NVDA")["cash"], 22443000000 + 34143000000)
 
 
 if __name__ == "__main__":
