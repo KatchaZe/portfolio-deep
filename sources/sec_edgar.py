@@ -85,6 +85,29 @@ def _units(node, prefer):
     return None, None
 
 
+# Financial statements come only from periodic reports. Companyfacts also carries facts
+# from proxy statements, registration statements and 8-Ks; a DEF 14A pay-versus-
+# performance table tags NetIncomeLoss with the sign flipped (INGN FY2025: +22.7M
+# against the 10-K's -22.7M) and, filed later, won the latest-filing tie-break.
+PERIODIC_FORMS = frozenset(("10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-QT",
+                            "20-F", "20-F/A", "40-F", "40-F/A"))
+# A foreign private issuer (one that files 20-F or 40-F) publishes its annual and interim
+# statements on 6-K as well: NVO's FY2015-2018 revenue and EBIT exist only there.
+FOREIGN_FORMS = frozenset(("20-F", "20-F/A", "40-F", "40-F/A"))
+FOREIGN_INTERIM_FORMS = frozenset(("6-K", "6-K/A"))
+
+
+def _periodic(e, foreign=False):
+    """A fact from a periodic report. A fact with no form is a hand-built test fact."""
+    f = e.get("form")
+    return f is None or f in PERIODIC_FORMS or (foreign and f in FOREIGN_INTERIM_FORMS)
+
+
+def _forms(ns):
+    return {e.get("form") for node in ns.values() for arr in (node.get("units") or {}).values()
+            for e in arr}
+
+
 TTM_GAP_DAYS = (80, 100)   # same rule as pipeline/quarterly.GAP_DAYS (sources/ must not import pipeline/)
 
 
@@ -93,8 +116,10 @@ class _Xbrl:
 
     What "annual", "quarter" and "instant" mean is defined here once, for every field."""
 
-    def __init__(self, facts):
+    def __init__(self, facts, periodic_only=True):
         self.ns = facts.get("us-gaap") or facts.get("ifrs-full") or {}
+        self.periodic_only = periodic_only
+        self.foreign = bool(_forms(self.ns) & FOREIGN_FORMS)
         self.standard = ("us-gaap" if facts.get("us-gaap") else
                          "ifrs" if facts.get("ifrs-full") else None)
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
@@ -106,7 +131,7 @@ class _Xbrl:
             return []
         best = {}
         for x in u:
-            if not x.get("end"):
+            if not x.get("end") or (self.periodic_only and not _periodic(x, self.foreign)):
                 continue
             k = (x.get("start"), x["end"])
             if k not in best or x.get("filed", "") > best[k].get("filed", ""):
@@ -970,14 +995,37 @@ def _series(x, concept, name):
             name + "_quarters": x.quarters(concept)}
 
 
+def _nonperiodic_forms(x):
+    return sorted(f for f in _forms(x.ns) if not _periodic({"form": f}, x.foreign))
+
+
 def extract(companyfacts, splits=None, cash_excludes_securities=False):
     """Return a dict of SEC-derived financial values (in reported currency).
 
     `splits`: [(ex-date, ratio)] from the market (Yahoo), oldest first; per-share
     history is then restated by filing date (see _split_adjust_dated).
     `cash_excludes_securities`: for firms whose short-term investments back their
-    liabilities (health insurers' claim reserves), cash is cash and equivalents only."""
-    x = _Xbrl(companyfacts.get("facts", companyfacts))
+    liabilities (health insurers' claim reserves), cash is cash and equivalents only.
+
+    Only periodic-report facts are read (PERIODIC_FORMS). When the ignored facts would
+    have changed a value, a DATA note names the fields: the file is read a second time
+    with them, so the note is exact rather than a guess from the facts' periods."""
+    facts = companyfacts.get("facts", companyfacts)
+    x = _Xbrl(facts)
+    out = _extract(x, splits, cash_excludes_securities)
+    forms = _nonperiodic_forms(x)
+    if forms:
+        unfiltered = _extract(_Xbrl(facts, periodic_only=False), splits, cash_excludes_securities)
+        changed = sorted(k for k in set(out) | set(unfiltered)
+                         if k != "xbrl_flags" and out.get(k) != unfiltered.get(k))
+        if changed:
+            out["xbrl_flags"].append(
+                "DATA[info] SEC facts from non-periodic filings (%s) ignored; they would have "
+                "changed %s" % (", ".join(forms), ", ".join(changed)))
+    return out
+
+
+def _extract(x, splits, cash_excludes_securities):
 
     rev, rev_concept, rev_alts = _pick(x, REV)
     rev, rev_concept, rev_alts = _prefer_top_line(x, rev, rev_concept, rev_alts)
