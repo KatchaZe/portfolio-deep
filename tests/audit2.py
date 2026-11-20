@@ -205,6 +205,63 @@ for g, lbl in ((0.0, "measured zero growth"), (None, "growth not available")):
     used = (v.key_metrics or {}).get("growth_pct")
     print(f"   {lbl:24s} -> growth used {used}%   FV {v.anchor_value}")
 
+# ---------------------------------------------------------------- A11  [E30]
+hdr("A11", "every SEC value comes from a periodic report (10-K/10-Q/20-F/40-F, 6-K for 20-F filers)")
+import glob as _glob                               # noqa: E402
+import json as _json                               # noqa: E402
+from sources import sec_edgar as _sec              # noqa: E402
+
+# the guard's own list, not the extract's: a guard reading sec_edgar's constant would
+# go blind together with it
+_ALLOWED = {"10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-QT", "20-F", "20-F/A", "40-F", "40-F/A"}
+_FIXTURES = sorted(_glob.glob(os.path.join(APP, "tests", "fixtures", "*", "sec_companyfacts.json"))
+                   + _glob.glob(os.path.join(APP, "tests", "fixtures", "sec_s", "*.json")))
+
+
+def _leaks():
+    """[(fixture, concept, form)] for facts of a non-periodic form that extract read."""
+    seen = []
+    real = _sec._Xbrl.entries
+
+    def spy(self, concept, prefer=_sec.USD):
+        out = real(self, concept, prefer)
+        if not self.periodic_only:          # the DATA note's comparison read, never stored
+            return out
+        foreign = any(str(e.get("form")).startswith(("20-F", "40-F"))
+                      for n in self.ns.values() for a in n.get("units", {}).values() for e in a)
+        ok = _ALLOWED | ({"6-K", "6-K/A"} if foreign else set())
+        seen.extend((concept, e.get("form")) for e in out if e.get("form") not in ok)
+        return out
+    _sec._Xbrl.entries = spy
+    leaks = []
+    try:
+        for f in _FIXTURES:
+            del seen[:]
+            with open(f) as fh:
+                _sec.extract(_json.load(fh))
+            leaks.extend((os.path.relpath(f, APP),) + x for x in sorted(set(seen)))
+    finally:
+        _sec._Xbrl.entries = real
+    return leaks
+
+
+_found = _leaks()
+print(f"  {len(_FIXTURES)} companyfacts fixtures extracted, {len(_found)} non-periodic facts read")
+for x in _found[:5]:
+    print("   ", x)
+if _found:
+    flag("HIGH", f"extract read facts from non-periodic forms: {_found[:3]}")
+# self-test: with the form filter removed, INGN's DEF 14A must reach extract
+_real_periodic = _sec._periodic
+_sec._periodic = lambda e, foreign=False: True
+try:
+    _mutant = _leaks()
+finally:
+    _sec._periodic = _real_periodic
+print(f"  mutation (form filter removed): {len(_mutant)} non-periodic facts read")
+if not any(f == "DEF 14A" for _, _, f in _mutant):
+    flag("HIGH", "A11 cannot fire: removing the form filter let no DEF 14A fact through")
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:

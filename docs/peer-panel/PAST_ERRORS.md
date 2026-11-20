@@ -34,9 +34,17 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E27 | Industry frames on two of the revenue concepts; one missing concept would have failed a whole year | Four concepts, 404 skipped, old cache refreshed (test_R2_A_*; mutants M22, M23) |
 | E28 | Target row without period_end for 20-F filers; a missing target row with a generic flag (TSM, NVO, ASML, SPCX) | fiscal_year fallback and the reason in the flag (test_R2_D_*; mutant M24) |
 | E29 | Verifier rules drifting from SPEC resolutions (ordinal ranks, S3/S4 in pp, net debt backed out of multiples, largest-concept revenue taking stale or mis-tagged years) | verify/ implements R2, R5, R8, R9, R14 and latest-filing revenue (test_R2_H_*) |
+| E30 | A proxy statement's fact replaced the 10-K's: companyfacts keeps DEF 14A pay-versus-performance net income (sign flipped for INGN, in thousands for AVAH and CHE) and latest-filed won (S1, 2026-11-21) | sec_edgar.PERIODIC_FORMS (6-K only for 20-F/40-F filers) with a DATA[info] note naming the fields; test_S1_*; tests/audit2.py A11 spies every fact extract reads, with a mutation self-test |
+| E31 | A concept the filer stopped tagging still won the pick: OperatingIncomeLoss last filed 2021 (ASTS), 2015 (KLAC, JNJ), 2022 (EHC, BIIB), 2020 (ACHC) (S2) | _Clock: a concept more than 200 days behind the newest revenue period, and not on the latest fiscal year end, is not current; flag names it; test_S2_* |
+| E32 | EBIT that is not GAAP + the stored add-back on the verifier (ACHC, BIIB, JNJ, DDS, EHC, AIR) had no cause of its own: each is E31 or E33 (S3) | test_S3_dds_*; tools/sec_cache_xcheck.py op_margin rows |
+| E33 | The EBIT fallback added the first interest concept with any data, InterestExpense, which most filers stopped tagging in 2024 (LLY, KLAC, AIR, DDS) (S4) | newest current interest concept for the TTM, older names fill history only; test_S4_* |
+| E34 | A lease total filed on another date beat this balance sheet's legs: BJ's 93.6M footnote total, DG/CPNG/EBAY/DLTR 10-K totals nine months old (S5) | sec_edgar._leases reads one complete date (total, or noncurrent + current on it); test_S5_* |
+| E35 | Verifier defects that read as app defects: balance sheet dated by a cash concept the filer stopped tagging (TGT 2017, BIIB 2019, GILD 2022), DebtSecuritiesCurrent not counted (NVDA), revenue concept switched per year (OPCH cagr3, false mixing alarm), four quarters never re-filed after a restatement (INGN), proxy-statement facts read | verify/reference.py rules written apart from the app; tests Reference.* in tests/test_sec_extract_s.py |
 
-Open, outside this feature (scored EBIT path, not changed in this round; the verifier now reports it):
-sec_edgar._pick accepts a stale OperatingIncomeLoss (ASTS: last filed for 2021-03-31, TTM -2.4M)
-instead of the pretax + interest fallback, and _derived_ebit takes the first interest concept with
-any data however old (LLY: InterestExpense ends 2024-03-31, InterestExpenseNonoperating is current).
-
+The stale OperatingIncomeLoss and interest concepts recorded here as open on 2026-11-17 are
+E31 and E33. Still open (not changed in this round): ACHC tags interest only as
+InterestIncomeExpenseNet, outside INT_EXP, so its fallback EBIT is pretax alone; LLY files
+InterestExpenseNonoperating only in the 10-K, so its TTM EBIT adds the FY2025 interest;
+the app's and the reference's debt ladders disagree on 36 of 183 cached filers; debt and
+cash come from different balance-sheet dates for AHCO, COCO, GM, GRDN, KTOS (one concept
+tagged only annually).
