@@ -830,15 +830,54 @@ FIELD_LADDERS = {
 # --------------------------------------------------------------------------- #
 #  Headline income-statement lines                                             #
 # --------------------------------------------------------------------------- #
-def _pick(x, concepts):
+# A concept whose newest period ends more than CURRENT_DAYS before the newest revenue
+# period is no longer being filed: ASTS last tagged OperatingIncomeLoss for 2021-03-31
+# and its TTM read -2.4M, KLAC's for 2015-03-31 read a 4.4% margin against ~44%. A
+# concept filed only in the 10-K is current when its newest period is the latest
+# fiscal year end (LLY's InterestExpenseNonoperating).
+CURRENT_DAYS = 200
+
+
+class _Clock:
+    """The newest revenue period and the latest revenue fiscal-year end."""
+
+    def __init__(self, ref_end, fy_end):
+        self.ref_end, self.fy_end = ref_end, fy_end
+
+    def current(self, x, concept):
+        le = x.latest_end(concept)
+        if not le or not self.ref_end:
+            return bool(le)
+        return (_days(le, self.ref_end) <= CURRENT_DAYS
+                or bool(self.fy_end and abs(_days(le, self.fy_end)) <= 7))
+
+
+def _newest_current(x, concepts, clock):
+    """The current concepts, newest period first, ladder order on ties."""
+    live = [(x.latest_end(c), -i, c) for i, c in enumerate(concepts) if clock.current(x, c)]
+    return [c for _, _, c in sorted(live, reverse=True)]
+
+
+def _stale_note(x, field, concepts, chosen, clock, instead):
+    """The flag for a concept the clock rejected that would otherwise have been read."""
+    old = [c for c in concepts if x.latest_end(c) and not clock.current(x, c)
+           and (chosen is None or x.latest_end(c) > (x.latest_end(chosen) or ""))]
+    return ["%s: %s last filed for %s, revenue for %s - not current, %s"
+            % (field, c, x.latest_end(c), clock.ref_end, instead) for c in old]
+
+
+def _pick(x, concepts, clock=None):
     """(value, concept, same-period alternatives that disagree by >5%).
 
     The concept with the FRESHEST data wins (AVGO moved net income from NetIncomeLoss
     to ProfitLoss), then LIST ORDER. Not the larger |TTM|: a filer tagging both
     `Revenues` and the ASC 606 core concept would get the broader number, which can
-    carry other income, deflate every margin and make the reverse DCF too kind."""
+    carry other income, deflate every margin and make the reverse DCF too kind.
+    With a clock, a concept that is not current is never picked."""
     best = None                      # ((end, -list_index), value, concept)
     for i, c in enumerate(concepts):
+        if clock and not clock.current(x, c):
+            continue
         le, v = x.latest_end(c), x.ttm(c)
         if le and v is not None:
             key = (le, -i)
@@ -876,16 +915,22 @@ def _conflicts(*picked):
             if alts and base for alt, av in alts]
 
 
-def _derived_ebit(x):
-    """EBIT = pretax income + interest expense, for filers with no OP concept.
+def _ebit_concepts(x, clock):
+    """(pretax concept, interest concept) for EBIT = pretax + interest: the newest
+    current pretax concept (DDS's first ladder entry stopped at 2025-11-01)."""
+    pre = _newest_current(x, PRETAX, clock)
+    return (pre[0] if pre else None), next((t for t in INT_EXP if x.latest_end(t)), None)
+
+
+def _derived_ebit(x, clock):
+    """EBIT = pretax income + interest expense, for filers with no current OP concept.
 
     LLY and PFE tag no operating-income subtotal; without it the engine mistakes a very
     profitable company for a pre-profit one. Approximate (pretax carries non-operating
     items), so it is flagged via provenance."""
     out = {"operating_income": None, "operating_income_annuals": [],
            "operating_income_annuals_dated": [], "operating_income_quarters": {}}
-    pre_c = next((t for t in PRETAX if x.latest_end(t)), None)
-    int_c = next((t for t in INT_EXP if x.latest_end(t)), None)
+    pre_c, int_c = _ebit_concepts(x, clock)
     if pre_c:
         p_ttm = x.ttm(pre_c)
         if p_ttm is not None:
@@ -970,7 +1015,7 @@ def _first_fy(x, ladder, at):
     return []
 
 
-def panel_fy_series(x, rev_concept, op_concept, at):
+def panel_fy_series(x, rev_concept, op_concept, at, clock):
     """The peer panel's fiscal-year series, one value per year-end DATE: revenue merged
     across the revenue ladder (_merged_fy), gross profit and cost of revenue from their
     first live tag, operating income from the chosen concept or pretax + interest
@@ -978,8 +1023,7 @@ def panel_fy_series(x, rev_concept, op_concept, at):
     if op_concept:
         oi = _dated(x.fy_series_dated(op_concept))
     else:
-        pre_c = next((t for t in PRETAX if x.latest_end(t)), None)
-        int_c = next((t for t in INT_EXP if x.latest_end(t)), None)
+        pre_c, int_c = _ebit_concepts(x, clock)
         pa = x.fy_series_dated(pre_c) if pre_c else {}
         ia = x.fy_series_dated(int_c) if int_c else {}
         oi = _dated({d: v + ia.get(d, 0) for d, v in pa.items()})
@@ -1030,9 +1074,12 @@ def _extract(x, splits, cash_excludes_securities):
     rev, rev_concept, rev_alts = _pick(x, REV)
     rev, rev_concept, rev_alts = _prefer_top_line(x, rev, rev_concept, rev_alts)
     net_income, ni_concept, ni_alts = _pick(x, NI)
-    oi, op_concept, _ = _pick(x, OP)
-    ebit = None if op_concept else _derived_ebit(x)
     revenue = _series(x, rev_concept, "revenue")
+    clock = _Clock(x.latest_end(rev_concept), (revenue["revenue_annuals_dated"] or [[None]])[0][0])
+    oi, op_concept, _ = _pick(x, OP, clock)
+    ebit = None if op_concept else _derived_ebit(x, clock)
+    stale = _stale_note(x, "operating income", OP, op_concept, clock,
+                        "used %s" % op_concept if op_concept else "EBIT = pretax + interest")
     operating = ({"operating_income": oi, **_series(x, op_concept, "operating_income"),
                   "operating_income_derived": False} if op_concept else ebit)
 
@@ -1053,12 +1100,12 @@ def _extract(x, splits, cash_excludes_securities):
         **operating,
         **{field: rule(x, ladder, at) for field, (rule, ladder) in FIELD_LADDERS.items()},
         "q4_derived_ends": sorted(x.q4_derived),
-        **panel_fy_series(x, rev_concept, op_concept, at),
+        **panel_fy_series(x, rev_concept, op_concept, at, clock),
     }
     out["xbrl_flags"] = _gap_flags(
         x, at, rev_concept is None and REV,
         op_concept is None and out.get("operating_income") is None and OP + PRETAX,
-        ni_concept is None and NI, out)
+        ni_concept is None and NI, out) + stale
     if cash_excludes_securities:
         cash_only = ((), CASH_TAGS, ())
         out["cash"] = _cash_and_securities(x, cash_only, at)
