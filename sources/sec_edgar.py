@@ -916,10 +916,26 @@ def _conflicts(*picked):
 
 
 def _ebit_concepts(x, clock):
-    """(pretax concept, interest concept) for EBIT = pretax + interest: the newest
-    current pretax concept (DDS's first ladder entry stopped at 2025-11-01)."""
+    """(pretax concept, TTM interest concept, interest concepts for history) for
+    EBIT = pretax + interest. Pretax and the TTM interest are the newest current
+    concepts: DDS's first pretax entry stopped at 2025-11-01, and InterestExpense, the
+    first interest entry, ends 2024-03-31 for LLY, KLAC and AIR. History reads the
+    newest concept first and fills the years before it from the older ones, which carry
+    the same line under its old name (LLY 2021 from InterestExpense)."""
     pre = _newest_current(x, PRETAX, clock)
-    return (pre[0] if pre else None), next((t for t in INT_EXP if x.latest_end(t)), None)
+    cur = _newest_current(x, INT_EXP, clock)
+    hist = cur + sorted((t for t in INT_EXP if t not in cur and x.latest_end(t)),
+                        key=x.latest_end, reverse=True)
+    return (pre[0] if pre else None), (cur[0] if cur else None), hist
+
+
+def _merged(series, concepts):
+    """{date: value} across concepts, the first concept that files a date winning."""
+    out = {}
+    for c in concepts:
+        for d, v in series(c).items():
+            out.setdefault(d, v)
+    return out
 
 
 def _derived_ebit(x, clock):
@@ -930,7 +946,7 @@ def _derived_ebit(x, clock):
     items), so it is flagged via provenance."""
     out = {"operating_income": None, "operating_income_annuals": [],
            "operating_income_annuals_dated": [], "operating_income_quarters": {}}
-    pre_c, int_c = _ebit_concepts(x, clock)
+    pre_c, int_c, int_hist = _ebit_concepts(x, clock)
     if pre_c:
         p_ttm = x.ttm(pre_c)
         if p_ttm is not None:
@@ -938,9 +954,9 @@ def _derived_ebit(x, clock):
             # a gapped interest TTM reads as 0 here; _gap_flags gates the row on it
             out["interest_ttm_gapped"] = bool(int_c and x.ttm_gapped(int_c))
         pa = dict(x.annual_series_dated(pre_c))
-        ia = dict(x.annual_series_dated(int_c)) if int_c else {}
+        ia = _merged(lambda c: dict(x.annual_series_dated(c)), int_hist)
         dated = [[d, pa[d] + ia.get(d, 0)] for d in sorted(pa, reverse=True)]
-        iq = x.quarters(int_c) if int_c else {}
+        iq = _merged(x.quarters, int_hist)
         out["operating_income_annuals"] = [v for _, v in dated]
         out["operating_income_annuals_dated"] = dated
         out["operating_income_quarters"] = {d: v + iq.get(d, 0)
@@ -1023,9 +1039,9 @@ def panel_fy_series(x, rev_concept, op_concept, at, clock):
     if op_concept:
         oi = _dated(x.fy_series_dated(op_concept))
     else:
-        pre_c, int_c = _ebit_concepts(x, clock)
+        pre_c, _, int_hist = _ebit_concepts(x, clock)
         pa = x.fy_series_dated(pre_c) if pre_c else {}
-        ia = x.fy_series_dated(int_c) if int_c else {}
+        ia = _merged(x.fy_series_dated, int_hist)
         oi = _dated({d: v + ia.get(d, 0) for d, v in pa.items()})
     return {"revenue_fy_dated": _merged_fy(x, rev_concept, REV),
             "gross_profit_fy_dated": _first_fy(x, GROSS_PROFIT_TAGS, at),
