@@ -461,6 +461,7 @@ class _Anchor:
         self.ref_end = ref_end        # latest revenue period end
         self.fy_ends = fy_ends        # income-statement fiscal-year ends, newest first
         self.prior_fallbacks = set()  # tags whose prior-year value is the prior FY end
+        self.notes = []               # flags raised while a field was read
 
 
 def _live_tags(x, ladder, at):
@@ -721,6 +722,51 @@ def _cash_and_securities(x, ladders, at, prior=False):
     return None
 
 
+def _leases(x, ladders, at, prior=False):
+    """Operating leases read off ONE balance-sheet date (with `prior`, the date a year
+    before it): the total filed on that date, else noncurrent + current filed on it.
+
+    "Total else legs" read each from its own newest date. BJ's OperatingLeaseLiability
+    of 93.6M at 2026-07-31 is a footnote figure beside the 2,144M balance sheet of
+    2026-08-01; DG and EBAY file the total only in the 10-K, so a nine-month-old
+    total beat this quarter's legs.
+
+    A date with the noncurrent leg alone is incomplete when the filer files a current
+    leg elsewhere: BIIB's and HCA's 10-Qs leave the current part untagged (HCA 1.93B
+    noncurrent against a 2.21B total). The newest complete date is read instead, and a
+    flag says it is older than the balance sheet."""
+    window = 540 + (400 if prior else 0)
+
+    def by_end(tags):
+        out = {}
+        for tag in tags:
+            for e in x.entries(tag):
+                d, v = e.get("end"), e.get("val")
+                if (d and v is not None and not e.get("start") and d not in out
+                        and _recent(d, at.ref_end, days=window)):
+                    out[d] = v
+        return out
+
+    total, non, cur = (by_end(tags) for tags in ladders)
+    dates = sorted(set(total) | {d for d in non if d in cur or not cur}, reverse=True)
+    if prior and dates:
+        d0 = _year_before(dates, dates[0])
+        if d0 is None:
+            # no balance filed a year back: the previous fiscal year end, as _prior_year
+            fy = next((e for e in at.fy_ends if _days(e, dates[0]) > 60), None)
+            d0 = next((d for d in dates if fy and abs(_days(d, fy)) <= 7), None)
+            if d0:
+                at.prior_fallbacks.add("operating leases")
+        dates = [d0] if d0 else []
+    for d in dates:
+        newest = max(non, default=d)
+        if not prior and newest > d:
+            at.notes.append("operating leases from %s, the latest date with the current part "
+                            "filed (noncurrent alone at %s)" % (d, newest))
+        return total[d] if d in total else _sum(non.get(d), cur.get(d))
+    return None
+
+
 def _ic_components(x, ladders, at):
     """{FY_end: {"equity", "debt", "cash", "lt_source"}} at the income-statement
     year-ends, for the per-year ROIC series.
@@ -818,8 +864,9 @@ FIELD_LADDERS = {
     "deferred_revenue_prior": (_prior_year, DEFREV_TAGS),
     # Leases are debt (Damodaran); the prior year too, or a lease-heavy filer is
     # compared against its own lease-free past and reads as deteriorating.
-    "operating_leases": (_total_else_legs(_fresh), LEASE_LADDERS),
-    "operating_leases_prior": (_total_else_legs(_prior_year), LEASE_LADDERS),
+    "operating_leases": (_leases, LEASE_LADDERS),
+    "operating_leases_prior": (lambda x, ladders, at: _leases(x, ladders, at, prior=True),
+                               LEASE_LADDERS),
     "eps_annuals_dated": (_annual_dated, (EPS_DILUTED,)),
     # Noncontrolling interest at book, the latest balance sheet: a claim on the
     # consolidated firm that is not the common shareholder's (deducted like debt).
@@ -1121,7 +1168,7 @@ def _extract(x, splits, cash_excludes_securities):
     out["xbrl_flags"] = _gap_flags(
         x, at, rev_concept is None and REV,
         op_concept is None and out.get("operating_income") is None and OP + PRETAX,
-        ni_concept is None and NI, out) + stale
+        ni_concept is None and NI, out) + stale + at.notes
     if cash_excludes_securities:
         cash_only = ((), CASH_TAGS, ())
         out["cash"] = _cash_and_securities(x, cash_only, at)
