@@ -19,3 +19,4 @@ tests/ui_baseline.inputs.json
 
 # built skill zip (python -m tools.build_skill --zip)
 dist/
+_render/

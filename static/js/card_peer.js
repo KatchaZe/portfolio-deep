@@ -40,14 +40,22 @@ function ppSigBar(x,dir){
    <line x1="${mid+u}" x2="${mid+u}" y1="2" y2="20" style="stroke:var(--ctl);stroke-dasharray:3 3"/></svg>`;
 }
 
+// R26/R28: the set each signal was measured on, in words (S2 sub-group or industry, S3 SIC)
+function ppSigSet(s){
+  const c=s.comparators;
+  if(s.name==='gm_gap_change'&&c&&c.level)return `เทียบ SIC ${c.level===4?c.sic:String(c.sic).slice(0,3)+'x'} ${c.n} ราย`;
+  if(s.name==='share_change'&&s.basis==='sub_group')return `ธุรกิจเดียวกัน SIC ${s.sic} (${s.matched_n} ราย)`;
+  if(s.name==='share_change'&&s.basis==='industry')return 'ทั้งอุตสาหกรรม';
+  return '';
+}
 function ppSignals(m){
   const sigs=m.signals||[];
   const why=k=>(m.flags||[]).filter(f=>String(f).startsWith(PP_SIG[k].s+':')).map(f=>String(f).slice(4)).join('; ')||'ไม่มีข้อมูล';
   return Object.keys(PP_SIG).map(k=>{
     const s=sigs.find(z=>z.name===k),D=PP_SIG[k];
     if(!s||!ppNum(s.value))return `<div class="pp-sig"><span class="pp-name">${D.n}</span><span class="note">${esc(why(k))}</span><span class="pp-val note">—</span></div>`;
-    const dir=String(s.direction);
-    return `<div class="pp-sig" role="img" aria-label="${esc(D.n)}: ${esc(D.fmt(s.value))}, เกณฑ์ ±${D.th}${D.u}, ${PP_DIR[dir]||'ไม่ชัด'}, ช่วง ${esc(s.window||'')}"><span class="pp-name">${D.n}<br><span class="note">${esc(s.window||'')}</span></span>${ppSigBar(D.k(s.value)/D.th,s.direction)}<span class="pp-val num">${esc(D.fmt(s.value))}<br><span class="note">${PP_DIR[dir]||'ไม่ชัด'}</span></span></div>`;
+    const dir=String(s.direction), set=ppSigSet(s);
+    return `<div class="pp-sig" role="img" aria-label="${esc(D.n)}: ${esc(D.fmt(s.value))}, เกณฑ์ ±${D.th}${D.u}, ${PP_DIR[dir]||'ไม่ชัด'}, ช่วง ${esc(s.window||'')}${set?', '+esc(set):''}"><span class="pp-name">${D.n}<br><span class="note">${esc(s.window||'')}${set?' · '+esc(set):''}</span></span>${ppSigBar(D.k(s.value)/D.th,s.direction)}<span class="pp-val num">${esc(D.fmt(s.value))}<br><span class="note">${PP_DIR[dir]||'ไม่ชัด'}</span></span></div>`;
   }).join('');
 }
 
@@ -67,7 +75,7 @@ function ppRanks(p){
   if(!t||!t.rank3)return `<h3 class="pp-sub">ตำแหน่งในกลุ่มคู่แข่ง</h3><p class="note" style="margin:0">ไม่มีตารางคู่แข่ง จึงจัดอันดับไม่ได้</p>`;
   const W={1:'กลุ่มบน',2:'กลุ่มกลาง',3:'กลุ่มล่าง'}, n=p.table.rows.length, tv=p.table.target_vs_median||{};
   const cell=(k,l,extra)=>`<div><span class="cap">${l}</span><b>${W[t.rank3[k]]||'—'}</b><span class="note">${extra}</span></div>`;
-  return `<h3 class="pp-sub">ตำแหน่งในกลุ่มคู่แข่ง (${n} บริษัท รวมหุ้นนี้)</h3>
+  return `<h3 class="pp-sub">ตำแหน่งในกลุ่มคู่แข่ง (${n} บริษัท รวมหุ้นนี้ · ทั้งกลุ่ม Damodaran)</h3>
    <div class="pp-ranks">${cell('scale','ขนาด','รายได้ TTM')}${cell('growth','การเติบโต',ppNum(tv.cagr3_fy)?'โต 3 ปี '+ppSgn(tv.cagr3_fy,1)+'% จาก median':'โต 3 ปี')}${cell('margin','Margin',ppNum(tv.op_margin_ttm)?'OPM '+ppSgn(tv.op_margin_ttm,1)+'% จาก median':'OPM TTM')}</div>
    <p class="note" style="margin:0">แบ่ง 3 กลุ่มเท่า ๆ กันตามลำดับ (บน = ดีที่สุดหนึ่งในสาม)</p>`;
 }
@@ -75,7 +83,10 @@ function ppRanks(p){
 function ppLead(x){
   const m=x.moat_trend||{}, p=x.peer_panel||{}, [w,a,tok]=ppLab(m.label), sigs=m.signals||[];
   const ups=sigs.filter(s=>s.direction>0).length, dns=sigs.filter(s=>s.direction<0).length;
-  const sum=m.label?`สัญญาณดีขึ้น ${ups} · แย่ลง ${dns} · ไม่ชัด ${sigs.length-ups-dns} จาก ${sigs.length} ที่มีข้อมูล (ต้องรวมได้ +2 หรือ ${PP_MINUS}2 จึงจะไม่ใช่ “ทรงตัว”)`:`มีสัญญาณ ${sigs.length} ตัว ต้องมีอย่างน้อย 2 ตัวจึงจะสรุปได้`;
+  const v=m.votes||{}, poss=ppNum(v.possible)?v.possible:4;
+  const na=(v.not_applicable||[]).length?` · S3 gross margin ไม่ใช้กับธุรกิจนี้`:'';
+  const of=` (วัดได้ ${sigs.length} จาก ${poss} ตัวที่ใช้กับธุรกิจนี้${na})`;
+  const sum=m.label?`สัญญาณดีขึ้น ${ups} · แย่ลง ${dns} · ไม่ชัด ${sigs.length-ups-dns} จาก ${sigs.length} ที่มีข้อมูล${of} (ต้องรวมได้ +2 หรือ ${PP_MINUS}2 จึงจะไม่ใช่ “ทรงตัว”)`:`มีสัญญาณ ${sigs.length} ตัว${of} ต้องมีอย่างน้อย 2 ตัวจึงจะสรุปได้`;
   const watch=(m.watch||[]).length?`<p class="note" style="margin:0"><b>ติดตามไตรมาสหน้า:</b> ${m.watch.map(esc).join(' · ')}</p>`:'';
   return `<div class="box pp-lead pp-s5"><span class="cap">แนวโน้ม moat</span>
      <div class="pp-big" style="color:color-mix(in srgb,var(${tok}) 75%,var(--ink))"><span class="pp-arrow" aria-hidden="true">${a}</span><span>${w}</span></div>
@@ -94,7 +105,7 @@ const PP_HINT={intangible:'ความได้เปรียบไม่ม�
 const PP_TREND={'1':['↗','แข็งขึ้น'],'0':['→','ทรงตัว'],'-1':['↘','อ่อนลง']};
 function ppHintTh(h){
   const ms={}; (h.measures||[]).forEach(m=>{ms[m.metric]=m;});
-  const v=k=>(ms[k]||{}).value, per=k=>esc((ms[k]||{}).period||'');
+  const v=k=>(ms[k]||{}).value, per=k=>esc((ms[k]||{}).period||'')+ppCompTxt((ms[k]||{}).comparators);
   if(h.type==='intangible'&&ppNum(v('gm_gap_pp')))return `gross margin สูงกว่า median คู่แข่ง ${v('gm_gap_pp').toFixed(0)}% (${per('gm_gap_pp')}) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา`;
   if(h.type==='scale'&&ppNum(v('industry_share')))return `${ppPct(v('industry_share'),0)} ของรายได้ทั้งอุตสาหกรรม (บริษัทที่ยื่น SEC, ${per('industry_share')}) สอดคล้องกับความได้เปรียบด้านขนาด`;
   if(h.type==='efficient_scale'&&ppNum(v('top5_share')))return `5 บริษัทใหญ่สุดมีรายได้รวม ${ppPct(v('top5_share'),0)} ของอุตสาหกรรม (${per('top5_share')}) ส่วนแบ่งของหุ้นนี้เปลี่ยน ${ppSgn(v('share_change_pp'),1)}% (${per('share_change_pp')}) ในกลุ่ม ${esc(v('n_members'))} บริษัท สอดคล้องกับตลาดที่รองรับผู้เล่นได้ไม่กี่ราย`;
@@ -103,6 +114,7 @@ function ppHintTh(h){
     .replace(/^gross margin (\d+)pp above the peer median \(FY0\): consistent with pricing power from brand or IP$/,'gross margin สูงกว่า median คู่แข่ง $1% (ปีงบล่าสุด) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา')
     .replace(/^(\d+)% of industry revenue among US SEC filers \(CY(\d+)\): consistent with a scale advantage$/,'$1% ของรายได้ทั้งอุตสาหกรรม (บริษัทที่ยื่น SEC, CY$2) สอดคล้องกับความได้เปรียบด้านขนาด'));
 }
+function ppCompTxt(c){return c&&c.level?`, เทียบ SIC ${esc(c.level===4?c.sic:String(c.sic).slice(0,3)+'x')} ${esc(c.n)} ราย`:'';}
 // R24: no hint without excess returns; the server says so in a flag and the tab says it in Thai
 const PP_NO_EXCESS='hints: no excess return';
 function ppHints(m){
@@ -143,22 +155,75 @@ function ppShare(p,wide){
       <div><span class="cap">เปลี่ยน 3 ปี</span><b>${ppNum(s.share_change_pp)?ppSgn(s.share_change_pp,2)+'%':'—'}</b><span class="note">กลุ่มเดียวกัน ${ppNum(s.matched_n)?s.matched_n:'—'} บริษัท</span></div>
       <div><span class="cap">Top-5 รวม</span><b>${ppPct(t5[last])}</b><span class="note">${ppNum(s.top5_change_pp)?ppSgn(s.top5_change_pp,1)+'% ใน 3 ปี':''}</span></div>
       <div><span class="cap">HHI</span><b>${ppNum(hhi)?hhi.toFixed(2):'—'}</b><span class="note">${!ppNum(hhi)?'':hhi>0.25?'กระจุกตัวสูง':hhi>0.15?'กระจุกตัวปานกลาง':'กระจายตัว'}</span></div></div>
-    <p class="note" style="margin:0">สัดส่วนรายได้ในบริษัทที่ยื่น SEC ในอุตสาหกรรมเดียวกัน (${esc(s.n_members)} ราย, ครอบคลุม ${cov.length?ppPct(Math.min(...cov),0)+'–'+ppPct(Math.max(...cov),0):'—'}) ไม่ใช่ market share จริง</p></div>`;
+    <p class="note" style="margin:0">สัดส่วนรายได้ในบริษัทที่ยื่น SEC ในอุตสาหกรรมเดียวกัน (${esc(s.n_members)} ราย, ครอบคลุม ${cov.length?ppPct(Math.min(...cov),0)+'–'+ppPct(Math.max(...cov),0):'—'}) ไม่ใช่ market share จริง</p>${ppSubShare(s.sub_group)}</div>`;
+}
+
+// R28: the same figures within the same-SIC sub-group, beside the industry's
+function ppSubShare(g){
+  if(!g)return '';
+  const head=g.sic?`ธุรกิจเดียวกัน (SIC ${esc(g.sic)}, ${esc(g.n_members)} ราย)`:'ธุรกิจเดียวกัน';
+  if(g.reason)return `<h3 class="pp-sub">${head}</h3><p class="pp-empty">${esc(g.reason)}</p>`;
+  const yrs=g.years||[], y=yrs[yrs.length-1], ts=(g.target_share||{})[y], t5=(g.top5_share||{})[y], hhi=(g.hhi||{})[y];
+  if(!ppNum(ts)&&!ppNum(t5))return `<h3 class="pp-sub">${head}</h3><p class="pp-empty">ไม่มีส่วนแบ่ง CY${esc(y||'')} ในกลุ่มนี้ (ข้อมูลใน SEC ไม่ถึงเกณฑ์ 70% หรือไม่พบรายได้ของหุ้นนี้) · ดูหมายเหตุข้อมูล</p>`;
+  return `<h3 class="pp-sub">${head}</h3>
+    <div class="pp-kfig">
+      <div><span class="cap">ส่วนแบ่ง CY${esc(y)}</span><b>${ppPct(ts)}</b></div>
+      <div><span class="cap">เปลี่ยน 3 ปี</span><b>${ppNum(g.share_change_pp)?ppSgn(g.share_change_pp,2)+'%':'—'}</b><span class="note">กลุ่มเดียวกัน ${ppNum(g.matched_n)?g.matched_n:'—'} บริษัท</span></div>
+      <div><span class="cap">Top-5 รวม</span><b>${ppPct(t5)}</b></div>
+      <div><span class="cap">HHI</span><b>${ppNum(hhi)?hhi.toFixed(2):'—'}</b><span class="note">${!ppNum(hhi)?'':hhi>0.25?'กระจุกตัวสูง':hhi>0.15?'กระจุกตัวปานกลาง':'กระจายตัว'}</span></div></div>
+    <p class="note" style="margin:0">เฉพาะบริษัทในอุตสาหกรรมเดียวกันที่มีรหัส SIC 4 หลักเท่ากับหุ้นนี้ (รายชื่อ Damodaran) · กฎเดียวกับทั้งอุตสาหกรรม</p>`;
 }
 
 const PP_COLS=[['symbol','บริษัท',''],['revenue_ttm','รายได้ TTM',''],['cagr3_fy','โต/ปี (3 ปี)',''],['gross_margin_fy','GM ปีงบ','pp-hsm'],['op_margin_ttm','OPM TTM',''],['ev_sales','EV/Sales',''],['ev_ebit','EV/EBIT','pp-hsm'],['pe','P/E','pp-hsm']];
 const PP_FMT={revenue_ttm:ppMoney,cagr3_fy:v=>ppPct(v),gross_margin_fy:v=>ppPct(v),op_margin_ttm:v=>ppPct(v),ev_sales:ppMult,ev_ebit:ppMult,pe:ppMult};
 const PP_SORT={};   // card id -> {k, dir}
+const PP_VIEW={};   // card id -> 'sub' (same SIC only) | 'all'
+// R25: a financial target or row has no gross margin; the cell says so in text, and the
+// guard holds even for a stored row that still carries a number
+function ppGmNa(p,r){const g=(p.table||{}).gm_compare;return !!(r.gm_na||(g&&g.applies===false));}
+function ppCell(p,r,c){
+  if(c==='gross_margin_fy'&&ppGmNa(p,r))return '—<span class="sr"> (ไม่ใช้กับธุรกิจการเงิน)</span>';
+  return PP_FMT[c](r[c]);
+}
+function ppSubRows(p){
+  const g=(p.industry_share||{}).sub_group, rows=(p.table||{}).rows||[];
+  if(!g||!g.sic||g.reason||!rows.some(r=>'same_business' in r))return null;
+  return g;
+}
+function ppViewBar(p,view){
+  const g=ppSubRows(p); if(!g)return '';
+  const b=(v,l)=>`<button type="button" data-pview="${v}" aria-pressed="${view===v}">${l}</button>`;
+  return `<div class="seg pp-view" role="group" aria-label="เลือกกลุ่มคู่แข่งที่แสดง">${b('sub',`เฉพาะธุรกิจเดียวกัน (${esc(g.n_members)} ราย)`)}${b('all','ทั้งกลุ่ม Damodaran')}</div>`;
+}
+function ppGmNote(p){
+  const g=(p.table||{}).gm_compare, n=((p.table||{}).stats||{}).op_margin_ttm;
+  const rest=`OPM, การเติบโต, EV/Sales, EV/EBIT, P/E: median ทั้งกลุ่ม Damodaran${n&&ppNum(n.n)?' ('+n.n+' ราย)':''}`;
+  if(!g)return rest;
+  if(g.applies===false)return `GM: ${esc(g.reason)} · ${rest}`;
+  if(!g.level)return `GM median: ${esc(g.reason)} · ${rest}`;
+  const code=g.level===4?g.sic:String(g.sic).slice(0,3)+'x';
+  return `GM median: เทียบเฉพาะ SIC ${esc(code)} ${esc(g.n)} ราย (${(g.symbols||[]).map(esc).join(', ')})${g.level===3?' · SIC 4 หลักเดียวกันมีไม่ถึง 3 ราย จึงใช้ 3 หลัก':''} · ${rest}`;
+}
+function ppMembers(p){
+  const g=ppSubRows(p); if(!g)return '';
+  const out=(g.members||[]).filter(m=>!m.in_panel);
+  if(!out.length)return `<p class="note" style="margin:0">สมาชิกธุรกิจเดียวกันทุกรายอยู่ในตารางคู่แข่งแล้ว</p>`;
+  const tr=out.map(m=>`<tr><th scope="row">${(m.symbols||[]).map(esc).join('/')}</th><td class="num">${ppMoney(m.revenue)}</td><td class="num">${ppPct(m.share)}</td></tr>`).join('');
+  return `<div class="tw"><table class="pp-table"><caption>สมาชิกธุรกิจเดียวกันที่ไม่อยู่ในตารางคู่แข่ง ${out.length} ราย · มีเฉพาะรายได้และส่วนแบ่ง CY${esc(out[0].cy||'')} จาก SEC frames (ไม่ใช่ TTM)</caption><thead><tr><th scope="col">บริษัท</th><th scope="col">รายได้ CY${esc(out[0].cy||'')}</th><th scope="col">ส่วนแบ่งในกลุ่ม</th></tr></thead><tbody>${tr}</tbody></table></div>`;
+}
 function ppSorted(rows,k,dir){
   return [...rows].sort((a,b)=>{const x=a[k],y=b[k];
     if(k==='symbol')return dir*String(x).localeCompare(String(y));
     if(!ppNum(x))return ppNum(y)?1:0; if(!ppNum(y))return -1; return dir*(x-y);});
 }
-function ppTable(p,sort){
-  const rows=(p.table||{}).rows||[];
+function ppTable(p,sort,view){
+  view=view==='sub'?'sub':'all';
+  const all=(p.table||{}).rows||[], sub=view==='sub'&&ppSubRows(p);
+  const rows=sub?all.filter(r=>r.is_target||r.same_business):all;
   if(!rows.length){
     const fl=(p.flags||[]).join(' '), m=fl.match(/(\d+) usable peers \(need (\d+)\)/);
     const why=m?`มีคู่แข่งที่ใช้ได้ ${m[1]} ราย ต้องมีอย่างน้อย ${m[2]} ราย`:/no Damodaran industry/.test(fl)?'หุ้นนี้ไม่มีกลุ่มอุตสาหกรรมของ Damodaran':'ข้อมูลคู่แข่งยังไม่ถูกสร้างในรอบ refresh นี้';
+    if(all.length)return `<div class="box pp-s12 pp-tbl">${ppViewBar(p,view)}<p class="pp-empty">ไม่มีคู่แข่ง SIC เดียวกันในตาราง</p>${ppMembers(p)}</div>`;
     return `<div class="pp-s12 pp-tbl"><p class="pp-empty"><b>ยังไม่มีตารางคู่แข่ง:</b> ${esc(why)}${/no peer list from FMP/.test(fl)?' (รอบนี้ไม่ได้รายชื่อคู่แข่งจาก FMP)':''} · ดูรายละเอียดในหมายเหตุข้อมูล</p></div>`;
   }
   const st=p.table.stats||{}, k=(sort||{}).k||'revenue_ttm', dir=(sort||{}).dir||-1;
@@ -166,10 +231,13 @@ function ppTable(p,sort){
   const out=r=>r.outlier||[];
   const tr=ppSorted(rows,k,dir).map(r=>`<tr class="${r.is_target?'pp-target':''}">${PP_COLS.map(([c,l,cls],i)=>i===0
       ?`<th scope="row">${esc(r.symbol)}${r.is_target?' <span class="note">(หุ้นนี้)</span>':''}</th>`
-      :`<td class="num ${cls}${out(r).includes(c)?' pp-out':''}">${PP_FMT[c](r[c])}${out(r).includes(c)?'<span aria-hidden="true">*</span><span class="sr"> (นอกกรอบ)</span>':''}</td>`).join('')}</tr>`).join('');
-  const med=PP_COLS.map(([c,l,cls],i)=>i===0?'<th scope="row">median คู่แข่ง</th>':`<td class="num ${cls}">${st[c]?PP_FMT[c](st[c].median):'—'}</td>`).join('');
-  return `<div class="box pp-s12 pp-tbl"><div class="tw"><table class="pp-table"><caption>ตารางคู่แข่ง · กดหัวคอลัมน์เพื่อเรียง</caption><thead><tr>${th}</tr></thead><tbody>${tr}</tbody><tfoot><tr>${med}</tr></tfoot></table></div>
-   <p class="note" style="margin:0">* นอกกรอบ IQR 1.5 เท่า · median ไม่รวมหุ้นนี้ · OPM ใช้ EBIT หลังบวกกลับรายการครั้งเดียว · บนมือถือซ่อน GM, EV/EBIT, P/E</p></div>`;
+      :`<td class="num ${cls}${out(r).includes(c)?' pp-out':''}" data-col="${c}">${ppCell(p,r,c)}${out(r).includes(c)?'<span aria-hidden="true">*</span><span class="sr"> (นอกกรอบ)</span>':''}</td>`).join('')}</tr>`).join('');
+  const gna=((p.table||{}).gm_compare||{}).applies===false;
+  const med=PP_COLS.map(([c,l,cls],i)=>i===0?'<th scope="row">median คู่แข่ง</th>':`<td class="num ${cls}" data-col="${c}">${st[c]&&!(c==='gross_margin_fy'&&gna)?PP_FMT[c](st[c].median):'—'}</td>`).join('');
+  const shown=sub?` · แสดง ${rows.length} จาก ${all.length} แถว (SIC ${esc(sub.sic)} เท่านั้น; median ยังเป็นของทั้งกลุ่ม)`:'';
+  return `<div class="box pp-s12 pp-tbl">${ppViewBar(p,view)}<div class="tw"><table class="pp-table"><caption>ตารางคู่แข่ง · กดหัวคอลัมน์เพื่อเรียง${shown}</caption><thead><tr>${th}</tr></thead><tbody>${tr}</tbody><tfoot><tr>${med}</tr></tfoot></table></div>
+   <p class="note" style="margin:0">* นอกกรอบ IQR 1.5 เท่า · median ไม่รวมหุ้นนี้ · OPM ใช้ EBIT หลังบวกกลับรายการครั้งเดียว · บนมือถือซ่อน GM, EV/EBIT, P/E</p>
+   <p class="note" style="margin:0">${ppGmNote(p)}</p>${sub?ppMembers(p):''}</div>`;
 }
 
 function ppNotes(p,m){
@@ -183,7 +251,7 @@ function ppNotes(p,m){
 function peerPane(x,id){
   x=x||{};
   const p=x.peer_panel||{}, m=x.moat_trend||{}, hb=ppHints(m);
-  return `<div class="pp-grid" data-ppcard="${esc(id||'')}">${ppLead(x)}${ppShare(p,!hb)}${hb?`<div class="box pp-s5">${hb}</div>`:''}${ppTable(p,PP_SORT[id])}
+  return `<div class="pp-grid" data-ppcard="${esc(id||'')}">${ppLead(x)}${ppShare(p,!hb)}${hb?`<div class="box pp-s5">${hb}</div>`:''}${ppTable(p,PP_SORT[id],PP_VIEW[id])}
     <div class="pp-s12">${ppNotes(p,m)}<p class="note pp-foot">ข้อมูลจากงบที่ยื่น SEC (10-K/10-Q) และรายชื่ออุตสาหกรรมของ Damodaran · peer panel ณ ${esc(p.as_of||'—')} · ใช้ประกอบการตัดสินใจ ไม่มีผลต่อคะแนน DEEP หรือ Fair Value</p></div></div>`;
 }
 // a sort button redraws only the table and keeps focus on the same column
@@ -191,7 +259,14 @@ function ppSortClick(btn){
   const grid=btn.closest('.pp-grid'), id=grid&&grid.dataset.ppcard, x=id&&CARD_ROWS[id]; if(!x)return;
   const k=btn.dataset.psort, cur=PP_SORT[id]||{k:'revenue_ttm',dir:-1};
   PP_SORT[id]=cur.k===k?{k,dir:-cur.dir}:{k,dir:k==='symbol'?1:-1};
-  grid.querySelector('.pp-tbl').outerHTML=ppTable(x.peer_panel||{},PP_SORT[id]);
+  grid.querySelector('.pp-tbl').outerHTML=ppTable(x.peer_panel||{},PP_SORT[id],PP_VIEW[id]);
   const nb=grid.querySelector(`[data-psort="${k}"]`); if(nb)nb.focus();
 }
-if(typeof document!=='undefined')document.addEventListener('click',e=>{const b=e.target.closest&&e.target.closest('[data-psort]'); if(b)ppSortClick(b);});
+// the view toggle redraws only the table and keeps focus on the pressed button
+function ppViewClick(btn){
+  const grid=btn.closest('.pp-grid'), id=grid&&grid.dataset.ppcard, x=id&&CARD_ROWS[id]; if(!x)return;
+  const v=btn.dataset.pview; PP_VIEW[id]=v;
+  grid.querySelector('.pp-tbl').outerHTML=ppTable(x.peer_panel||{},PP_SORT[id],v);
+  const nb=grid.querySelector(`[data-pview="${v}"]`); if(nb)nb.focus();
+}
+if(typeof document!=='undefined')document.addEventListener('click',e=>{const t=e.target.closest&&e.target, b=t&&t.closest('[data-psort]'), w=t&&t.closest('[data-pview]'); if(b)ppSortClick(b); else if(w)ppViewClick(w);});

@@ -259,6 +259,13 @@ PANEL_CLOCK = {
     "type": STATIC, "strength": STATIC, "evidence": STATIC, "thresholds": STATIC,
     # R22-R23: a hint's numbers ({metric, value, period}; period names the clock) and trend
     "measures": STATIC, "metric": STATIC, "period": STATIC, "trend": DERIVED, "watch": STATIC,
+    # R25-R28: which SIC a gross-margin comparison used, the same-SIC sub-group, the votes
+    "same_business": STATIC, "gm_comparator": STATIC, "gm_na": STATIC, "gm_compare": STATIC,
+    "comparators": STATIC, "sic_source": STATIC, "applies": STATIC, "level": STATIC,
+    "symbols": STATIC, "n4": DERIVED, "n3": DERIVED, "legs": STATIC, "reason": STATIC,
+    "sub_group": STATIC, "members": STATIC, "cik": STATIC, "cy": STATIC, "share": CY,
+    "in_panel": STATIC, "basis": STATIC, "basis_reason": STATIC,
+    "votes": DERIVED, "possible": DERIVED, "cast": DERIVED, "not_applicable": STATIC,
 }
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
@@ -273,6 +280,7 @@ PANEL_UNIT = {
     "matched_top5_now": RATIO, "matched_n": COUNT,
     "n_members": COUNT, "n_with_revenue": COUNT, "n_covered": COUNT, "trend": COUNT, "n": COUNT, "n_signals": COUNT,
     "rank3": COUNT, "direction": COUNT, "version": COUNT, "years": COUNT, "frames_cy": COUNT,
+    "share": RATIO, "n4": COUNT, "n3": COUNT, "possible": COUNT, "cast": COUNT, "cy": COUNT,
 }
 
 

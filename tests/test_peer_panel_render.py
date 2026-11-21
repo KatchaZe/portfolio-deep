@@ -23,6 +23,10 @@ from tests.frontend_source import frontend_files   # noqa: E402
 MODULES = ("format.js", "card_signals.js", "card_peer.js")
 STORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "portfolio.json")
 TICKERS = ("NVDA", "UNH", "ASML", "ABBV", "SPCX")
+# rebuilt offline (tools/panel_probe --offline path: stored peer points + cached Damodaran list
+# and SEC frames) with SPEC R25-R28; the HTML of each is saved to _render/ for review
+V3 = ("UNH", "HIMS", "TMDX", "MELI", "NVDA")
+RENDER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "_render")
 BAD = ("undefined", "NaN", "[object Object]", "Infinity")
 
 SYNTH = {"ticker": "SYN", "key_metrics": {"spread_pct": 12.0}, "uncertainty": {"rating": "High"},
@@ -90,11 +94,43 @@ def _xss():
     return x
 
 
+def _fin():
+    """A financial target whose stored rows still carry GM numbers (a panel built before
+    R25, or a domain regression): the tab must print none of them."""
+    x = json.loads(json.dumps(SYNTH))
+    t = x["peer_panel"]["table"]
+    t["gm_compare"] = {"applies": False, "level": None, "sic": "6324", "n": 0, "symbols": [],
+                       "reason": "gross margin ไม่ใช่ตัวชี้วัดของธุรกิจนี้ (ธนาคาร/ประกัน/การเงิน SIC 6000–6799)"}
+    t["stats"] = {"gross_margin_fy": {"n": 3, "median": 0.42}}
+    t["rows"][1]["gross_margin_fy"] = 0.894
+    return x
+
+
+def _v3(s):
+    from tools import panel_probe
+    import config
+    from pipeline import peers
+    import datetime as dt
+    from types import SimpleNamespace
+    if not os.path.exists(os.path.join(config.CACHE_DIR, "damodaran_indname.json")):
+        return {}
+    u = panel_probe._offline_universe(config.CACHE_DIR)
+    out = {}
+    for t in V3:
+        r = (s.get("results") or {}).get(t) or {}
+        panel, moat = peers.panel_and_moat(panel_probe._facts(s["facts"][t], t),
+                                           SimpleNamespace(key_metrics=r.get("key_metrics") or {}),
+                                           r.get("relative") or {}, u,
+                                           dt.date.fromisoformat(r["peer_panel"]["as_of"]))
+        out[t + "_v3"] = dict(_row(t, s), peer_panel=panel, moat_trend=moat)
+    return out
+
+
 def _cases():
     noex = dict(SYNTH, key_metrics={"spread_pct": -3.9},
                 moat_trend=dict(SYNTH["moat_trend"], source_hints=[],
                                 flags=["hints: no excess return (ROIC − WACC ≤ 0)"]))
-    cases = {"EMPTY": {}, "SYN": SYNTH, "SYN_NOEX": noex, "XSS": _xss()}
+    cases = {"EMPTY": {}, "SYN": SYNTH, "SYN_NOEX": noex, "XSS": _xss(), "FIN": _fin()}
     if os.path.exists(STORE):
         from tools import moat_replay
         with open(STORE, encoding="utf-8") as fh:
@@ -103,6 +139,7 @@ def _cases():
         for t in TICKERS:
             cases[t] = _row(t, s)
             cases[t + "_new"] = _row(t, s, new[t])
+        cases.update(_v3(s))
     return cases
 
 
@@ -110,13 +147,20 @@ RUN = r"""
 const out={};
 for(const k in CASES){const x=CASES[k];
   out[k]={pane:peerPane(x,'c-'+k),chip:moatChip(x),arrow:moatArrow(x),
-          asc:ppTable((x.peer_panel||{}),{k:'pe',dir:1}),sym:ppTable((x.peer_panel||{}),{k:'symbol',dir:1})};}
+          asc:ppTable((x.peer_panel||{}),{k:'pe',dir:1}),sym:ppTable((x.peer_panel||{}),{k:'symbol',dir:1}),
+          sub:ppTable((x.peer_panel||{}),null,'sub')};}
 // the sort button toggles the same column and redraws only the table
 var CARD_ROWS={'c-NVDA':CASES.NVDA||CASES.SYN};
 const drawn=[]; const grid={dataset:{ppcard:'c-NVDA'},querySelector:q=>q==='.pp-tbl'?{set outerHTML(h){drawn.push(h)}}:{focus(){}}};
 const btn=k=>({dataset:{psort:k},closest:()=>grid});
 ppSortClick(btn('pe')); ppSortClick(btn('pe')); ppSortClick(btn('symbol'));
 out.clicks={sort:PP_SORT['c-NVDA'],drawn:drawn.map(h=>(h.match(/aria-sort="(\w+)"/)||[])[1]||null)};
+// the view toggle redraws the table in the pressed view and keeps focus on that button
+if(CASES.UNH_v3){CARD_ROWS['c-UNH']=CASES.UNH_v3; const vd=[]; let foc=null;
+  const g2={dataset:{ppcard:'c-UNH'},querySelector:q=>q==='.pp-tbl'?{set outerHTML(h){vd.push(h)}}:{focus(){foc=q}}};
+  const vb=v=>({dataset:{pview:v},closest:()=>g2});
+  ppViewClick(vb('sub')); ppViewClick(vb('all'));
+  out.views={view:PP_VIEW['c-UNH'],pressed:vd.map(h=>(h.match(/data-pview="(\w+)" aria-pressed="true"/)||[])[1]||null),focus:foc};}
 console.log(JSON.stringify(out));
 """
 
@@ -147,7 +191,7 @@ def test_tab_renders_every_shape():
     cases = _cases()
     out = _render(cases)
     for k, v in out.items():
-        if k == "clicks":
+        if k in ("clicks", "views"):
             continue
         blob = v["pane"] + v["chip"] + v["asc"]
         for bad in BAD:
@@ -178,11 +222,53 @@ def test_tab_renders_every_shape():
     assert gap.count(">—</td>") == 7 and "0.0%" not in gap, "a missing metric is a dash, never a zero"
     assert "กลุ่มบน" in syn and "กลุ่มกลาง" in syn
     assert "แนวโน้ม ทรงตัว" in out["SYN"]["chip"] and "→" in out["SYN"]["chip"]
+    fin = out["FIN"]["pane"] + out["FIN"]["asc"]
+    gm_cells = re.findall(r'data-col="gross_margin_fy">(.*?)</td>', fin)
+    assert gm_cells and all(not re.search(r"\d", re.sub(r"<[^>]+>", "", c)) for c in gm_cells), gm_cells
+    assert "89.4%" not in fin and "42.0%" not in fin, "a financial target shows no GM number (R25)"
+    assert "GM: gross margin ไม่ใช่ตัวชี้วัดของธุรกิจนี้" in fin and "(ไม่ใช้กับธุรกิจการเงิน)" in fin
     if "NVDA" not in cases:
         print("peer tab renders (synthetic only: no data/portfolio.json) OK")
         return
     store_checks(cases, out)
+    if "UNH_v3" in out:
+        v3_checks(out)
     print("peer tab renders on NVDA UNH ASML ABBV SPCX (stored + replayed) and synthetic shapes OK")
+
+
+def v3_checks(out):
+    os.makedirs(RENDER_DIR, exist_ok=True)
+    for t in V3:
+        v = out[t + "_v3"]
+        page = ('<!doctype html><meta charset="utf-8"><link rel="stylesheet" href="../static/dashboard.css">'
+                f'<title>{t} peer tab (R25-R28)</title><body><main style="max-width:1100px;margin:auto">'
+                f'<h2>{t}: ทั้งกลุ่ม Damodaran</h2>{v["pane"]}<h2>{t}: เฉพาะธุรกิจเดียวกัน</h2>{v["sub"]}</main>')
+        with open(os.path.join(RENDER_DIR, f"{t}_peer_tab.html"), "w", encoding="utf-8") as fh:
+            fh.write(page)
+    u = out["UNH_v3"]
+    cells = re.findall(r'data-col="gross_margin_fy">(.*?)</td>', u["pane"] + u["sub"])
+    assert cells and not any(re.search(r"\d", re.sub(r"<[^>]+>", "", c)) for c in cells), "UNH shows a GM number"
+    assert "เฉพาะธุรกิจเดียวกัน (9 ราย)</button>" in u["pane"] and 'role="group"' in u["pane"]
+    assert 'data-pview="all" aria-pressed="true"' in u["pane"] and 'data-pview="sub" aria-pressed="false"' in u["pane"]
+    assert 'data-pview="sub" aria-pressed="true"' in u["sub"]
+    assert "ธุรกิจเดียวกัน (SIC 6324, 9 ราย)" in u["pane"] and "S3 gross margin ไม่ใช้กับธุรกิจนี้" in u["pane"]
+    assert "วัดได้ 3 จาก 3 ตัวที่ใช้กับธุรกิจนี้" in u["pane"], "votes cast of possible (R27)"
+    assert "สมาชิกธุรกิจเดียวกันที่ไม่อยู่ในตารางคู่แข่ง" in u["sub"] and "(ไม่ใช่ TTM)" in u["sub"]
+    for sym in ("ALHC", "CLOV", "HQY"):
+        assert f'<th scope="row">{sym}</th>' in u["sub"], sym
+    body = u["sub"].split("<tbody>")[1].split("</tbody>")[0]
+    assert "MCK" not in body and "ธุรกิจเดียวกัน SIC 6324" in u["pane"], "the sub view lists 6324 rows only; S2 basis named"
+    assert out["views"] == {"view": "all", "pressed": ["sub", "all"], "focus": '[data-pview="all"]'}, out["views"]
+    t = out["TMDX_v3"]["pane"]
+    assert "GM median: เทียบเฉพาะ SIC 3845 3 ราย (INSP, IRTC, TNDM)" in t and "เทียบ SIC 3845 3 ราย" in t
+    assert "median ทั้งกลุ่ม Damodaran" in t and "ทั้งกลุ่ม Damodaran)</h3>" in t
+    m = out["MELI_v3"]["pane"]
+    assert "GM median: คู่แข่งที่มี gross margin ปีงบล่าสุด: SIC 5960 เดียวกัน 1 ราย" in m
+    h = out["HIMS_v3"]["pane"]
+    assert "มีแค่หุ้นนี้" in h and 'data-pview="sub"' not in h, "a group of one gets a reason, not a toggle"
+    for t in V3:
+        for bad in BAD + (" pp ", " pp<", " pp)"):
+            assert bad not in out[t + "_v3"]["pane"] + out[t + "_v3"]["sub"], (t, bad)
 
 
 def store_checks(cases, out):

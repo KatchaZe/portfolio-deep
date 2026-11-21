@@ -374,6 +374,7 @@ svg.ch text.bull{fill:color-mix(in srgb,var(--bull) 72%,var(--ink))} svg.ch text
 .pp-legend i{display:inline-block;width:18px;height:3px;vertical-align:middle;margin-right:5px;border-radius:2px}
 .pp-legend i.dash{background:repeating-linear-gradient(90deg,var(--c6) 0 5px,transparent 5px 8px)}
 .pp-kfig{display:flex;flex-wrap:wrap;gap:16px}
+.pp-view{margin-bottom:8px;justify-self:start}
 .pp-kfig div{display:grid}
 .pp-kfig b{font-family:var(--f-num);font-size:var(--t-lg)}
 ul.pp-hints{margin:0;padding-left:18px;display:grid;gap:6px;font-size:var(--t-sm)}
