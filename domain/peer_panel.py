@@ -133,6 +133,76 @@ def compact(p):
 
 
 # --------------------------------------------------------------------------- #
+#  Same business: SIC (SPEC R25-R28)                                          #
+# --------------------------------------------------------------------------- #
+# One SIC source for the target, the peers and the sub-group: the "SIC Code" column of
+# Damodaran's company list, the same snapshot that sets industry membership. It covers
+# every member offline; SEC submissions SIC would need one request per member and
+# disagrees with it on a third of the stored peers (R25).
+SIC_SOURCE = "damodaran_indname"
+FINANCIAL_SIC = (6000, 6799)     # banks, credit, brokers, insurers, insurance agents, REITs
+GM_MIN_COMPARATORS = 3           # a median of fewer firms is one firm's margin
+GM_NA_TH = "gross margin ไม่ใช่ตัวชี้วัดของธุรกิจนี้ (ธนาคาร/ประกัน/การเงิน SIC 6000–6799)"
+
+
+def sic4(raw):
+    """A 4-digit SIC string from "6324", 6324, 6324.0, "06324" or " 6324 "; None for a
+    missing, non-numeric, zero ("0", "0000") or out-of-range code. A None never matches."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    try:
+        n = int(float(str(raw).strip()))
+    except (TypeError, ValueError):
+        return None
+    return f"{n:04d}" if 0 < n <= 9999 else None
+
+
+def is_financial(code):
+    c = sic4(code)
+    return c is not None and FINANCIAL_SIC[0] <= int(c) <= FINANCIAL_SIC[1]
+
+
+def _gm_at(p, legs):
+    return all(_ratio((p.get(k) or {}).get("gross_profit"), (p.get(k) or {}).get("revenue")) is not None
+               for k in legs)
+
+
+def gm_scope(target, peers, sics, legs=("fy0",)):
+    """Which peers a gross-margin comparison may use (R26). Same 4-digit SIC as the target
+    with a gross margin at every leg, at least GM_MIN_COMPARATORS of them; else the same
+    3-digit SIC; else none. A financial target (R25) has no GM comparison. `sics`
+    {symbol: raw SIC} from SIC_SOURCE. `peers` keeps the comparator points; record()
+    drops them for storage. `reason` is Thai and names the counts."""
+    sics = sics or {}
+    ts = sic4(sics.get((target or {}).get("symbol")))
+    out = {"sic_source": SIC_SOURCE, "sic": ts, "applies": True, "level": None, "symbols": [],
+           "n": 0, "n4": 0, "n3": 0, "legs": list(legs), "reason": None, "peers": None}
+    if ts is None:
+        out["reason"] = "ไม่มีรหัส SIC ของหุ้นนี้ในรายชื่อ Damodaran จึงไม่เทียบ gross margin กับคู่แข่ง"
+        return out
+    if is_financial(ts):
+        out.update(applies=False, reason=GM_NA_TH)
+        return out
+    have = [(p, sic4(sics.get(p.get("symbol")))) for p in peers or [] if _gm_at(p, legs)]
+    same = {lv: [p for p, c in have if c is not None and c[:lv] == ts[:lv]] for lv in (4, 3)}
+    out["n4"], out["n3"] = len(same[4]), len(same[3])
+    for lv in (4, 3):
+        if len(same[lv]) >= GM_MIN_COMPARATORS:
+            out.update(level=lv, peers=same[lv], n=len(same[lv]),
+                       symbols=sorted(p.get("symbol") for p in same[lv]))
+            return out
+    years = "ทั้ง FY0 และ FY3" if len(legs) > 1 else "ปีงบล่าสุด"
+    out["reason"] = (f"คู่แข่งที่มี gross margin {years}: SIC {ts} เดียวกัน {out['n4']} ราย, "
+                     f"SIC {ts[:3]}x {out['n3']} ราย (ต้องอย่างน้อย {GM_MIN_COMPARATORS}) จึงไม่เทียบ gross margin")
+    return out
+
+
+def record(scope):
+    """The stored form of a gm_scope (no points)."""
+    return {k: v for k, v in scope.items() if k != "peers"}
+
+
+# --------------------------------------------------------------------------- #
 #  The table                                                                  #
 # --------------------------------------------------------------------------- #
 VERSION = 1
@@ -192,16 +262,20 @@ def stats(values):
     return {"n": len(v), "max": v[-1], "p75": q3, "median": q2, "p25": q1, "min": v[0]}
 
 
-def flag_outliers(rows):
+def flag_outliers(rows, within=None):
     """Each row's `outlier` lists the metrics where it sits outside the IQR fence of the
-    PEER rows (needs 4 peer values of that metric); the target is judged by that fence."""
+    PEER rows (needs 4 peer values of that metric); the target is judged by that fence.
+    `within` {metric: symbols}: that metric's fence and flags use only those peers (and
+    the target), as gross margin does (R26)."""
     for m in METRICS:
-        st = stats(r[m] for r in rows if not r["is_target"])
+        keep = (within or {}).get(m)
+        use = [r for r in rows if keep is None or r["is_target"] or r["symbol"] in keep]
+        st = stats(r[m] for r in use if not r["is_target"])
         if st["n"] < 4:
             continue
         iqr = st["p75"] - st["p25"]
         lo, hi = st["p25"] - IQR_K * iqr, st["p75"] + IQR_K * iqr
-        for r in rows:
+        for r in use:
             if _num(r[m]) and not lo <= r[m] <= hi:
                 r["outlier"].append(m)
 
@@ -248,14 +322,25 @@ def peer_set(target, peers, as_of):
     return eligible(peers, as_of, ref)
 
 
-def table(target, peers, as_of):
-    """(table, excluded) for the target point and its peer points."""
+def table(target, peers, as_of, sics=None):
+    """(table, excluded) for the target point and its peer points. Gross
+    margin is compared only within gm_scope (R26) and is not shown at all for a
+    financial target or a financial row (R25); every other metric uses all peers."""
     kept, excluded = peer_set(target, peers, as_of)
     rows = ([table_row(target, True)] if target else []) + [table_row(p) for p in kept]
-    flag_outliers(rows)
+    scope = gm_scope(target, kept, sics)
+    ts, comp = scope["sic"], set(scope["symbols"])
+    for r in rows:
+        r["sic"] = sic4((sics or {}).get(r["symbol"]))
+        r["same_business"] = ts is not None and r["sic"] == ts
+        r["gm_comparator"] = r["symbol"] in comp and not r["is_target"]
+        r["gm_na"] = not scope["applies"] or is_financial(r["sic"])
+        if r["gm_na"]:
+            r["gross_margin_fy"] = None
+    flag_outliers(rows, {"gross_margin_fy": comp})
     rank_terciles(rows)
     peer_rows = [r for r in rows if not r["is_target"]]
-    st = {m: stats(r[m] for r in peer_rows) for m in METRICS}
+    st = {m: stats(r[m] for r in peer_rows if m != "gross_margin_fy" or r["gm_comparator"]) for m in METRICS}
     tv = {}
     t = rows[0] if target else None
     for m in METRICS:
@@ -264,7 +349,7 @@ def table(target, peers, as_of):
             tv[m] = None
         else:
             tv[m] = (t[m] - med) * (100 if m in RATIO_METRICS else 1)
-    return {"rows": rows, "stats": st, "target_vs_median": tv}, excluded
+    return {"rows": rows, "stats": st, "target_vs_median": tv, "gm_compare": record(scope)}, excluded
 
 
 # --------------------------------------------------------------------------- #
@@ -388,6 +473,47 @@ def matched_change(out, now, then, tc, old, new):
         out["share_change_pp"] = (out["matched_share_now"] - out["matched_share_then"]) * 100
 
 
+SUB_GROUP = "damodaran_industry_same_sic4"
+
+
+def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=None, sics=None,
+              target_symbol=None):
+    """industry_share over the industry members whose 4-digit SIC equals the target's
+    (R28): same matched set (R13), coverage (R20) and calendar years (R10) as the full
+    industry, plus `members`, one row per filer in the newest calendar year, revenue and
+    share of the sub-group (null when that year failed coverage). Share classes of one
+    filer are one row. No SIC for the target: an empty group with a Thai reason."""
+    sics = sics or {}
+    ts = sic4(sics.get(target_symbol))
+    if ts is None:
+        return {"group": SUB_GROUP, "sic": None, "sic_source": SIC_SOURCE, "n_members": 0, "members": [],
+                "reason": "ไม่มีรหัส SIC ของหุ้นนี้ในรายชื่อ Damodaran จึงไม่มีกลุ่มธุรกิจเดียวกัน", "flags": []}
+    pick = lambda d: {t: c for t, c in (d or {}).items() if sic4(sics.get(t)) == ts}
+    sm, sf = pick(members), pick(foreign)
+    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets)
+    out.update(group=SUB_GROUP, sic=ts, sic_source=SIC_SOURCE, reason=None,
+               flags=[f"sub-group SIC {ts}: {f}" for f in out["flags"]])
+    ys = out["years"]
+    new = ys[-1] if ys else None
+    yr = ((frames or {}).get(new) or (frames or {}).get(str(new)) or {}) if new else {}
+    passed = new is not None and out["top5_share"].get(str(new)) is not None
+    us = {int(c) for c in sm.values() if c}
+    counted = {}                 # the filers industry_share counted (R16), share classes once
+    for t, c in list(sm.items()) + list(sf.items()):
+        if c and (int(c) in us or _in_frames(frames, int(c), ys)):
+            counted.setdefault(int(c), []).append(t)
+    rev = {c: (yr.get(c) or yr.get(str(c)) or [None])[0] for c in counted}
+    total = sum(v for v in rev.values() if _pos(v))
+    out["members"] = sorted(({"symbols": sorted(t), "cik": c, "revenue": rev[c] if _pos(rev[c]) else None,
+                              "share": rev[c] / total if passed and _pos(rev[c]) and total else None,
+                              "cy": new, "in_panel": False}
+                             for c, t in counted.items()),
+                            key=lambda m: (-(m["revenue"] or 0), m["symbols"]))
+    if out["n_members"] < 2:
+        out["reason"] = f"กลุ่มธุรกิจเดียวกัน (SIC {ts}) มีแค่หุ้นนี้ในอุตสาหกรรม จึงไม่มีส่วนแบ่งให้เทียบ"
+    return out
+
+
 # --------------------------------------------------------------------------- #
 #  The panel                                                                  #
 # --------------------------------------------------------------------------- #
@@ -424,14 +550,16 @@ def null_flags(tbl, target, peers):
     out = []
     for r in tbl["rows"]:
         p = target if r["is_target"] else by.get(r["symbol"]) or {}
-        out += [f"{r['symbol']} {m}: {why_null(p, m)}" for m in METRICS if r[m] is None]
+        out += [f"{r['symbol']} {m}: {why_null(p, m)}" for m in METRICS
+                if r[m] is None and not (m == "gross_margin_fy" and r.get("gm_na"))]
     return out
 
 
 def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=(), notes=(),
-          target_why=None):
+          target_why=None, sics=None):
     """results[ticker]["peer_panel"]. `peers` None = no stored peer points (a fit from
-    before the panel existed, or no fit this week): the table is absent with a flag."""
+    before the panel existed, or no fit this week): the table is absent with a flag.
+    `sics` {symbol: raw SIC} from SIC_SOURCE (R25-R28)."""
     flags = [n for n in notes if n]
     if not industry:
         flags.append("no Damodaran industry for this ticker: no industry share")
@@ -442,7 +570,9 @@ def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=
         tbl, excl = None, []
         flags.append("no usable peers: no table")
     else:
-        tbl, excl = table(target, peers, as_of)
+        tbl, excl = table(target, peers, as_of, sics)
+        if tbl["gm_compare"]["level"] is None:
+            flags.append(f"gross margin: {tbl['gm_compare']['reason']}")
         if not tbl["rows"] or all(r["is_target"] for r in tbl["rows"]):
             flags.append("every peer was excluded: no peer statistics")
         flags += null_flags(tbl, target, peers)
@@ -450,6 +580,11 @@ def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=
         flags.append(f"{e.get('symbol')}: {e.get('reason')}")
     if share:
         flags += share.get("flags") or []
+        sub = share.get("sub_group")
+        if sub and tbl:
+            listed = {r["symbol"] for r in tbl["rows"]}
+            for m in sub.get("members") or []:
+                m["in_panel"] = any(x in listed for x in m["symbols"])
     if target is None:
         flags.append("target not on the common clock: no target row"
                      + (f" ({target_why})" if target_why else ""))

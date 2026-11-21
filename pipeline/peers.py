@@ -480,15 +480,20 @@ def panel_and_moat(f, val, block, universe, today):
     target, target_why = _target_panel_point(f, today)
     pts = (block.get("model") or {}).get("panel_points")
     share = None
+    # one SIC source for the target, every peer and the sub-group (SPEC R25)
+    sics = {t: row[1] for t, row in (universe.rows or {}).items()}
     if industry:
         members = {t: resolve_cik(t)[0] for t in dc.members(universe.rows, industry)}
         foreign = {t: resolve_cik(t)[0] for t in dc.foreign_members(universe.rows, industry)}
         tcik, _ = resolve_cik(f.ticker)
-        share = peer_panel.industry_share(members, universe.frames, tcik, dc.panel_years(today), as_of,
+        years = dc.panel_years(today)
+        share = peer_panel.industry_share(members, universe.frames, tcik, years, as_of,
                                           foreign, universe.assets)
+        share["sub_group"] = peer_panel.sub_group(members, universe.frames, tcik, years, as_of, foreign,
+                                                  universe.assets, sics, f.ticker)
     notes = list(universe.frame_notes) + list(block.get("notes") or [])
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,
-                             block.get("excluded") or [], notes, target_why)
+                             block.get("excluded") or [], notes, target_why, sics)
     kept = peer_panel.peer_set(target, pts, as_of)[0] if pts else []
     km = getattr(val, "key_metrics", None) or {}
-    return panel, moat_trend.build(f, target, kept, share, km.get("wacc_pct"), km.get("spread_pct"))
+    return panel, moat_trend.build(f, target, kept, share, km.get("wacc_pct"), km.get("spread_pct"), sics)

@@ -19,8 +19,19 @@ from pipeline import peers
 from tools.panel_probe import _facts
 
 
-def rebuild(s):
-    """{ticker: (stored moat_trend, rebuilt moat_trend)} for every result with a panel."""
+def _sics():
+    """{ticker: SIC} from the cached Damodaran list (SPEC R25), {} when it is absent."""
+    try:
+        with open(os.path.join(config.CACHE_DIR, "damodaran_indname.json"), encoding="utf-8") as fh:
+            return {t: row[1] for t, row in json.load(fh)["rows"].items()}
+    except (OSError, ValueError, KeyError):
+        return {}
+
+
+def rebuild(s, sics=None):
+    """{ticker: (stored moat_trend, rebuilt moat_trend)} for every result with a panel.
+    `sics` defaults to the cached Damodaran list; without it every GM comparison skips."""
+    sics = _sics() if sics is None else sics
     out = {}
     for t, r in sorted((s.get("results") or {}).items()):
         panel, fd = r.get("peer_panel") or {}, (s.get("facts") or {}).get(t)
@@ -33,7 +44,7 @@ def rebuild(s):
         kept = peer_panel.peer_set(target, pts, panel["as_of"])[0] if pts else []
         km = r.get("key_metrics") or {}
         out[t] = (r.get("moat_trend") or {}, moat_trend.build(f, target, kept, panel.get("industry_share"),
-                                                              km.get("wacc_pct"), km.get("spread_pct")))
+                                                              km.get("wacc_pct"), km.get("spread_pct"), sics))
     return out
 
 

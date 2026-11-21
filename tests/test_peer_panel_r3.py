@@ -184,7 +184,8 @@ class R22Hints(unittest.TestCase):
 
     def test_cost_advantage_both_sides(self):
         def hint(gm, opm, n=3):
-            return kinds(MT.source_hints(point(gm, gm, opm), peers3()[:n], None)).get("cost_advantage")
+            ps = peers3()[:n]
+            return kinds(MT.source_hints(point(gm, gm, opm), ps, None, gm_peers=ps)).get("cost_advantage")
         self.assertIsNotNone(hint(0.4199, 0.1501))                    # +5pp OPM, +2pp GM
         self.assertIsNone(hint(0.4199, 0.1499))
         self.assertIsNone(hint(0.4201, 0.1501))
@@ -200,7 +201,7 @@ class R22Hints(unittest.TestCase):
         self.assertIn("consistent with", h["evidence"])
 
     def test_old_hints_unchanged(self):
-        hs = MT.source_hints(point(0.65, 0.65, 0.10), peers3(), share(s=0.30, top5=0.5))
+        hs = MT.source_hints(point(0.65, 0.65, 0.10), peers3(), share(s=0.30, top5=0.5), gm_peers=peers3())
         self.assertEqual([(h["type"], h["strength"]) for h in hs], [("intangible", "moderate"), ("scale", "moderate")])
         self.assertEqual(hs[0]["evidence"], "gross margin 25pp above the peer median (FY0): "
                                             "consistent with pricing power from brand or IP")
@@ -208,11 +209,14 @@ class R22Hints(unittest.TestCase):
 
 class R23TrendAndWatch(unittest.TestCase):
     def test_each_hint_takes_its_related_signal(self):
+        # R28: the scale hint's trend is the full industry's own share change, which is
+        # what its share is measured on, not S2 (S2 may be on the same-SIC sub-group)
         sigs = [{"name": "gm_gap_change", "value": .05, "direction": 1},
-                {"name": "share_change", "value": -.2, "direction": -1}]
-        hs = kinds(MT.source_hints(point(0.65, 0.65, 0.10), peers3(), share(s=0.30, top5_chg=-3), sigs))
+                {"name": "share_change", "value": .5, "direction": 1, "basis": "sub_group"}]
+        down = dict(share(s=0.30, top5_chg=-3), matched_share_then=.30, matched_share_now=.20)
+        hs = kinds(MT.source_hints(point(0.65, 0.65, 0.10), peers3(), down, sigs, gm_peers=peers3()))
         self.assertEqual((hs["intangible"]["trend"], hs["scale"]["trend"]), (1, -1))
-        hs = kinds(MT.source_hints(point(0.65, 0.65, 0.10), peers3(), share(s=0.30)))
+        hs = kinds(MT.source_hints(point(0.65, 0.65, 0.10), peers3(), share(s=0.30), gm_peers=peers3()))
         self.assertEqual((hs["intangible"]["trend"], hs["scale"]["trend"]), (None, None),
                          "an absent signal is an unknown trend, not flat")
 
@@ -224,7 +228,7 @@ class R23TrendAndWatch(unittest.TestCase):
     def test_cost_advantage_trend_from_the_fy_operating_margin_gap(self):
         def trend(t0, t3):
             tgt = point(0.40, 0.40, 0.20, opm0=t0, opm3=t3)
-            return kinds(MT.source_hints(tgt, peers3(), None))["cost_advantage"]["trend"]
+            return kinds(MT.source_hints(tgt, peers3(), None, gm_peers=peers3()))["cost_advantage"]["trend"]
         self.assertEqual(trend(0.2201, 0.20), 1)        # gap 12.01pp from 10pp
         self.assertEqual(trend(0.2199, 0.20), 0)
         self.assertEqual(trend(0.1799, 0.20), -1)
@@ -245,7 +249,8 @@ class R23TrendAndWatch(unittest.TestCase):
 
     def test_every_new_key_declares_its_clock(self):
         sigs = [{"name": "gm_gap_change", "value": .05, "direction": 1, "window": "x", "unit": "fraction"}]
-        m = {"source_hints": MT.source_hints(point(0.42, 0.42, 0.20, 0.2, 0.2), peers3(), share(s=.3), sigs)
+        m = {"source_hints": MT.source_hints(point(0.42, 0.42, 0.20, 0.2, 0.2), peers3(), share(s=.3), sigs,
+                                             gm_peers=peers3())
              + MT.source_hints({}, [], share()), "watch": MT.watch(sigs)}
         self.assertEqual({h["type"] for h in m["source_hints"]}, {"scale", "cost_advantage", "efficient_scale"})
         self.assertEqual(contracts.undeclared_panel_keys(m), [])
@@ -259,7 +264,8 @@ class R24ExcessReturnGate(unittest.TestCase):
         sig = {"years": Y5, "target_share": {str(y): 0.30 for y in Y5}, "top5_share": {str(y): 0.92 for y in Y5},
                "share_change_pp": 0.0, "top5_change_pp": 0.0, "n_members": 12,
                "matched_share_then": .1, "matched_share_now": .2}
-        return MT.build({}, point(0.65, 0.65, 0.10), peers3(), sig, 8.0, spread)
+        tgt, ps = dict(point(0.65, 0.65, 0.10), symbol="T"), [dict(p, symbol=f"P{i}") for i, p in enumerate(peers3())]
+        return MT.build({}, tgt, ps, sig, 8.0, spread, {"T": "7372", "P0": "7372", "P1": "7372", "P2": "7372"})
 
     def test_hints_need_a_positive_spread(self):
         self.assertTrue(self.build(0.01)["source_hints"], "any spread above zero keeps the hints")
@@ -286,7 +292,8 @@ class R24ExcessReturnGate(unittest.TestCase):
             peers.panel_and_moat(tfacts(), V(), {}, universe(), TODAY)
         finally:
             MT.build = real
-        self.assertEqual(seen["args"][-2:], (8.0, -3.86))
+        self.assertEqual(seen["args"][4:6], (8.0, -3.86))
+        self.assertEqual(seen["args"][6]["T0"], "7372", "the SIC map from Damodaran's list (R25)")
 
 
 class Rows(unittest.TestCase):

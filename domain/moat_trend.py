@@ -25,7 +25,8 @@ INC_MIN_GROWTH = 0.10      # S4 needs revenue FY0/FY3 - 1 >= this: a tiny delta 
 THRESHOLDS = "provisional"
 
 MIN_SLOPE_YEARS = 3        # a slope through two points is a difference, not a trend
-MIN_PEERS_GM = 3           # a peer median of fewer firms is one firm's margin
+MIN_PEERS_GM = peer_panel.GM_MIN_COMPARATORS   # a peer median of fewer firms is one firm's margin
+SUB_MIN_MATCHED = 5        # S2 on the same-SIC sub-group needs this many filers in both years (R28)
 LABEL_AT = 2               # sum of votes for improving / eroding
 INTANGIBLE_PP = (10.0, 20.0)   # GM above the peer median: weak / moderate hint
 SCALE_SHARE = (0.10, 0.25)     # industry revenue share: weak / moderate hint
@@ -85,7 +86,30 @@ def spread_slope(roic_map, wacc_pct):
 
 
 def share_change(share):
-    """(signal, reason) from peer_panel.industry_share, on the matched set of filers
+    """(signal, reason): S2 on the same-SIC sub-group (share["sub_group"]) when it has
+    SUB_MIN_MATCHED filers with revenue in both years and a target share, else on the
+    full industry (R28). The signal's `basis` says which; `basis_reason` why not the
+    sub-group when the industry was used."""
+    sub = (share or {}).get("sub_group") or {}
+    m = sub.get("matched_n")
+    if sub.get("sic") and isinstance(m, int) and m >= SUB_MIN_MATCHED:
+        sig, why = _share_signal(sub)
+        if sig:
+            return dict(sig, basis="sub_group", sic=sub["sic"], matched_n=m), None
+        note = f"ธุรกิจเดียวกัน SIC {sub['sic']}: {why}"
+    elif sub.get("sic"):
+        note = (f"ธุรกิจเดียวกัน SIC {sub['sic']} มี {m or 0} รายที่มีรายได้ทั้งสองปี "
+                f"(ต้อง ≥{SUB_MIN_MATCHED}) จึงใช้ทั้งอุตสาหกรรม")
+    else:
+        note = sub.get("reason") or "ไม่มีกลุ่มธุรกิจเดียวกัน จึงใช้ทั้งอุตสาหกรรม"
+    sig, why = _share_signal(share)
+    if not sig:
+        return None, why
+    return dict(sig, basis="industry", matched_n=share.get("matched_n"), basis_reason=note), None
+
+
+def _share_signal(share):
+    """(signal, reason) from one peer_panel.industry_share, on the matched set of filers
     with revenue in both years (SPEC R13)."""
     if not share or not share.get("years"):
         return None, "S2: no industry share"
@@ -159,6 +183,10 @@ def _opm(leg):
     return peer_panel._ratio((leg or {}).get("operating_income"), (leg or {}).get("revenue"))
 
 
+def _trend_of(signal):
+    return None if not signal else signal["direction"]
+
+
 def _trend(v, band):
     return None if v is None else direction(v, band)
 
@@ -178,20 +206,24 @@ def _fy(leg):
     return f"FY{leg['end'][:4]}" if (leg or {}).get("end") else None
 
 
-def source_hints(target, peers, share, signals=()):
+def source_hints(target, peers, share, signals=(), gm_peers=None, gm_scope=None):
     """What the numbers are consistent with. Never a finding. Each hint carries the
     numbers behind it as `measures` [{metric, value, period}] (the UI words them) and a
-    `trend` (+1/0/-1, None unknown) from the signal that moves with it (R23)."""
+    `trend` (+1/0/-1, None unknown) from the signal that moves with it (R23).
+    `gm_peers` are the gross-margin comparators (peer_panel.gm_scope, R26); None = no
+    valid comparison, so no hint that reads gross margin (intangible, cost_advantage).
+    The scale hint's trend is the full industry's share change, the set its share is on."""
     hints, tgt = [], target or {}
     sig = {x["name"]: x["direction"] for x in signals}
-    gm = _gaps(tgt, peers, _gm, ("fy0",))
+    gm = None if gm_peers is None else _gaps(tgt, gm_peers, _gm, ("fy0",))
+    comp = None if not gm_scope else {k: gm_scope.get(k) for k in ("level", "sic", "n")}
     if gm is not None:
         gap = gm[0] * 100
         if gap >= INTANGIBLE_PP[0]:
             hints.append({"type": "intangible",
                           "strength": "moderate" if gap >= INTANGIBLE_PP[1] else "weak",
                           "measures": [{"metric": "gm_gap_pp", "value": round(gap, 1),
-                                        "period": _fy(tgt.get("fy0"))}],
+                                        "period": _fy(tgt.get("fy0")), "comparators": comp}],
                           "trend": sig.get("gm_gap_change"),
                           "evidence": f"gross margin {gap:.0f}pp above the peer median (FY0): "
                                       "consistent with pricing power from brand or IP"})
@@ -203,7 +235,7 @@ def source_hints(target, peers, share, signals=()):
             hints.append({"type": "scale",
                           "strength": "moderate" if s >= SCALE_SHARE[1] else "weak",
                           "measures": [{"metric": "industry_share", "value": round(s, 4), "period": cy}],
-                          "trend": sig.get("share_change"),
+                          "trend": _trend_of(_share_signal(share)[0]),
                           "evidence": f"{s:.0%} of industry revenue among US SEC filers "
                                       f"({cy}): consistent with a scale advantage"})
         t5 = (share.get("top5_share") or {}).get(str(years[-1]))
@@ -230,7 +262,7 @@ def source_hints(target, peers, share, signals=()):
             hints.append({"type": "cost_advantage", "strength": "moderate",
                           "measures": [{"metric": "opm_gap_pp", "value": round(o_gap, 1), "period": "TTM"},
                                        {"metric": "gm_gap_pp", "value": round(g_gap, 1),
-                                        "period": _fy(tgt.get("fy0"))}],
+                                        "period": _fy(tgt.get("fy0")), "comparators": comp}],
                           "trend": None if fy is None else _trend(fy[0] - fy[1], OPM_GAP_PP / 100),
                           "evidence": f"operating margin {o_gap:.0f}pp above the peer median (TTM) with "
                                       f"gross margin {g_gap:+.0f}pp vs the median (FY0): "
@@ -256,18 +288,41 @@ def excess_return(spread_pct):
             and spread_pct == spread_pct and spread_pct > 0)
 
 
-def build(f, target, peers, share, wacc_pct, spread_pct=None):
+def gm_signal(target, peers, sics):
+    """(S3, reason, applicable). S3 on the gm_scope comparators with gross margin at FY0
+    and FY3 (R26); not applicable to a financial target (R25)."""
+    scope = peer_panel.gm_scope(target, peers, sics, ("fy0", "fy3"))
+    if not scope["applies"]:
+        return None, f"S3: {scope['reason']}", False
+    t0, t3 = _gm((target or {}).get("fy0")), _gm((target or {}).get("fy3"))
+    if t0 is None or t3 is None:
+        return None, "S3: target gross margin missing at FY0 or FY3", True
+    if scope["level"] is None:
+        return None, f"S3: {scope['reason']}", True
+    sig, why = gm_gap_change(target, scope["peers"])
+    if sig:
+        sig["comparators"] = peer_panel.record(scope)
+    return sig, why, True
+
+
+def build(f, target, peers, share, wacc_pct, spread_pct=None, sics=None):
     """results[ticker]["moat_trend"]. `f` facts (object or stored dict) for the ROIC
     series; `target` the target's panel point; `peers` the eligible peer points
     (peer_panel.peer_set); `share` peer_panel.industry_share or None; `spread_pct` the
     current ROIC − WACC in points, the value the card's Moat chip shows: a source hint
-    says where excess returns could come from, so none is emitted without them (R24)."""
+    says where excess returns could come from, so none is emitted without them (R24).
+    `sics` {symbol: raw SIC} (peer_panel.SIC_SOURCE): gross margin is compared within
+    the same SIC only, and not at all for a financial target (R25-R26). `votes` says how
+    many signals could vote, how many did, and which do not apply to this business."""
     rmap = trend.roic_series(trend._get(f, "operating_income_annuals_dated"),
                              trend._get(f, "ic_components_dated", {}), trend._tax_rate(f))
     tgt = target or {}
-    signals, flags = [], []
+    signals, flags, na = [], [], []
+    s3, s3_why, s3_ok = gm_signal(tgt, peers or [], sics)
+    if not s3_ok:
+        na.append("gm_gap_change")
     for sig, why in (spread_slope(rmap, wacc_pct), share_change(share),
-                     gm_gap_change(tgt, peers or []), incremental_margin(tgt)):
+                     (s3, s3_why), incremental_margin(tgt)):
         if sig:
             signals.append(sig)
         else:
@@ -277,9 +332,13 @@ def build(f, target, peers, share, wacc_pct, spread_pct=None):
         flags.append(f"{len(signals)} signal(s): no label (need {LABEL_AT})")
     hints = []
     if excess_return(spread_pct):
-        hints = source_hints(tgt, peers or [], share, signals)
+        scope = peer_panel.gm_scope(tgt, peers or [], sics)
+        hints = source_hints(tgt, peers or [], share, signals, scope["peers"], scope)
+        if scope["peers"] is None:
+            flags.append(f"hints: gross margin hints skipped ({scope['reason']})")
     else:
         flags.append(NO_EXCESS_FLAG)
-    return {"label": lab, "n_signals": len(signals), "signals": signals,
+    votes = {"possible": len(SIGNAL_BAND) - len(na), "cast": len(signals), "not_applicable": na}
+    return {"label": lab, "n_signals": len(signals), "signals": signals, "votes": votes,
             "source_hints": hints,
             "watch": watch(signals), "thresholds": THRESHOLDS, "flags": flags}

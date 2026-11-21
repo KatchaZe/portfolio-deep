@@ -482,7 +482,7 @@ class Panel(unittest.TestCase):
         panel = PP.build(pp("T"), [pp(f"P{i}") for i in range(4)], AS_OF, "Software", "b", sh)
         self.assertEqual(set(panel), {"as_of", "version", "industry", "industry_basis", "table",
                                       "industry_share", "flags"})
-        self.assertEqual(set(panel["table"]), {"rows", "stats", "target_vs_median"})
+        self.assertEqual(set(panel["table"]), {"rows", "stats", "target_vs_median", "gm_compare"})
         row = set(panel["table"]["rows"][0])
         for k in ("symbol", "is_target", "period_end", "fy0_end", "frames_cy", "addback", "price_date", "revenue_ttm",
                   "growth_fy", "cagr3_fy", "gross_margin_fy", "op_margin_ttm", "ev_sales", "ev_ebit",
@@ -593,7 +593,8 @@ class Moat(unittest.TestCase):
         out = MT.build({}, snap(100, 80, oi0=30, oi3=10), [], share_of(.10, .20), 8.0, 5.0)
         self.assertEqual((out["n_signals"], out["label"]), (2, "improving"))
         self.assertEqual({s["name"] for s in out["signals"]}, {"share_change", "incremental_margin"})
-        self.assertEqual(len(out["flags"]), 2, "each absent signal says why")
+        self.assertEqual(len([f for f in out["flags"] if f[:2] in ("S1", "S2", "S3", "S4")]), 2,
+                         "each absent signal says why")
         one = MT.build({}, None, [], share_of(.10, .20), 8.0)
         self.assertIsNone(one["label"])
         self.assertTrue(any("no label" in f for f in one["flags"]))
@@ -608,12 +609,12 @@ class Moat(unittest.TestCase):
 
     def test_source_hints_say_consistent_with_never_a_finding(self):
         peers_ = [snap(10, 8, gm0=.30, gm3=.30)] * 3
-        h = MT.source_hints(snap(10, 8, gm0=.55, gm3=.5), peers_, share_of(.1, .3))
+        h = MT.source_hints(snap(10, 8, gm0=.55, gm3=.5), peers_, share_of(.1, .3), gm_peers=peers_)
         self.assertEqual([(x["type"], x["strength"]) for x in h], [("intangible", "moderate"), ("scale", "moderate")])
         self.assertTrue(all("consistent with" in x["evidence"] for x in h))
-        h = MT.source_hints(snap(10, 8, gm0=.399, gm3=.5), peers_, share_of(.1, .099))
+        h = MT.source_hints(snap(10, 8, gm0=.399, gm3=.5), peers_, share_of(.1, .099), gm_peers=peers_)
         self.assertEqual(h, [])
-        h = MT.source_hints(snap(10, 8, gm0=.40, gm3=.5), peers_, share_of(.1, .10))
+        h = MT.source_hints(snap(10, 8, gm0=.40, gm3=.5), peers_, share_of(.1, .10), gm_peers=peers_)
         self.assertEqual([(x["type"], x["strength"]) for x in h], [("intangible", "weak"), ("scale", "weak")])
 
 

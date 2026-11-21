@@ -156,3 +156,57 @@ the hints of R22-R23 unchanged. Spread <= 0, null, NaN or not a number: source_h
 flags carries "hints: no excess return (ROIC − WACC ≤ 0)". Label, signals and watch are not
 touched. The tab shows "ยังไม่มีกำไรส่วนเกิน (ROIC ≤ WACC) จึงไม่นับเป็นแหล่ง moat" in place of
 the list. Rows stored before this rule keep their stored hints until the next refresh.
+
+## Resolutions 2026-11-22 (same business; rules A, B, C approved by the user)
+Damodaran industries mix business models, so a gross-margin (GM) comparison across them can
+be meaningless. Measured on the live store 2026-11-22: UNH (SIC 6324) GM 88.7% against
+insurer peers CI 21.8%, ELV 89.4%, CNC 7.3%, MOH 13.1%, and the old UNH intangible hint read
+"76pp above the peer median" against distributors (MCK 5122). Healthcare Support Services
+also holds distributors 5122, pharmacies 5912, labs 8071 and services 8090.
+R25 SIC source and financial firms. One source for the target, every peer and the sub-group:
+the "SIC Code" column of Damodaran's company list (`damodaran_indname.json`, the snapshot
+that already sets industry membership; peer_panel.SIC_SOURCE = "damodaran_indname").
+Reasons: it covers 4,779 of 4,784 US-listed rows offline, so the sub-group (R28) needs no
+request per member; it is the same vintage as membership; the SEC submissions SIC carried
+on stored peer points (`sic`) disagrees with it on 61 of 187 points (Damodaran rounds to
+7370, 8000, 5960, 3840 where SEC has 7372, 5912, 7389, 3841), so mixing the two would match
+or split firms by source. The point's `sic` stays for the relative block's SIC check and is
+not read by the panel. Parsing (`sic4`): "6324", 6324, 6324.0, "06324" and " 6324 " are
+"6324"; "100" is "0100"; None, "", "0", "0000", non-numeric and > 9999 are no code, and no
+code never matches anything (a skip with a reason). A target Damodaran does not list in the
+US (the ADRs ASML, NVO, TSM; SPCX) has no code: its GM comparison and sub-group are skipped.
+Financial: SIC 6000-6799 (banks, credit, brokers, insurers, agents, REITs). A financial
+target gets no GM number in the table (every row "—"), no GM median or rank, no S3 and no
+GM-based hint (intangible, cost_advantage); a financial peer row of any target shows "—"
+too. Reason (Thai, peer_panel.GM_NA_TH): "gross margin ไม่ใช่ตัวชี้วัดของธุรกิจนี้
+(ธนาคาร/ประกัน/การเงิน SIC 6000–6799)". Insurers tag cost of revenue inconsistently (the
+figures above), so GM is not a valid insurer metric.
+R26 GM comparators (`peer_panel.gm_scope`). Every GM comparison (table median and
+target_vs_median, the GM outlier fence, S3, the intangible and cost_advantage hints) uses
+the peers whose 4-digit SIC equals the target's AND that have GM at every leg the
+comparison reads (FY0 for the table and hints; FY0 and FY3 for S3), at least 3. Fewer than
+3: the same 3-digit SIC, at least 3. Otherwise skipped with a Thai reason naming both
+counts. Stored as `table.gm_compare` and `signals[S3].comparators`: {sic_source, sic,
+applies, level 4|3|null, symbols, n, n4, n3, legs, reason}; each row carries `sic`,
+`same_business`, `gm_comparator`, `gm_na`. Operating margin, growth, rank3 and the cost
+hint's operating-margin half stay on the full peer set; the UI labels each set.
+R27 Votes. moat_trend.votes = {possible, cast, not_applicable}: possible is 4 minus the
+signals that do not apply to this business (S3 for a financial target), cast the signals
+measured. The label rule is unchanged (sum of the cast votes >= +2 / <= -2, under 2 cast
+no label); the tab shows "x จาก y" so a skipped S3 cannot pass for a stable one.
+R28 Same-business sub-group (`industry_share.sub_group`, `peer_panel.sub_group`): the
+members of the target's Damodaran industry (the full membership industry_share uses, R16
+foreign rule included) with the target's 4-digit SIC. Share, top-5, HHI, the matched set,
+coverage and calendar years follow R10, R13 and R20 exactly (it is industry_share on that
+member list). `members`: one row per filer (share classes together) with its newest-CY
+revenue and sub-group share (null when the year fails coverage) and `in_panel`. S2 uses
+the sub-group when its matched_n >= 5 and it has the target's matched share
+(`basis: "sub_group"`), else the full industry (`basis: "industry"`, `basis_reason` says
+why). The scale hint's trend follows the full industry's own share change, the set its share
+is measured on. The table toggle "เฉพาะธุรกิจเดียวกัน (N ราย)" / "ทั้งกลุ่ม Damodaran" filters
+the panel rows; sub-group members outside the 12 panel peers are listed in their own
+revenue/share table (CY frames revenue, never in the TTM column: R1 clocks), from the frames
+already loaded, so no new request and no change to peer selection.
+Membership is Damodaran's, not edited by hand. UNH's sub-group is ALHC, CI, CLOV, CNC, ELV,
+HQY, HUM, MOH, UNH. HQY (HealthEquity) is an HSA administrator that Damodaran classifies 6324;
+CVS (Aetna's parent) is 8000 in Damodaran's list (5912 in SEC submissions), so it is outside.

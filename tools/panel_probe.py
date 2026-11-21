@@ -2,6 +2,15 @@
 
     python -m tools.panel_probe            # all holdings in data/portfolio.json
     python -m tools.panel_probe NVDA UNH   # some
+    python -B -m tools.panel_probe --offline [--json out.json] [TICKER...]
+
+--offline rebuilds peer_panel and moat_trend for each holding from the store and the
+caches alone (data/cache: damodaran_indname.json, sec_frames_revenue_CY*.json and, when
+present, sec_frames_assets_CY*.json) under tests._harness.cut_network: the stored peer
+points of the last fit, no fetch. It prints the SIC each GM comparison used (4 / 3 /
+skip and the comparator count), S3, the source hints, the label, the votes, and the
+same-SIC sub-group (size and the target's share), so a change to the panel rules can
+be measured before and after on the same store (SPEC R25-R28).
 
 For each ticker: its Damodaran industry, the industry's US SEC filers, how many of
 them have SEC frames revenue in each calendar year and how many have revenue or a
@@ -105,6 +114,55 @@ def probe(s, tickers, today, universe, memo=None):
     return out
 
 
+def _offline_universe(cache):
+    """A Universe from the cache files alone (no loader, so nothing is fetched)."""
+    rows = (_load(os.path.join(cache, "damodaran_indname.json")) or {}).get("rows") or {}
+    frames, assets = {}, {}
+    for name in sorted(os.listdir(cache)):
+        if name.startswith("sec_frames_revenue_CY"):
+            c = _load(os.path.join(cache, name))
+            end = c.get("end") or {}
+            frames[int(name[21:25])] = {int(k): [v, end.get(k)] for k, v in c["rev"].items()}
+        elif name.startswith("sec_frames_assets_CY"):
+            assets[int(name[20:24])] = set(_load(os.path.join(cache, name))["ciks"])
+    return peers.Universe(rows=rows, frames=frames, assets=assets)
+
+
+def offline(s, tickers, universe):
+    """{ticker: summary} rebuilt from the stored relative block (its panel points) on
+    each panel's own as-of date. Reads only; a field the code does not produce is None."""
+    out = {}
+    for t in tickers:
+        r, fd = (s.get("results") or {}).get(t) or {}, (s.get("facts") or {}).get(t)
+        as_of = (r.get("peer_panel") or {}).get("as_of")
+        if not fd or not as_of:
+            out[t] = {"error": "no stored facts or panel"}
+            continue
+        val = SimpleNamespace(key_metrics=r.get("key_metrics") or {})
+        panel, moat = peers.panel_and_moat(_facts(fd, t), val, r.get("relative") or {}, universe,
+                                           dt.date.fromisoformat(as_of))
+        gm = (panel.get("table") or {}).get("gm_compare") or {}
+        sh = panel.get("industry_share") or {}
+        sub = sh.get("sub_group") or {}
+        sig = {x["name"]: x for x in moat.get("signals") or []}
+        s3, s2 = sig.get("gm_gap_change"), sig.get("share_change")
+        new = str(max(sub.get("years") or [0]))
+        out[t] = {"industry": panel.get("industry"), "sic": (universe.rows.get(t) or [None, None])[1],
+                  "gm_level": gm.get("level"), "gm_n": gm.get("n"), "gm_symbols": gm.get("symbols"),
+                  "gm_reason": gm.get("reason"), "gm_applies": gm.get("applies"),
+                  "s3": None if not s3 else [s3["value"], s3["direction"], (s3.get("comparators") or {}).get("level"),
+                                             (s3.get("comparators") or {}).get("n")],
+                  "s3_why": next((f for f in moat.get("flags") or [] if str(f).startswith("S3")), None),
+                  "s2": None if not s2 else [s2["value"], s2["direction"], s2.get("basis")],
+                  "hints": [f"{h['type']}:{h['strength']}" for h in moat.get("source_hints") or []],
+                  "label": moat.get("label"), "n_signals": moat.get("n_signals"),
+                  "votes": moat.get("votes"),
+                  "sub_n": sub.get("n_members"), "sub_matched": sub.get("matched_n"),
+                  "sub_share": (sub.get("target_share") or {}).get(new),
+                  "sub_reason": sub.get("reason")}
+    return out
+
+
 def _load(path):
     with open(path, encoding="utf-8") as fh:
         return json.load(fh)
@@ -112,6 +170,18 @@ def _load(path):
 
 def main(argv, path=None, today=None):
     s = _load(path or os.path.join(config.DATA_DIR, "portfolio.json"))
+    if "--offline" in argv:
+        from tests import _harness
+        _harness.cut_network()
+        js = argv[argv.index("--json") + 1] if "--json" in argv else None
+        names = [a.upper() for a in argv if not a.startswith("--") and a != js]
+        rep = offline(s, names or sorted(s.get("holdings", {})), _offline_universe(config.CACHE_DIR))
+        for t, r in rep.items():
+            print(t, json.dumps(r, ensure_ascii=False, sort_keys=True))
+        if js:
+            with open(js, "w", encoding="utf-8") as fh:
+                json.dump(rep, fh, ensure_ascii=False, indent=1, sort_keys=True)
+        return rep
     tickers = [t.upper() for t in argv] or sorted(s.get("holdings", {}))
     today = today or dt.date.fromisoformat(pricing.ny_today())
     cache = _isolated_cache()
