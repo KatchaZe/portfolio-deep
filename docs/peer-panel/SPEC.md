@@ -149,3 +149,10 @@ S2 direction, efficient_scale <- top5_change_pp beyond +/-2pp, cost_advantage <-
 the FY operating-margin gap to the peer median FY3 -> FY0 beyond +/-2pp (same >= 3 peers at
 both years); null when the source is absent. moat_trend.watch: Thai names of up to 3
 present signals nearest a band edge, distance = | |value| - band | / band.
+R24 Source hints need excess returns (2026-11-21, lead's decision). A hint says where a moat
+could come from, so it needs a moat to explain: moat_trend.build takes `spread_pct`, the current
+ROIC - WACC in points that the card's Moat chip shows (key_metrics.spread_pct). Spread > 0 keeps
+the hints of R22-R23 unchanged. Spread <= 0, null, NaN or not a number: source_hints is [] and
+flags carries "hints: no excess return (ROIC − WACC ≤ 0)". Label, signals and watch are not
+touched. The tab shows "ยังไม่มีกำไรส่วนเกิน (ROIC ≤ WACC) จึงไม่นับเป็นแหล่ง moat" in place of
+the list. Rows stored before this rule keep their stored hints until the next refresh.

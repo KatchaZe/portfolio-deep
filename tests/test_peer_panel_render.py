@@ -66,8 +66,35 @@ def _row(t, s, moat=None):
     return {k: row[k] for k in ("ticker", "peer_panel", "moat_trend", "key_metrics", "uncertainty")}
 
 
+def _xss():
+    """Every string the store can put in the tab carries markup; none may reach innerHTML raw."""
+    ev = '<img src=x onerror=alert(1)>'
+    x = json.loads(json.dumps(SYNTH))
+    x["uncertainty"] = {"rating": ev}
+    pp, mt = x["peer_panel"], x["moat_trend"]
+    pp.update(as_of=ev, industry=ev, flags=[ev])
+    pp["table"]["rows"][0]["symbol"] = ev
+    pp["table"]["rows"][1]["symbol"] = "<script>alert(2)</script>"
+    pp["industry_share"] = {"years": [2023, 2024, 2025], "target_share": {"2023": .1, "2024": .1, "2025": .1},
+                            "top5_share": {"2023": .5, "2024": .5, "2025": .5}, "hhi": {}, "coverage": {"2025": .9},
+                            "n_members": ev, "flags": [ev], "matched_n": 5, "share_change_pp": 0.0, "top5_change_pp": 0.0}
+    mt.update(watch=[ev], flags=[ev, "S1: " + ev])
+    mt["signals"][0]["window"] = ev
+    for h in mt["source_hints"]:
+        h["type"] = ev
+        h["evidence"] = ev
+        for m in h["measures"]:
+            m["period"] = ev
+    mt["source_hints"].append({"type": "scale", "strength": "weak", "trend": 0, "evidence": ev,
+                               "measures": [{"metric": "industry_share", "value": .2, "period": ev}]})
+    return x
+
+
 def _cases():
-    cases = {"EMPTY": {}, "SYN": SYNTH}
+    noex = dict(SYNTH, key_metrics={"spread_pct": -3.9},
+                moat_trend=dict(SYNTH["moat_trend"], source_hints=[],
+                                flags=["hints: no excess return (ROIC − WACC ≤ 0)"]))
+    cases = {"EMPTY": {}, "SYN": SYNTH, "SYN_NOEX": noex, "XSS": _xss()}
     if os.path.exists(STORE):
         from tools import moat_replay
         with open(STORE, encoding="utf-8") as fh:
@@ -138,6 +165,15 @@ def test_tab_renders_every_shape():
                  "แนวโน้มยังไม่ทราบ", "ติดตามไตรมาสหน้า:", "efficient_scale: top 5 filers hold 93%",
                  "ความกว้าง moat</span><b>กว้าง</b>", "<b>High</b>"):
         assert need in syn, need
+    xs = out["XSS"]
+    for blob in (xs["pane"], xs["asc"], xs["sym"]):
+        assert "<img" not in blob and "<script" not in blob and "onerror=alert(1)>" not in blob.replace("&lt;img", ""), \
+            "store markup reached the DOM raw"
+    assert "&lt;img src=x onerror=alert(1)&gt;" in xs["pane"] and "&lt;script&gt;alert(2)&lt;/script&gt;" in xs["sym"]
+    ne = out["SYN_NOEX"]["pane"]
+    assert "ยังไม่มีกำไรส่วนเกิน (ROIC ≤ WACC) จึงไม่นับเป็นแหล่ง moat" in ne
+    assert "ความได้เปรียบด้านต้นทุน" not in ne and "ขนาดตลาดที่พอดี" not in ne.split("หมายเหตุข้อมูล")[0]
+    assert "ยังไม่มีกำไรส่วนเกิน" not in syn
     gap = syn.split('<th scope="row">GAPCO</th>')[1].split("</tr>")[0]
     assert gap.count(">—</td>") == 7 and "0.0%" not in gap, "a missing metric is a dash, never a zero"
     assert "กลุ่มบน" in syn and "กลุ่มกลาง" in syn

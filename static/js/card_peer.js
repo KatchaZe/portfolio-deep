@@ -103,8 +103,12 @@ function ppHintTh(h){
     .replace(/^gross margin (\d+)pp above the peer median \(FY0\): consistent with pricing power from brand or IP$/,'gross margin สูงกว่า median คู่แข่ง $1 pp (ปีงบล่าสุด) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา')
     .replace(/^(\d+)% of industry revenue among US SEC filers \(CY(\d+)\): consistent with a scale advantage$/,'$1% ของรายได้ทั้งอุตสาหกรรม (บริษัทที่ยื่น SEC, CY$2) สอดคล้องกับความได้เปรียบด้านขนาด'));
 }
+// R24: no hint without excess returns; the server says so in a flag and the tab says it in Thai
+const PP_NO_EXCESS='hints: no excess return';
 function ppHints(m){
-  const h=m.source_hints||[]; if(!h.length)return '';
+  const h=m.source_hints||[];
+  if(!h.length)return (m.flags||[]).some(f=>String(f).startsWith(PP_NO_EXCESS))
+    ?`<h3>แหล่ง moat ที่ตัวเลข “สอดคล้อง”</h3><p class="pp-empty">ยังไม่มีกำไรส่วนเกิน (ROIC ≤ WACC) จึงไม่นับเป็นแหล่ง moat</p>`:'';
   const tr=t=>{const x=PP_TREND[String(t)];return x?` · <span aria-hidden="true">${x[0]}</span> ${x[1]}`:(t===null?' · แนวโน้มยังไม่ทราบ':'');};
   return `<h3>แหล่ง moat ที่ตัวเลข “สอดคล้อง” (ไม่ใช่ข้อสรุป)</h3><ul class="pp-hints">${h.map(x=>`<li>${esc(PP_HINT[x.type]||x.type)} <span class="note">(${x.strength==='moderate'?'ปานกลาง':'อ่อน'}${tr(x.trend)})</span><br><span class="note">${ppHintTh(x)}</span></li>`).join('')}</ul>`;
 }

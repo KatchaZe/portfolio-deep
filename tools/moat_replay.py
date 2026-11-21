@@ -31,8 +31,9 @@ def rebuild(s):
         target, _why = peers._target_panel_point(f, today)
         pts = (((r.get("relative") or {}).get("model") or {}).get("panel_points"))
         kept = peer_panel.peer_set(target, pts, panel["as_of"])[0] if pts else []
-        wacc = (r.get("key_metrics") or {}).get("wacc_pct")
-        out[t] = (r.get("moat_trend") or {}, moat_trend.build(f, target, kept, panel.get("industry_share"), wacc))
+        km = r.get("key_metrics") or {}
+        out[t] = (r.get("moat_trend") or {}, moat_trend.build(f, target, kept, panel.get("industry_share"),
+                                                              km.get("wacc_pct"), km.get("spread_pct")))
     return out
 
 
@@ -54,7 +55,7 @@ def main(argv):
     for t, (old, new) in rep.items():
         mark = "" if (old.get("label"), _kinds(old)) == (new.get("label"), _kinds(new)) else "  CHANGED"
         print(f"{t:6} label {old.get('label')!s:9} -> {new.get('label')!s:9} "
-              f"hints [{_hints(old)}] -> [{_hints(new)}] watch {new.get('watch')}{mark}")
+              f"spread {((s['results'][t].get('key_metrics') or {}).get('spread_pct'))} hints [{_hints(old)}] -> [{_hints(new)}] watch {new.get('watch')}{mark}")
     if "--json" in argv:
         with open(argv[argv.index("--json") + 1], "w", encoding="utf-8") as fh:
             json.dump({t: n for t, (_o, n) in rep.items()}, fh, ensure_ascii=False, indent=1, sort_keys=True)

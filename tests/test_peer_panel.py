@@ -590,7 +590,7 @@ class Moat(unittest.TestCase):
         self.assertEqual(MT.label([up, up, {"direction": -1}]), "stable")
         self.assertEqual(MT.label([{"direction": -1}] * 2), "eroding")
         self.assertEqual(MT.label([up, {"direction": 0}]), "stable")
-        out = MT.build({}, snap(100, 80, oi0=30, oi3=10), [], share_of(.10, .20), 8.0)
+        out = MT.build({}, snap(100, 80, oi0=30, oi3=10), [], share_of(.10, .20), 8.0, 5.0)
         self.assertEqual((out["n_signals"], out["label"]), (2, "improving"))
         self.assertEqual({s["name"] for s in out["signals"]}, {"share_change", "incremental_margin"})
         self.assertEqual(len(out["flags"]), 2, "each absent signal says why")
@@ -754,7 +754,7 @@ class Guards(unittest.TestCase):
         panel = PP.build(pp("T"), [pp(f"P{i}", ebit=e) for i, e in enumerate([1e9, 2e9, 3e9, 4e9])],
                          AS_OF, "Software", "b", sh)
         moat = MT.build({}, snap(100, 80, oi0=30, oi3=10, gm0=.5, gm3=.4),
-                        [snap(10, 8, gm0=.3, gm3=.3)] * 3, sh, 8.0)
+                        [snap(10, 8, gm0=.3, gm3=.3)] * 3, sh, 8.0, 5.0)
         return panel, moat
 
     def test_E1_every_new_field_declares_a_clock(self):

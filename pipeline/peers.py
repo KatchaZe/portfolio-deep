@@ -490,5 +490,5 @@ def panel_and_moat(f, val, block, universe, today):
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,
                              block.get("excluded") or [], notes, target_why)
     kept = peer_panel.peer_set(target, pts, as_of)[0] if pts else []
-    wacc = ((getattr(val, "key_metrics", None) or {}).get("wacc_pct"))
-    return panel, moat_trend.build(f, target, kept, share, wacc)
+    km = getattr(val, "key_metrics", None) or {}
+    return panel, moat_trend.build(f, target, kept, share, km.get("wacc_pct"), km.get("spread_pct"))

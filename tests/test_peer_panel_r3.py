@@ -40,6 +40,18 @@ class R20Coverage(unittest.TestCase):
         self.assertAlmostEqual(both["top5_share"]["2025"], 200 / 210)
         self.assertEqual(both["matched_n"], 6, "the matched set stays the revenue filers (R13)")
 
+    def test_a_cik_in_revenue_and_assets_counts_once(self):
+        both = self.share({y: {100, 101, 106} for y in Y5})          # 100, 101 book revenue; 106 does not
+        self.assertEqual((both["n_with_revenue"]["2025"], both["n_covered"]["2025"]), (6, 7))
+        self.assertAlmostEqual(both["coverage"]["2025"], 0.7)
+
+    def test_members_without_a_cik_are_not_in_the_denominator(self):
+        members = dict(self.MEMBERS, NOCIK1=None, NOCIK2=None)
+        sh = PP.industry_share(members, frames_with({100 + i: 10.0 for i in range(6)}), 100, Y5, AS_OF, None,
+                               {y: {106, 107} for y in Y5})
+        self.assertEqual(sh["n_members"], 10)
+        self.assertAlmostEqual(sh["coverage"]["2025"], 0.8)
+
     def test_one_balance_sheet_short_of_the_rule_still_hides_the_share(self):
         sh = self.share({y: {106} for y in Y5})
         self.assertAlmostEqual(sh["coverage"]["2025"], 0.7 - 0.0, places=6)
@@ -177,6 +189,8 @@ class R22Hints(unittest.TestCase):
         self.assertIsNone(hint(0.4199, 0.1499))
         self.assertIsNone(hint(0.4201, 0.1501))
         self.assertIsNotNone(hint(0.20, 0.30), "a GM below the median is a cost story")
+        self.assertIsNone(hint(0.40, 0.04), "OPM 6pp BELOW the median is not a cost advantage")
+        self.assertIsNone(hint(0.40, -0.10))
         self.assertIsNone(hint(0.42, 0.15, n=2), "a median of two firms is not a median")
         h = hint(0.41, 0.20)
         self.assertEqual(h["strength"], "moderate")
@@ -225,7 +239,7 @@ class R23TrendAndWatch(unittest.TestCase):
                                           ("share_change", "gm_gap_change", "incremental_margin")])
         self.assertEqual(MT.watch([]), [])
         out = MT.build({}, snap(100, 80, oi0=30, oi3=10), [], {"years": Y5, "target_share": {},
-                       "matched_share_then": .1, "matched_share_now": .2}, 8.0)
+                       "matched_share_then": .1, "matched_share_now": .2}, 8.0, 5.0)
         self.assertEqual(len(out["watch"]), 2)
         self.assertTrue(all(any("฀" <= c <= "๿" for c in w) for w in out["watch"]), "Thai names")
 
@@ -237,6 +251,42 @@ class R23TrendAndWatch(unittest.TestCase):
         self.assertEqual(contracts.undeclared_panel_keys(m), [])
         sh = PP.industry_share({"A": 1}, frames_with({1: 5.0}), 1, Y5, AS_OF, None, {2025: {1}})
         self.assertEqual(contracts.undeclared_panel_keys(sh), [])
+
+
+class R24ExcessReturnGate(unittest.TestCase):
+    """A source hint says where excess returns could come from: none without them."""
+    def build(self, spread):
+        sig = {"years": Y5, "target_share": {str(y): 0.30 for y in Y5}, "top5_share": {str(y): 0.92 for y in Y5},
+               "share_change_pp": 0.0, "top5_change_pp": 0.0, "n_members": 12,
+               "matched_share_then": .1, "matched_share_now": .2}
+        return MT.build({}, point(0.65, 0.65, 0.10), peers3(), sig, 8.0, spread)
+
+    def test_hints_need_a_positive_spread(self):
+        self.assertTrue(self.build(0.01)["source_hints"], "any spread above zero keeps the hints")
+        self.assertEqual({h["type"] for h in self.build(5.0)["source_hints"]},
+                         {"intangible", "scale", "efficient_scale"})
+        for bad in (-3.86, 0, 0.0, None, float("nan"), True):
+            out = self.build(bad)
+            self.assertEqual(out["source_hints"], [], f"spread {bad!r}")
+            self.assertIn(MT.NO_EXCESS_FLAG, out["flags"], f"spread {bad!r}")
+        self.assertNotIn(MT.NO_EXCESS_FLAG, self.build(5.0)["flags"])
+
+    def test_the_gate_leaves_label_signals_and_watch_alone(self):
+        a, b = self.build(5.0), self.build(-5.0)
+        for k in ("label", "n_signals", "signals", "watch"):
+            self.assertEqual(a[k], b[k], k)
+
+    def test_wiring_reads_the_spread_the_chip_shows(self):
+        class V:
+            key_metrics = {"wacc_pct": 8.0, "spread_pct": -3.86}
+        seen = {}
+        real = MT.build
+        MT.build = lambda *a, **k: seen.setdefault("args", a) and real(*a, **k)
+        try:
+            peers.panel_and_moat(tfacts(), V(), {}, universe(), TODAY)
+        finally:
+            MT.build = real
+        self.assertEqual(seen["args"][-2:], (8.0, -3.86))
 
 
 class Rows(unittest.TestCase):

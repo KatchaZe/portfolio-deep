@@ -247,10 +247,21 @@ def watch(signals):
     return [SIGNAL_TH[x["name"]] for x in sorted(signals, key=dist)[:WATCH_N]]
 
 
-def build(f, target, peers, share, wacc_pct):
+NO_EXCESS_FLAG = "hints: no excess return (ROIC − WACC ≤ 0)"
+
+
+def excess_return(spread_pct):
+    """True only for a real number above zero (R24); None, NaN, bool and 0 are not."""
+    return (isinstance(spread_pct, (int, float)) and not isinstance(spread_pct, bool)
+            and spread_pct == spread_pct and spread_pct > 0)
+
+
+def build(f, target, peers, share, wacc_pct, spread_pct=None):
     """results[ticker]["moat_trend"]. `f` facts (object or stored dict) for the ROIC
     series; `target` the target's panel point; `peers` the eligible peer points
-    (peer_panel.peer_set); `share` peer_panel.industry_share or None."""
+    (peer_panel.peer_set); `share` peer_panel.industry_share or None; `spread_pct` the
+    current ROIC − WACC in points, the value the card's Moat chip shows: a source hint
+    says where excess returns could come from, so none is emitted without them (R24)."""
     rmap = trend.roic_series(trend._get(f, "operating_income_annuals_dated"),
                              trend._get(f, "ic_components_dated", {}), trend._tax_rate(f))
     tgt = target or {}
@@ -264,6 +275,11 @@ def build(f, target, peers, share, wacc_pct):
     lab = label(signals)
     if lab is None:
         flags.append(f"{len(signals)} signal(s): no label (need {LABEL_AT})")
+    hints = []
+    if excess_return(spread_pct):
+        hints = source_hints(tgt, peers or [], share, signals)
+    else:
+        flags.append(NO_EXCESS_FLAG)
     return {"label": lab, "n_signals": len(signals), "signals": signals,
-            "source_hints": source_hints(tgt, peers or [], share, signals),
+            "source_hints": hints,
             "watch": watch(signals), "thresholds": THRESHOLDS, "flags": flags}
