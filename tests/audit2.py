@@ -262,6 +262,241 @@ print(f"  mutation (form filter removed): {len(_mutant)} non-periodic facts read
 if not any(f == "DEF 14A" for _, _, f in _mutant):
     flag("HIGH", "A11 cannot fire: removing the form filter let no DEF 14A fact through")
 
+# ---------------------------------------------------------------- A12  [E38-E43]
+hdr("A12", "peer panel: gross margin only within the same business (SPEC R25-R28)")
+import re as _re                                   # noqa: E402
+import shutil as _shutil                           # noqa: E402
+import subprocess as _sp                           # noqa: E402
+import tempfile as _tf                             # noqa: E402
+import types as _types                             # noqa: E402
+from domain import moat_trend as _MT               # noqa: E402
+from domain import peer_panel as _PP               # noqa: E402
+
+
+def _variant(mod, old, new, **attrs):
+    """A copy of `mod` with one source edit, for the guards' mutation self-tests."""
+    src = open(mod.__file__, encoding="utf-8").read()
+    assert src.count(old) == 1, (mod.__name__, old[:50])
+    m = _types.ModuleType(mod.__name__ + "_mutant")
+    m.__file__ = mod.__file__
+    m.__dict__.update(attrs)
+    exec(compile(src.replace(old, new), mod.__file__, "exec"), m.__dict__)
+    return m
+
+
+def _leg(end, rev, gm, oi=None):
+    return {"end": end, "revenue": rev, "gross_profit": None if gm is None else rev * gm, "operating_income": oi}
+
+
+def _pt(sym, gm0, gm3=None, rev=100.0, opm=0.10):
+    gm3 = gm0 if gm3 is None else gm3
+    return {"symbol": sym, "currency": "USD", "accounting_standard": "us-gaap", "revenue_ttm": rev,
+            "ebit_ttm": rev * opm, "net_income_ttm": rev * opm * .8, "ev": rev * 3, "market_cap": rev * 2.5,
+            "period_end": "2026-09-30", "price_date": "2026-11-13",
+            "fy0": _leg("2025-12-31", rev, gm0, rev * .2), "fy1": _leg("2024-12-31", rev * .9, gm0),
+            "fy3": _leg("2022-12-31", rev * .7, gm3, rev * .7 * .1)}
+
+
+# the insurer case (UNH-like: GM 88.7% beside distributors), a semiconductor with peers in
+# three SICs, and a device maker that needs the 3-digit fallback
+_CASES = {
+    "INS": ("6324", [("CI", "6324", .22), ("ELV", "6324", .89), ("CNC", "6324", .07), ("MOH", "6324", .13),
+                     ("MCK", "5122", .04), ("COR", "5122", .03)], .887),
+    "SEMI": ("3674", [("A", "3674", .5), ("B", "3674", .55), ("C", "3674", .6), ("D", "3672", .2),
+                      ("E", "3559", .45), ("F", None, .9), ("G", "0000", .9)], .75),
+    "DEV": ("3845", [("H", "3845", .6), ("I", "3845", .62), ("J", "3841", .7), ("K", "3851", .9),
+                     ("L", "3851", .9), ("M", "3851", .9)], .65),
+    "THIN": ("7841", [("N", "7841", .4), ("O", "7372", .8), ("P", "7812", .3)], .45),
+}
+_Y5 = [2021, 2022, 2023, 2024, 2025]
+
+
+def _built(pp=_PP, mt=_MT):
+    """{case: (target sic, sics, panel, moat)} built by the given module pair."""
+    out = {}
+    for k, (tsic, peers_, tgm) in _CASES.items():
+        tgt = _pt("T" + k, tgm, tgm - .02)
+        pts = [_pt(s, g) for s, _c, g in peers_]
+        sics = {"T" + k: tsic, **{s: c for s, c, _g in peers_}}
+        members = {"T" + k: 1, **{s: i + 2 for i, (s, _c, _g) in enumerate(peers_)}, "T" + k + "B": 1}
+        sics["T" + k + "B"] = tsic
+        frames = {y: {c: [10.0 * c, f"{y}-12-31"] for c in set(members.values())} for y in _Y5}
+        share = pp.industry_share(members, frames, 1, _Y5, "2026-11-16")
+        share["sub_group"] = pp.sub_group(members, frames, 1, _Y5, "2026-11-16", None, None, sics, "T" + k)
+        panel = pp.build(tgt, pts, "2026-11-16", "X", "b", share, sics=sics)
+        kept = pp.peer_set(tgt, pts, "2026-11-16")[0]
+        out[k] = (tsic, sics, panel, mt.build({}, tgt, kept, share, 8.0, 5.0, sics))
+    return out
+
+
+def _live():
+    """The same built offline for the store's holdings when the store and caches exist."""
+    import config as _cfg
+    store = os.path.join(_cfg.DATA_DIR, "portfolio.json")
+    if not (os.path.exists(store) and os.path.exists(os.path.join(_cfg.CACHE_DIR, "damodaran_indname.json"))):
+        return {}
+    import datetime as _dt
+    from types import SimpleNamespace as _NS
+    from pipeline import peers as _peers
+    from tools import panel_probe as _probe
+    with open(store, encoding="utf-8") as fh:
+        st = _json.load(fh)
+    u = _probe._offline_universe(_cfg.CACHE_DIR)
+    sics = {t: row[1] for t, row in (u.rows or {}).items()}
+    out = {}
+    for t in sorted(st.get("holdings") or {}):
+        r, fd = (st.get("results") or {}).get(t) or {}, (st.get("facts") or {}).get(t)
+        if not fd or not (r.get("peer_panel") or {}).get("as_of"):
+            continue
+        panel, moat = _peers.panel_and_moat(_probe._facts(fd, t), _NS(key_metrics=r.get("key_metrics") or {}),
+                                            r.get("relative") or {}, u,
+                                            _dt.date.fromisoformat(r["peer_panel"]["as_of"]))
+        out[t] = (sics.get(t), sics, panel, moat)
+    return out
+
+
+def _cross_sic(built):
+    """A12a: a GM comparison that includes a comparator of another SIC at the level used."""
+    bad = []
+    for k, (_ts, sics, panel, moat) in built.items():
+        tbl = panel.get("table") or {}
+        scopes = [("table", tbl.get("gm_compare") or {})] + [
+            ("S3", s.get("comparators") or {}) for s in moat["signals"] if s["name"] == "gm_gap_change"]
+        for where, g in scopes:
+            lv = g.get("level")
+            if not lv:
+                continue
+            for sym in g.get("symbols") or []:
+                c = _PP.sic4(sics.get(sym))
+                if c is None or c[:lv] != str(g.get("sic"))[:lv]:
+                    bad.append((k, where, sym, c, g.get("sic"), lv))
+        listed = set((tbl.get("gm_compare") or {}).get("symbols") or [])
+        bad += [(k, "row", r["symbol"]) for r in tbl.get("rows") or [] if r.get("gm_comparator") and r["symbol"] not in listed]
+    return bad
+
+
+def _financial_gm(built):
+    """A12b: a financial target with a GM number, S3 or a GM-based hint."""
+    bad = []
+    for k, (ts, _s, panel, moat) in built.items():
+        if not _PP.is_financial(ts):
+            continue
+        rows = (panel.get("table") or {}).get("rows") or []
+        bad += [(k, "row GM", r["symbol"]) for r in rows if r.get("gross_margin_fy") is not None]
+        bad += [(k, "S3") for s in moat["signals"] if s["name"] == "gm_gap_change"]
+        bad += [(k, h["type"]) for h in moat["source_hints"] if h["type"] in ("intangible", "cost_advantage")]
+        if "gm_gap_change" not in (moat.get("votes") or {}).get("not_applicable", []):
+            bad.append((k, "votes"))
+    return bad
+
+
+def _silent_skips(built):
+    """A12c: a skipped GM comparison or sub-group with no reason, or no counts."""
+    bad = []
+    for k, (_ts, _s, panel, moat) in built.items():
+        g = (panel.get("table") or {}).get("gm_compare")
+        if g and not g.get("level"):
+            r = g.get("reason") or ""
+            counted = g.get("sic") is None or not g.get("applies") or (
+                f"{g.get('n4')} ราย" in r and f"{g.get('n3')} ราย" in r)
+            if not r or not counted:
+                bad.append((k, "gm", r))
+        if g and not g.get("level") and not any(f.startswith("gross margin: ") for f in panel["flags"]):
+            bad.append((k, "panel flag"))
+        if not any(s["name"] == "gm_gap_change" for s in moat["signals"]) and \
+                not any(f.startswith("S3: ") and len(f) > 4 for f in moat["flags"]):
+            bad.append((k, "S3 flag"))
+        sub = (panel.get("industry_share") or {}).get("sub_group")
+        if sub and (sub.get("sic") is None or sub.get("n_members", 0) < 2) and not sub.get("reason"):
+            bad.append((k, "sub_group"))
+    return bad
+
+
+def _sub_shares(built):
+    """A12d: sub-group shares above 100% or the target counted other than once."""
+    bad = []
+    for k, (_ts, _s, panel, _m) in built.items():
+        sub = (panel.get("industry_share") or {}).get("sub_group") or {}
+        if not sub.get("sic"):
+            continue
+        tot = sum(m["share"] for m in sub.get("members") or [] if m.get("share"))
+        if tot > 1 + 1e-9:
+            bad.append((k, "sum", round(tot, 4)))
+        rows = (panel.get("table") or {}).get("rows") or []
+        tsym = next((r["symbol"] for r in rows if r["is_target"]), None)
+        n = sum(m["symbols"].count(tsym) for m in sub.get("members") or [])
+        if tsym and n != 1:
+            bad.append((k, "target rows", n))
+    return bad
+
+
+_GUARDS = (("A12a", _cross_sic), ("A12b", _financial_gm), ("A12c", _silent_skips), ("A12d", _sub_shares))
+_built_now = _built()
+_built_now.update(_live())
+print(f"  {len(_built_now)} panels ({len(_CASES)} synthetic, {len(_built_now) - len(_CASES)} live holdings rebuilt offline)")
+for _name, _g in _GUARDS:
+    _found = _g(_built_now)
+    print(f"  {_name} {_g.__doc__.split(':')[1].strip()[:70]}: {len(_found)}")
+    if _found:
+        flag("HIGH", f"{_name} {_found[:3]}")
+
+_pp_cross = _variant(_PP, "c is not None and c[:lv] == ts[:lv]]", "True]")
+_pp_nofin = _variant(_PP, "return c is not None and FINANCIAL_SIC[0] <= int(c) <= FINANCIAL_SIC[1]", "return False")
+_pp_quiet = _variant(_PP, 'out["reason"] = (f"คู่แข่งที่มี', 'out["reason"] = None and (f"คู่แข่งที่มี')
+_pp_total = _variant(_PP, "total = sum(v for v in rev.values() if _pos(v))", "total = max(rev.values())")
+_pp_twice = _variant(_PP, "for t, c in list(sm.items()) + list(sf.items()):",
+                     "for t, c in list(sm.items()) + list(sm.items()) + list(sf.items()):")
+_MUTANTS = (("A12a", _cross_sic, _pp_cross), ("A12b", _financial_gm, _pp_nofin),
+            ("A12c", _silent_skips, _pp_quiet), ("A12d", _sub_shares, _pp_total), ("A12d", _sub_shares, _pp_twice))
+for _name, _g, _pp in _MUTANTS:
+    _mt = _variant(_MT, "from domain import peer_panel, trend", "from domain import trend", peer_panel=_pp)
+    _hit = _g(_built(_pp, _mt))
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
+
+def _ui_gm_cells(js_patch=None):
+    """A12e: the GM cells the tab renders for a financial target whose stored rows still
+    carry GM numbers. None when node is missing."""
+    node = _shutil.which("node")
+    if not node:
+        return None
+    from tests.frontend_source import frontend_files
+    shipped = {os.path.basename(p): p for p in frontend_files()}
+    js = "\n".join(open(shipped[m], encoding="utf-8").read() for m in ("format.js", "card_signals.js", "card_peer.js"))
+    if js_patch:
+        assert js.count(js_patch[0]) == 1, js_patch[0]
+        js = js.replace(*js_patch)
+    x = {"peer_panel": {"table": {"gm_compare": {"applies": False, "reason": "x", "sic": "6324"},
+                                  "stats": {"gross_margin_fy": {"n": 3, "median": .42}}, "target_vs_median": {},
+                                  "rows": [{"symbol": s, "is_target": s == "UNH", "gross_margin_fy": g,
+                                            "rank3": {}, "outlier": []}
+                                           for s, g in (("UNH", .887), ("ELV", .894), ("CI", .218))]}}}
+    js += "\nconsole.log(JSON.stringify(ppTable(%s.peer_panel,null,'all')));" % _json.dumps(x)
+    with _tf.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
+        fh.write(js)
+    try:
+        r = _sp.run([node, fh.name], capture_output=True, text=True, timeout=60)
+    finally:
+        os.unlink(fh.name)
+    html = _json.loads(r.stdout)
+    return [c for c in _re.findall(r'data-col="gross_margin_fy">(.*?)</td>', html)
+            if _re.search(r"\d", _re.sub(r"<[^>]+>", "", c))]
+
+
+_ui = _ui_gm_cells()
+if _ui is None:
+    flag("LOW", "A12e skipped: node not available")
+else:
+    print(f"  A12e GM numbers rendered for a financial target: {len(_ui)}")
+    if _ui:
+        flag("HIGH", f"A12e the tab shows a GM number for a financial target: {_ui[:3]}")
+    _ui_m = _ui_gm_cells(("if(c==='gross_margin_fy'&&ppGmNa(p,r))", "if(false)"))
+    print(f"  mutation for A12e (the cell guard removed): {len(_ui_m)} GM number(s) rendered")
+    if not _ui_m:
+        flag("HIGH", "A12e cannot fire: removing the cell guard rendered no GM number")
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:
