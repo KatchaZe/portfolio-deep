@@ -22,10 +22,10 @@ function moatArrow(x){
 
 // S1-S4: Thai name, band in display units, value formatter, value -> display units
 const PP_SIG={
-  spread_slope:{n:'ROIC − WACC เปลี่ยนต่อปี',s:'S1',th:1.0,u:' pp/ปี',fmt:v=>ppSgn(v,2)+' pp/ปี',k:v=>v},
+  spread_slope:{n:'ROIC − WACC เปลี่ยนต่อปี',s:'S1',th:1.0,u:'%/ปี',fmt:v=>ppSgn(v,2)+'%/ปี',k:v=>v},
   share_change:{n:'ส่วนแบ่งรายได้ในอุตสาหกรรม (เปลี่ยนเทียบส่วนแบ่งเดิม)',s:'S2',th:10,u:'%',fmt:v=>ppSgn(v*100,1)+'% ของเดิม',k:v=>v*100},
-  gm_gap_change:{n:'Gross margin เทียบ median คู่แข่ง (เปลี่ยน)',s:'S3',th:2.0,u:' pp',fmt:v=>ppSgn(v*100,1)+' pp',k:v=>v*100},
-  incremental_margin:{n:'Margin ส่วนเพิ่ม เทียบ margin เฉลี่ย',s:'S4',th:5.0,u:' pp',fmt:v=>ppSgn(v*100,1)+' pp',k:v=>v*100}};
+  gm_gap_change:{n:'Gross margin เทียบ median คู่แข่ง (เปลี่ยน)',s:'S3',th:2.0,u:'%',fmt:v=>ppSgn(v*100,1)+'%',k:v=>v*100},
+  incremental_margin:{n:'Margin ส่วนเพิ่ม เทียบ margin เฉลี่ย',s:'S4',th:5.0,u:'%',fmt:v=>ppSgn(v*100,1)+'%',k:v=>v*100}};
 const PP_DIR={'1':'ดีขึ้น','0':'ไม่ชัด','-1':'แย่ลง'};
 
 // a diverging bar in band units, clamped to ±3; dashed lines mark the ±1 band
@@ -68,7 +68,7 @@ function ppRanks(p){
   const W={1:'กลุ่มบน',2:'กลุ่มกลาง',3:'กลุ่มล่าง'}, n=p.table.rows.length, tv=p.table.target_vs_median||{};
   const cell=(k,l,extra)=>`<div><span class="cap">${l}</span><b>${W[t.rank3[k]]||'—'}</b><span class="note">${extra}</span></div>`;
   return `<h3 class="pp-sub">ตำแหน่งในกลุ่มคู่แข่ง (${n} บริษัท รวมหุ้นนี้)</h3>
-   <div class="pp-ranks">${cell('scale','ขนาด','รายได้ TTM')}${cell('growth','การเติบโต',ppNum(tv.cagr3_fy)?'โต 3 ปี '+ppSgn(tv.cagr3_fy,1)+' pp จาก median':'โต 3 ปี')}${cell('margin','Margin',ppNum(tv.op_margin_ttm)?'OPM '+ppSgn(tv.op_margin_ttm,1)+' pp จาก median':'OPM TTM')}</div>
+   <div class="pp-ranks">${cell('scale','ขนาด','รายได้ TTM')}${cell('growth','การเติบโต',ppNum(tv.cagr3_fy)?'โต 3 ปี '+ppSgn(tv.cagr3_fy,1)+'% จาก median':'โต 3 ปี')}${cell('margin','Margin',ppNum(tv.op_margin_ttm)?'OPM '+ppSgn(tv.op_margin_ttm,1)+'% จาก median':'OPM TTM')}</div>
    <p class="note" style="margin:0">แบ่ง 3 กลุ่มเท่า ๆ กันตามลำดับ (บน = ดีที่สุดหนึ่งในสาม)</p>`;
 }
 
@@ -95,12 +95,12 @@ const PP_TREND={'1':['↗','แข็งขึ้น'],'0':['→','ทรงต�
 function ppHintTh(h){
   const ms={}; (h.measures||[]).forEach(m=>{ms[m.metric]=m;});
   const v=k=>(ms[k]||{}).value, per=k=>esc((ms[k]||{}).period||'');
-  if(h.type==='intangible'&&ppNum(v('gm_gap_pp')))return `gross margin สูงกว่า median คู่แข่ง ${v('gm_gap_pp').toFixed(0)} pp (${per('gm_gap_pp')}) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา`;
+  if(h.type==='intangible'&&ppNum(v('gm_gap_pp')))return `gross margin สูงกว่า median คู่แข่ง ${v('gm_gap_pp').toFixed(0)}% (${per('gm_gap_pp')}) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา`;
   if(h.type==='scale'&&ppNum(v('industry_share')))return `${ppPct(v('industry_share'),0)} ของรายได้ทั้งอุตสาหกรรม (บริษัทที่ยื่น SEC, ${per('industry_share')}) สอดคล้องกับความได้เปรียบด้านขนาด`;
-  if(h.type==='efficient_scale'&&ppNum(v('top5_share')))return `5 บริษัทใหญ่สุดมีรายได้รวม ${ppPct(v('top5_share'),0)} ของอุตสาหกรรม (${per('top5_share')}) ส่วนแบ่งของหุ้นนี้เปลี่ยน ${ppSgn(v('share_change_pp'),1)} pp (${per('share_change_pp')}) ในกลุ่ม ${esc(v('n_members'))} บริษัท สอดคล้องกับตลาดที่รองรับผู้เล่นได้ไม่กี่ราย`;
-  if(h.type==='cost_advantage'&&ppNum(v('opm_gap_pp')))return `operating margin สูงกว่า median คู่แข่ง ${v('opm_gap_pp').toFixed(0)} pp (TTM) ขณะที่ gross margin ต่างจาก median ${ppSgn(v('gm_gap_pp'),0)} pp (${per('gm_gap_pp')}) สอดคล้องกับความได้เปรียบด้านต้นทุน`;
+  if(h.type==='efficient_scale'&&ppNum(v('top5_share')))return `5 บริษัทใหญ่สุดมีรายได้รวม ${ppPct(v('top5_share'),0)} ของอุตสาหกรรม (${per('top5_share')}) ส่วนแบ่งของหุ้นนี้เปลี่ยน ${ppSgn(v('share_change_pp'),1)}% (${per('share_change_pp')}) ในกลุ่ม ${esc(v('n_members'))} บริษัท สอดคล้องกับตลาดที่รองรับผู้เล่นได้ไม่กี่ราย`;
+  if(h.type==='cost_advantage'&&ppNum(v('opm_gap_pp')))return `operating margin สูงกว่า median คู่แข่ง ${v('opm_gap_pp').toFixed(0)}% (TTM) ขณะที่ gross margin ต่างจาก median ${ppSgn(v('gm_gap_pp'),0)}% (${per('gm_gap_pp')}) สอดคล้องกับความได้เปรียบด้านต้นทุน`;
   return esc(String(h.evidence||'')
-    .replace(/^gross margin (\d+)pp above the peer median \(FY0\): consistent with pricing power from brand or IP$/,'gross margin สูงกว่า median คู่แข่ง $1 pp (ปีงบล่าสุด) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา')
+    .replace(/^gross margin (\d+)pp above the peer median \(FY0\): consistent with pricing power from brand or IP$/,'gross margin สูงกว่า median คู่แข่ง $1% (ปีงบล่าสุด) สอดคล้องกับอำนาจกำหนดราคาจากแบรนด์หรือทรัพย์สินทางปัญญา')
     .replace(/^(\d+)% of industry revenue among US SEC filers \(CY(\d+)\): consistent with a scale advantage$/,'$1% ของรายได้ทั้งอุตสาหกรรม (บริษัทที่ยื่น SEC, CY$2) สอดคล้องกับความได้เปรียบด้านขนาด'));
 }
 // R24: no hint without excess returns; the server says so in a flag and the tab says it in Thai
@@ -140,8 +140,8 @@ function ppShare(p,wide){
     <div class="pp-legend"><span><i style="background:var(--accent)"></i>${esc(tgt)}</span><span><i class="dash"></i>Top-5 รวม</span></div>
     <div class="pp-kfig">
       <div><span class="cap">ส่วนแบ่ง CY${yrs[last]}</span><b>${ppPct(ts[last])}</b></div>
-      <div><span class="cap">เปลี่ยน 3 ปี</span><b>${ppNum(s.share_change_pp)?ppSgn(s.share_change_pp,2)+' pp':'—'}</b><span class="note">กลุ่มเดียวกัน ${ppNum(s.matched_n)?s.matched_n:'—'} บริษัท</span></div>
-      <div><span class="cap">Top-5 รวม</span><b>${ppPct(t5[last])}</b><span class="note">${ppNum(s.top5_change_pp)?ppSgn(s.top5_change_pp,1)+' pp ใน 3 ปี':''}</span></div>
+      <div><span class="cap">เปลี่ยน 3 ปี</span><b>${ppNum(s.share_change_pp)?ppSgn(s.share_change_pp,2)+'%':'—'}</b><span class="note">กลุ่มเดียวกัน ${ppNum(s.matched_n)?s.matched_n:'—'} บริษัท</span></div>
+      <div><span class="cap">Top-5 รวม</span><b>${ppPct(t5[last])}</b><span class="note">${ppNum(s.top5_change_pp)?ppSgn(s.top5_change_pp,1)+'% ใน 3 ปี':''}</span></div>
       <div><span class="cap">HHI</span><b>${ppNum(hhi)?hhi.toFixed(2):'—'}</b><span class="note">${!ppNum(hhi)?'':hhi>0.25?'กระจุกตัวสูง':hhi>0.15?'กระจุกตัวปานกลาง':'กระจายตัว'}</span></div></div>
     <p class="note" style="margin:0">สัดส่วนรายได้ในบริษัทที่ยื่น SEC ในอุตสาหกรรมเดียวกัน (${esc(s.n_members)} ราย, ครอบคลุม ${cov.length?ppPct(Math.min(...cov),0)+'–'+ppPct(Math.max(...cov),0):'—'}) ไม่ใช่ market share จริง</p></div>`;
 }
@@ -174,7 +174,7 @@ function ppTable(p,sort){
 
 function ppNotes(p,m){
   const ev=(m.source_hints||[]).map(h=>h.evidence?`${h.type}: ${h.evidence}`:'').filter(Boolean);
-  const u=[...new Set([...(p.flags||[]),...((p.industry_share||{}).flags||[]),...(m.flags||[]),...ev].map(String))];
+  const u=[...new Set([...(p.flags||[]),...((p.industry_share||{}).flags||[]),...(m.flags||[]),...ev].map(f=>pp2pct(String(f))))];
   if(!u.length)return '';
   return `<details class="box pp-notes"><summary>หมายเหตุข้อมูล (${u.length})</summary><ul>${u.map(f=>`<li>${esc(f)}</li>`).join('')}</ul></details>`;
 }

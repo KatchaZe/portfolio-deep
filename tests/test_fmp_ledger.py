@@ -53,7 +53,10 @@ class Ledger(unittest.TestCase):
         http = self.real(R(429, None, '{"Error Message": "Limit Reach . Please upgrade"}'))
         self.assertEqual(fmp.fetch_profile("NVO", "k"), [])
         self.assertTrue(fmp.LEDGER.exhausted())
-        self.assertEqual(fmp.LEDGER.used(), config.QUOTA_CAP)
+        # the refused request is counted as sent, and the cap is spent for the budget
+        self.assertEqual(fmp.LEDGER.used(), 1)
+        self.assertEqual(fmp.LEDGER.budget_used(), config.QUOTA_CAP)
+        self.assertRegex(fmp.LEDGER.refused_at(), r"^\d\d:\d\d$")
         fmp.fetch_earnings("NVO", "k")
         fmp.fetch(  "NVO", "k", sleep=0)
         self.assertEqual(len(http.sent), 1)       # nothing more went out

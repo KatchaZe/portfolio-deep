@@ -12,8 +12,26 @@ from concurrent.futures import ThreadPoolExecutor
 import config
 
 MAX_WORKERS = 4                    # parallel ticker fetches (SEC throttle is global)
-# profile + quote-fallback + earnings + estimates + quarterly-est backfill
-FMP_CALLS_PER_TICKER = 5
+
+# Every FMP request one ticker's refresh can send, worst case, by step. A `budgeted`
+# step reserves its calls from the spare Budget at the moment it spends them; every
+# other step is admitted up front by partition_by_quota. tools/fmp_budget.py drives the
+# real code paths offline and counts what each step sends; tests/test_fmp_budget.py
+# holds this table to that measurement.
+FMP_STEPS = (
+    # (step, worst-case calls, budgeted)
+    ("profile", 1, False),               # 30-day cache
+    ("statements fallback", 8, True),    # fmp.ENDPOINTS, only when SEC is stale; 7-day cache
+    ("quote fallback", 1, False),        # only when price or shares are missing
+    ("earnings", 1, False),
+    ("estimates", 1, False),             # 7-day cache, refetched after a new SEC filing
+    ("quarterly estimates", 1, False),   # only when no beat/miss history came back
+    ("peer list", 1, True),              # 30-day cache
+    ("price history", 1, False),         # Run Daily / momentum, only when Yahoo is short
+)
+# the up-front worst case per ticker (6): before 2026-11-22 this was 5, which left out
+# the momentum ladder's FMP history that every refresh and watchlist row runs
+FMP_CALLS_PER_TICKER = sum(n for _, n, budgeted in FMP_STEPS if not budgeted)
 # A flag ending in RETRY_MARK means "this run fell back; try again next refresh".
 # refresh_order puts those tickers first, so a short FMP day does not starve them.
 RETRY_MARK = "(retried on a later refresh)"

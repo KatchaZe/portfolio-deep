@@ -227,7 +227,8 @@ class FmpFallbackCache(unittest.TestCase):
         import tempfile
         from pipeline import fundamentals as fu
         self.fu, self.tmp = fu, tempfile.mkdtemp()
-        self._cd, fu.config.CACHE_DIR = fu.config.CACHE_DIR, self.tmp
+        self._cache, fu.fmp_cache.CACHE = fu.fmp_cache.CACHE, fu.fmp_cache.FmpCache(
+            os.path.join(self.tmp, "fmp_cache.json"))
         self._fetch, self._parse, self._apply = fu.fmp.fetch, fu.fmp.parse, fu.dataquality.apply_stale_fallback
         self.fetched = 0
 
@@ -240,7 +241,7 @@ class FmpFallbackCache(unittest.TestCase):
 
     def tearDown(self):
         fu = self.fu
-        fu.config.CACHE_DIR = self._cd
+        fu.fmp_cache.CACHE = self._cache
         fu.fmp.fetch, fu.fmp.parse, fu.dataquality.apply_stale_fallback = self._fetch, self._parse, self._apply
 
     def stale(self):
@@ -268,9 +269,13 @@ class FmpFallbackCache(unittest.TestCase):
         self.assertIn("applied", ff.flags)
 
     def test_an_error_bundle_is_not_cached(self):
-        self.fu._store_fallback_bundle("X", {"income_annual": {"_status": 402, "_body": "limit"},
-                                             "balance_annual": [{}], "cashflow_annual": [{}]})
-        self.assertIsNone(self.fu._cached_fallback_bundle("X"))
+        from pipeline import batch
+        bad = {"income_annual": {"_status": 402, "_body": "limit"},
+               "balance_annual": [{}], "cashflow_annual": [{}]}
+        self.fu.fmp.fetch = lambda t, key: (setattr(self, "fetched", self.fetched + 1) or bad)
+        for _ in range(2):
+            self.fu._stale_financials_fallback(self.stale(), "X", "X", "k", "USD", None, batch.Budget(99))
+        self.assertEqual(self.fetched, 2)
 
 
 if __name__ == "__main__":

@@ -104,10 +104,10 @@ def test_ref_and_howto_quote_the_numbers_the_code_runs():
     for cut, r in U.WIDTH_CUTS:
         assert f"{r} &lt;{cut:.2f}" in html, f"uncertainty cut-off for {r} not in Ref"
     hi, tot = E.MOAT_PERIODS["wide"]
-    assert f"WACC + {E.WIDE_SPREAD * 100:g}pp" in html and f"โต {hi} ปี + fade ถึงปีที่ {tot}" in html
+    assert f"WACC + {E.WIDE_SPREAD * 100:g}%" in html and f"โต {hi} ปี + fade ถึงปีที่ {tot}" in html
     cap, band = RP.SECTOR_CAP * 100, (RP.SECTOR_CAP + RP.SECTOR_BAND) * 100
     assert f"Sector cap {cap:g}% (band {band:g}%)" in html and f"เกิน {band:g}%" in html
-    assert f"band {TG.BAND_TRIGGER * 100:g} / {TG.BAND_DEST * 100:g}pp" in html
+    assert f"band {TG.BAND_TRIGGER * 100:g} / {TG.BAND_DEST * 100:g}%" in html
     print("Ref / How-to carry the code's numbers OK")
 
 

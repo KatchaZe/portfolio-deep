@@ -425,17 +425,34 @@ def sync_fmp_usage(s):
     """Copy today's FMP count from the request ledger (sources.fmp.LEDGER, every
     request FMP saw) into the store, which keeps the last week for the dashboard.
     The ledger is never lowered: a store restored from an older Drive copy brings
-    its own figure up to the ledger, and a higher stored figure raises the ledger."""
+    its own figure up to the ledger, and a higher stored figure raises the ledger.
+    A refusal is kept the same way (`fmp_refused`, Bangkok HH:MM), so a restart that
+    loses the ledger file (Render's disk) does not send into a refused day again."""
     from sources import fmp
     d = today()
     fmp.LEDGER.raise_to(s["fmp_usage"].get(d, 0))
+    refused = s.setdefault("fmp_refused", {})
+    if refused.get(d) and not fmp.LEDGER.exhausted():
+        fmp.LEDGER.exhaust(at=refused[d])
     s["fmp_usage"][d] = fmp.LEDGER.used()
+    if fmp.LEDGER.exhausted():
+        refused[d] = fmp.LEDGER.refused_at()
     # keep only ~the last week (8 dated entries incl. today)
     cutoff = (dt.date.today() - dt.timedelta(days=7)).isoformat()
     s["fmp_usage"] = {k: v for k, v in s["fmp_usage"].items() if k >= cutoff}
+    s["fmp_refused"] = {k: v for k, v in refused.items() if k >= cutoff}
     return s["fmp_usage"][d]
 
 
 def fmp_used_today(s):
+    """Calls spent for the quota maths: the cap once FMP refused today."""
+    from sources import fmp
+    if (s.get("fmp_refused") or {}).get(today()):
+        return config.QUOTA_CAP
+    return max(s["fmp_usage"].get(today(), 0), fmp.LEDGER.budget_used())
+
+
+def fmp_sent_today(s):
+    """Requests actually sent today (the badge's "used N")."""
     from sources import fmp
     return max(s["fmp_usage"].get(today(), 0), fmp.LEDGER.used())

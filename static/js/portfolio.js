@@ -10,11 +10,22 @@ async function load(){
     renderQuota(d.quota); renderPortfolio(d);
   }catch(e){document.getElementById('p1').innerHTML='<div class="banner tone t-bear">&#9888; Could not load the portfolio ('+esc(String(e))+') — server may be cold-starting; retry in a few seconds.</div>';}
 }
+// "used N" and "FMP refused at HH:MM" are told apart: a refusal can come before the cap
+function quotaText(q){
+  const reset=q.reset_bkk?` · รีเซ็ต ${q.reset_bkk} น. เวลาไทย`:'';
+  if(q.exhausted){
+    const when=q.refused_at?`FMP ปฏิเสธเมื่อ ${q.refused_at} น.`:'FMP ปฏิเสธวันนี้';
+    const sent=q.used>=q.cap?`ส่งไปครบ ${q.used} ครั้ง`:`ส่งไปแล้ว ${q.used} ครั้ง (ยังไม่ถึง ${q.cap})`;
+    return `⛔ ${when} · ${sent} · refresh จะใช้ Yahoo/ข้อมูลรอบก่อน${reset}`;
+  }
+  return `FMP วันนี้ใช้ไป ${q.used}/${q.cap} ครั้ง (${q.pct}%)${reset} · holdings ${q.holdings} · เหลือ ${q.headroom_calls} ครั้ง ≈ ${q.headroom_tickers} หุ้น`
+    +(q.per_ticker?` (${q.per_ticker} ครั้ง/หุ้น`+(q.reserved?`, กันไว้ ${q.reserved}`:'')+')':'')
+    +(q.warn?' · ⚠ ใกล้ครบโควตา: เพิ่มหุ้นน้อยลงหรือ refresh ทีหลัง':'');
+}
 function renderQuota(q){
   if(!q)return; const el=document.getElementById('quota');
   el.className='quota'+(q.warn?' warn':'');
-  el.textContent=q.exhausted?`FMP today ${q.used}/${q.cap} · ⛔ FMP เกินโควตาวันนี้ — refresh จะใช้ Yahoo/ข้อมูลรอบก่อน (FMP ตัดสิทธิ์จนถึงวันใหม่)`
-    :`FMP today ${q.used}/${q.cap} (${q.pct}%) · holdings ${q.holdings} · เหลือ ${q.headroom_calls} call ≈ ${q.headroom_tickers} หุ้น`+(q.reserved?` (${q.reserved} reserved)`:'')+(q.warn?' · ⚠ near quota — add fewer / refresh later':'');
+  el.textContent=quotaText(q);
 }
 
 function renderPortfolio(d){

@@ -110,7 +110,7 @@ async function deleteTxn(id){
 
 function ledgerHTML(L){
   const p=L.performance||{}, th=L.thb, c=L.closed||{};
-  const twr=p.status==='ok'?`${signed(p.twr_pct)}% vs SPY ${signed(p.spy_pct)}% (${signed(p.active_pp)}pp)`:(p.note||'—');
+  const twr=p.status==='ok'?`${signed(p.twr_pct)}% vs SPY ${signed(p.spy_pct)}% (${signed(p.active_pp)}%)`:(p.note||'—');
   const warn=[];
   if((L.implied_deposits||[]).length)warn.push(`ซื้อเกินเงินสดที่บันทึก ${L.implied_deposits.length} ครั้ง (รวม ${money(L.implied_deposits.reduce((a,x)=>a+x.amount,0))}) — นับเป็นเงินฝากอัตโนมัติ; บันทึก DEPOSIT จริงพร้อมยอดบาทเพื่อให้เงินต้นบาทถูก`);
   if((L.unpriced||[]).length)warn.push('ยังไม่มีราคา: '+L.unpriced.join(', ')+' (คิดที่ต้นทุนไปก่อน — กด Run Daily)');

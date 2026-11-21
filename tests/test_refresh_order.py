@@ -24,7 +24,7 @@ class Order(unittest.TestCase):
         order = batch.refresh_order(s["holdings"], facts, {})
         todo, errors = batch.partition_by_quota(order, batch.FMP_CALLS_PER_TICKER,
                                                 s["fmp_used"], config.QUOTA_CAP)
-        self.assertEqual(len(todo), 4)                 # 20 left, 5 per ticker
+        self.assertEqual(len(todo), 3)                 # 19 usable, 6 per ticker
         self.assertEqual(todo[:2], ["TSM", "ASML"])    # both carry a retry flag
         # list order alone (the old behaviour) leaves ASML out
         old, _ = batch.partition_by_quota(s["holdings"], 5, s["fmp_used"], config.QUOTA_CAP)

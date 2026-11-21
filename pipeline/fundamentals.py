@@ -9,7 +9,6 @@ Fundamentals refresh: SEC + FMP + Yahoo (+ optional Finnhub / Alpha Vantage)
 step returns the number of FMP calls it spent, for the quota counter.
 """
 import logging
-import os
 
 import config
 from sources import sec_edgar, sec_gap, yahoo, fmp, finnhub, alphavantage, damodaran
@@ -18,7 +17,7 @@ from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from pipeline import (normalize, rev_track, consensus, surprise_backfill,
                       dataquality, batch)
-from pipeline import finish, lastgood, peers, quarterly
+from pipeline import finish, lastgood, peers, quarterly, fmp_cache
 from pipeline.cik import resolve_cik
 import store as store_mod
 
@@ -59,13 +58,16 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     sec_cf = sec_gap.complete(cik, sec_cf, config.SEC_USER_AGENT, cache_dir=config.CACHE_DIR,
                               throttle=lambda: sec_edgar._throttle(config.SEC_MIN_INTERVAL))
     fx, sec_ccy = _sec_fx(t, sec_cf)
-    profile, fmp_calls = _fmp_profile(t, fmp_key)
+    filed = sec_gap.newest_filing(sec_cf)
+    profile, fmp_calls, profile_src = _fmp_profile(t, fmp_key)
     splits = _split_history(t) if sec_cf else None
     from sources.industries import securities_are_operating
     operating_sec = securities_are_operating(t, fmp.parse_profile(profile).get("industry"))
 
     ff = normalize.build(t, sec_cf, profile, yahoo.fetch_consensus(t), fx_rate=fx, company=name,
                          splits=splits, cash_excludes_securities=operating_sec)
+    if profile_src:
+        ff.provenance["fmp_cache.profile"] = profile_src
     _t1_price(ff, t)
     if operating_sec:
         ff.flags.append("health insurer: short-term investments back claim reserves - "
@@ -80,12 +82,12 @@ def analyze(ticker, rf, fmp_key="", rf_live=True, roc_table=None, quota_left=Non
     if isinstance(sec_cf, dict) and sec_cf.get("_stale_cache"):
         ff.flags.append("SEC via stale cache (network failed) — figures may lag the latest filing")
 
-    fmp_calls += _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left)
+    fmp_calls += _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left, filed)
     fmp_calls += _quote_fallback(ff, t, fmp_key)
     quarterly.run(ff, t, sec_ccy, fx, config.ALPHAVANTAGE_API_KEY, config.CACHE_DIR,
                   yahoo.fetch_fx_to_usd)
     fmp_calls += _earnings_surprises(ff, t, fmp_key)
-    estimates, calls = _estimate_path(ff, t, fmp_key, prev)
+    estimates, calls = _estimate_path(ff, t, fmp_key, prev, filed)
     fmp_calls += calls
     fmp_calls += _surprise_backfill(ff, t, fmp_key)
     _blend_forward_eps(ff, t, estimates, prev)
@@ -139,16 +141,26 @@ def _sec_fx(t, sec_cf):
 
 
 def _fmp_profile(t, fmp_key):
+    """(profile json or None, FMP calls, provenance line or None). Sector, industry,
+    country and beta move over months, so the profile is reused for 30 days; its price
+    is dropped on a cache hit, so a missing T-1 close is filled by the live quote
+    fallback instead of a month-old price."""
     if not fmp_key:
-        return None, 0
+        return None, 0, None
     try:
-        return fmp.fetch_profile(t, fmp_key) or None, 1
+        use = fmp_cache.CACHE.get("profile", t, lambda: fmp.fetch_profile(t, fmp_key),
+                                  ok=lambda j: bool(j))
     except Exception as e:
         log.warning("%s FMP profile failed: %s", t, e)
-        return None, 0
+        return None, 0, None
+    data = use.data or None
+    if use.hit and data:
+        data = [{k: v for k, v in p.items() if k != "price"} if isinstance(p, dict) else p
+                for p in (data if isinstance(data, list) else [data])]
+    return data, (0 if use.hit else 1), use.source
 
 
-def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
+def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left, filed=None):
     """SEC companyfacts can lag per ticker (TSM stops at FY2024 while other foreign
     filers carry FY2025). When the financials are stale, try FMP before degrading
     the row. The +4 calls are optional spend, so they are reserved against the live
@@ -156,18 +168,24 @@ def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
     refuse half the portfolio for a branch that fires on almost none of it."""
     if not (fmp_key and any(d["code"] == "stale_financials" for d in dataquality.assess(ff))):
         return 0
-    bundle = _cached_fallback_bundle(t)
-    calls = 0
-    if bundle is None:
+    refused = []
+
+    def buy():
         if not batch.quota_take(quota_left, STALE_FALLBACK_CALLS):
-            # live 2026-10-24: TSM silently fell back to its FY2024 SEC base when the
-            # day's FMP budget ran short
-            ff.flags.append("งบ SEC เก่าและวันนี้โควตา FMP เหลือไม่พอเรียกแหล่งสำรอง — "
-                            f"ใช้งบเดิมไปก่อน {batch.RETRY_MARK}")
-            return 0
-        bundle = fmp.fetch(t, fmp_key)
-        calls = bundle.get("_calls", STALE_FALLBACK_CALLS)
-        _store_fallback_bundle(t, bundle)
+            refused.append(True)
+            return None
+        return fmp.fetch(t, fmp_key)
+
+    use = fmp_cache.CACHE.get("statements", t, buy, ok=_bundle_ok, newest_filed=filed)
+    if refused:
+        # live 2026-10-24: TSM silently fell back to its FY2024 SEC base when the
+        # day's FMP budget ran short
+        ff.flags.append("งบ SEC เก่าและวันนี้โควตา FMP เหลือไม่พอเรียกแหล่งสำรอง — "
+                        f"ใช้งบเดิมไปก่อน {batch.RETRY_MARK}")
+        return 0
+    bundle = use.data
+    calls = 0 if use.hit else bundle.get("_calls", STALE_FALLBACK_CALLS)
+    ff.provenance["fmp_cache.statements"] = use.source
     try:
         alt = FinancialFacts(t, company=name)
         fmp.parse(bundle, alt)
@@ -183,44 +201,12 @@ def _stale_financials_fallback(ff, t, name, fmp_key, sec_ccy, fx, quota_left):
     return calls
 
 
-FALLBACK_TTL_DAYS = 7
-
-
 def _bundle_ok(bundle):
     """The three statements the fallback is for answered with data. The free tier
     refuses some of the other endpoints (TTM, key metrics) for some symbols; requiring
     those too meant TSM's bundle was never cached and was bought again every refresh."""
     return isinstance(bundle, dict) and all(
         isinstance(bundle.get(k), list) and bundle[k] for k in FALLBACK_CORE)
-
-
-def _cached_fallback_bundle(t):
-    """The FMP statements bundle fetched within FALLBACK_TTL_DAYS, or None. Annual
-    statements change once a year: re-buying them on every refresh spent 4 calls a
-    ticker a day."""
-    import json
-    import time
-    try:
-        with open(os.path.join(config.CACHE_DIR, f"fmp_fallback_{t}.json"), encoding="utf-8") as fh:
-            c = json.load(fh)
-        if time.time() - c.get("at", 0) < FALLBACK_TTL_DAYS * 86400 and _bundle_ok(c.get("data")):
-            return c["data"]
-    except (OSError, ValueError):
-        pass
-    return None
-
-
-def _store_fallback_bundle(t, bundle):
-    import json
-    import time
-    if not _bundle_ok(bundle):
-        return
-    try:
-        os.makedirs(config.CACHE_DIR, exist_ok=True)
-        with open(os.path.join(config.CACHE_DIR, f"fmp_fallback_{t}.json"), "w", encoding="utf-8") as fh:
-            json.dump({"at": time.time(), "data": bundle}, fh)
-    except OSError as e:
-        log.warning("%s FMP fallback cache write failed: %s", t, e)
 
 
 def _quote_fallback(ff, t, fmp_key):
@@ -296,7 +282,7 @@ def _earnings_surprises(ff, t, fmp_key):
     return calls
 
 
-def _estimate_path(ff, t, fmp_key, prev=None):
+def _estimate_path(ff, t, fmp_key, prev=None, filed=None):
     """Consensus revenue path: FMP analyst-estimates, else Yahoo's revenue estimates,
     else Alpha Vantage EARNINGS_ESTIMATES, else the last live path no older than 30
     days (flagged). Returns (raw FMP estimates, FMP calls); the raw FMP response is
@@ -304,7 +290,10 @@ def _estimate_path(ff, t, fmp_key, prev=None):
     estimates, calls = None, 0
     if fmp_key:
         try:
-            estimates, calls = _cached_estimates(t, fmp_key)
+            use = fmp_cache.CACHE.get("estimates", t, lambda: fmp.fetch_estimates(t, fmp_key),
+                                      ok=bool, newest_filed=filed)
+            estimates, calls = use.data, (0 if use.hit else 1)
+            ff.provenance["fmp_cache.estimates"] = use.source
             # FMP estimates are in the filer's reporting currency; the actual-year anchor
             # is only comparable for a USD filer (ff money is FX-converted otherwise)
             anchor = (ff.revenue_annuals or [None])[0] if not ff.provenance.get("fx") else None
@@ -377,33 +366,6 @@ def _last_good_path(ff, prev):
     ff.flags.append(f"consensus sources all failed - using the last live revenue path "
                     f"from {src} read {as_of} ({lastgood.age_days(as_of, today)} days old, "
                     f"kept up to {lastgood.MAX_AGE_DAYS})")
-
-
-ESTIMATES_TTL_DAYS = 7
-
-
-def _cached_estimates(t, fmp_key):
-    """(estimates, calls). Consensus moves over weeks, not hours, so a non-empty answer
-    is reused for ESTIMATES_TTL_DAYS instead of spending a call on every refresh."""
-    import json
-    import time
-    path = os.path.join(config.CACHE_DIR, f"fmp_estimates_{t}.json")
-    try:
-        with open(path, encoding="utf-8") as fh:
-            cached = json.load(fh)
-        if cached.get("data") and time.time() - cached.get("at", 0) < ESTIMATES_TTL_DAYS * 86400:
-            return cached["data"], 0
-    except (OSError, ValueError):
-        pass
-    data = fmp.fetch_estimates(t, fmp_key)
-    if data:
-        try:
-            os.makedirs(config.CACHE_DIR, exist_ok=True)
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump({"at": time.time(), "data": data}, fh)
-        except OSError as e:
-            log.warning("%s estimates cache write failed: %s", t, e)
-    return data, 1
 
 
 def _yahoo_growth_fallback(ff):

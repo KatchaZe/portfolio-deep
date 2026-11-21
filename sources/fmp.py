@@ -27,12 +27,27 @@ def _http(requests_mod=None):
     return _session_cached
 
 
+BKK = dt.timezone(dt.timedelta(hours=7))      # Thailand keeps no daylight saving
+
+
+def reset_time_bkk(now=None):
+    """HH:MM in Bangkok at which the ledger's day ends: the server's next local
+    midnight (Render runs on UTC, so 07:00). `now` carries the server's zone."""
+    now = now or dt.datetime.now().astimezone()
+    midnight = (now + dt.timedelta(days=1)).replace(hour=0, minute=0, second=0, microsecond=0)
+    return midnight.astimezone(BKK).strftime("%H:%M")
+
+
 class Ledger:
     """Today's FMP requests as FMP counts them: every request sent, a refused one
     and a 4xx included. Live 2026-10-25: the app said 231/250 while FMP's dashboard
     said 274, because a /stable miss went on to /api/v3 (1-2 uncounted calls) and
     the store's counter came back lower after a restart. One small file, max-only:
-    it never goes down within a day."""
+    it never goes down within a day.
+
+    `n` is what was sent. A refusal (429 / "limit reach") is kept apart, with the
+    Bangkok time it came: before 2026-11-22 it set n to the cap, so "250/250" on the
+    badge could mean FMP refused at 97."""
 
     def __init__(self, path):
         self.path = path
@@ -46,7 +61,9 @@ class Ledger:
             u = {}
         return u if u.get("date") == dt.date.today().isoformat() else {}
 
-    def _write(self, u):
+    def _write(self, u, **change):
+        u = {"n": 0, "exhausted": False, "refused_at": None, **u, **change,
+             "date": dt.date.today().isoformat()}
         try:
             os.makedirs(os.path.dirname(self.path), exist_ok=True)
             tmp = f"{self.path}.{os.getpid()}.tmp"
@@ -57,10 +74,20 @@ class Ledger:
             pass
 
     def used(self):
+        """Requests sent today."""
         return self._read().get("n", 0)
 
     def exhausted(self):
         return bool(self._read().get("exhausted"))
+
+    def refused_at(self):
+        """Bangkok HH:MM of today's first refusal, or None."""
+        return self._read().get("refused_at")
+
+    def budget_used(self):
+        """What the quota maths spends from: the whole cap once FMP has refused."""
+        u = self._read()
+        return config.QUOTA_CAP if u.get("exhausted") else u.get("n", 0)
 
     def take(self):
         """True and counted when one more request may go out."""
@@ -68,24 +95,23 @@ class Ledger:
             u = self._read()
             if u.get("exhausted") or u.get("n", 0) >= config.QUOTA_CAP:
                 return False
-            self._write({"date": dt.date.today().isoformat(), "n": u.get("n", 0) + 1,
-                         "exhausted": False})
+            self._write(u, n=u.get("n", 0) + 1)
             return True
 
-    def exhaust(self):
-        """FMP said the day's limit is reached: nothing more goes out today."""
+    def exhaust(self, at=None):
+        """FMP said the day's limit is reached: nothing more goes out today. `at` is
+        the Bangkok HH:MM to record (a restore from the store); the first one stays."""
         with self._lock:
             u = self._read()
-            self._write({"date": dt.date.today().isoformat(),
-                         "n": max(u.get("n", 0), config.QUOTA_CAP), "exhausted": True})
+            self._write(u, exhausted=True, refused_at=u.get("refused_at") or at
+                        or dt.datetime.now(BKK).strftime("%H:%M"))
 
     def raise_to(self, n):
         """Never below a figure the store already recorded for today."""
         with self._lock:
             u = self._read()
             if n > u.get("n", 0):
-                self._write({"date": dt.date.today().isoformat(), "n": n,
-                             "exhausted": bool(u.get("exhausted"))})
+                self._write(u, n=n)
 
 
 LEDGER = Ledger(os.path.join(config.CACHE_DIR, "fmp_ledger.json"))

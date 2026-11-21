@@ -194,7 +194,7 @@ def store_checks(cases, out):
     assert "CY2025" in n and 'role="img" aria-label="ส่วนแบ่ง CY2021' in n
     assert ("(นอกกรอบ)" in n) == any(r["outlier"] for r in rows)
     assert "แข็งขึ้น" in out["NVDA_new"]["pane"] and "ติดตามไตรมาสหน้า:" in out["NVDA_new"]["pane"]
-    assert "gross margin สูงกว่า median คู่แข่ง 18 pp" in n, "stored English evidence is translated"
+    assert "gross margin สูงกว่า median คู่แข่ง 18%" in n, "stored English evidence is translated"
     want = [r["symbol"] for r in sorted(rows, key=lambda r: (r["pe"] is None, r["pe"] or 0))]
     assert _order(out["NVDA"]["asc"]) == want, (_order(out["NVDA"]["asc"]), want)
     assert 'aria-sort="ascending"><button type="button" data-psort="pe"' in out["NVDA"]["asc"]

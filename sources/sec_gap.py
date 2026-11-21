@@ -48,6 +48,25 @@ def latest_filing(sub_json):
     return f[0] if f else None
 
 
+def newest_filing(cf):
+    """Filing date (YYYY-MM-DD) of the newest periodic filing SEC lists for this
+    company, or None. complete() records it from the submissions feed it already read;
+    without that (the feed failed) the newest periodic filing companyfacts carries."""
+    if not cf:
+        return None
+    if cf.get("_latest_filed"):
+        return cf["_latest_filed"]
+    best = None
+    for ns in (cf.get("facts") or {}).values():
+        for node in ns.values():
+            for arr in (node.get("units") or {}).values():
+                for x in arr:
+                    f = x.get("filed")
+                    if f and x.get("form") in PERIODIC and (best is None or f > best):
+                        best = f
+    return best
+
+
 def fact_counts(cf):
     """{accession: number of facts companyfacts carries from it}."""
     out = {}
@@ -289,6 +308,8 @@ def complete(cik, cf, user_agent, cache_dir=None, requests_mod=None, timeout=30,
     for g in gaps(sub, cf):                     # oldest first: the newest wins `_sec_gap`
         out = _fill(cik10, out, g, headers, cache_dir, requests_mod, timeout, throttle)
     out = _confirm_used(out)
+    if latest_filing(sub):
+        out["_latest_filed"] = latest_filing(sub)["filed"]
     if sic_of(sub):
         out["_sic"] = sic_of(sub)               # the industry code peers are matched on
     return out

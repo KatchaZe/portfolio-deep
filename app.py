@@ -127,15 +127,20 @@ async def _auth_middleware(request: Request, call_next):
 def _quota(s):
     from sources import fmp
     cap = config.QUOTA_CAP
-    used = st.fmp_used_today(s)
-    left = batch.usable_quota(used, cap)
-    return {"used": used, "cap": cap, "pct": round(used / cap * 100),
-            "warn": used >= 0.9 * cap,
-            "exhausted": fmp.LEDGER.exhausted(),
+    sent = st.fmp_sent_today(s)
+    left = batch.usable_quota(st.fmp_used_today(s), cap)
+    refused = (s.get("fmp_refused") or {}).get(st.today()) or fmp.LEDGER.refused_at()
+    return {"used": sent, "cap": cap, "pct": round(sent / cap * 100),
+            "warn": sent >= 0.9 * cap or bool(refused),
+            "exhausted": bool(refused) or fmp.LEDGER.exhausted(),
+            # "used N" and "FMP refused at N" are different facts: a refusal can come
+            # well before the cap (live 2026-11-21 read 250/250 for a refusal)
+            "refused_at": refused,
+            "reset_bkk": fmp.reset_time_bkk(),
             "holdings": len(s.get("holdings", {})),
             "reserved": config.QUOTA_RESERVE,
-            # calls, and how many full ticker refreshes they pay for (5 calls each):
-            # the banner used to call 18 calls "18 ticker-fetches"
+            "per_ticker": batch.FMP_CALLS_PER_TICKER,
+            # calls, and how many full ticker refreshes they pay for (worst case each)
             "headroom_calls": left,
             "headroom_tickers": left // batch.FMP_CALLS_PER_TICKER}
 

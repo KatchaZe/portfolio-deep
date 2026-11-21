@@ -265,11 +265,11 @@ function rebalanceHTML(d,cv){
       </tbody></table></div>
       <p class="note" style="margin:6px 0 0">ส่วนที่ Targets ไม่จัดสรร → cash เพิ่ม ${pctFixed(reb.to_cash_pct)} · turnover ${pctFixed(c.turnover_pct)} · ภาษีกำไร ${money(c.tax_usd)} + ค่าเทรด ${money(c.trading_usd)} (S6)</p>${rule}${sizing}${plan}`;
 }
-// the targets the Rebalance table above is built from (B6): risk budget, 2 / 1.75pp band
+// the targets the Rebalance table above is built from (B6): risk budget, 2 / 1.75% band
 function targetsHTML(tg){
   if(!tg||tg.status!=='ok'||!(tg.rows||[]).length)return '';
   const moves=tg.rows.filter(r=>r.action!=='HOLD');
-  return `<details style="margin-top:10px"${moves.length?' open':''}><summary class="note" style="cursor:pointer">Targets ตาม risk budget (ที่มาของรายการ rebalance) · band ${tg.band_pp[0]}/${tg.band_pp[1]}pp — ${moves.length?moves.length+' ตัวหลุด band':'ทุกตัวอยู่ใน band'}</summary>
+  return `<details style="margin-top:10px"${moves.length?' open':''}><summary class="note" style="cursor:pointer">Targets ตาม risk budget (ที่มาของรายการ rebalance) · band ${tg.band_pp[0]}/${tg.band_pp[1]}% — ${moves.length?moves.length+' ตัวหลุด band':'ทุกตัวอยู่ใน band'}</summary>
     <div class="tw" tabindex="0" role="region" aria-label="target ตาม risk budget"><table><thead><tr><th class="l">Ticker</th><th class="n">ตอนนี้</th><th class="n">Target</th><th class="n">ห่าง</th><th class="l">Action</th><th class="n">$</th><th class="l">ที่มา target</th></tr></thead><tbody>
     ${tg.rows.map(r=>`<tr><th scope="row" class="l num" style="color:var(--ink)">${esc(r.ticker)}</th><td class="n">${pctFixed(r.current_pct)}</td><td class="n">${pctFixed(r.target_pct)}</td><td class="n">${pctFixed(r.drift_pp)}</td><td class="l">${r.action==='HOLD'?'อยู่ใน band':tag(esc(r.action),ACT_COLOR[r.action==='SELL'?'TRIM':'ADD'])}</td><td class="n">${r.action==='HOLD'?'—':money(r.trade_usd)}</td><td class="l note">${esc(r.basis||'')}</td></tr>`).join('')}
     </tbody></table></div><p class="note" style="margin:6px 0 0">Target cash ${pctFixed(tg.target_cash_pct)} · ${esc(tg.tag||'')} · ไม่จัดอันดับ / ไม่มี fair value = ไม่ซื้อขายตามมูลค่า (cap ยังตัดได้)</p></details>`;
