@@ -284,15 +284,17 @@ def _in_frames(frames, cik, ys):
     return False
 
 
-def industry_share(members, frames, target_cik, years, as_of, foreign=None):
+def industry_share(members, frames, target_cik, years, as_of, foreign=None, assets=None):
     """Share of revenue among the US SEC filers in one Damodaran industry, per calendar
     year. `members` {ticker: cik or None} is the industry's own US-domiciled list (no
     other peer source); `foreign` the US-listed members domiciled elsewhere, counted
     when SEC's frames hold their revenue in one of the years (a 10-K filer in USD like
     MELI; a 20-F filer is never in frames). Share classes of one filer count once.
     `frames` {CY: {cik: [revenue, end]}}. A year with fewer than COVERAGE_MIN of the
-    filers reporting revenue is flagged and its shares are null. Calendar years not
-    complete by as_of are not used."""
+    filers reporting is flagged and its shares are null. A member reports when it has a
+    revenue frame that year or, R20, a year-end balance sheet in `assets` {CY: {cik}}
+    (it filed and booked no revenue: revenue 0, so it moves coverage, not the shares).
+    Calendar years not complete by as_of are not used."""
     flags = []
     ciks = {int(c) for c in members.values() if c}
     no_cik = sorted(t for t, c in members.items() if not c)
@@ -305,7 +307,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None):
     if filers:
         ciks |= filers
         flags.append(f"{len(filers)} members not US-domiciled file us-gaap revenue with the SEC (counted)")
-    out = {"group": GROUP, "years": ys, "n_members": len(ciks), "n_with_revenue": {},
+    out = {"group": GROUP, "years": ys, "n_members": len(ciks), "n_with_revenue": {}, "n_covered": {},
            "coverage": {}, "target_share": {}, "top5_share": {}, "hhi": {},
            "target_frames_end": {}, "share_change_pp": None, "top5_change_pp": None,
            "matched_n": None, "matched_share_then": None, "matched_share_now": None,
@@ -321,21 +323,25 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None):
         yr = (frames or {}).get(y) or (frames or {}).get(k)
         if not yr:
             flags.append(f"CY{y}: no SEC revenue frames")
-            out["n_with_revenue"][k] = 0
+            out["n_with_revenue"][k] = out["n_covered"][k] = 0
             for m in ("coverage", "target_share", "top5_share", "hhi"):
                 out[m][k] = None
             continue
-        vals = {}
+        vals, covered = {}, set()
+        bs = (assets or {}).get(y) or (assets or {}).get(k) or set()
         for c in ciks:
             row = yr.get(c) or yr.get(str(c))
             if row and _pos(row[0]):
                 vals[c] = row[0]
-        cov = len(vals) / len(ciks)
-        out["n_with_revenue"][k], out["coverage"][k] = len(vals), cov
+            if row is not None or c in bs:
+                covered.add(c)
+        cov = len(covered) / len(ciks)
+        out["n_with_revenue"][k], out["n_covered"][k], out["coverage"][k] = len(vals), len(covered), cov
         trow = (yr.get(tc) or yr.get(str(tc))) if tc else None
         out["target_frames_end"][k] = trow[1] if trow and len(trow) > 1 else None
         if cov < COVERAGE_MIN:
-            flags.append(f"CY{y}: {len(vals)} of {len(ciks)} members report revenue "
+            basis = "report revenue or a balance sheet" if assets else "report revenue"
+            flags.append(f"CY{y}: {len(covered)} of {len(ciks)} members {basis} "
                          f"({cov:.0%} < {COVERAGE_MIN:.0%}): share not shown")
             for m in ("target_share", "top5_share", "hhi"):
                 out[m][k] = None

@@ -577,10 +577,11 @@ class Moat(unittest.TestCase):
             self.assertEqual(sig["direction"], want, f"FY3 OI {o3} -> {sig['value']}")
 
     def test_E6_S4_only_when_revenue_grew(self):
-        for r3 in (100, 120, 0, -5):
+        for r3, why_ in ((100, "grew 0.0% in 3 years"), (120, "grew -16.7% in 3 years"),
+                         (0, "not positive"), (-5, "not positive")):
             sig, why = MT.incremental_margin(snap(100, r3, oi0=20, oi3=10))
             self.assertIsNone(sig, f"FY3 revenue {r3}")
-            self.assertIn("did not grow", why)
+            self.assertIn(why_, why)
 
     def test_E5_label_is_null_under_two_signals_and_missing_is_not_zero(self):
         up = {"direction": 1}

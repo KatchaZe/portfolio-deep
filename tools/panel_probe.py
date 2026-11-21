@@ -4,7 +4,8 @@
     python -m tools.panel_probe NVDA UNH   # some
 
 For each ticker: its Damodaran industry, the industry's US SEC filers, how many of
-them have SEC frames revenue in each calendar year (the 70% coverage rule), the
+them have SEC frames revenue in each calendar year and how many have revenue or a
+year-end balance sheet (Assets frame; the 70% coverage rule, SPEC R20), the
 usable peers with FY0 and FY3, the run time and the FMP calls (must be 0).
 
 Read-only. It reads data/portfolio.json directly (store.load would pull from Google
@@ -35,7 +36,7 @@ def _isolated_cache():
     tmp = tempfile.mkdtemp(prefix="panel_probe_")
     src = config.CACHE_DIR
     for name in os.listdir(src) if os.path.isdir(src) else []:
-        if name in SEED or name.startswith("sec_frames_revenue_CY"):
+        if name in SEED or name.startswith(("sec_frames_revenue_CY", "sec_frames_assets_CY")):
             shutil.copy2(os.path.join(src, name), tmp)
     return tmp
 
@@ -92,7 +93,8 @@ def probe(s, tickers, today, universe, memo=None):
         pts = (block.get("model") or {}).get("panel_points") or []
         out[t] = {"industry": industry, "members": len(members),
                   "members_sec_filers": sh.get("n_members"),
-                  "with_revenue": sh.get("n_with_revenue"), "coverage": sh.get("coverage"),
+                  "with_revenue": sh.get("n_with_revenue"), "covered": sh.get("n_covered"),
+                  "coverage": sh.get("coverage"),
                   "target_share": sh.get("target_share"),
                   "usable_peers": len(rows),
                   "peers_fy0": sum(1 for p in pts if p.get("fy0")),
@@ -123,9 +125,12 @@ def main(argv, path=None, today=None):
         if "error" in r:
             print(f"{t:6} ERROR {r['error']}")
             continue
-        cov = " ".join(f"{y[2:]}:{(r['with_revenue'] or {}).get(y, '-')}" for y in years)
+        # R20: revenue filers / revenue-or-balance-sheet filers per CY; the share needs the
+        # second over `filers` >= 70%. ABBV and LLY were under 70% on revenue alone.
+        cov = " ".join(f"{y[2:]}:{(r['with_revenue'] or {}).get(y, '-')}/{(r['covered'] or {}).get(y, '-')}"
+                       f"={(r['coverage'] or {}).get(y) or 0:.0%}" for y in years)
         print(f"{t:6} {str(r['industry'])[:28]:28} members {r['members']:4} filers {r['members_sec_filers']} "
-              f"with revenue [{cov}] peers {r['usable_peers']} FY0 {r['peers_fy0']} FY3 {r['peers_fy3']} "
+              f"revenue/covered [{cov}] peers {r['usable_peers']} FY0 {r['peers_fy0']} FY3 {r['peers_fy3']} "
               f"moat {r['moat_label']}({r['n_signals']}) {r['secs']}s FMP {r['fmp_calls']}")
     total = sum(r.get("fmp_calls", 0) for r in rep.values())
     print(f"\n{len(rep)} tickers in {time.time() - t0:.0f}s, FMP calls {total} (must be 0); "

@@ -54,8 +54,10 @@ Coverage below 70% of members with revenue in a year sets a flag and nulls that 
   "label": "improving" | "stable" | "eroding" | null,
   "n_signals": int,
   "signals": [{"name", "value", "direction": "+1|0|-1", "window": "FYa..FYb or CYa..CYb"}],
-  "source_hints": [{"type": "intangible|scale|switching_costs|network",
-                    "strength": "weak|moderate", "evidence": str}],
+  "source_hints": [{"type": "intangible|scale|efficient_scale|cost_advantage",
+                    "strength": "weak|moderate", "evidence": str,
+                    "measures": [{"metric", "value", "period"}], "trend": +1|0|-1|null}],
+  "watch": [Thai signal name, up to 3],
   "thresholds": "provisional",
   "flags": [str]
 }
@@ -65,7 +67,7 @@ Signals:
 - S2 share_change: matched_share_now / matched_share_then - 1 (R13), direction by +/- SHARE_REL.
 - S3 gm_gap_change: (target GM FY0 - peer median GM FY0) - (same at FY3), direction by +/- GM_GAP_PP.
 - S4 incremental_margin: (OI FY0 - OI FY3)/(Rev FY0 - Rev FY3) vs OI/Rev FY0; only when
-  revenue grew; direction +1 when incremental > average + INC_PP, -1 when below - INC_PP.
+  revenue grew at least 10% (R21); direction +1 when incremental > average + INC_PP, -1 when below - INC_PP.
 Label: null when fewer than 2 signals; else sum of directions >= +2 improving,
 <= -2 eroding, otherwise stable. A missing signal is never counted as 0.
 Source hints are worded "consistent with", never as findings.
@@ -120,3 +122,30 @@ only, as the target does.
 R19 The target row's period_end is its newest TTM quarter, else facts.fiscal_year (the TTM end
 of a 20-F filer after the quarterly fallback and FX). When the target cannot form a row, the flag
 carries relative.point's reason.
+
+## Resolutions 2026-11-21 (display upgrades with the UI tab; thresholds stay provisional)
+R20 Coverage denominator. A member reports in a CY when it has a revenue frame that year (any
+value, 0 included) OR its CIK is in SEC's year-end balance-sheet frame us-gaap/Assets/USD/
+CY{year}Q4I: it filed and booked no revenue (a pre-revenue biotech), so it counts at revenue
+0. coverage = reporting members / members with a CIK; `n_covered` per CY stores the count,
+`n_with_revenue` stays the positive-revenue count. Revenue 0 adds nothing to any share, top-5
+or HHI; the matched set (R13) stays the positive-revenue filers. Assets frames are cached 30
+days per year (sec_frames_assets_CY{year}.json); a failed year counts revenue filers only and
+is named in the notes. Measured by tools/panel_probe (revenue/covered per CY).
+R21 S4 needs revenue FY0 / FY3 - 1 >= 0.10; else absent with the flag "S4: revenue grew X% in
+3 years (need ≥10%)". A near-zero revenue delta makes the ratio noise (ABBV 2026-11-20:
++0.2% gave -122.6 pp and a -1 vote). Non-positive revenue at either end: "S4: revenue not
+positive at FY0 or FY3".
+R22 Two more source hints, worded "consistent with":
+  efficient_scale: newest-CY top5_share >= 0.80 AND |share_change_pp| <= 2 AND n_members <= 30
+  -> weak; with top5_share >= 0.90 -> moderate. Any input null -> no hint.
+  cost_advantage: op_margin_ttm - peer median op_margin_ttm >= 5pp AND gross_margin FY0 - peer
+  median FY0 <= 2pp (>= 3 peers with each) -> moderate. Each gap is against its own clock's
+  median; no TTM-FY arithmetic.
+  UI labels: ขนาดตลาดที่พอดี (efficient scale), ความได้เปรียบด้านต้นทุน (cost advantage).
+R23 Every hint carries `measures` (the numbers behind it; the UI writes the Thai sentence, the
+English `evidence` stays for the data notes) and `trend`: intangible <- S3 direction, scale <-
+S2 direction, efficient_scale <- top5_change_pp beyond +/-2pp, cost_advantage <- change in
+the FY operating-margin gap to the peer median FY3 -> FY0 beyond +/-2pp (same >= 3 peers at
+both years); null when the source is absent. moat_trend.watch: Thai names of up to 3
+present signals nearest a band edge, distance = | |value| - band | / band.

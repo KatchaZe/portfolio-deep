@@ -40,6 +40,8 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E33 | The EBIT fallback added the first interest concept with any data, InterestExpense, which most filers stopped tagging in 2024 (LLY, KLAC, AIR, DDS) (S4) | newest current interest concept for the TTM, older names fill history only; test_S4_* |
 | E34 | A lease total filed on another date beat this balance sheet's legs: BJ's 93.6M footnote total, DG/CPNG/EBAY/DLTR 10-K totals nine months old (S5) | sec_edgar._leases reads one complete date (total, or noncurrent + current on it); test_S5_* |
 | E35 | Verifier defects that read as app defects: balance sheet dated by a cash concept the filer stopped tagging (TGT 2017, BIIB 2019, GILD 2022), DebtSecuritiesCurrent not counted (NVDA), revenue concept switched per year (OPCH cagr3, false mixing alarm), four quarters never re-filed after a restatement (INGN), proxy-statement facts read | verify/reference.py rules written apart from the app; tests Reference.* in tests/test_sec_extract_s.py |
+| E36 | A ratio on a near-zero denominator voted: ABBV S4 = -122.6 pp from +0.2% revenue growth in 3 years (live store 2026-11-20) | R21 floor on revenue growth, tested both sides (test_peer_panel_r3 R21*) |
+| E37 | "Missing" counted where the filer reported a zero: pre-revenue members with no revenue frame pulled ABBV (57%) and LLY (69%) coverage under 70% | R20 balance-sheet frame counts as revenue 0 (R20Coverage*); tools/panel_probe prints revenue/covered so a live run measures it |
 
 The stale OperatingIncomeLoss and interest concepts recorded here as open on 2026-11-17 are
 E31 and E33. Still open (not changed in this round): ACHC tags interest only as

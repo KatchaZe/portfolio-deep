@@ -172,6 +172,48 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
         return {}, {}, f"SEC revenue frames unavailable ({type(e).__name__})"
 
 
+ASSETS_URL = "https://data.sec.gov/api/xbrl/frames/us-gaap/Assets/USD/CY{year}Q4I.json"
+
+
+def _assets(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
+    """({cik}, note): the filers with a year-end balance sheet (us-gaap Assets, the
+    CY{year}Q4I instant frame). A member here with no revenue frame filed for the year
+    and booked no revenue (a pre-revenue biotech): covered, at revenue 0 (SPEC R20)."""
+    now = now or time.time()
+    path = os.path.join(cache_dir, f"sec_frames_assets_CY{year}.json")
+    cached = _read(path)
+    if cached and now - cached.get("at", 0) < FRAMES_TTL_DAYS * 86400:
+        return set(cached["ciks"]), None
+    try:
+        import requests as _r
+        r = (requests_mod or _r).get(ASSETS_URL.format(year=year), headers={"User-Agent": user_agent},
+                                     timeout=timeout)
+        r.raise_for_status()
+        ciks = sorted({int(d["cik"]) for d in r.json().get("data") or [] if d.get("cik")})
+        if not ciks:
+            raise ValueError("empty frames")
+        _write(path, {"at": now, "ciks": ciks})
+        return set(ciks), None
+    except Exception as e:
+        log.warning("SEC Assets frames CY%s failed: %s", year, e)
+        if cached:
+            return set(cached["ciks"]), "SEC Assets frames from cache (refresh failed)"
+        return set(), f"SEC Assets frames unavailable ({type(e).__name__})"
+
+
+def load_assets_frames_years(cache_dir, today, user_agent, requests_mod=None, timeout=60, now=None):
+    """({CY: {cik}}, notes) for panel_years(today). A failed year is absent (its
+    coverage then counts revenue filers only) and named in the notes. Never raises."""
+    out, notes = {}, []
+    for year in panel_years(today):
+        ciks, note = _assets(cache_dir, year, user_agent, requests_mod, timeout, now)
+        if ciks:
+            out[year] = ciks
+        if note:
+            notes.append(f"CY{year}: {note}")
+    return out, notes
+
+
 def load_revenue_frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
     """({cik: revenue}, note) for calendar year `year`, the largest revenue concept per
     filer. Never raises."""

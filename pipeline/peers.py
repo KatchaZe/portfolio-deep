@@ -263,12 +263,13 @@ class Universe:
     Every part is optional: a missing part only removes what it feeds, with a note."""
 
     def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None,
-                 frames=None, frames_loader=None):
+                 frames=None, frames_loader=None, assets=None):
         self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
                                           [n for n in notes if n], as_of)
         self._loader, self._lock = loader, threading.Lock()
-        # the peer panel's five calendar years of frames, loaded only when a panel asks
-        self._frames = None if frames_loader else (frames or {}, [])
+        # the peer panel's five calendar years of frames (revenue, and the Assets filers
+        # that count toward coverage, R20), loaded only when a panel asks
+        self._frames = None if frames_loader else (frames or {}, [], assets or {})
         self._frames_loader = frames_loader
 
     def _get(self):
@@ -288,11 +289,12 @@ class Universe:
                     self._frames = self._frames_loader()
                 except Exception as e:          # never fails the refresh
                     log.warning("peer panel frames failed to load: %s", e)
-                    self._frames = ({}, [f"SEC revenue frames unavailable ({type(e).__name__})"])
+                    self._frames = ({}, [f"SEC revenue frames unavailable ({type(e).__name__})"], {})
             return self._frames
 
     frames = property(lambda self: self._get_frames()[0])
     frame_notes = property(lambda self: self._get_frames()[1])
+    assets = property(lambda self: (self._get_frames()[2:] or ({},))[0])
     rows = property(lambda self: self._get()[0])
     rev = property(lambda self: self._get()[1])
     psdata = property(lambda self: self._get()[2])
@@ -316,8 +318,10 @@ class Universe:
             return rows or {}, rev or {}, ps, [n for n in (n1, n2) if n], vintage
         def load_frames():
             from sources import damodaran_companies as dc
-            return dc.load_revenue_frames_years(cache_dir or config.CACHE_DIR, today,
-                                                user_agent or config.SEC_USER_AGENT)
+            cd, ua = cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT
+            rev, n1 = dc.load_revenue_frames_years(cd, today, ua)
+            assets, n2 = dc.load_assets_frames_years(cd, today, ua)
+            return rev, n1 + n2, assets
         return cls(loader=load, frames_loader=load_frames)
 
     def industry_of(self, f):
@@ -481,7 +485,7 @@ def panel_and_moat(f, val, block, universe, today):
         foreign = {t: resolve_cik(t)[0] for t in dc.foreign_members(universe.rows, industry)}
         tcik, _ = resolve_cik(f.ticker)
         share = peer_panel.industry_share(members, universe.frames, tcik, dc.panel_years(today), as_of,
-                                          foreign)
+                                          foreign, universe.assets)
     notes = list(universe.frame_notes) + list(block.get("notes") or [])
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,
                              block.get("excluded") or [], notes, target_why)
