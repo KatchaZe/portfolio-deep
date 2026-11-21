@@ -239,5 +239,17 @@ class R23TrendAndWatch(unittest.TestCase):
         self.assertEqual(contracts.undeclared_panel_keys(sh), [])
 
 
+class Rows(unittest.TestCase):
+    def test_display_rows_carry_the_panel_and_the_moat_trend(self):
+        from pipeline import rows
+        v = {"peer_panel": {"as_of": AS_OF, "table": None}, "moat_trend": {"label": "eroding"},
+             "uncertainty": {"rating": "Medium"}}
+        r = rows.valuation_row("T0", {}, v, {}, {}, rev_surprises=None, has_new_schema=True, fmp_on=False)
+        self.assertEqual((r["peer_panel"], r["moat_trend"], r["uncertainty"]),
+                         (v["peer_panel"], v["moat_trend"], v["uncertainty"]))
+        r = rows.valuation_row("T0", {}, {}, {}, {}, rev_surprises=None, has_new_schema=True, fmp_on=False)
+        self.assertEqual((r["peer_panel"], r["moat_trend"]), (None, None))
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=1)
