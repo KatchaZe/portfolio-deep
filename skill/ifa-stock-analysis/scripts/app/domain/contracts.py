@@ -244,7 +244,7 @@ PANEL_CLOCK = {
     "end": STATIC, "revenue": FY_DATED, "gross_profit": FY_DATED, "operating_income": FY_DATED,
     "growth_fy": FY, "cagr3_fy": FY, "gross_margin_fy": FY,
     # industry share, SEC frames calendar years
-    "group": STATIC, "years": STATIC, "n_members": STATIC, "n_with_revenue": CY,
+    "group": STATIC, "years": STATIC, "n_members": STATIC, "n_with_revenue": CY, "n_covered": CY,
     "coverage": CY, "target_share": CY, "top5_share": CY, "hhi": CY,
     "target_frames_end": CY, "share_change_pp": CY, "top5_change_pp": CY,
     "matched_n": CY, "matched_share_then": CY, "matched_share_now": CY,
@@ -257,6 +257,8 @@ PANEL_CLOCK = {
     "label": DERIVED, "n_signals": DERIVED, "signals": STATIC, "name": STATIC, "value": DERIVED,
     "unit": STATIC, "direction": DERIVED, "window": STATIC, "source_hints": STATIC,
     "type": STATIC, "strength": STATIC, "evidence": STATIC, "thresholds": STATIC,
+    # R22-R23: a hint's numbers ({metric, value, period}; period names the clock) and trend
+    "measures": STATIC, "metric": STATIC, "period": STATIC, "trend": DERIVED, "watch": STATIC,
 }
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
@@ -269,7 +271,7 @@ PANEL_UNIT = {
     "share_change_pp": RATIO, "top5_change_pp": RATIO,     # points (x100), SPEC R1
     "matched_share_then": RATIO, "matched_share_now": RATIO, "matched_top5_then": RATIO,
     "matched_top5_now": RATIO, "matched_n": COUNT,
-    "n_members": COUNT, "n_with_revenue": COUNT, "n": COUNT, "n_signals": COUNT,
+    "n_members": COUNT, "n_with_revenue": COUNT, "n_covered": COUNT, "trend": COUNT, "n": COUNT, "n_signals": COUNT,
     "rank3": COUNT, "direction": COUNT, "version": COUNT, "years": COUNT, "frames_cy": COUNT,
 }
 

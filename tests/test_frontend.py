@@ -35,6 +35,8 @@ def test_new_ui_present():
         "function youngPanel", "Pre-profit forward value (S20)", "youngPanel(x)",
         # REV-21: valuation vs pricing must sit side by side, band included
         "function pricedInLine", "pricedInLine(x)", "margin ±5%",
+        # 2026-11-21: the คู่แข่ง & Moat drawer tab, the chip arrow and the eroding filter
+        "function peerPane", '["peer","คู่แข่ง & Moat"]', "moatArrow(x)", 'id="erodeF"',
     ]
     missing = [t for t in required if t not in HTML]
     assert not missing, ("frontend missing new UI tokens: %s" % missing)
@@ -47,7 +49,8 @@ def test_backend_keys_referenced():
             "erp_as_of", "market_pe_as_of", "crash_guard", "reversal",
             # REV-16/21: young-DCF payload + the sensitivity band that makes the
             # implied CAGR honest for a pre-profit filer
-            "young_dcf", "rev_sensitivity", "terminal_margin_anchored"]
+            "young_dcf", "rev_sensitivity", "terminal_margin_anchored",
+            "peer_panel", "moat_trend", "source_hints", "industry_share"]
     missing = [k for k in keys if k not in HTML]
     assert not missing, ("backend payload keys not consumed by the frontend: %s" % missing)
     print("backend keys referenced OK")

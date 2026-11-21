@@ -67,7 +67,7 @@ function pcard(x,watch){
 }
 
 // ---- detail tabs
-const DTABS=[["val","มูลค่า"],["deep","DEEP & ทุน"],["trend","แนวโน้ม 5 ปี"],["earn","งบ & สัญญาณ"],["data","ข้อมูล"]];
+const DTABS=[["val","มูลค่า"],["deep","DEEP & ทุน"],["trend","แนวโน้ม 5 ปี"],["earn","งบ & สัญญาณ"],["peer","คู่แข่ง & Moat"],["data","ข้อมูล"]];
 const DPANES={
   val(x){
     if(ASSET_CLASS[x.ticker])return `<p class="note">${ASSET_CLASS_NOTE[ASSET_CLASS[x.ticker]==='bond'?'bond':'other']}</p>`;
@@ -101,6 +101,7 @@ const DPANES={
         <div class="box"><h3>คำแนะนำ (มูลค่า → คุณภาพ → จังหวะ)</h3>${adv.length?`<ul class="lines" style="gap:6px">${adv.map(a=>{const i=a.indexOf(':');return `<li style="grid-template-columns:1fr"><span>${i>0?`<b style="font-family:var(--f-body)">${esc(a.slice(0,i))}</b> ${esc(a.slice(i+1))}`:esc(a)}</span></li>`;}).join('')}</ul>`:'<p class="note" style="margin:0">ไม่มีคำแนะนำ</p>'}
           <div><span class="cap">Action</span> ${dispAction(x)}</div></div></div>`;
   },
+  peer(x,id){return peerPane(x,id);},
   data(x){
     const fl=x.flags||[], es=x.earn_status||{};
     return `<div class="dgrid"><div class="box"><h3>ข้อสังเกตจากข้อมูล (${fl.length})</h3>${fl.length?`<ol class="flaglist">${fl.map(f=>`<li>${esc(pp2pct(f))}</li>`).join('')}</ol>`:'<p class="note" style="margin:0">ไม่มี</p>'}</div>
@@ -118,7 +119,7 @@ const DPANES={
 };
 function cardDetail(x,id){
   return `<div class="dtabs" role="tablist" aria-label="รายละเอียด ${esc(x.ticker)}">${DTABS.map(([k,l],i)=>`<button type="button" class="dtab" role="tab" id="dt-${id}-${k}" aria-controls="dp-${id}-${k}" aria-selected="${i===0}" tabindex="${i===0?0:-1}" data-k="${k}">${l}</button>`).join('')}</div>`
-    +DTABS.map(([k],i)=>`<div role="tabpanel" id="dp-${id}-${k}" aria-labelledby="dt-${id}-${k}" tabindex="0"${i?' hidden':''}>${i===0?DPANES[k](x):''}</div>`).join('');
+    +DTABS.map(([k],i)=>`<div role="tabpanel" id="dp-${id}-${k}" aria-labelledby="dt-${id}-${k}" tabindex="0"${i?' hidden':''}>${i===0?DPANES[k](x,id):''}</div>`).join('');
 }
 // a tablist: click or arrow keys select a tab, show its panel; onPick(tab) renders lazily
 function wireTabs(root,sel,onPick){
@@ -136,12 +137,12 @@ document.addEventListener('toggle',e=>{
   const body=d.querySelector('.dbody'); if(body.dataset.ready)return;
   const id=d.dataset.card, x=CARD_ROWS[id]; if(!x)return;
   body.innerHTML=cardDetail(x,id); body.dataset.ready='1';
-  wireTabs(body,'.dtab',t=>{const p=document.getElementById(t.getAttribute('aria-controls'));if(p&&!p.dataset.ready){p.innerHTML=DPANES[t.dataset.k](x);p.dataset.ready='1';}});
+  wireTabs(body,'.dtab',t=>{const p=document.getElementById(t.getAttribute('aria-controls'));if(p&&!p.dataset.ready){p.innerHTML=DPANES[t.dataset.k](x,id);p.dataset.ready='1';}});
   body.querySelector('[role=tabpanel]').dataset.ready='1';
 },true);
 
 // ---- My Portfolio: summary band, filter / sort toolbar, the card grid
-const VIEW={q:'',g:'all',sort:'mos'};
+const VIEW={q:'',g:'all',sort:'mos',erode:false};
 try{Object.assign(VIEW,JSON.parse(localStorage.getItem('deep-view')||'{}'));}catch(e){}
 function saveView(){try{localStorage.setItem('deep-view',JSON.stringify(VIEW));}catch(e){}}
 const RGROUP={"BUY":"buy","HOLD / Accumulate":"hold","HOLD":"hold","SELL / AVOID":"sell","NOT RATED":"nr"};
@@ -181,23 +182,26 @@ function cardToolbar(n){
   return `<div class="toolbar" role="toolbar" aria-label="กรองและเรียงการ์ด">
     <label class="sr" for="cardQ">ค้นหา ticker</label><input id="cardQ" class="search" type="search" placeholder="ค้นหา ticker / ชื่อ" value="${esc(VIEW.q)}" oninput="VIEW.q=this.value;saveView();drawCards()">
     <div class="seg" role="group" aria-label="กรองตาม rating">${[["all","ทั้งหมด"],["buy","BUY"],["hold","HOLD"],["sell","SELL"],["nr","ไม่จัดอันดับ"]].map(([k,l])=>`<button type="button" data-g="${k}" aria-pressed="${VIEW.g===k}" onclick="VIEW.g='${k}';saveView();drawCards()">${l}</button>`).join('')}</div>
+    <button type="button" class="btn sm" id="erodeF" aria-pressed="${!!VIEW.erode}" title="แสดงเฉพาะหุ้นที่แนวโน้ม moat เสื่อม (แท็บ คู่แข่ง &amp; Moat) ใช้ร่วมกับตัวกรอง rating ได้" onclick="VIEW.erode=!VIEW.erode;saveView();drawCards()"><span aria-hidden="true">↘</span> moat เสื่อม (<span id="erodeN">0</span>)</button>
     <label class="sr" for="cardSort">เรียงตาม</label><select id="cardSort" class="btn" onchange="VIEW.sort=this.value;saveView();drawCards()">${Object.entries(SORTS).map(([k,[l]])=>`<option value="${k}"${VIEW.sort===k?' selected':''}>เรียง: ${l}</option>`).join('')}</select>
     <span class="grow"></span><span class="count" id="cardCount" aria-live="polite"></span></div><div class="cards" id="cards"></div>`;
 }
 function drawCards(){
   const el=document.getElementById('cards'); if(!el)return;
   const rows=((window.__last||{}).rows)||[], q=VIEW.q.trim().toLowerCase();
-  const list=rows.filter(r=>(VIEW.g==='all'||RGROUP[r.recommendation]===VIEW.g)&&(!q||String(r.ticker).toLowerCase().includes(q)||String(r.company||'').toLowerCase().includes(q))).sort((SORTS[VIEW.sort]||SORTS.mos)[1]);
+  const list=rows.filter(r=>(VIEW.g==='all'||RGROUP[r.recommendation]===VIEW.g)&&(!VIEW.erode||moatLabel(r)==='eroding')&&(!q||String(r.ticker).toLowerCase().includes(q)||String(r.company||'').toLowerCase().includes(q))).sort((SORTS[VIEW.sort]||SORTS.mos)[1]);
   el.innerHTML=list.length?list.map(x=>pcard(x,false)).join('')
-    :`<div class="empty" style="grid-column:1/-1"><b>ไม่พบหุ้นที่ตรงเงื่อนไข</b><span>ลองล้างคำค้นหรือเลือก "ทั้งหมด"</span><button class="btn" type="button" onclick="VIEW.q='';VIEW.g='all';saveView();document.getElementById('cardQ').value='';drawCards()">ล้างตัวกรอง</button></div>`;
+    :`<div class="empty" style="grid-column:1/-1"><b>ไม่พบหุ้นที่ตรงเงื่อนไข</b><span>ลองล้างคำค้นหรือเลือก "ทั้งหมด"</span><button class="btn" type="button" onclick="VIEW.q='';VIEW.g='all';VIEW.erode=false;saveView();document.getElementById('cardQ').value='';drawCards()">ล้างตัวกรอง</button></div>`;
   const c=document.getElementById('cardCount'); if(c)c.textContent=`แสดง ${list.length} จาก ${rows.length} ตัว`;
   document.querySelectorAll('[data-g]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.g===VIEW.g));
+  const ef=document.getElementById('erodeF'); if(ef)ef.setAttribute('aria-pressed',!!VIEW.erode);
+  const en=document.getElementById('erodeN'); if(en)en.textContent=rows.filter(r=>moatLabel(r)==='eroding').length;
 }
 // a MoS bar (or an Allocation weight bar) jumps to its card on My Portfolio
 document.addEventListener('click',e=>{
   const g=e.target.closest&&e.target.closest('[data-go]'); if(!g)return;
   if(document.getElementById('p1').style.display==='none')showTab(1);
   let el=document.getElementById('c-'+g.dataset.go.replace(/[^A-Za-z0-9_-]/g,'_'));
-  if(!el){VIEW.q='';VIEW.g='all';const q=document.getElementById('cardQ');if(q)q.value='';drawCards();el=document.getElementById('c-'+g.dataset.go.replace(/[^A-Za-z0-9_-]/g,'_'));}
+  if(!el){VIEW.q='';VIEW.g='all';VIEW.erode=false;const q=document.getElementById('cardQ');if(q)q.value='';drawCards();el=document.getElementById('c-'+g.dataset.go.replace(/[^A-Za-z0-9_-]/g,'_'));}
   if(el){el.scrollIntoView({block:'start'});const s=el.querySelector('summary');if(s)s.focus({preventScroll:true});}
 });

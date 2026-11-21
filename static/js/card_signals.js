@@ -136,7 +136,8 @@ function moatChip(x){
   const s=(x.key_metrics||{}).spread_pct;
   if(s==null)return '';
   const note=s>=10?'moat แข็งแรง':s>=0?'สร้างมูลค่าเหนือทุนเล็กน้อย':'ทำลายมูลค่า (ROIC ต่ำกว่า WACC — โตแค่ไหนก็ไม่ช่วย)';
-  return ' '+chip(`Moat ${signed(s)}%`,moatTok(s),`ROIC−WACC spread ${signed(s)}% — ${note}. คุณภาพวัดที่ spread ไม่ใช่ที่การเติบโต (ดูแท็บ DEEP & ทุน)`);
+  const l=PP_LABEL[moatLabel(x)];
+  return ' '+chip(`Moat ${signed(s)}%${moatArrow(x)}`,moatTok(s),`ROIC−WACC spread ${signed(s)}% — ${note}. คุณภาพวัดที่ spread ไม่ใช่ที่การเติบโต (ดูแท็บ DEEP & ทุน)${l?' · ลูกศร = แนวโน้ม moat '+l[0]+' (แท็บ คู่แข่ง & Moat)':''}`);
 }
 // The server decides the Action once (domain/advice.py), including the S9 crash
 // guard's WAIT, so the cell and the advice line always agree.
