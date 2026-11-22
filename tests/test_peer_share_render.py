@@ -257,11 +257,11 @@ def test_findings_and_labels():
     rows = _rows()
     out = _render({k: rows[k] for k in ("head_NVDA", "head_TMDX", "head_UNH", "head_MELI", "head_TSLA", "live_NVDA")})
     n = out["share"]["head_NVDA|sub"]["html"]
-    assert 'role="img" aria-label="NVDA ส่วนแบ่งเพิ่มจาก 8.3% เป็น 39.6% อันดับ 1 จาก 60"' in n, \
+    assert 'role="img" aria-label="NVDA ส่วนแบ่งเพิ่มจาก 8.2% เป็น 39.3% อันดับ 1 จาก 63"' in n, \
         re.findall(r'class="pp-db" role="img" aria-label="([^"]+)"', n)
     assert 'aria-label="ส่วนแบ่งรายปี CY2021 ถึง CY2025: NVDA' in n and "กลุ่มอื่น ๆ" in n
     tm = _text(out["share"]["head_TMDX|sub"]["html"])
-    assert "TMDX อันดับ 14 จาก 60" in tm and "⋯" not in tm
+    assert "TMDX อันดับ 15 จาก 64" in tm and "⋯" not in tm
     assert 'pp-dbr-t pp-dbr-gap' in out["share"]["head_TMDX|sub"]["html"], "a target outside the top 8 gets its own row after a gap"
     u = _text(out["share"]["head_UNH|sub"]["html"])
     assert "Top-5 รวม ไม่ใช้" not in u and "Top-5 รวม CY" in u, "UNH's sub-group has 9 members"
@@ -269,7 +269,8 @@ def test_findings_and_labels():
     assert "Top-5 รวม ไม่ใช้" in me and "กลุ่มนี้มี 3 ราย" in me, "a group of 5 or fewer drops Top-5"
     assert "สัญญาณ S2 ใช้ทั้งกลุ่ม Damodaran แทน" in me, "the S2 basis line names the basis S2 used"
     ts = _text(out["share"]["head_TSLA|sub"]["html"])
-    assert "ยังวาดกราฟไม่ได้ เพราะ CY2022 มีบริษัทในกลุ่มนี้ที่มีข้อมูลใน SEC 6 จาก 9 ราย (67% ต่ำกว่าเกณฑ์ 70%)" in ts
+    assert "ยังวาดกราฟไม่ได้ เพราะ CY2025 มีบริษัทในกลุ่มนี้ที่มีข้อมูลใน SEC 8 จาก 12 ราย (67% ต่ำกว่าเกณฑ์ 70%)" in ts, \
+        "the newer window year failing coverage is named, not read as no matched filers"
     for k in ("head_NVDA", "head_TMDX", "head_MELI"):
         h = _text(out["share"][k + "|all"]["html"])
         assert "5 รายใหญ่สุดของ CY2025 ทุกปี" in h and "ไม่มีผลต่อคะแนน" in h and "ดูตารางตัวเลข" in h, k

@@ -323,9 +323,11 @@ function ppShareView(b,kind,tkr){
   v.bands=bands;
   const matched=order.filter(m=>m.matched);
   if(!matched.length){
-    const cov=(b.coverage||{})[w0], nc=(b.n_covered||{})[w0];
-    v.empty=ppNum(cov)&&cov<0.7&&ppNum(nc)
-      ?`ยังวาดกราฟไม่ได้ เพราะ CY${w0} มีบริษัทในกลุ่มนี้ที่มีข้อมูลใน SEC ${nc} จาก ${b.n_members} ราย (${(cov*100).toFixed(0)}% ต่ำกว่าเกณฑ์ 70%) จึงเทียบ CY${w0} กับ CY${w1} ไม่ได้`
+    // the first window year that failed coverage (R20), older first, as the engine checks them
+    const wf=[w0,w1].find(y=>{const c=(b.coverage||{})[y];return ppNum(c)&&c<0.7;});
+    const cov=(b.coverage||{})[wf], nc=(b.n_covered||{})[wf];
+    v.empty=wf!=null&&ppNum(nc)
+      ?`ยังวาดกราฟไม่ได้ เพราะ CY${wf} มีบริษัทในกลุ่มนี้ที่มีข้อมูลใน SEC ${nc} จาก ${b.n_members} ราย (${(cov*100).toFixed(0)}% ต่ำกว่าเกณฑ์ 70%) จึงเทียบ CY${w0} กับ CY${w1} ไม่ได้`
       :`ยังวาดกราฟไม่ได้ เพราะไม่มีบริษัทในกลุ่มนี้ที่มีรายได้ทั้ง CY${w0} และ CY${w1}`;
     return v;
   }
