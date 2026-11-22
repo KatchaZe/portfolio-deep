@@ -180,10 +180,11 @@ ppSortClick(btn('pe')); ppSortClick(btn('pe')); ppSortClick(btn('symbol'));
 out.clicks={sort:PP_SORT['c-NVDA'],drawn:drawn.map(h=>(h.match(/aria-sort="(\w+)"/)||[])[1]||null)};
 // the view toggle redraws the table in the pressed view and keeps focus on that button
 if(CASES.UNH_v3){CARD_ROWS['c-UNH']=CASES.UNH_v3; const vd=[]; let foc=null;
-  const g2={dataset:{ppcard:'c-UNH'},querySelector:q=>q==='.pp-tbl'?{set outerHTML(h){vd.push(h)}}:{focus(){foc=q}}};
+  const g2={dataset:{ppcard:'c-UNH'},querySelector:q=>q==='.pp-tbl'?{set outerHTML(h){vd.push(h)}}:q==='.pp-share'?{set outerHTML(h){vs.push(h)}}:{focus(){foc=q}}}, vs=[];
   const vb=v=>({dataset:{pview:v},closest:()=>g2});
   ppViewClick(vb('sub')); ppViewClick(vb('all'));
-  out.views={view:PP_VIEW['c-UNH'],pressed:vd.map(h=>(h.match(/data-pview="(\w+)" aria-pressed="true"/)||[])[1]||null),focus:foc};}
+  out.views={view:PP_VIEW['c-UNH'],pressed:vs.map(h=>(h.match(/data-pview="(\w+)" aria-pressed="true"/)||[])[1]||null),
+    tables:vd.map(h=>/SIC 6324 เท่านั้น/.test(h)?'sub':'all'),focus:foc};}
 console.log(JSON.stringify(out));
 """
 
@@ -283,32 +284,33 @@ def v3_checks(out):
     cells = re.findall(r'data-col="gross_margin_fy">(.*?)</td>', u["pane"] + u["sub"])
     assert cells and not any(re.search(r"\d", re.sub(r"<[^>]+>", "", c)) for c in cells), "UNH shows a GM number"
     assert "เฉพาะธุรกิจเดียวกัน (9 ราย)</button>" in u["pane"] and 'role="group"' in u["pane"]
-    assert 'data-pview="all" aria-pressed="true"' in u["pane"] and 'data-pview="sub" aria-pressed="false"' in u["pane"]
-    assert 'data-pview="sub" aria-pressed="true"' in u["sub"]
-    assert "ธุรกิจเดียวกัน (SIC 6324, 9 ราย · มีรายได้ทั้ง CY2022 และ CY2025 9 ราย" in u["pane"] and "S3 gross margin ไม่ใช้กับธุรกิจนี้" in u["pane"]
+    assert 'data-pview="sub" aria-pressed="true"' in u["pane"] and 'data-pview="all" aria-pressed="false"' in u["pane"], \
+        "the toggle sits in the share box and defaults to the same business"
+    assert "SIC 6324 เท่านั้น" in u["pane"] and "SIC 6324 เท่านั้น" in u["sub"], "the default view filters the peer table too"
+    assert "ชุดเทียบ: 9 จาก 9 รายที่มีรายได้ทั้ง CY2022 และ CY2025" in u["pane"] and "S3 gross margin ไม่ใช้กับธุรกิจนี้" in u["pane"]
     assert "วัดได้ 3 จาก 3 ตัวที่ใช้กับธุรกิจนี้" in u["pane"], "votes cast of possible (R27)"
-    assert "สมาชิกธุรกิจเดียวกันที่ไม่อยู่ในตารางคู่แข่ง" in u["sub"] and "(ไม่ใช่ TTM)" in u["sub"]
+    assert "ดูตารางตัวเลข (9 ราย)" in u["pane"] and "ไม่ใช่ TTM" in u["pane"]
     for sym in ("ALHC", "CLOV", "HQY"):
-        assert f'<th scope="row">{sym}</th>' in u["sub"], sym
+        assert re.search(r'<th scope="row">(<svg[^>]*>.*?</svg>)?%s</th>' % sym, u["pane"]), sym
     body = u["sub"].split("<tbody>")[1].split("</tbody>")[0]
     assert "MCK" not in body and "ธุรกิจเดียวกัน SIC 6324" in u["pane"], "the sub view lists 6324 rows only; S2 basis named"
-    assert out["views"] == {"view": "all", "pressed": ["sub", "all"], "focus": '[data-pview="all"]'}, out["views"]
-    t = out["TMDX_v3"]["pane"]
+    assert out["views"] == {"view": "all", "pressed": ["sub", "all"], "tables": ["sub", "all"], "focus": '[data-pview="all"]'}, out["views"]
+    t = out["TMDX_v3"]["pane"] + out["TMDX_v3"]["asc"]
     assert "GM median: เทียบเฉพาะ SIC 3845 3 ราย (INSP, IRTC, TNDM)" in t and "เทียบ SIC 3845 3 ราย" in t
     assert "median ทั้งกลุ่ม Damodaran" in t and "ทั้งกลุ่ม Damodaran)</h3>" in t
-    m = out["MELI_v3"]["pane"]
+    m = out["MELI_v3"]["asc"]
     assert "GM median: คู่แข่งที่มี gross margin ปีงบล่าสุด: SIC 5960 เดียวกัน 1 ราย" in m
     h = out["HIMS_v3"]["pane"]
     assert "มีแค่หุ้นนี้" in h and 'data-pview="sub"' not in h, "a group of one gets a reason, not a toggle"
-    alhc = h.split('<th scope="row">ALHC</th>')[1].split("</tr>")[0]
+    alhc = h.split("pp-tbl")[1].split('<th scope="row">ALHC</th>')[1].split("</tr>")[0]
     assert '—<span class="note pp-na"> (ไม่ใช้กับธุรกิจการเงิน)</span>' in alhc, "a financial row's reason is visible (D5)"
-    assert "(ไม่ใช้กับธุรกิจการเงิน)" not in h.split('<th scope="row">AMN</th>')[1].split("</tr>")[0]
+    assert "(ไม่ใช้กับธุรกิจการเงิน)" not in h.split("pp-tbl")[1].split('<th scope="row">AMN</th>')[1].split("</tr>")[0]
     u = out["UNH_v3"]["pane"]
     assert "(ไม่ใช้กับธุรกิจการเงิน)" not in u and "หุ้นนี้เป็นธุรกิจการเงิน/ประกัน จึงไม่เทียบ GM" in u
     t, ts = out["TMDX_v3"]["pane"], out["TMDX_v3"]["sub"]
-    assert "ธุรกิจเดียวกัน (SIC 3845, 60 ราย · มีรายได้ทั้ง CY2022 และ CY2025 48 ราย ใช้คิดการเปลี่ยนส่วนแบ่ง)" in t, "D7"
+    assert "ชุดเทียบ: 48 จาก 60 รายที่มีรายได้ทั้ง CY2022 และ CY2025" in t, "D7"
     assert "ธุรกิจเดียวกัน SIC 3845 (48 รายที่มีรายได้ทั้ง CY2022 และ CY2025 จาก 60 ราย)" in t, "D7 on S2"
-    assert "TMDX อันดับ 14 จาก 60 (รายได้ CY2025)" in ts and "คู่แข่งธุรกิจเดียวกันทั้งหมด เรียงตามรายได้ CY" in ts, "D8"
+    assert "<b>TMDX อันดับ 14 จาก 60</b>" in t, "D8"
     foot = ts.split("<tfoot>")[1].split("</tfoot>")[0]
     assert "median ธุรกิจเดียวกัน" in foot and "$881M" in foot and "$847M" not in foot, "D6: sub-view median"
     assert "(EV/EBIT 1 ราย, P/E 1 ราย)" in ts and "median ยังเป็นของทั้งกลุ่ม" not in ts, "D6: counts named"
@@ -325,8 +327,9 @@ def store_checks(cases, out):
     rows = cases["NVDA"]["peer_panel"]["table"]["rows"]
     assert "↗</span><span>ดีขึ้น" in n and "แนวโน้ม ดีขึ้น" in out["NVDA"]["chip"]
     assert n.split("<tbody>")[1].split("</tbody>")[0].count("<tr") == len(rows) == 6
-    assert "median คู่แข่ง" in n.split("<tfoot>")[1] and "ไม่ใช่ market share จริง" in n
-    assert "CY2025" in n and 'role="img" aria-label="ส่วนแบ่ง CY2021' in n
+    assert "median คู่แข่ง" in n.split("<tfoot>")[1] and "รายได้ทั้งบริษัท ไม่ใช่เฉพาะสายธุรกิจ" in n
+    assert "NVDA ส่วนแบ่ง CY2025" in n and "กราฟรายบริษัทจะแสดงหลัง refresh รอบหน้า" in n, "a panel stored before the chart block"
+    assert 'role="img" aria-label="NVDA ส่วนแบ่ง' in out["NVDA_v3"]["pane"], "the rebuilt panel draws the charts"
     assert ("(นอกกรอบ)" in n) == any(r["outlier"] for r in rows)
     assert "แข็งขึ้น" in out["NVDA_new"]["pane"] and "ติดตามไตรมาสหน้า:" in out["NVDA_new"]["pane"]
     assert "gross margin สูงกว่า median คู่แข่ง 18%" in n, "stored English evidence is translated"

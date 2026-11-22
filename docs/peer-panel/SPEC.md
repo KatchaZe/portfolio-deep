@@ -204,10 +204,16 @@ revenue and sub-group share (null when the year fails coverage) and `in_panel`. 
 the sub-group when its matched_n >= 5 and it has the target's matched share
 (`basis: "sub_group"`), else the full industry (`basis: "industry"`, `basis_reason` says
 why). The scale hint's trend follows the full industry's own share change, the set its share
-is measured on. The table toggle "เฉพาะธุรกิจเดียวกัน (N ราย)" / "ทั้งกลุ่ม Damodaran" filters
-the panel rows; sub-group members outside the 12 panel peers are listed in their own
-revenue/share table (CY frames revenue, never in the TTM column: R1 clocks), from the frames
-already loaded, so no new request and no change to peer selection.
+is measured on. The toggle "เฉพาะธุรกิจเดียวกัน (N ราย)" / "ทั้งกลุ่ม Damodaran" sits in the
+share box heading (build 2026-11-22d) and drives the share charts and the panel rows together;
+it starts on the same business when a sub-group exists. The share box draws each basis from
+its `chart` block: a dumbbell (top 8 by newest-CY share, the target, "อื่น ๆ") over the matched
+set, a 100% stacked area (the target, the newest CY's top 5 for every year, the rest), the
+Top-5/HHI line, and every member with its yearly shares behind "ดูตารางตัวเลข" (CY frames
+revenue, never in the TTM column: R1 clocks). Peer bands are hatched by rank (horizontal,
+vertical, dots, diagonal, cross-hatch; others solid; the target solid accent) and the same
+swatch marks the company in the legend, the dumbbell and the table. Display only: no new
+request and no change to peer selection.
 Membership is Damodaran's, not edited by hand. UNH's sub-group is ALHC, CI, CLOV, CNC, ELV,
 HQY, HUM, MOH, UNH. HQY (HealthEquity) is an HSA administrator that Damodaran classifies 6324;
 CVS (Aetna's parent) is 8000 in Damodaran's list (5912 in SEC submissions), so it is outside.
