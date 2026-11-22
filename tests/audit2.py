@@ -273,14 +273,26 @@ from domain import moat_trend as _MT               # noqa: E402
 from domain import peer_panel as _PP               # noqa: E402
 
 
-def _variant(mod, old, new, **attrs):
-    """A copy of `mod` with one source edit, for the guards' mutation self-tests."""
+class _Stale(Exception):
+    """A mutation self-test whose source edit no longer applies: it proves nothing."""
+
+
+def _variant(mod, old=None, new=None, override=None, **attrs):
+    """A copy of `mod` for the guards' mutation self-tests: one source edit (old -> new),
+    or, more robust, `override` {name: value} replacing a module global after the copy
+    runs (functions read globals at call time, so a later edit to the overridden
+    function's text cannot make the self-test vacuous). Raises _Stale when `old` is gone,
+    which the caller reports as a stale self-test, never as a detection."""
     src = open(mod.__file__, encoding="utf-8").read()
-    assert src.count(old) == 1, (mod.__name__, old[:50])
+    if old is not None:
+        if src.count(old) != 1:
+            raise _Stale(f"{mod.__name__}: {old[:60]!r} found {src.count(old)} times")
+        src = src.replace(old, new)
     m = _types.ModuleType(mod.__name__ + "_mutant")
     m.__file__ = mod.__file__
     m.__dict__.update(attrs)
-    exec(compile(src.replace(old, new), mod.__file__, "exec"), m.__dict__)
+    exec(compile(src, mod.__file__, "exec"), m.__dict__)
+    m.__dict__.update(override or {})
     return m
 
 
@@ -307,7 +319,13 @@ _CASES = {
     "DEV": ("3845", [("H", "3845", .6), ("I", "3845", .62), ("J", "3841", .7), ("K", "3851", .9),
                      ("L", "3851", .9), ("M", "3851", .9)], .65),
     "THIN": ("7841", [("N", "7841", .4), ("O", "7372", .8), ("P", "7812", .3)], .45),
+    # both edges of the financial range (a bank at 6000, a REIT at 6799) and one past it
+    "BANK": ("6000", [("Q", "6000", .5), ("R", "6000", .6), ("S", "6000", .7)], .55),
+    "REIT": ("6799", [("U", "6799", .5), ("V", "6799", .6), ("W", "6799", .7)], .55),
+    "RE": ("6800", [("X1", "6800", .5), ("X2", "6800", .6), ("X3", "6800", .7)], .55),
 }
+# R25's range, written here rather than read from peer_panel, so a wrong bound there is seen
+_FIN = range(6000, 6800)
 _Y5 = [2021, 2022, 2023, 2024, 2025]
 
 
@@ -379,7 +397,7 @@ def _financial_gm(built):
     """A12b: a financial target with a GM number, S3 or a GM-based hint."""
     bad = []
     for k, (ts, _s, panel, moat) in built.items():
-        if not _PP.is_financial(ts):
+        if _PP.sic4(ts) is None or int(_PP.sic4(ts)) not in _FIN:
             continue
         rows = (panel.get("table") or {}).get("rows") or []
         bad += [(k, "row GM", r["symbol"]) for r in rows if r.get("gross_margin_fy") is not None]
@@ -425,7 +443,9 @@ def _sub_shares(built):
         rows = (panel.get("table") or {}).get("rows") or []
         tsym = next((r["symbol"] for r in rows if r["is_target"]), None)
         n = sum(m["symbols"].count(tsym) for m in sub.get("members") or [])
-        if tsym and n != 1:
+        # a home-listed target (SIC from Damodaran's global rows, R29) is not a US member
+        home = str((panel.get("target_sic") or {}).get("source") or "").startswith("Damodaran global")
+        if tsym and n != (0 if home else 1):
             bad.append((k, "target rows", n))
     return bad
 
@@ -440,14 +460,21 @@ for _name, _g in _GUARDS:
     if _found:
         flag("HIGH", f"{_name} {_found[:3]}")
 
-_pp_cross = _variant(_PP, "c is not None and c[:lv] == ts[:lv]]", "True]")
-_pp_nofin = _variant(_PP, "return c is not None and FINANCIAL_SIC[0] <= int(c) <= FINANCIAL_SIC[1]", "return False")
-_pp_quiet = _variant(_PP, 'out["reason"] = (f"คู่แข่งที่มี', 'out["reason"] = None and (f"คู่แข่งที่มี')
-_pp_total = _variant(_PP, "total = sum(v for v in rev.values() if _pos(v))", "total = max(rev.values())")
-_pp_twice = _variant(_PP, "for t, c in list(sm.items()) + list(sf.items()):",
-                     "for t, c in list(sm.items()) + list(sm.items()) + list(sf.items()):")
-_MUTANTS = (("A12a", _cross_sic, _pp_cross), ("A12b", _financial_gm, _pp_nofin),
-            ("A12c", _silent_skips, _pp_quiet), ("A12d", _sub_shares, _pp_total), ("A12d", _sub_shares, _pp_twice))
+_MUTANT_EDITS = (
+    ("A12a", _cross_sic, dict(old="c is not None and c[:lv] == ts[:lv]]", new="True]")),
+    ("A12b", _financial_gm, dict(override={"is_financial": lambda code: False})),
+    ("A12b", _financial_gm, dict(override={"FINANCIAL_SIC": (6001, 6798)})),
+    ("A12c", _silent_skips, dict(old='out["reason"] = (f"คู่แข่งที่มี', new='out["reason"] = None and (f"คู่แข่งที่มี')),
+    ("A12d", _sub_shares, dict(old="total = sum(v for v in rev.values() if _pos(v))", new="total = max(rev.values())")),
+    ("A12d", _sub_shares, dict(old="for t, c in list(sm.items()) + list(sf.items()):",
+                               new="for t, c in list(sm.items()) + list(sm.items()) + list(sf.items()):")))
+_MUTANTS = []
+for _name, _g, _edit in _MUTANT_EDITS:
+    try:
+        _MUTANTS.append((_name, _g, _variant(_PP, **_edit)))
+    except _Stale as _e:
+        print(f"  mutation for {_name}: STALE ({_e})")
+        flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
 for _name, _g, _pp in _MUTANTS:
     _mt = _variant(_MT, "from domain import peer_panel, trend", "from domain import trend", peer_panel=_pp)
     _hit = _g(_built(_pp, _mt))
@@ -458,7 +485,9 @@ for _name, _g, _pp in _MUTANTS:
 
 def _ui_gm_cells(js_patch=None):
     """A12e: the GM cells the tab renders for a financial target whose stored rows still
-    carry GM numbers. None when node is missing."""
+    carry GM numbers, with gm_compare (R25) and without it (a panel stored before R25,
+    the profile's SEC SIC 6324 only: D2). None when node is missing. `js_patch` is JS run
+    after the modules (a mutant that redefines a function), so it cannot go stale."""
     node = _shutil.which("node")
     if not node:
         return None
@@ -466,14 +495,15 @@ def _ui_gm_cells(js_patch=None):
     shipped = {os.path.basename(p): p for p in frontend_files()}
     js = "\n".join(open(shipped[m], encoding="utf-8").read() for m in ("format.js", "card_signals.js", "card_peer.js"))
     if js_patch:
-        assert js.count(js_patch[0]) == 1, js_patch[0]
-        js = js.replace(*js_patch)
-    x = {"peer_panel": {"table": {"gm_compare": {"applies": False, "reason": "x", "sic": "6324"},
-                                  "stats": {"gross_margin_fy": {"n": 3, "median": .42}}, "target_vs_median": {},
-                                  "rows": [{"symbol": s, "is_target": s == "UNH", "gross_margin_fy": g,
-                                            "rank3": {}, "outlier": []}
-                                           for s, g in (("UNH", .887), ("ELV", .894), ("CI", .218))]}}}
-    js += "\nconsole.log(JSON.stringify(ppTable(%s.peer_panel,null,'all')));" % _json.dumps(x)
+        js += "\n" + js_patch
+    tbl = {"gm_compare": {"applies": False, "reason": "x", "sic": "6324"},
+           "stats": {"gross_margin_fy": {"n": 3, "median": .42}}, "target_vs_median": {},
+           "rows": [{"symbol": s, "is_target": s == "UNH", "gross_margin_fy": g, "rank3": {}, "outlier": []}
+                    for s, g in (("UNH", .887), ("ELV", .894), ("CI", .218))]}
+    old = dict(tbl)
+    old.pop("gm_compare")
+    xs = [{"peer_panel": {"table": tbl}}, {"sec_sic": ["6324", "x"], "peer_panel": {"table": old}}]
+    js += "\nconst XS=%s;console.log(JSON.stringify(XS.map(x=>ppTable(x.peer_panel,null,'all',x)).join('')));" % _json.dumps(xs)
     with _tf.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as fh:
         fh.write(js)
     try:
@@ -492,7 +522,7 @@ else:
     print(f"  A12e GM numbers rendered for a financial target: {len(_ui)}")
     if _ui:
         flag("HIGH", f"A12e the tab shows a GM number for a financial target: {_ui[:3]}")
-    _ui_m = _ui_gm_cells(("if(c==='gross_margin_fy'&&ppGmNa(p,r))", "if(false)"))
+    _ui_m = _ui_gm_cells("ppGmState=()=>({na:false,fin:false,reason:null});")
     print(f"  mutation for A12e (the cell guard removed): {len(_ui_m)} GM number(s) rendered")
     if not _ui_m:
         flag("HIGH", "A12e cannot fire: removing the cell guard rendered no GM number")

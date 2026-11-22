@@ -76,11 +76,30 @@ def test_no_pp_unit_in_the_moat_tab_or_the_drawer():
           % (sum(k.startswith("peer ") for k in out), len(drawer)))
 
 
+def test_drawer_trend_has_no_gross_margin_for_an_insurer():
+    """D3 (R25): the 5-year strip drops its Gross margin row for a financial SIC and says why."""
+    if not shutil.which("node"):
+        return
+    drawer = {t: r for t, r in _drawer_rows().items() if t in ("UNH", "ELV", "NVDA")}
+    if not drawer:
+        print("SKIP: no stored UNH/ELV/NVDA")
+        return
+    out = _render({}, drawer)
+    for t in ("UNH", "ELV"):
+        if t in drawer:
+            h = out["drawer " + t]
+            assert 'aria-label="Gross margin' not in h, t
+            assert "ไม่แสดง Gross margin: gross margin ไม่ใช่ตัวชี้วัดของธุรกิจนี้" in h, t
+    if "NVDA" in drawer:
+        assert 'aria-label="Gross margin' in out["drawer NVDA"], "a non-financial strip keeps its row"
+    print("drawer strip: no GM row for insurers OK")
+
+
 def test_no_pp_unit_in_the_shipped_text():
     """Every static string the page ships: JS literals and index.html text. The two
     exceptions are where the code reads the engine's own "pp" (pp2pct, the English
     evidence pattern, the trend row's unit) to turn it into %."""
-    reads_engine = ("function pp2pct", "pp above the peer median", "su0==='pp'")
+    reads_engine = ("function pp2pct", "pp above the peer median", "su0==='pp'", "pp over (", "pp vs the median")
     bad = []
     for path in frontend_files():
         for i, line in enumerate(open(path, encoding="utf-8"), 1):

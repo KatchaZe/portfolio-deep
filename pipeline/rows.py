@@ -108,6 +108,9 @@ def valuation_row(t, f, v, mom, v2, *, rev_surprises, has_new_schema, fmp_on):
         "relative": v.get("relative") or None,
         # the คู่แข่ง & Moat tab (display only, PP1): peer table, industry share, moat trend
         "peer_panel": v.get("peer_panel") or None, "moat_trend": v.get("moat_trend") or None,
+        # SEC's SIC from the profile: the tab hides gross margin for a bank/insurer whose
+        # stored panel predates gm_compare (R25 fail-closed); never used to compare
+        "sec_sic": f.get("sic"),
         "earn_status": earn_status(eps_surprises, rev_surprises, mgn_trend,
                                    f.get("provenance"), has_new_schema, fmp_on),
         "forward_eps": f.get("forward_eps"), "forward_eps_low": f.get("forward_eps_low"),

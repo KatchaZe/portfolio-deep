@@ -174,7 +174,8 @@ or split firms by source. The point's `sic` stays for the relative block's SIC c
 not read by the panel. Parsing (`sic4`): "6324", 6324, 6324.0, "06324" and " 6324 " are
 "6324"; "100" is "0100"; None, "", "0", "0000", non-numeric and > 9999 are no code, and no
 code never matches anything (a skip with a reason). A target Damodaran does not list in the
-US (the ADRs ASML, NVO, TSM; SPCX) has no code: its GM comparison and sub-group are skipped.
+US (the ADRs ASML, NVO, TSM; SPCX) takes its code from his non-US rows when R29 finds a
+unique match, else has no code: its GM comparison and sub-group are skipped.
 Financial: SIC 6000-6799 (banks, credit, brokers, insurers, agents, REITs). A financial
 target gets no GM number in the table (every row "—"), no GM median or rank, no S3 and no
 GM-based hint (intangible, cost_advantage); a financial peer row of any target shows "—"
@@ -210,3 +211,39 @@ already loaded, so no new request and no change to peer selection.
 Membership is Damodaran's, not edited by hand. UNH's sub-group is ALHC, CI, CLOV, CNC, ELV,
 HQY, HUM, MOH, UNH. HQY (HealthEquity) is an HSA administrator that Damodaran classifies 6324;
 CVS (Aetna's parent) is 8000 in Damodaran's list (5912 in SEC submissions), so it is outside.
+
+## Resolutions 2026-11-22b (fix round D1-D9; the user chose Damodaran's global list for ADRs)
+R29 Home-listed targets. indname.xls ("By industry") lists every firm once, an ADR under its
+home ticker (ENXTAM:ASML, CPSE:NOVO B, TWSE:2330). Its non-US-exchange rows go to their own
+cache, damodaran_global_sic.json ([name, exchange:ticker, country, SIC, industry]; 43,359 rows,
+43,287 with a SIC in the 2026 vintage), written by the same download as the US table and
+never read for membership or industry_share. A target absent from the US rows gets its SIC
+there by an automatic match (domain/global_sic.resolve): the profile's company name,
+normalised (case, "&", parentheses, "." and "/" joined so N.V. = NV and A/S = AS, ADR words
+dropped anywhere, legal-form words dropped from the end), EQUAL to exactly one row's
+normalised name, whose country equals the profile country (ISO-2 mapped to Damodaran's
+country name). Two hits, a country mismatch, no hit or no SIC is a skip with a Thai reason.
+No substring, prefix or ticker matching: "Taiwan Semiconductor Co., Ltd." (TPEX:5425, also
+3674, Taiwan) must not match TSMC, and the ticker text "BASML" must not match ASML. No
+hand-written ADR map. The code is the target's only: its sub-group is still the US-filer
+members of its Damodaran industry with that SIC (R28), so the target itself is not a member
+(it files 20-F, outside SEC frames). panel.target_sic = {code, source, ticker, reason}, source
+"damodaran_indname" or "Damodaran global: <exchange:ticker>", shown in the tab.
+R30 Share-chart data (engine only, no UI yet): industry_share.chart and sub_group.chart =
+{years, window [CY-3, CY], members[{cik, symbols, share [per CY, on that year's covered
+filers, null when the year failed R20 or no revenue], revenue_now, matched (in the S2
+window's R13 matched set; null when either year failed coverage), share_then, share_now,
+change_pp (matched-set shares; null under the 70% matched rule)}], target_rank {rank by
+newest-CY revenue among the n_members filers, null without revenue; of; cy}}. Top-5 and HHI
+per year stay in top5_share / hhi.
+R31 Display fixes. S2's basis_reason names the first rule that failed with its counts
+(coverage of a year, the matched set, SUB_MIN_MATCHED). The sub-group's flags are panel
+flags and show in its box. table.sub_stats holds the same-business view's medians (peer
+rows with the target's SIC, at least 3 values, else null). Every count of filers says what
+it counts (members vs those with revenue in both CYs). GM is hidden fail-closed in the
+renderer: gm_compare.applies false, or any SIC the row knows (panel, sub-group, target_sic,
+else the profile's SEC SIC, used only to hide) in 6000-6799, or a pre-R25 panel with no known
+SIC; the drawer's 5-year strip drops its Gross margin row for a financial SIC. A financial
+target shows one reason ("หุ้นนี้เป็นธุรกิจการเงิน/ประกัน จึงไม่เทียบ GM"); a financial row of
+a non-financial target shows its own reason, visibly. Stored reasons stay English and render
+in Thai through card_peer.js PP_TH (tests/test_peer_panel_th.py fails on an unmapped one).

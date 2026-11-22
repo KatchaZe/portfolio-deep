@@ -140,13 +140,18 @@ function trendPeriod(t){
   return `<span class="note">${span}</span>${lag}`;
 }
 function trendStrip(x){
-  const t=x.trend5y; if(!t||!t.rows||!t.rows.length)return '<p class="note">ไม่มีข้อมูล 5 ปีจากงบ 10-K</p>';
+  const t0=x.trend5y; if(!t0||!t0.rows||!t0.rows.length)return '<p class="note">ไม่มีข้อมูล 5 ปีจากงบ 10-K</p>';
+  // R25: a bank/insurer has no gross margin worth plotting (card_peer.js decides from the SIC)
+  const fin=typeof ppIsFinancial==='function'&&ppIsFinancial(x)&&t0.rows.some(r=>r.key==='gross_margin');
+  const t=fin?Object.assign({},t0,{rows:t0.rows.filter(r=>r.key!=='gross_margin')}):t0;
+  if(!t.rows.length)return '<p class="note">ไม่มีข้อมูล 5 ปีจากงบ 10-K</p>';
+  const gmNote=fin?`<p class="note pp-gmna" style="margin:0">ไม่แสดง Gross margin: ${esc(PP_GM_NA)}</p>`:'';
   const yrs=[...new Set(t.rows.flatMap(r=>(r.points||[]).map(p=>String(p.fy))))].sort(), n=yrs.length;
   const X=fy=>n<2?50:yrs.indexOf(String(fy))/(n-1)*100;
   X.grid=yrs.map(y=>`<line x1="${X(y)}" x2="${X(y)}" y1="0" y2="100" stroke="var(--line)" vector-effect="non-scaling-stroke"/>`).join('');
   const axis=`<div class="spark axis" aria-hidden="true"><span></span><div class="yax">${yrs.map(y=>`<span style="left:${X(y)}%">${esc(y)}</span>`).join('')}</div><span></span></div>`;
   return `<div class="box" style="max-width:1000px"><h3 title="${esc('ตัวเลขจากงบ 10-K ที่ยื่น ก.ล.ต.สหรัฐ (GAAP) — ไม่ใช่ตัวเลข adjusted\nทุกค่าในแท็บนี้เป็นตัวเลข "ปีงบ" ส่วนมูลค่าและ ROIC* คิดจาก 12 เดือนล่าสุด (TTM)')}">แนวโน้ม 5 ปีจากงบ ${trendPeriod(t)}</h3>
-    <p class="note" style="margin:0">ทุกแถวใช้แกนปีเดียวกัน · ปีที่ไม่มีข้อมูลจะไม่มีจุด · โตต่อเนื่องไหม ดูความชันของเส้น ไม่ใช่ค่าปีล่าสุด</p>
+    <p class="note" style="margin:0">ทุกแถวใช้แกนปีเดียวกัน · ปีที่ไม่มีข้อมูลจะไม่มีจุด · โตต่อเนื่องไหม ดูความชันของเส้น ไม่ใช่ค่าปีล่าสุด</p>${gmNote}
     ${t.rows.map(r=>trendRow(r,X)).join('')}${axis}</div>`;
 }
 function trendRow(r,X){

@@ -266,6 +266,11 @@ PANEL_CLOCK = {
     "sub_group": STATIC, "members": STATIC, "cik": STATIC, "cy": STATIC, "share": CY,
     "in_panel": STATIC, "basis": STATIC, "basis_reason": STATIC,
     "votes": DERIVED, "possible": DERIVED, "cast": DERIVED, "not_applicable": STATIC,
+    # 2026-11-22 fix round: same-business medians, the target's SIC provenance (R29), and
+    # the per-member share series a market-share chart reads (R30)
+    "sub_stats": DERIVED, "target_sic": STATIC, "code": STATIC, "ticker": STATIC,
+    "chart": STATIC, "revenue_now": CY, "matched": CY, "share_then": CY, "share_now": CY,
+    "change_pp": CY, "target_rank": DERIVED, "rank": DERIVED, "of": DERIVED,
 }
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
@@ -281,6 +286,8 @@ PANEL_UNIT = {
     "n_members": COUNT, "n_with_revenue": COUNT, "n_covered": COUNT, "trend": COUNT, "n": COUNT, "n_signals": COUNT,
     "rank3": COUNT, "direction": COUNT, "version": COUNT, "years": COUNT, "frames_cy": COUNT,
     "share": RATIO, "n4": COUNT, "n3": COUNT, "possible": COUNT, "cast": COUNT, "cy": COUNT,
+    "revenue_now": MONEY, "share_then": RATIO, "share_now": RATIO, "change_pp": RATIO,
+    "rank": COUNT, "of": COUNT,
 }
 
 

@@ -25,11 +25,12 @@ STORE = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TICKERS = ("NVDA", "UNH", "ASML", "ABBV", "SPCX")
 # rebuilt offline (tools/panel_probe --offline path: stored peer points + cached Damodaran list
 # and SEC frames) with SPEC R25-R28; the HTML of each is saved to _render/ for review
-V3 = ("UNH", "HIMS", "TMDX", "MELI", "NVDA")
+V3 = ("UNH", "HIMS", "TMDX", "MELI", "NVDA", "TSLA")
 RENDER_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "_render")
 BAD = ("undefined", "NaN", "[object Object]", "Infinity")
 
 SYNTH = {"ticker": "SYN", "key_metrics": {"spread_pct": 12.0}, "uncertainty": {"rating": "High"},
+         "sec_sic": ["2086", "Bottled & Canned Soft Drinks"],
          "peer_panel": {"as_of": "2026-11-20", "industry": "Beverage (Soft)", "flags": [],
                         "table": {"stats": {}, "target_vs_median": {}, "rows": [
                             {"symbol": "SYN", "is_target": True, "revenue_ttm": 2e9, "cagr3_fy": 0.1,
@@ -67,7 +68,7 @@ def _row(t, s, moat=None):
         r = dict(r, moat_trend=moat)
     row = rows_mod.valuation_row(t, (s.get("facts") or {}).get(t) or {}, r, {}, {},
                                  rev_surprises=None, has_new_schema=True, fmp_on=False)
-    return {k: row[k] for k in ("ticker", "peer_panel", "moat_trend", "key_metrics", "uncertainty")}
+    return {k: row[k] for k in ("ticker", "peer_panel", "moat_trend", "key_metrics", "uncertainty", "sec_sic")}
 
 
 def _xss():
@@ -126,11 +127,33 @@ def _v3(s):
     return out
 
 
+def _old_fin():
+    """D2: an insurer's panel stored before gm_compare existed: GM numbers in its rows and
+    an "intangible" hint from them. Only the profile's SEC SIC says it is an insurer."""
+    x = json.loads(json.dumps(SYNTH))
+    x["sec_sic"] = ["6324", "Hospital & Medical Service Plans"]
+    x["peer_panel"]["table"]["rows"][1]["gross_margin_fy"] = 0.894
+    x["peer_panel"]["table"]["stats"] = {"gross_margin_fy": {"n": 3, "median": 0.42}}
+    x["moat_trend"]["source_hints"] = [{"type": "intangible", "strength": "moderate", "trend": None,
+                                        "evidence": "gross margin 76pp above the peer median (FY0): consistent with pricing power from brand or IP"}]
+    x["moat_trend"]["signals"].append({"name": "gm_gap_change", "value": 0.05, "direction": 1, "window": "FY2022..FY2025"})
+    return x
+
+
+def _no_sic():
+    """D2: an old panel and no SIC anywhere: fail closed, no GM number."""
+    x = _old_fin()
+    x.pop("sec_sic")
+    x["moat_trend"]["source_hints"] = []
+    return x
+
+
 def _cases():
     noex = dict(SYNTH, key_metrics={"spread_pct": -3.9},
                 moat_trend=dict(SYNTH["moat_trend"], source_hints=[],
                                 flags=["hints: no excess return (ROIC − WACC ≤ 0)"]))
-    cases = {"EMPTY": {}, "SYN": SYNTH, "SYN_NOEX": noex, "XSS": _xss(), "FIN": _fin()}
+    cases = {"EMPTY": {}, "SYN": SYNTH, "SYN_NOEX": noex, "XSS": _xss(), "FIN": _fin(),
+             "OLD_FIN": _old_fin(), "NO_SIC": _no_sic()}
     if os.path.exists(STORE):
         from tools import moat_replay
         with open(STORE, encoding="utf-8") as fh:
@@ -148,7 +171,7 @@ const out={};
 for(const k in CASES){const x=CASES[k];
   out[k]={pane:peerPane(x,'c-'+k),chip:moatChip(x),arrow:moatArrow(x),
           asc:ppTable((x.peer_panel||{}),{k:'pe',dir:1}),sym:ppTable((x.peer_panel||{}),{k:'symbol',dir:1}),
-          sub:ppTable((x.peer_panel||{}),null,'sub')};}
+          sub:ppTable((x.peer_panel||{}),null,'sub',x)};}
 // the sort button toggles the same column and redraws only the table
 var CARD_ROWS={'c-NVDA':CASES.NVDA||CASES.SYN};
 const drawn=[]; const grid={dataset:{ppcard:'c-NVDA'},querySelector:q=>q==='.pp-tbl'?{set outerHTML(h){drawn.push(h)}}:{focus(){}}};
@@ -206,7 +229,8 @@ def test_tab_renders_every_shape():
     assert out["EMPTY"]["arrow"] == "" and out["EMPTY"]["chip"] == ""
     syn = out["SYN"]["pane"]
     for need in ("ขนาดตลาดที่พอดี (efficient scale)", "ความได้เปรียบด้านต้นทุน", "93%", "↘</span> อ่อนลง",
-                 "แนวโน้มยังไม่ทราบ", "ติดตามไตรมาสหน้า:", "efficient_scale: top 5 filers hold 93%",
+                 "แนวโน้มยังไม่ทราบ", "ติดตามไตรมาสหน้า:",
+                 "ขนาดตลาดที่พอดี (efficient scale): 5 บริษัทใหญ่สุดมีรายได้รวม 93% ของอุตสาหกรรม",
                  "ความกว้าง moat</span><b>กว้าง</b>", "<b>High</b>"):
         assert need in syn, need
     xs = out["XSS"]
@@ -226,7 +250,17 @@ def test_tab_renders_every_shape():
     gm_cells = re.findall(r'data-col="gross_margin_fy">(.*?)</td>', fin)
     assert gm_cells and all(not re.search(r"\d", re.sub(r"<[^>]+>", "", c)) for c in gm_cells), gm_cells
     assert "89.4%" not in fin and "42.0%" not in fin, "a financial target shows no GM number (R25)"
-    assert "GM: gross margin ไม่ใช่ตัวชี้วัดของธุรกิจนี้" in fin and "(ไม่ใช้กับธุรกิจการเงิน)" in fin
+    assert "GM: หุ้นนี้เป็นธุรกิจการเงิน/ประกัน จึงไม่เทียบ GM" in fin, "one target-level reason (D5)"
+    assert "(ไม่ใช้กับธุรกิจการเงิน)" not in fin, "no per-row financial reason on a financial target's rows (D5)"
+    for k in ("OLD_FIN", "NO_SIC"):
+        o = out[k]["pane"] + out[k]["asc"] + out[k]["sub"]
+        cells = re.findall(r'data-col="gross_margin_fy">(.*?)</td>', o)
+        assert cells and not any(re.search(r"\d", re.sub(r"<[^>]+>", "", c)) for c in cells), (k, cells)
+        assert "89.4%" not in o and "42.0%" not in o and "76%" not in o, k
+    o = out["OLD_FIN"]["pane"]
+    assert "ความได้เปรียบไม่มีตัวตน" not in o, "no GM-based hint for an insurer from a stored panel (D2)"
+    assert "+5.0%" not in o and "ไม่ใช่ตัวชี้วัดของธุรกิจนี้" in o.split("สัญญาณ 4 ตัว")[1], "no stored S3 value"
+    assert "refresh" in out["NO_SIC"]["pane"]
     if "NVDA" not in cases:
         print("peer tab renders (synthetic only: no data/portfolio.json) OK")
         return
@@ -251,7 +285,7 @@ def v3_checks(out):
     assert "เฉพาะธุรกิจเดียวกัน (9 ราย)</button>" in u["pane"] and 'role="group"' in u["pane"]
     assert 'data-pview="all" aria-pressed="true"' in u["pane"] and 'data-pview="sub" aria-pressed="false"' in u["pane"]
     assert 'data-pview="sub" aria-pressed="true"' in u["sub"]
-    assert "ธุรกิจเดียวกัน (SIC 6324, 9 ราย)" in u["pane"] and "S3 gross margin ไม่ใช้กับธุรกิจนี้" in u["pane"]
+    assert "ธุรกิจเดียวกัน (SIC 6324, 9 ราย · มีรายได้ทั้ง CY2022 และ CY2025 9 ราย" in u["pane"] and "S3 gross margin ไม่ใช้กับธุรกิจนี้" in u["pane"]
     assert "วัดได้ 3 จาก 3 ตัวที่ใช้กับธุรกิจนี้" in u["pane"], "votes cast of possible (R27)"
     assert "สมาชิกธุรกิจเดียวกันที่ไม่อยู่ในตารางคู่แข่ง" in u["sub"] and "(ไม่ใช่ TTM)" in u["sub"]
     for sym in ("ALHC", "CLOV", "HQY"):
@@ -266,6 +300,21 @@ def v3_checks(out):
     assert "GM median: คู่แข่งที่มี gross margin ปีงบล่าสุด: SIC 5960 เดียวกัน 1 ราย" in m
     h = out["HIMS_v3"]["pane"]
     assert "มีแค่หุ้นนี้" in h and 'data-pview="sub"' not in h, "a group of one gets a reason, not a toggle"
+    alhc = h.split('<th scope="row">ALHC</th>')[1].split("</tr>")[0]
+    assert '—<span class="note pp-na"> (ไม่ใช้กับธุรกิจการเงิน)</span>' in alhc, "a financial row's reason is visible (D5)"
+    assert "(ไม่ใช้กับธุรกิจการเงิน)" not in h.split('<th scope="row">AMN</th>')[1].split("</tr>")[0]
+    u = out["UNH_v3"]["pane"]
+    assert "(ไม่ใช้กับธุรกิจการเงิน)" not in u and "หุ้นนี้เป็นธุรกิจการเงิน/ประกัน จึงไม่เทียบ GM" in u
+    t, ts = out["TMDX_v3"]["pane"], out["TMDX_v3"]["sub"]
+    assert "ธุรกิจเดียวกัน (SIC 3845, 60 ราย · มีรายได้ทั้ง CY2022 และ CY2025 48 ราย ใช้คิดการเปลี่ยนส่วนแบ่ง)" in t, "D7"
+    assert "ธุรกิจเดียวกัน SIC 3845 (48 รายที่มีรายได้ทั้ง CY2022 และ CY2025 จาก 60 ราย)" in t, "D7 on S2"
+    assert "TMDX อันดับ 14 จาก 60 (รายได้ CY2025)" in ts and "คู่แข่งธุรกิจเดียวกันทั้งหมด เรียงตามรายได้ CY" in ts, "D8"
+    foot = ts.split("<tfoot>")[1].split("</tfoot>")[0]
+    assert "median ธุรกิจเดียวกัน" in foot and "$881M" in foot and "$847M" not in foot, "D6: sub-view median"
+    assert "(EV/EBIT 1 ราย, P/E 1 ราย)" in ts and "median ยังเป็นของทั้งกลุ่ม" not in ts, "D6: counts named"
+    tl = out["TSLA_v3"]["pane"]
+    assert "CY2022: มีข้อมูลใน SEC 6 จาก 9 ราย (67% ต่ำกว่าเกณฑ์ 70%)" in tl, "D4: the sub-group's own flag in its box"
+    assert "มี 0 ราย" not in tl and "SIC 3711: CY2022 มีข้อมูลใน SEC 6 จาก 9 ราย" in tl, "D1 reason rendered"
     for t in V3:
         for bad in BAD + (" pp ", " pp<", " pp)"):
             assert bad not in out[t + "_v3"]["pane"] + out[t + "_v3"]["sub"], (t, bad)
