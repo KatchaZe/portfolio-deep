@@ -211,6 +211,7 @@ METRICS = ("revenue_ttm", "growth_fy", "cagr3_fy", "gross_margin_fy", "op_margin
 RATIO_METRICS = ("growth_fy", "cagr3_fy", "gross_margin_fy", "op_margin_ttm")  # vs median in pp
 RANK_METRICS = {"scale": "revenue_ttm", "growth": "cagr3_fy", "margin": "op_margin_ttm"}
 IQR_K = 1.5
+SUB_MEDIAN_MIN = 3               # the same-business view's median needs this many peer rows
 FY_LAG_DAYS = FY_GAP[1]          # a row whose newest FY is more than a year behind is dropped
 
 
@@ -341,6 +342,11 @@ def table(target, peers, as_of, sics=None):
     rank_terciles(rows)
     peer_rows = [r for r in rows if not r["is_target"]]
     st = {m: stats(r[m] for r in peer_rows if m != "gross_margin_fy" or r["gm_comparator"]) for m in METRICS}
+    same = [r for r in peer_rows if r["same_business"]]
+    sub_st = {}
+    for m in METRICS:
+        x = stats(r[m] for r in same if not (m == "gross_margin_fy" and r["gm_na"]))
+        sub_st[m] = x if x["n"] >= SUB_MEDIAN_MIN else dict(x, median=None)
     tv = {}
     t = rows[0] if target else None
     for m in METRICS:
@@ -349,7 +355,8 @@ def table(target, peers, as_of, sics=None):
             tv[m] = None
         else:
             tv[m] = (t[m] - med) * (100 if m in RATIO_METRICS else 1)
-    return {"rows": rows, "stats": st, "target_vs_median": tv, "gm_compare": record(scope)}, excluded
+    return {"rows": rows, "stats": st, "sub_stats": sub_st, "target_vs_median": tv,
+            "gm_compare": record(scope)}, excluded
 
 
 # --------------------------------------------------------------------------- #
@@ -398,6 +405,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
            "matched_n": None, "matched_share_then": None, "matched_share_now": None,
            "matched_top5_then": None, "matched_top5_now": None, "flags": flags}
     shown = {}                   # CY -> {cik: revenue} for the years that pass coverage
+    raw = {}                     # CY -> {cik: revenue} for every year with frames
     if not ciks:
         flags.append("no industry members with an SEC CIK")
         return out
@@ -420,6 +428,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
                 vals[c] = row[0]
             if row is not None or c in bs:
                 covered.add(c)
+        raw[y] = vals
         cov = len(covered) / len(ciks)
         out["n_with_revenue"][k], out["n_covered"][k], out["coverage"][k] = len(vals), len(covered), cov
         trow = (yr.get(tc) or yr.get(str(tc))) if tc else None
@@ -444,7 +453,48 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
     if ys:
         new = ys[-1]
         matched_change(out, shown.get(new), shown.get(new - SHARE_LOOKBACK), tc, new - SHARE_LOOKBACK, new)
+    out["chart"] = share_chart(ciks, {**(foreign or {}), **members}, ys, shown, raw, tc, out)
     return out
+
+
+def share_chart(ciks, symbols_of, ys, shown, raw, tc, out):
+    """Per member, the data a market-share chart draws (display only): its share of each
+    CY on that year's covered filers (null when the year failed coverage, R20, or it had
+    no revenue), whether it is in the S2 window's matched set (R13: positive revenue in
+    both years; null when either year failed coverage), its matched-set share then and
+    now and the change in points (null when the matched set is under COVERAGE_MIN). The
+    target's rank is by newest-CY revenue among the n_members filers (no revenue ranks
+    nowhere). Top-5 share and HHI per year are out["top5_share"] / out["hhi"]."""
+    sym = {}
+    for t, c in symbols_of.items():
+        if c and int(c) in ciks:
+            sym.setdefault(int(c), set()).add(t)
+    new = ys[-1] if ys else None
+    old = new - SHARE_LOOKBACK if new is not None else None
+    now, then = shown.get(new), shown.get(old)
+    both = set(now) & set(then) if now is not None and then is not None else None
+    ok = out.get("matched_top5_then") is not None
+    tn = sum(now[c] for c in both) if ok else None
+    tt = sum(then[c] for c in both) if ok else None
+    tot = {y: sum(v.values()) for y, v in shown.items()}
+    last = raw.get(new) or {}
+    rows = []
+    for c in ciks:
+        m = c in both if both is not None else None
+        a = then[c] / tt if ok and m else None
+        b = now[c] / tn if ok and m else None
+        rows.append({"cik": c, "symbols": sorted(sym.get(c) or []),
+                     "share": [round(shown[y][c] / tot[y], 6) if y in shown and c in shown[y] and tot[y] else None
+                               for y in ys],
+                     "revenue_now": last.get(c), "matched": m,
+                     "share_then": None if a is None else round(a, 6),
+                     "share_now": None if b is None else round(b, 6),
+                     "change_pp": None if a is None else round((b - a) * 100, 4)})
+    rows.sort(key=lambda r: (-(r["revenue_now"] or 0), r["symbols"], r["cik"]))
+    rv = last.get(tc) if tc is not None else None
+    rank = 1 + sum(1 for v in last.values() if v > rv) if _pos(rv) else None
+    return {"years": list(ys), "window": [old, new] if ys else None, "members": rows,
+            "target_rank": {"rank": rank, "of": len(ciks), "cy": new}}
 
 
 def matched_change(out, now, then, tc, old, new):
@@ -556,10 +606,11 @@ def null_flags(tbl, target, peers):
 
 
 def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=(), notes=(),
-          target_why=None, sics=None):
+          target_why=None, sics=None, target_sic=None):
     """results[ticker]["peer_panel"]. `peers` None = no stored peer points (a fit from
     before the panel existed, or no fit this week): the table is absent with a flag.
-    `sics` {symbol: raw SIC} from SIC_SOURCE (R25-R28)."""
+    `sics` {symbol: raw SIC} from SIC_SOURCE (R25-R28); `target_sic` {code, source,
+    ticker, reason}, where the target's own code came from (R29), stored as is."""
     flags = [n for n in notes if n]
     if not industry:
         flags.append("no Damodaran industry for this ticker: no industry share")
@@ -581,6 +632,7 @@ def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=
     if share:
         flags += share.get("flags") or []
         sub = share.get("sub_group")
+        flags += (sub or {}).get("flags") or []
         if sub and tbl:
             listed = {r["symbol"] for r in tbl["rows"]}
             for m in sub.get("members") or []:
@@ -589,4 +641,4 @@ def build(target, peers, as_of, industry=None, basis=None, share=None, excluded=
         flags.append("target not on the common clock: no target row"
                      + (f" ({target_why})" if target_why else ""))
     return {"as_of": as_of, "version": VERSION, "industry": industry, "industry_basis": basis,
-            "table": tbl, "industry_share": share, "flags": flags}
+            "target_sic": target_sic, "table": tbl, "industry_share": share, "flags": flags}

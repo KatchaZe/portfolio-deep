@@ -8,9 +8,10 @@ over exactly these members, so the peer set and the industry multiple describe t
 same group. FMP's lists put HIMS beside cosmetics makers and GOOGL beside Korean
 portals (live, 2026-10-23).
 
-Only US-listed, US-domiciled rows are kept (the peers must file with the SEC to be
-valued on one clock). The 22 MB workbook is parsed once and cached as a small JSON
-table; the raw file is not kept.
+Only US-listed rows feed membership (the peers must file with the SEC to be valued on
+one clock). The non-US rows go to a separate cache (damodaran_global_sic.json) that only
+resolves a home-listed target's own SIC (SPEC R29). The 22 MB workbook is parsed once
+and cached as small JSON tables; the raw file is not kept.
 """
 import datetime as dt
 import json
@@ -26,6 +27,11 @@ INDNAME_TTL_DAYS = 120
 US_EXCHANGES = {"NYSE", "NasdaqGS", "NasdaqGM", "NasdaqCM", "NYSEAM"}
 SHEET = "By industry"
 MIN_ROWS = 1000                  # a parse with fewer US rows is a format change, not data
+# The non-US rows (home-exchange listings, "ENXTAM:ASML"), kept apart so US membership and
+# industry_share never see them; only a target's own SIC is read from here (SPEC R29)
+GLOBAL_CACHE = "damodaran_global_sic.json"
+GLOBAL_COLS = ("Company Name", "Exchange:Ticker", "Country", "SIC Code", "Industry Group")
+MIN_GLOBAL_ROWS = 1000
 
 FRAMES_URL = "https://data.sec.gov/api/xbrl/frames/us-gaap/{concept}/USD/CY{year}.json"
 # Every us-gaap revenue concept a filer may tag its top line with: on the first two
@@ -66,6 +72,72 @@ def rows_to_table(rows):
     return out
 
 
+def parse_indname_global(xls_bytes):
+    """[[name, exchange:ticker, country, sic, industry]] for the rows not on a US exchange.
+    Raises on a layout it does not recognise, and when those rows carry no SIC code."""
+    import xlrd
+    book = xlrd.open_workbook(file_contents=xls_bytes, on_demand=True)
+    sh = book.sheet_by_name(SHEET)
+    out = rows_to_global(sh.row_values(r) for r in range(sh.nrows))
+    book.release_resources()
+    return out
+
+
+def _sic_text(v):
+    if isinstance(v, float):
+        return str(int(v)) if v == v and v > 0 else ""
+    return str(v or "").strip()
+
+
+def rows_to_global(rows):
+    """The sheet's rows (header first) -> the non-US-exchange rows, one list each."""
+    rows = iter(rows)
+    head = [str(c).strip() for c in next(rows)]
+    col = {name: head.index(name) for name in GLOBAL_COLS}
+    out = []
+    for row in rows:
+        ext = str(row[col["Exchange:Ticker"]]).strip()
+        ex, _, tk = ext.partition(":")
+        if not tk or ex in US_EXCHANGES:
+            continue
+        out.append([str(row[col["Company Name"]]).strip(), ext, str(row[col["Country"]]).strip(),
+                    _sic_text(row[col["SIC Code"]]), str(row[col["Industry Group"]]).strip()])
+    if len(out) < MIN_GLOBAL_ROWS:
+        raise ValueError(f"only {len(out)} non-US rows: the workbook layout changed")
+    if not any(r[3] for r in out):
+        raise ValueError("the non-US rows carry no SIC code")
+    return out
+
+
+def write_global(cache_dir, rows, now=None, last_modified=None):
+    _write(os.path.join(cache_dir, GLOBAL_CACHE),
+           {"at": now or time.time(), "fetched": dt.date.today().isoformat(),
+            "last_modified": last_modified, "columns": ["name", "exchange_ticker", "country", "sic", "industry"],
+            "rows": rows})
+
+
+def load_global_sic(cache_dir, user_agent="PortfolioDeepApp", requests_mod=None, timeout=90, now=None):
+    """(rows, note) like load_indname, for damodaran_global_sic.json. A download writes
+    this cache only: the US table keeps its own vintage. Never raises."""
+    now = now or time.time()
+    path = os.path.join(cache_dir, GLOBAL_CACHE)
+    cached = _read(path)
+    if cached and now - cached.get("at", 0) < INDNAME_TTL_DAYS * 86400:
+        return cached["rows"], None
+    try:
+        import requests as _r
+        r = (requests_mod or _r).get(INDNAME_URL, headers={"User-Agent": user_agent}, timeout=timeout)
+        r.raise_for_status()
+        rows = parse_indname_global(r.content)
+        write_global(cache_dir, rows, now, r.headers.get("Last-Modified"))
+        return rows, None
+    except Exception as e:
+        log.warning("indname global rows failed: %s", e)
+        if cached:
+            return cached["rows"], f"Damodaran global list from {cached.get('fetched')} (refresh failed)"
+        return None, f"Damodaran global list unavailable ({type(e).__name__})"
+
+
 def _read(path):
     try:
         with open(path, encoding="utf-8") as fh:
@@ -100,6 +172,10 @@ def load_indname(cache_dir, user_agent="PortfolioDeepApp", requests_mod=None, ti
         rows = parse_indname(r.content)
         _write(path, {"at": now, "fetched": dt.date.today().isoformat(),
                       "last_modified": r.headers.get("Last-Modified"), "rows": rows})
+        try:                     # the same download carries the non-US rows (R29)
+            write_global(cache_dir, parse_indname_global(r.content), now, r.headers.get("Last-Modified"))
+        except Exception as e:
+            log.warning("indname global rows not cached: %s", e)
         return rows, None
     except Exception as e:
         log.warning("indname fetch failed: %s", e)

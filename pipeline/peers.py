@@ -263,7 +263,7 @@ class Universe:
     Every part is optional: a missing part only removes what it feeds, with a note."""
 
     def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None,
-                 frames=None, frames_loader=None, assets=None):
+                 frames=None, frames_loader=None, assets=None, global_rows=None, global_loader=None):
         self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
                                           [n for n in notes if n], as_of)
         self._loader, self._lock = loader, threading.Lock()
@@ -271,6 +271,9 @@ class Universe:
         # that count toward coverage, R20), loaded only when a panel asks
         self._frames = None if frames_loader else (frames or {}, [], assets or {})
         self._frames_loader = frames_loader
+        # Damodaran's non-US rows: a home-listed target's own SIC only (R29)
+        self._global = None if global_loader else (global_rows or [], [])
+        self._global_loader = global_loader
 
     def _get(self):
         with self._lock:
@@ -292,6 +295,19 @@ class Universe:
                     self._frames = ({}, [f"SEC revenue frames unavailable ({type(e).__name__})"], {})
             return self._frames
 
+    def _get_global(self):
+        with self._lock:
+            if self._global is None:
+                try:
+                    rows, note = self._global_loader()
+                    self._global = (rows or [], [note] if note else [])
+                except Exception as e:          # never fails the refresh
+                    log.warning("Damodaran global list failed to load: %s", e)
+                    self._global = ([], [f"Damodaran global list unavailable ({type(e).__name__})"])
+            return self._global
+
+    global_rows = property(lambda self: self._get_global()[0])
+    global_notes = property(lambda self: self._get_global()[1])
     frames = property(lambda self: self._get_frames()[0])
     frame_notes = property(lambda self: self._get_frames()[1])
     assets = property(lambda self: (self._get_frames()[2:] or ({},))[0])
@@ -322,7 +338,23 @@ class Universe:
             rev, n1 = dc.load_revenue_frames_years(cd, today, ua)
             assets, n2 = dc.load_assets_frames_years(cd, today, ua)
             return rev, n1 + n2, assets
-        return cls(loader=load, frames_loader=load_frames)
+        def load_global():
+            from sources import damodaran_companies as dc
+            return dc.load_global_sic(cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT)
+        return cls(loader=load, frames_loader=load_frames, global_loader=load_global)
+
+    def target_sic(self, f):
+        """{code, source, reason} for the target (R25, R29): the US rows of Damodaran's list,
+        else a unique name-and-country match in its non-US rows, else none with a reason."""
+        from domain import global_sic
+        from sources import country_risk
+        row = (self.rows or {}).get(f.ticker.upper())
+        if row:
+            return {"code": row[1], "source": peer_panel.SIC_SOURCE, "ticker": f.ticker.upper(), "reason": None}
+        iso = str(getattr(f, "country", None) or "")
+        r = global_sic.resolve(self.global_rows, getattr(f, "company", None),
+                               country_risk.ISO2.get(iso.upper(), iso))
+        return {"code": r["sic"], "source": r["source"], "ticker": r["ticker"], "reason": r["reason"]}
 
     def industry_of(self, f):
         """(Damodaran industry, basis): his own classification when he lists the
@@ -482,6 +514,9 @@ def panel_and_moat(f, val, block, universe, today):
     share = None
     # one SIC source for the target, every peer and the sub-group (SPEC R25)
     sics = {t: row[1] for t, row in (universe.rows or {}).items()}
+    tsic = universe.target_sic(f)
+    if tsic["source"] != peer_panel.SIC_SOURCE and tsic["code"]:
+        sics[f.ticker.upper()] = tsic["code"]      # the target only; members stay US rows (R29)
     if industry:
         members = {t: resolve_cik(t)[0] for t in dc.members(universe.rows, industry)}
         foreign = {t: resolve_cik(t)[0] for t in dc.foreign_members(universe.rows, industry)}
@@ -492,8 +527,10 @@ def panel_and_moat(f, val, block, universe, today):
         share["sub_group"] = peer_panel.sub_group(members, universe.frames, tcik, years, as_of, foreign,
                                                   universe.assets, sics, f.ticker)
     notes = list(universe.frame_notes) + list(block.get("notes") or [])
+    if tsic["source"] != peer_panel.SIC_SOURCE:
+        notes += list(universe.global_notes)
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,
-                             block.get("excluded") or [], notes, target_why, sics)
+                             block.get("excluded") or [], notes, target_why, sics, tsic)
     kept = peer_panel.peer_set(target, pts, as_of)[0] if pts else []
     km = getattr(val, "key_metrics", None) or {}
     return panel, moat_trend.build(f, target, kept, share, km.get("wacc_pct"), km.get("spread_pct"), sics)

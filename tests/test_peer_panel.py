@@ -481,8 +481,8 @@ class Panel(unittest.TestCase):
         sh = PP.industry_share({"T": "1"}, frames_for(Y5, {1: [1.0] * 5}), "1", Y5, AS_OF)
         panel = PP.build(pp("T"), [pp(f"P{i}") for i in range(4)], AS_OF, "Software", "b", sh)
         self.assertEqual(set(panel), {"as_of", "version", "industry", "industry_basis", "table",
-                                      "industry_share", "flags"})
-        self.assertEqual(set(panel["table"]), {"rows", "stats", "target_vs_median", "gm_compare"})
+                                      "industry_share", "flags", "target_sic"})
+        self.assertEqual(set(panel["table"]), {"rows", "stats", "sub_stats", "target_vs_median", "gm_compare"})
         row = set(panel["table"]["rows"][0])
         for k in ("symbol", "is_target", "period_end", "fy0_end", "frames_cy", "addback", "price_date", "revenue_ttm",
                   "growth_fy", "cagr3_fy", "gross_margin_fy", "op_margin_ttm", "ev_sales", "ev_ebit",

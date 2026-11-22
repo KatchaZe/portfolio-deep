@@ -37,7 +37,7 @@ from domain.facts import FinancialFacts
 from pipeline import peers
 from sources import damodaran_companies as dc, fmp
 
-SEED = ("damodaran_indname.json", "company_tickers.json")
+SEED = ("damodaran_indname.json", "damodaran_global_sic.json", "company_tickers.json")
 
 
 def _isolated_cache():
@@ -125,7 +125,8 @@ def _offline_universe(cache):
             frames[int(name[21:25])] = {int(k): [v, end.get(k)] for k, v in c["rev"].items()}
         elif name.startswith("sec_frames_assets_CY"):
             assets[int(name[20:24])] = set(_load(os.path.join(cache, name))["ciks"])
-    return peers.Universe(rows=rows, frames=frames, assets=assets)
+    glob = (_load(os.path.join(cache, "damodaran_global_sic.json")) or {}).get("rows") or []
+    return peers.Universe(rows=rows, frames=frames, assets=assets, global_rows=glob)
 
 
 def offline(s, tickers, universe):

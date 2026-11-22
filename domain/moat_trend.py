@@ -95,17 +95,50 @@ def share_change(share):
     if sub.get("sic") and isinstance(m, int) and m >= SUB_MIN_MATCHED:
         sig, why = _share_signal(sub)
         if sig:
-            return dict(sig, basis="sub_group", sic=sub["sic"], matched_n=m), None
-        note = f"ธุรกิจเดียวกัน SIC {sub['sic']}: {why}"
-    elif sub.get("sic"):
-        note = (f"ธุรกิจเดียวกัน SIC {sub['sic']} มี {m or 0} รายที่มีรายได้ทั้งสองปี "
-                f"(ต้อง ≥{SUB_MIN_MATCHED}) จึงใช้ทั้งอุตสาหกรรม")
-    else:
-        note = sub.get("reason") or "ไม่มีกลุ่มธุรกิจเดียวกัน จึงใช้ทั้งอุตสาหกรรม"
+            return dict(sig, basis="sub_group", sic=sub["sic"], matched_n=m,
+                        n_members=sub.get("n_members")), None
+    note = sub_fallback_reason(sub) if sub.get("sic") else (
+        sub.get("reason") or "ไม่มีกลุ่มธุรกิจเดียวกัน จึงใช้ทั้งอุตสาหกรรม")
     sig, why = _share_signal(share)
     if not sig:
         return None, why
-    return dict(sig, basis="industry", matched_n=share.get("matched_n"), basis_reason=note), None
+    return dict(sig, basis="industry", matched_n=share.get("matched_n"),
+                n_members=share.get("n_members"), basis_reason=note), None
+
+
+def sub_fallback_reason(sub):
+    """Thai: why S2 could not use the same-SIC sub-group, naming the first failed rule
+    and its counts. The cause is checked in the order industry_share applies its rules:
+    a year's coverage (R20), the matched set (R13), then SUB_MIN_MATCHED (R28)."""
+    head, tail = f"ธุรกิจเดียวกัน SIC {sub['sic']}", "จึงใช้ทั้งอุตสาหกรรม"
+    if sub.get("reason"):
+        return f"{sub['reason']} · S2 ใช้ทั้งอุตสาหกรรม"
+    ys = sub.get("years") or []
+    if not ys:
+        return f"{head} ไม่มีปีปฏิทินที่ใช้ได้ {tail}"
+    new = ys[-1]
+    old = new - peer_panel.SHARE_LOOKBACK
+    n = sub.get("n_members")
+    m = sub.get("matched_n")
+    for y in (old, new) if m is None else ():    # a matched set exists only when both passed
+        k = str(y)
+        cov = (sub.get("coverage") or {}).get(k)
+        if cov is None:
+            return f"{head}: CY{y} ไม่มีข้อมูลรายได้จาก SEC frames {tail}"
+        if cov < peer_panel.COVERAGE_MIN:
+            return (f"{head}: CY{y} มีข้อมูลใน SEC {(sub.get('n_covered') or {}).get(k)} จาก {n} ราย "
+                    f"({cov:.0%} ต่ำกว่าเกณฑ์ {peer_panel.COVERAGE_MIN:.0%}) ไม่คิดการเปลี่ยนส่วนแบ่งในกลุ่มนี้ "
+                    f"{tail}")
+    then = (sub.get("n_with_revenue") or {}).get(str(old))
+    if isinstance(m, int) and m >= SUB_MIN_MATCHED and sub.get("share_change_pp") is None:
+        if sub.get("matched_share_then") is None:
+            return f"{head}: ไม่มีรายได้ของหุ้นนี้ใน CY{old} หรือ CY{new} {tail}"
+        return (f"{head}: มีรายได้ทั้ง CY{old} และ CY{new} {m} จาก {then} ราย "
+                f"(ต่ำกว่าเกณฑ์ {peer_panel.COVERAGE_MIN:.0%}) {tail}")
+    if isinstance(m, int) and m >= SUB_MIN_MATCHED:
+        return f"{head}: ส่วนแบ่งของหุ้นนี้ใน CY{old} เป็นศูนย์ เทียบการเปลี่ยนไม่ได้ {tail}"
+    return (f"{head} มี {m or 0} รายที่มีรายได้ทั้ง CY{old} และ CY{new} "
+            f"(ต้อง ≥{SUB_MIN_MATCHED}) {tail}")
 
 
 def _share_signal(share):
