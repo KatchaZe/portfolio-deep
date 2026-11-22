@@ -471,7 +471,7 @@ function ppShareOld(kind,b,x,p,tkr){
 
 // the share box; its toggle drives this box and the peer table together
 function ppShare(p,x,view,u){
-  u=u||'pp'+(++PP_SEQ);
+  u=u||'ppu'+(++PP_SEQ);
   const s=p.industry_share, tkr=(x||{}).ticker||(((p.table||{}).rows||[]).find(r=>r.is_target)||{}).symbol||'หุ้นนี้';
   const g=ppHasSub(p)?s.sub_group:null, vw=ppViewOf(p,view);
   const b=(v,l)=>`<button type="button" data-pview="${v}" aria-pressed="${vw===v}">${l}</button>`;
