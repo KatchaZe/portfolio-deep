@@ -37,7 +37,7 @@ from domain.facts import FinancialFacts
 from pipeline import peers
 from sources import damodaran_companies as dc, fmp
 
-SEED = ("damodaran_indname.json", "damodaran_global_sic.json", "company_tickers.json")
+SEED = ("damodaran_indname.json", "damodaran_global_sic.json", "damodaran_us_names.json", "company_tickers.json")
 
 
 def _isolated_cache():
@@ -116,17 +116,25 @@ def probe(s, tickers, today, universe, memo=None):
 
 def _offline_universe(cache):
     """A Universe from the cache files alone (no loader, so nothing is fetched)."""
+    from domain import frames_revenue
+    from pipeline import cik
     rows = (_load(os.path.join(cache, "damodaran_indname.json")) or {}).get("rows") or {}
-    frames, assets = {}, {}
+    by_sec, assets, names, other = {}, {}, {}, {}
     for name in sorted(os.listdir(cache)):
         if name.startswith("sec_frames_revenue_CY"):
-            c = _load(os.path.join(cache, name))
-            end = c.get("end") or {}
-            frames[int(name[21:25])] = {int(k): [v, end.get(k)] for k, v in c["rev"].items()}
+            y = int(name[21:25])
+            by_sec[y], n, o = dc.panel_frames_of(cache, y)       # the panel reading (R33-R35)
+            for k, v in n.items():
+                if v not in names.setdefault(k, []):
+                    names[k].append(v)
+            other.update(o)
         elif name.startswith("sec_frames_assets_CY"):
             assets[int(name[20:24])] = set(_load(os.path.join(cache, name))["ciks"])
+    frames = frames_revenue.rebucket(by_sec)                        # R36
     glob = (_load(os.path.join(cache, "damodaran_global_sic.json")) or {}).get("rows") or []
-    return peers.Universe(rows=rows, frames=frames, assets=assets, global_rows=glob)
+    us_names = (_load(os.path.join(cache, dc.NAMES_CACHE)) or {}).get("names") or {}
+    return peers.Universe(rows=rows, frames=frames, assets=assets, global_rows=glob, frame_names=names,
+                          ifrs_other=other, us_names=us_names, sec_map=cik.ticker_map())
 
 
 def offline(s, tickers, universe):

@@ -36,10 +36,23 @@ MIN_GLOBAL_ROWS = 1000
 FRAMES_URL = "https://data.sec.gov/api/xbrl/frames/us-gaap/{concept}/USD/CY{year}.json"
 # Every us-gaap revenue concept a filer may tag its top line with: on the first two
 # alone MSFT's industry had 167 of 194 filers and pharma fell under 70% coverage
-# (live 2026-11-17). The largest per filer wins, as before. One call per concept a year.
+# (live 2026-11-17). One call per concept a year. Two readings of the same calls:
+#   rev / end  the largest concept per filer, as before: the relative model sizes its
+#              Damodaran peers on it (Universe.rev), so it must not move (PP1);
+#   panel      the industry share's revenue, frames_revenue.choose per filer (R35), with
+#              ifrs-full Revenue in USD for a filer with no us-gaap value (R34).
 FRAMES_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax",
                    "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax")
 FRAMES_TTL_DAYS = 30
+IFRS_URL = "https://data.sec.gov/api/xbrl/frames/ifrs-full/Revenue/{unit}/CY{year}.json"
+# 20-F filers' reporting currencies, read only to NAME a member that reports outside USD
+# (R34: never converted, never counted). One call each per year, 404 when nobody filed.
+IFRS_OTHER_CURRENCIES = ("EUR", "GBP", "CAD", "JPY", "CHF", "AUD", "CNY", "HKD", "BRL", "INR", "ILS",
+                         "SEK", "DKK", "NOK", "MXN", "KRW", "TWD", "ZAR")
+PANEL_SCHEMA = 1                 # a cache without the panel reading is refreshed
+SEC_MIN_INTERVAL = 0.15          # sec_edgar's fair-access spacing (< 10 requests a second)
+# Damodaran's company name per US ticker, for the name fallback of R33
+NAMES_CACHE = "damodaran_us_names.json"
 
 
 def parse_indname(xls_bytes):
@@ -70,6 +83,59 @@ def rows_to_table(rows):
     if len(out) < MIN_ROWS:
         raise ValueError(f"only {len(out)} US rows: the workbook layout changed")
     return out
+
+
+def rows_to_names(rows):
+    """The sheet's rows (header first) -> {ticker: company name} for the US-exchange rows
+    (the same rows and first-wins rule as rows_to_table)."""
+    rows = iter(rows)
+    head = [str(c).strip() for c in next(rows)]
+    col = {name: head.index(name) for name in ("Exchange:Ticker", "Company Name")}
+    out = {}
+    for row in rows:
+        ex, _, tk = str(row[col["Exchange:Ticker"]]).partition(":")
+        if ex in US_EXCHANGES and tk:
+            out.setdefault(tk.strip().upper(), str(row[col["Company Name"]]).strip())
+    if len(out) < MIN_ROWS:
+        raise ValueError(f"only {len(out)} US names: the workbook layout changed")
+    return out
+
+
+def parse_indname_names(xls_bytes):
+    import xlrd
+    book = xlrd.open_workbook(file_contents=xls_bytes, on_demand=True)
+    sh = book.sheet_by_name(SHEET)
+    out = rows_to_names(sh.row_values(r) for r in range(sh.nrows))
+    book.release_resources()
+    return out
+
+
+def write_names(cache_dir, names, now=None, last_modified=None):
+    _write(os.path.join(cache_dir, NAMES_CACHE),
+           {"at": now or time.time(), "fetched": dt.date.today().isoformat(),
+            "last_modified": last_modified, "names": names})
+
+
+def load_us_names(cache_dir, user_agent="PortfolioDeepApp", requests_mod=None, timeout=90, now=None):
+    """(names, note) like load_global_sic, for damodaran_us_names.json. A download writes
+    this cache only. Never raises."""
+    now = now or time.time()
+    path = os.path.join(cache_dir, NAMES_CACHE)
+    cached = _read(path)
+    if cached and now - cached.get("at", 0) < INDNAME_TTL_DAYS * 86400:
+        return cached["names"], None
+    try:
+        import requests as _r
+        r = (requests_mod or _r).get(INDNAME_URL, headers={"User-Agent": user_agent}, timeout=timeout)
+        r.raise_for_status()
+        names = parse_indname_names(r.content)
+        write_names(cache_dir, names, now, r.headers.get("Last-Modified"))
+        return names, None
+    except Exception as e:
+        log.warning("indname US names failed: %s", e)
+        if cached:
+            return cached["names"], f"ชื่อบริษัทของ Damodaran จาก {cached.get('fetched')} (ดาวน์โหลดใหม่ไม่สำเร็จ)"
+        return {}, f"ไม่มีชื่อบริษัทของ Damodaran ({type(e).__name__}) จึงจับคู่ชื่อหา CIK ไม่ได้"
 
 
 def parse_indname_global(xls_bytes):
@@ -176,6 +242,10 @@ def load_indname(cache_dir, user_agent="PortfolioDeepApp", requests_mod=None, ti
             write_global(cache_dir, parse_indname_global(r.content), now, r.headers.get("Last-Modified"))
         except Exception as e:
             log.warning("indname global rows not cached: %s", e)
+        try:                     # and the US company names (R33)
+            write_names(cache_dir, parse_indname_names(r.content), now, r.headers.get("Last-Modified"))
+        except Exception as e:
+            log.warning("indname US names not cached: %s", e)
         return rows, None
     except Exception as e:
         log.warning("indname fetch failed: %s", e)
@@ -203,49 +273,104 @@ def frames_year(today):
     return today.year - 1 if today.month >= 4 else today.year - 2
 
 
-def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None):
+def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None, throttle=None):
     """({cik: revenue}, {cik: period end}, note) for calendar year `year`: the largest of
     the FRAMES_CONCEPTS per filer, and the end date of the period SEC's frame put
     in that year (a June filer's FY lands in the CY frames chose, not one we assume).
-    A cache written before the end dates were kept returns an empty end map."""
+    A cache written before the end dates were kept returns an empty end map.
+    The same fetch writes the panel reading (panel_frames_of): per filer the R35 choice
+    over the us-gaap concepts, else ifrs-full Revenue in USD (R34), the entity names
+    (R33) and the members filing IFRS in another currency. A failed IFRS call costs the
+    IFRS part only (noted in the cache), never the us-gaap reading."""
+    from domain import frames_revenue
     now = now or time.time()
     path = os.path.join(cache_dir, f"sec_frames_revenue_CY{year}.json")
     cached = _read(path)
+    if throttle is None and requests_mod is None:     # an injected requests_mod paces itself
+        from sources import sec_edgar
+        throttle = lambda: sec_edgar._throttle(SEC_MIN_INTERVAL)      # noqa: E731
+    throttle = throttle or (lambda: None)
 
     def _from(c):
         return ({int(k): v for k, v in c["rev"].items()},
                 {int(k): v for k, v in (c.get("end") or {}).items()})
 
-    # a cache read on a shorter concept list undercounts the industry: refresh it
-    same_ladder = bool(cached) and cached.get("concepts") == list(FRAMES_CONCEPTS)
+    # a cache read on a shorter concept list, or before the panel reading, is refreshed
+    same_ladder = (bool(cached) and cached.get("concepts") == list(FRAMES_CONCEPTS)
+                   and cached.get("panel_schema") == PANEL_SCHEMA)
     if same_ladder and now - cached.get("at", 0) < FRAMES_TTL_DAYS * 86400:
         return (*_from(cached), None)
-    out, end = {}, {}
+    out, end, raw, names, other = {}, {}, {}, {}, {}
     try:
         import requests as _r
         rq = requests_mod or _r
-        for concept in FRAMES_CONCEPTS:
-            r = rq.get(FRAMES_URL.format(concept=concept, year=year),
-                       headers={"User-Agent": user_agent}, timeout=timeout)
+
+        def get(url):
+            throttle()
+            r = rq.get(url, headers={"User-Agent": user_agent}, timeout=timeout)
             if getattr(r, "status_code", 200) == 404:
-                continue                        # nobody tagged this concept that year
+                return []                       # nobody tagged this concept that year
             r.raise_for_status()
-            for d in r.json().get("data") or []:
+            return r.json().get("data") or []
+
+        for concept in FRAMES_CONCEPTS:
+            for d in get(FRAMES_URL.format(concept=concept, year=year)):
                 if d.get("cik") and isinstance(d.get("val"), (int, float)):
                     cik = int(d["cik"])
                     if d["val"] > out.get(cik, 0):
                         out[cik], end[cik] = d["val"], d.get("end")
                     else:
                         out.setdefault(cik, 0)
-        if out:
-            _write(path, {"at": now, "concepts": list(FRAMES_CONCEPTS), "rev": out, "end": end})
-            return out, end, None
-        raise ValueError("empty frames")
+                    raw.setdefault(cik, {})["us-gaap:" + concept] = d
+                    if d.get("entityName"):
+                        names.setdefault(cik, d["entityName"])
+        if not out:
+            raise ValueError("empty frames")
     except Exception as e:
         log.warning("SEC frames CY%s failed: %s", year, e)
         if cached:
             return (*_from(cached), "SEC revenue frames from cache (refresh failed)")
         return {}, {}, f"SEC revenue frames unavailable ({type(e).__name__})"
+    ifrs_note = None
+    try:
+        for d in get(IFRS_URL.format(unit="USD", year=year)):
+            if d.get("cik") and isinstance(d.get("val"), (int, float)):
+                cik = int(d["cik"])
+                raw.setdefault(cik, {})["ifrs-full:Revenue"] = d
+                names.setdefault(cik, d.get("entityName"))
+        for cur in IFRS_OTHER_CURRENCIES:
+            for d in get(IFRS_URL.format(unit=cur, year=year)):
+                if d.get("cik") and int(d["cik"]) not in raw:
+                    other.setdefault(int(d["cik"]), cur)
+                    names.setdefault(int(d["cik"]), d.get("entityName"))
+    except Exception as e:
+        log.warning("SEC IFRS frames CY%s failed: %s", year, e)
+        ifrs_note = f"CY{year}: อ่านรายได้ IFRS จาก SEC ไม่ได้ ({type(e).__name__}) จึงไม่นับบริษัทที่รายงาน IFRS"
+    panel = {}
+    for cik, by in raw.items():
+        c = frames_revenue.choose({k: {"val": d.get("val"), "end": d.get("end"), "accn": d.get("accn")}
+                                   for k, d in by.items()})
+        if c:
+            panel[cik] = [c["val"], c["end"], c["concept"], c["note"]]
+    _write(path, {"at": now, "concepts": list(FRAMES_CONCEPTS), "rev": out, "end": end,
+                  "panel_schema": PANEL_SCHEMA, "panel": panel, "name": {k: v for k, v in names.items() if v},
+                  "ifrs_other": other, "ifrs_note": ifrs_note})
+    return out, end, None
+
+
+def panel_frames_of(cache_dir, year):
+    """({cik: [revenue, end, concept, note]}, {cik: entity name}, {cik: currency}) from the
+    year's cache file as written by _frames, no fetch. A cache from before the panel
+    reading gives its largest-concept values with concept None (load_revenue_frames_years
+    notes it)."""
+    c = _read(os.path.join(cache_dir, f"sec_frames_revenue_CY{year}.json")) or {}
+    if c.get("panel_schema") == PANEL_SCHEMA:
+        panel = {int(k): list(v) for k, v in (c.get("panel") or {}).items()}
+    else:
+        e = c.get("end") or {}
+        panel = {int(k): [v, e.get(k), None, None] for k, v in (c.get("rev") or {}).items()}
+    return (panel, {int(k): v for k, v in (c.get("name") or {}).items()},
+            {int(k): v for k, v in (c.get("ifrs_other") or {}).items()})
 
 
 ASSETS_URL = "https://data.sec.gov/api/xbrl/frames/us-gaap/Assets/USD/CY{year}Q4I.json"
@@ -307,14 +432,45 @@ def panel_years(today):
 
 
 def load_revenue_frames_years(cache_dir, today, user_agent, requests_mod=None, timeout=60, now=None):
-    """({CY: {cik: [revenue, period end]}}, notes) for panel_years(today), one cache file
-    per year (the same files load_revenue_frames reads). A year that fails is absent
-    and named in the notes. Never raises."""
-    out, notes = {}, []
-    for year in panel_years(today):
-        rev, end, note = _frames(cache_dir, year, user_agent, requests_mod, timeout, now)
+    """({CY: {cik: [revenue, period end, concept, note]}}, notes) for panel_years(today):
+    the panel reading of each year's cache (the same files load_revenue_frames reads),
+    rebucketed by frames_revenue.rebucket (R36), so the year before the panel is read too
+    (a June filer SEC put there can belong to the first panel year). A year that fails is
+    absent and named in the notes. Never raises."""
+    from domain import frames_revenue
+    years = panel_years(today)
+    by_sec, notes = {}, []
+    for year in [years[0] - 1] + years:
+        rev, _end, note = _frames(cache_dir, year, user_agent, requests_mod, timeout, now)
         if rev:
-            out[year] = {cik: [v, end.get(cik)] for cik, v in rev.items()}
-        if note:
+            by_sec[year] = panel_frames_of(cache_dir, year)[0] or {c: [v, _end.get(c), None, None]
+                                                                   for c, v in rev.items()}
+            c = _read(os.path.join(cache_dir, f"sec_frames_revenue_CY{year}.json")) or {}
+            if c.get("panel_schema") != PANEL_SCHEMA and year in years:
+                notes.append(f"CY{year}: รายได้ส่วนแบ่งอุตสาหกรรมมาจากแคชรุ่นเก่า (ค่าที่มากที่สุดในหลาย concept)")
+            elif c.get("ifrs_note") and year in years:
+                notes.append(c["ifrs_note"])
+        if note and year in years:
             notes.append(f"CY{year}: {note}")
-    return out, notes
+    cy = frames_revenue.rebucket(by_sec)
+    return {y: cy[y] for y in years if cy.get(y)}, notes
+
+
+def load_frame_extras(cache_dir, today):
+    """({cik: [SEC entity names, oldest year first]}, {cik: IFRS currency}) over the panel
+    years' caches (plus the year before), read after load_revenue_frames_years. No fetch.
+    Never raises."""
+    names, other = {}, {}
+    years = panel_years(today)
+    for year in [years[0] - 1] + years:
+        try:
+            _p, n, o = panel_frames_of(cache_dir, year)
+        except Exception as e:                   # a damaged cache costs only the extras
+            log.warning("frames extras CY%s: %s", year, e)
+            continue
+        for k, v in n.items():
+            if v not in names.setdefault(k, []):
+                names[k].append(v)               # a renamed filer keeps every name it used
+        if year in years:
+            other.update(o)
+    return names, other

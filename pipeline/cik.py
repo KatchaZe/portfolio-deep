@@ -25,6 +25,20 @@ def resolve_cik(ticker):
     return (v[0], v[1]) if v else (None, None)
 
 
+def ticker_map():
+    """({SEC ticker: cik}, {cik: SEC title}) from SEC's ticker map, for the share-class
+    and name fallbacks of the industry share (domain/member_cik). Never raises."""
+    global _cik_map
+    with _cik_lock:
+        if _cik_map is None:
+            _cik_map = _load_cik_map()
+    tickers = {t: int(v[0]) for t, v in _cik_map.items()}
+    titles = {}
+    for t, v in _cik_map.items():
+        titles.setdefault(int(v[0]), v[1])
+    return tickers, titles
+
+
 def _index(raw):
     return {row["ticker"].upper(): (str(row["cik_str"]).zfill(10), row.get("title"))
             for row in raw.values()}

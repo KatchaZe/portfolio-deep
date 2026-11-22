@@ -253,3 +253,45 @@ SIC; the drawer's 5-year strip drops its Gross margin row for a financial SIC. A
 target shows one reason ("หุ้นนี้เป็นธุรกิจการเงิน/ประกัน จึงไม่เทียบ GM"); a financial row of
 a non-financial target shows its own reason, visibly. Stored reasons stay English and render
 in Thai through card_peer.js PP_TH (tests/test_peer_panel_th.py fails on an unmapped one).
+
+## Resolutions 2026-11-22c (share-data fix; independent share audit D1-D4)
+R32 Share-class tickers. A member resolves by its ticker as written (pipeline.cik.resolve_cik)
+first. A dotted Damodaran ticker (BRK.A) is then tried as SEC spells classes: BASE-CLASS,
+BASECLASS, every BASE-* ticker, and the bare BASE. All spellings found must give ONE CIK;
+two CIKs is a skip with a Thai reason. A CIK found only through the bare BASE also needs
+SEC's title to equal the Damodaran name after normalisation (QVCG.A -> QVCG). Share classes
+are one filer: industry_share counts CIKs, never tickers.
+R33 Name fallback. A member still without a CIK is matched by its Damodaran company name
+(damodaran_us_names.json, from the same indname.xls download) to the SEC frames entity names
+of the panel years: domain/member_cik.sec_normalise (global_sic.normalise, R29, after SEC's
+"/DE" state suffix) must be EQUAL for exactly one CIK, and that CIK must have revenue in a
+panel year. No prefix, substring or fuzzy match and no hand-written map. Anything else is
+unresolved with a Thai reason; the flag "หา CIK ไม่ได้ N ราย (ไม่นับ): ..." names them. The
+relative model's peer sizing (Universe.candidates) still resolves by exact ticker (PP1).
+R34 IFRS. ifrs-full Revenue frames in USD count for a filer with no us-gaap revenue value.
+IFRS frames in IFRS_OTHER_CURRENCIES are read only to name such members ("รายงาน IFRS สกุล X
+ไม่นับ N ราย"); they are never converted or counted. Calls per frames year: 4 us-gaap + 1
+IFRS USD + 18 currencies, through sec_edgar's throttle (0.15 s), cached 30 days; the panel
+reads one year before its first (R36), so a refresh is 6 x 23 = 138 calls a month, up from 20.
+A failed IFRS call costs the IFRS part of that year only (noted).
+R35 Revenue concept. Per filer-year, among the us-gaap concepts (ifrs-full only without one):
+keep the concepts whose frame value comes from the newest accession year (the filing the
+company still reports that year in); drop a value 1000x or 1e6x another kept value (note
+unit_1000x); take Revenues, else RevenueFromContract excl. tax, incl. tax, SalesRevenueNet;
+Revenues gives way to a contract-revenue concept of the same filing that exceeds it by more
+than 10% (a component line: BLK, GIS, BNSF; note revenues_component). A pick other than
+Revenues while Revenues was filed only in an older filing notes revenues_older_filing. Never
+the largest across filings. Measured on the cached frames: NVDA, ABT, MDT, the nine SIC 6324
+insurers (total revenue incl. investment income) and MELI keep every year's value; TMDX CY2021
+becomes $30.262M. The legacy largest-concept value stays in the cache as rev for peer sizing.
+R36 June years. A fiscal year ending within 7 days of June 30 counts in the calendar year it
+ends in, the year SEC gives a June-30 year (MSFT, RMD); frames are rebucketed on load
+(frames_revenue.rebucket) and peer_panel.frames_cy applies the same rule before SEC's tag.
+SYNA's FY ending 2025-06-28 is CY2025 beside RMD's ending 2025-06-30.
+R37 Scope. sub_group.scope_note says the group is Damodaran's SIC group and that same-business
+firms filed under another SIC are not counted. The UI shows it; no hand-written exclusions.
+R38 Denominator report. industry_share and sub_group store members_unresolved, unresolved
+[[ticker, reason]], coverage_incl_unresolved per CY (covered over members plus unresolved),
+members_ifrs_other [[currency, n]], revenue_notes {CY: [[cik, note]]} and dropped_weight
+(null: no revenue is known for a member without a CIK, and non-USD revenue is not converted).
+The 70% coverage rule (R20) is unchanged and still reads coverage.

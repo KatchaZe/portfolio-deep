@@ -308,15 +308,15 @@ def v3_checks(out):
     u = out["UNH_v3"]["pane"]
     assert "(ไม่ใช้กับธุรกิจการเงิน)" not in u and "หุ้นนี้เป็นธุรกิจการเงิน/ประกัน จึงไม่เทียบ GM" in u
     t, ts = out["TMDX_v3"]["pane"], out["TMDX_v3"]["sub"]
-    assert "ชุดเทียบ: 48 จาก 60 รายที่มีรายได้ทั้ง CY2022 และ CY2025" in t, "D7"
-    assert "ธุรกิจเดียวกัน SIC 3845 (48 รายที่มีรายได้ทั้ง CY2022 และ CY2025 จาก 60 ราย)" in t, "D7 on S2"
-    assert "<b>TMDX อันดับ 14 จาก 60</b>" in t, "D8"
+    assert "ชุดเทียบ: 51 จาก 64 รายที่มีรายได้ทั้ง CY2022 และ CY2025" in t, "D7"
+    assert "ธุรกิจเดียวกัน SIC 3845 (51 รายที่มีรายได้ทั้ง CY2022 และ CY2025 จาก 64 ราย)" in t, "D7 on S2"
+    assert "<b>TMDX อันดับ 15 จาก 64</b>" in t, "D8"
     foot = ts.split("<tfoot>")[1].split("</tfoot>")[0]
     assert "median ธุรกิจเดียวกัน" in foot and "$881M" in foot and "$847M" not in foot, "D6: sub-view median"
     assert "(EV/EBIT 1 ราย, P/E 1 ราย)" in ts and "median ยังเป็นของทั้งกลุ่ม" not in ts, "D6: counts named"
     tl = out["TSLA_v3"]["pane"]
-    assert "CY2022: มีข้อมูลใน SEC 6 จาก 9 ราย (67% ต่ำกว่าเกณฑ์ 70%)" in tl, "D4: the sub-group's own flag in its box"
-    assert "มี 0 ราย" not in tl and "SIC 3711: CY2022 มีข้อมูลใน SEC 6 จาก 9 ราย" in tl, "D1 reason rendered"
+    assert "CY2025: มีข้อมูลใน SEC 8 จาก 12 ราย (67% ต่ำกว่าเกณฑ์ 70%)" in tl, "D4: the sub-group's own flag in its box"
+    assert "มี 0 ราย" not in tl and "SIC 3711: CY2025 มีข้อมูลใน SEC 8 จาก 12 ราย" in tl, "D1 reason rendered"
     for t in V3:
         for bad in BAD + (" pp ", " pp<", " pp)"):
             assert bad not in out[t + "_v3"]["pane"] + out[t + "_v3"]["sub"], (t, bad)

@@ -263,14 +263,25 @@ class Universe:
     Every part is optional: a missing part only removes what it feeds, with a note."""
 
     def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None,
-                 frames=None, frames_loader=None, assets=None, global_rows=None, global_loader=None):
+                 frames=None, frames_loader=None, assets=None, global_rows=None, global_loader=None,
+                 frame_names=None, ifrs_other=None, us_names=None, names_loader=None, sec_map=None,
+                 sec_map_loader=None):
         self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
                                           [n for n in notes if n], as_of)
         self._loader, self._lock = loader, threading.Lock()
         # the peer panel's five calendar years of frames (revenue, and the Assets filers
         # that count toward coverage, R20), loaded only when a panel asks
-        self._frames = None if frames_loader else (frames or {}, [], assets or {})
+        self._frames = None if frames_loader else (frames or {}, [], assets or {}, frame_names or {},
+                                                   ifrs_other or {})
         self._frames_loader = frames_loader
+        # the industry share's member resolution (R32, R33): Damodaran's company names, SEC's
+        # ticker map ({ticker: cik}, {cik: title}); a Universe built from parts has neither
+        # unless given, so its members resolve by exact ticker only, as before
+        self._names = None if names_loader else (us_names or {}, [])
+        self._names_loader = names_loader
+        self._sec_map = None if sec_map_loader else (sec_map or ({}, {}))
+        self._sec_map_loader = sec_map_loader
+        self._members, self._name_index = {}, None
         # Damodaran's non-US rows: a home-listed target's own SIC only (R29)
         self._global = None if global_loader else (global_rows or [], [])
         self._global_loader = global_loader
@@ -306,6 +317,59 @@ class Universe:
                     self._global = ([], [f"Damodaran global list unavailable ({type(e).__name__})"])
             return self._global
 
+    def _get_names(self):
+        with self._lock:
+            if self._names is None:
+                try:
+                    names, note = self._names_loader()
+                    self._names = (names or {}, [note] if note else [])
+                except Exception as e:          # never fails the refresh
+                    log.warning("Damodaran company names failed to load: %s", e)
+                    self._names = ({}, [f"ไม่มีชื่อบริษัทของ Damodaran ({type(e).__name__}) จึงจับคู่ชื่อหา CIK ไม่ได้"])
+            if self._sec_map is None:
+                try:
+                    self._sec_map = self._sec_map_loader()
+                except Exception as e:          # never fails the refresh
+                    log.warning("SEC ticker map failed to load: %s", e)
+                    self._sec_map = ({}, {})
+            return self._names
+
+    us_names = property(lambda self: self._get_names()[0])
+    name_notes = property(lambda self: self._get_names()[1])
+    frame_names = property(lambda self: (self._get_frames()[3:] or ({},))[0])
+    ifrs_other = property(lambda self: (self._get_frames()[4:] or ({},))[0])
+
+    def members_of(self, industry):
+        """(members, foreign, unresolved) for one Damodaran industry: {ticker: cik or None}
+        for its US-domiciled and its other US-listed members, and {ticker: Thai reason} for
+        the members with no CIK. A ticker resolves as written first (resolve_cik), then by
+        domain/member_cik (share-class spellings, R32; exact name to one SEC frames entity
+        with revenue in the panel years, R33). Cached per industry for the run."""
+        if industry in self._members:
+            return self._members[industry]
+        from domain import member_cik
+        from sources import damodaran_companies as dc
+        names = self.us_names
+        sec, titles = self._sec_map
+        if self._name_index is None:
+            self._name_index = (member_cik.NameIndex(self.frame_names),
+                                {int(c) for yr in (self.frames or {}).values()
+                                 for c, row in (yr or {}).items() if row and peer_panel._pos(row[0])})
+        index, has_rev = self._name_index
+        out, unresolved = [], {}
+        for tickers in (dc.members(self.rows, industry), dc.foreign_members(self.rows, industry)):
+            got = {}
+            for t in tickers:
+                r = member_cik.resolve(t, names.get(t), resolve_cik(t)[0], sec, titles, index, has_rev)
+                got[t] = r["cik"]
+                if r["cik"] is None:
+                    unresolved[t] = r["reason"]
+            out.append(got)
+        members, foreign = out
+        res = (members, foreign, {t: v for t, v in unresolved.items() if t in members})
+        self._members[industry] = res
+        return res
+
     global_rows = property(lambda self: self._get_global()[0])
     global_notes = property(lambda self: self._get_global()[1])
     frames = property(lambda self: self._get_frames()[0])
@@ -337,11 +401,19 @@ class Universe:
             cd, ua = cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT
             rev, n1 = dc.load_revenue_frames_years(cd, today, ua)
             assets, n2 = dc.load_assets_frames_years(cd, today, ua)
-            return rev, n1 + n2, assets
+            names, other = dc.load_frame_extras(cd, today)
+            return rev, n1 + n2, assets, names, other
         def load_global():
             from sources import damodaran_companies as dc
             return dc.load_global_sic(cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT)
-        return cls(loader=load, frames_loader=load_frames, global_loader=load_global)
+        def load_names():
+            from sources import damodaran_companies as dc
+            return dc.load_us_names(cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT)
+        def load_sec_map():
+            from pipeline import cik
+            return cik.ticker_map()
+        return cls(loader=load, frames_loader=load_frames, global_loader=load_global, names_loader=load_names,
+                   sec_map_loader=load_sec_map)
 
     def target_sic(self, f):
         """{code, source, reason} for the target (R25, R29): the US rows of Damodaran's list,
@@ -518,15 +590,16 @@ def panel_and_moat(f, val, block, universe, today):
     if tsic["source"] != peer_panel.SIC_SOURCE and tsic["code"]:
         sics[f.ticker.upper()] = tsic["code"]      # the target only; members stay US rows (R29)
     if industry:
-        members = {t: resolve_cik(t)[0] for t in dc.members(universe.rows, industry)}
-        foreign = {t: resolve_cik(t)[0] for t in dc.foreign_members(universe.rows, industry)}
+        members, foreign, unresolved = universe.members_of(industry)
         tcik, _ = resolve_cik(f.ticker)
         years = dc.panel_years(today)
+        other = universe.ifrs_other
         share = peer_panel.industry_share(members, universe.frames, tcik, years, as_of,
-                                          foreign, universe.assets)
+                                          foreign, universe.assets, unresolved, other)
         share["sub_group"] = peer_panel.sub_group(members, universe.frames, tcik, years, as_of, foreign,
-                                                  universe.assets, sics, f.ticker)
-    notes = list(universe.frame_notes) + list(block.get("notes") or [])
+                                                  universe.assets, sics, f.ticker, unresolved, other)
+    notes = list(universe.frame_notes) + list(universe.name_notes if industry else []) + \
+        list(block.get("notes") or [])
     if tsic["source"] != peer_panel.SIC_SOURCE:
         notes += list(universe.global_notes)
     panel = peer_panel.build(target, pts, as_of, industry, basis, share,

@@ -14,7 +14,7 @@ import datetime as dt
 import re
 import statistics
 
-from domain import trend
+from domain import frames_revenue, trend
 
 FY_GAP = (330, 400)              # one fiscal year apart, in days (relative.FY_GAP)
 FY3_GAP = (3 * 330, 3 * 400)     # three fiscal years apart
@@ -57,9 +57,14 @@ def frame_tags(companyfacts, as_of=None):
 
 
 def frames_cy(end, tags=None):
-    """The calendar year SEC frames put a fiscal year in: SEC's own tag when there is
-    one, else the calendar year of (FY end - 180 days). Not "most days": SEC tags MSFT's
-    FY ending 2025-06-30 CY2025 and ORCL's ending 2025-05-31 CY2024."""
+    """The calendar year a fiscal year counts in, as industry_share reads the frames: a
+    year ending within 7 days of June 30 is the year it ends in (R36, the frames are
+    rebucketed the same way), else SEC's own tag when there is one, else the calendar year
+    of (FY end - 180 days). Not "most days": SEC tags MSFT's FY ending 2025-06-30 CY2025
+    and ORCL's ending 2025-05-31 CY2024."""
+    june = frames_revenue.june_cy(end)
+    if june:
+        return june
     if tags and end in tags:
         return tags[end]
     d = _d(end)
@@ -376,7 +381,8 @@ def _in_frames(frames, cik, ys):
     return False
 
 
-def industry_share(members, frames, target_cik, years, as_of, foreign=None, assets=None):
+def industry_share(members, frames, target_cik, years, as_of, foreign=None, assets=None, unresolved=None,
+                   ifrs_other=None):
     """Share of revenue among the US SEC filers in one Damodaran industry, per calendar
     year. `members` {ticker: cik or None} is the industry's own US-domiciled list (no
     other peer source); `foreign` the US-listed members domiciled elsewhere, counted
@@ -386,12 +392,16 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
     filers reporting is flagged and its shares are null. A member reports when it has a
     revenue frame that year or, R20, a year-end balance sheet in `assets` {CY: {cik}}
     (it filed and booked no revenue: revenue 0, so it moves coverage, not the shares).
-    Calendar years not complete by as_of are not used."""
+    Calendar years not complete by as_of are not used. A member with no CIK (`unresolved`
+    {ticker: Thai reason}, R33) or one filing IFRS in another currency (`ifrs_other`
+    {cik: currency}, R34) is not counted, and both are named with their counts; coverage
+    is also reported over the members including the unresolved ones (R38)."""
     flags = []
     ciks = {int(c) for c in members.values() if c}
     no_cik = sorted(t for t, c in members.items() if not c)
     if no_cik:
-        flags.append(f"{len(no_cik)} industry members have no SEC CIK (not counted)")
+        more = f" และอีก {len(no_cik) - 6} ราย" if len(no_cik) > 6 else ""
+        flags.append(f"หา CIK ไม่ได้ {len(no_cik)} ราย (ไม่นับ): {', '.join(no_cik[:6])}{more}")
     tc = int(target_cik) if target_cik else None
     ys = sorted(y for y in years if not as_of or int(y) < _d(as_of).year)
     filers = {int(c) for c in (foreign or {}).values() if c} - ciks
@@ -399,8 +409,20 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
     if filers:
         ciks |= filers
         flags.append(f"{len(filers)} members not US-domiciled file us-gaap revenue with the SEC (counted)")
+    other = {}
+    for t, c in list(members.items()) + list((foreign or {}).items()):
+        cur = (ifrs_other or {}).get(int(c)) if c else None
+        if cur:
+            other.setdefault(cur, {}).setdefault(int(c), t)
+    for cur in sorted(other):
+        flags.append(f"รายงาน IFRS สกุล {cur} ไม่นับ {len(other[cur])} ราย ({', '.join(sorted(other[cur].values()))})")
+    reasons = unresolved or {}
     out = {"group": GROUP, "years": ys, "n_members": len(ciks), "n_with_revenue": {}, "n_covered": {},
-           "coverage": {}, "target_share": {}, "top5_share": {}, "hhi": {},
+           "coverage": {}, "coverage_incl_unresolved": {}, "members_unresolved": len(no_cik),
+           "unresolved": [[t, reasons.get(t)] for t in no_cik],
+           "members_ifrs_other": [[cur, len(v)] for cur, v in sorted(other.items())],
+           "dropped_weight": None, "revenue_notes": {},
+           "target_share": {}, "top5_share": {}, "hhi": {},
            "target_frames_end": {}, "share_change_pp": None, "top5_change_pp": None,
            "matched_n": None, "matched_share_then": None, "matched_share_now": None,
            "matched_top5_then": None, "matched_top5_now": None, "flags": flags}
@@ -417,7 +439,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
         if not yr:
             flags.append(f"CY{y}: no SEC revenue frames")
             out["n_with_revenue"][k] = out["n_covered"][k] = 0
-            for m in ("coverage", "target_share", "top5_share", "hhi"):
+            for m in ("coverage", "coverage_incl_unresolved", "target_share", "top5_share", "hhi"):
                 out[m][k] = None
             continue
         vals, covered = {}, set()
@@ -426,11 +448,14 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
             row = yr.get(c) or yr.get(str(c))
             if row and _pos(row[0]):
                 vals[c] = row[0]
+                if len(row) > 3 and row[3]:
+                    out["revenue_notes"].setdefault(k, []).append([c, row[3]])
             if row is not None or c in bs:
                 covered.add(c)
         raw[y] = vals
         cov = len(covered) / len(ciks)
         out["n_with_revenue"][k], out["n_covered"][k], out["coverage"][k] = len(vals), len(covered), cov
+        out["coverage_incl_unresolved"][k] = len(covered) / (len(ciks) + len(no_cik))
         trow = (yr.get(tc) or yr.get(str(tc))) if tc else None
         out["target_frames_end"][k] = trow[1] if trow and len(trow) > 1 else None
         if cov < COVERAGE_MIN:
@@ -450,6 +475,13 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
             out["target_share"][k] = None
             if tc is not None:
                 flags.append(f"CY{y}: no revenue frame for the target")
+    notes = {}
+    for k, by in out["revenue_notes"].items():
+        by.sort()
+        for c, n in by:
+            notes.setdefault(n, set()).add(c)
+    for n in sorted(notes):
+        flags.append(f"กฎรายได้ {n}: {len(notes[n])} ราย ไม่ได้ใช้ค่า Revenues ตรง ๆ อย่างน้อยหนึ่งปี")
     if ys:
         new = ys[-1]
         matched_change(out, shown.get(new), shown.get(new - SHARE_LOOKBACK), tc, new - SHARE_LOOKBACK, new)
@@ -526,8 +558,16 @@ def matched_change(out, now, then, tc, old, new):
 SUB_GROUP = "damodaran_industry_same_sic4"
 
 
+def scope_note(sic):
+    """R37: what the sub-group is, for the UI to show beside it."""
+    if sic is None:
+        return "ไม่มีรหัส SIC ของหุ้นนี้ จึงไม่มีกลุ่มธุรกิจเดียวกันตาม SIC ของ Damodaran"
+    return (f"กลุ่มนี้คือสมาชิกอุตสาหกรรม Damodaran ที่มีรหัส SIC {sic} เท่านั้น "
+            "บริษัทที่ทำธุรกิจเดียวกันแต่อยู่ใน SIC อื่นไม่ถูกนับ")
+
+
 def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=None, sics=None,
-              target_symbol=None):
+              target_symbol=None, unresolved=None, ifrs_other=None):
     """industry_share over the industry members whose 4-digit SIC equals the target's
     (R28): same matched set (R13), coverage (R20) and calendar years (R10) as the full
     industry, plus `members`, one row per filer in the newest calendar year, revenue and
@@ -537,11 +577,12 @@ def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=No
     ts = sic4(sics.get(target_symbol))
     if ts is None:
         return {"group": SUB_GROUP, "sic": None, "sic_source": SIC_SOURCE, "n_members": 0, "members": [],
-                "reason": "ไม่มีรหัส SIC ของหุ้นนี้ในรายชื่อ Damodaran จึงไม่มีกลุ่มธุรกิจเดียวกัน", "flags": []}
+                "reason": "ไม่มีรหัส SIC ของหุ้นนี้ในรายชื่อ Damodaran จึงไม่มีกลุ่มธุรกิจเดียวกัน", "flags": [],
+                "scope_note": scope_note(None)}
     pick = lambda d: {t: c for t, c in (d or {}).items() if sic4(sics.get(t)) == ts}
     sm, sf = pick(members), pick(foreign)
-    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets)
-    out.update(group=SUB_GROUP, sic=ts, sic_source=SIC_SOURCE, reason=None,
+    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets, unresolved, ifrs_other)
+    out.update(group=SUB_GROUP, sic=ts, sic_source=SIC_SOURCE, reason=None, scope_note=scope_note(ts),
                flags=[f"sub-group SIC {ts}: {f}" for f in out["flags"]])
     ys = out["years"]
     new = ys[-1] if ys else None

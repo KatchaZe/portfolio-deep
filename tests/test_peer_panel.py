@@ -37,6 +37,8 @@ class FakeFrames:
 
     def get(self, url, **k):
         self.calls += 1
+        if "/us-gaap/" not in url:                  # ifrs-full (R34): nobody files it here
+            return SimpleNamespace(status_code=404, raise_for_status=lambda: None, json=lambda: {})
         concept = url.split("/us-gaap/")[1].split("/")[0]
         year = int(url.split("/CY")[1].split(".")[0])
         if year in self.fail_years:
@@ -50,9 +52,10 @@ class Frames(unittest.TestCase):
         self.assertEqual(dc.panel_years(TODAY), [2021, 2022, 2023, 2024, 2025])
         self.assertEqual(dc.panel_years(dt.date(2026, 3, 31)), [2020, 2021, 2022, 2023, 2024])
 
-    def test_E21_frames_keep_each_filers_period_end_and_the_larger_concept(self):
+    def test_E21_frames_keep_each_filers_period_end_and_the_concept_R35_picks(self):
         ans = {}
-        for y in dc.panel_years(TODAY):
+        # the year before the panel is read too (R36: a June year SEC filed there can move in)
+        for y in [dc.panel_years(TODAY)[0] - 1] + dc.panel_years(TODAY):
             ans[("Revenues", y)] = [{"cik": 1, "val": 10 + y, "end": f"{y}-06-30"},
                                     {"cik": 2, "val": 5, "end": f"{y}-12-31"}]
             ans[("RevenueFromContractWithCustomerExcludingAssessedTax", y)] = [
@@ -62,8 +65,11 @@ class Frames(unittest.TestCase):
         got, notes = dc.load_revenue_frames_years(tmp, TODAY, "ua", requests_mod=rq)
         self.assertEqual(notes, [])
         self.assertEqual(sorted(got), [2021, 2022, 2023, 2024, 2025])
-        self.assertEqual(got[2025][1], [2035, "2025-06-30"])      # Revenues won, its end kept
-        self.assertEqual(got[2025][2], [9, "2025-12-30"])         # the other concept won
+        self.assertEqual(got[2025][1][:3], [2035, "2025-06-30", "us-gaap:Revenues"])   # its end kept
+        # Revenues 5 under contract revenue 9 in the same filing: a component line (R35)
+        self.assertEqual(got[2025][2], [9, "2025-12-30",
+                                        "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+                                        "revenues_component"])
         calls = rq.calls
         again, _ = dc.load_revenue_frames_years(tmp, TODAY, "ua", requests_mod=rq)
         self.assertEqual(again, got)

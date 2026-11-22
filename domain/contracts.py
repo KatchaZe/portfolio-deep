@@ -271,6 +271,9 @@ PANEL_CLOCK = {
     "sub_stats": DERIVED, "target_sic": STATIC, "code": STATIC, "ticker": STATIC,
     "chart": STATIC, "revenue_now": CY, "matched": CY, "share_then": CY, "share_now": CY,
     "change_pp": CY, "target_rank": DERIVED, "rank": DERIVED, "of": DERIVED,
+    # 2026-11-22 share-data fix (R33-R38): who the share could not count, and why
+    "coverage_incl_unresolved": CY, "members_unresolved": STATIC, "unresolved": STATIC,
+    "members_ifrs_other": STATIC, "dropped_weight": STATIC, "revenue_notes": CY, "scope_note": STATIC,
 }
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,
@@ -287,7 +290,7 @@ PANEL_UNIT = {
     "rank3": COUNT, "direction": COUNT, "version": COUNT, "years": COUNT, "frames_cy": COUNT,
     "share": RATIO, "n4": COUNT, "n3": COUNT, "possible": COUNT, "cast": COUNT, "cy": COUNT,
     "revenue_now": MONEY, "share_then": RATIO, "share_now": RATIO, "change_pp": RATIO,
-    "rank": COUNT, "of": COUNT,
+    "rank": COUNT, "of": COUNT, "coverage_incl_unresolved": RATIO, "members_unresolved": COUNT,
 }
 
 

@@ -483,6 +483,156 @@ for _name, _g, _pp in _MUTANTS:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
 
+
+# ---------------------------------------------------------------- A13  [E50-E55]
+hdr("A13", "industry share: every member resolved or named, counted once, on one revenue rule (SPEC R32-R38)")
+from domain import frames_revenue as _FR          # noqa: E402
+from domain import member_cik as _MC              # noqa: E402
+
+
+def _a13_resolution(mc=_MC):
+    """[(ticker, cik, reason)] for every Damodaran US member of every industry in the offline
+    caches, resolved as Universe.members_of does (exact ticker first), with module `mc`."""
+    import config as _cfg
+    path = os.path.join(_cfg.CACHE_DIR, "damodaran_indname.json")
+    if not os.path.exists(path):
+        return None
+    from pipeline.cik import resolve_cik as _rc
+    from tools import panel_probe as _probe
+    u = _probe._offline_universe(_cfg.CACHE_DIR)
+    sec, titles = u._sec_map
+    index = mc.NameIndex(u.frame_names)
+    has_rev = {int(c) for yr in u.frames.values() for c, row in yr.items() if row and row[0] and row[0] > 0}
+    out = []
+    for t, (ind, _sic, ctry) in sorted((u.rows or {}).items()):
+        if ctry != "United States":
+            continue
+        r = mc.resolve(t, u.us_names.get(t), _rc(t)[0], sec, titles, index, has_rev)
+        out.append((t, r["cik"], r["reason"]))
+    return out
+
+
+def _a13a(res):
+    """A13a: a Damodaran US member with neither a CIK nor a reason (or with both)."""
+    return [(t, c, w) for t, c, w in res or [] if (c is None) == (not w)]
+
+
+def _a13_shares(pp=_PP):
+    """Synthetic share groups (share classes, an unresolved member, a non-USD IFRS member)
+    through `pp`, plus the live holdings' rebuilt panels (_built_now)."""
+    members = {"T": 1, "TB": 1, "P": 2, "Q": 3, "QQ": None, "EU": 4}
+    sics = {"T": "3674", "TB": "3674", "P": "3674", "Q": "3672", "QQ": "3674", "EU": "3674"}
+    frames = {y: {1: [50.0, f"{y}-12-31"], 2: [30.0, f"{y}-12-31", "us-gaap:Revenues", None],
+                  3: [20.0, f"{y}-12-31", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
+                      "revenues_component"]} for y in _Y5}
+    s = pp.industry_share(members, frames, 1, _Y5, "2026-11-16", None, None, {"QQ": "ไม่พบชื่อ"}, {4: "EUR"})
+    s["sub_group"] = pp.sub_group(members, frames, 1, _Y5, "2026-11-16", None, None, sics, "T",
+                                  {"QQ": "ไม่พบชื่อ"}, {4: "EUR"})
+    out = [("SYN", members, s), ("SYN/sub", members, s["sub_group"])]
+    for k, (_ts, _s, panel, _m) in _built_now.items():
+        sh = (panel.get("industry_share") or {})
+        if sh:
+            out += [(k, None, sh)] + ([(k + "/sub", None, sh["sub_group"])] if sh.get("sub_group", {}).get("sic") else [])
+    return out
+
+
+def _a13b(shares):
+    """A13b: a CIK counted twice in a year (chart rows, n_members, or shares past 100%)."""
+    bad = []
+    for k, _m, s in shares:
+        rows = (s.get("chart") or {}).get("members") or []
+        ciks = [r["cik"] for r in rows]
+        if len(ciks) != len(set(ciks)) or (rows and len(rows) != s.get("n_members")):
+            bad.append((k, "rows", len(ciks), len(set(ciks)), s.get("n_members")))
+        for i, y in enumerate((s.get("chart") or {}).get("years") or []):
+            tot = sum(r["share"][i] or 0 for r in rows)
+            if tot > 1 + 1e-4:
+                bad.append((k, y, round(tot, 4)))
+    return bad
+
+
+def _a13c(fr=_FR):
+    """A13c: a chosen revenue above the filer's Revenues by more than 1% with no note (real frames)."""
+    fix = _json.load(open(os.path.join(APP, "tests", "fixtures", "share_frames_2026_11.json"), encoding="utf-8"))
+    bad = []
+    for y, by in fix["frames"].items():
+        ent = {}
+        for concept, rows in by.items():
+            for d in rows:
+                ent.setdefault(d["cik"], {})["us-gaap:" + concept] = {"val": d["val"], "end": d["end"],
+                                                                      "accn": d["accn"]}
+        for cik, e in ent.items():
+            got, rv = fr.choose(e), e.get("us-gaap:Revenues")
+            if got and rv and got["val"] > rv["val"] * 1.01 and not got.get("note"):
+                bad.append((cik, y, got["val"], rv["val"]))
+    return bad
+
+
+def _a13d(shares):
+    """A13d: a share block whose denominator does not report the members it dropped."""
+    bad = []
+    for k, members, s in shares:
+        cov, inc = s.get("coverage") or {}, s.get("coverage_incl_unresolved")
+        if inc is None or any(v is not None and inc.get(y) is None for y, v in cov.items()):
+            bad.append((k, "coverage_incl_unresolved"))
+        if "members_unresolved" not in s or "dropped_weight" not in s or "members_ifrs_other" not in s:
+            bad.append((k, "keys"))
+            continue
+        if members is not None:
+            want = sum(1 for t, c in members.items() if not c and (not s.get("sic") or k.endswith("/sub")))
+            if s["members_unresolved"] != want:
+                bad.append((k, "count", s["members_unresolved"], want))
+        n = s["members_unresolved"]
+        if n and not any(f"หา CIK ไม่ได้ {n} ราย" in f for f in s.get("flags") or []):
+            bad.append((k, "flag", n))
+        if s["members_ifrs_other"] and not any("รายงาน IFRS สกุล" in f for f in s.get("flags") or []):
+            bad.append((k, "ifrs flag"))
+    return bad
+
+
+def _a13_max_of_concepts(e):
+    """The rule R35 replaced: the largest concept across filings, no note (TMDX CY2021)."""
+    c, v = max(((c, v["val"]) for c, v in e.items()), key=lambda cv: cv[1])
+    return {"concept": c, "val": v, "note": None}
+
+
+_res = _a13_resolution()
+_sh = _a13_shares()
+for _name, _found in (("A13a", _a13a(_res)), ("A13b", _a13b(_sh)), ("A13c", _a13c()), ("A13d", _a13d(_sh))):
+    print(f"  {_name}: {len(_found)}" + ("" if _res is not None or _name != "A13a" else " (no offline caches: synthetic only)"))
+    if _found:
+        flag("HIGH", f"{_name} {_found[:3]}")
+if _res is not None:
+    _n = len(_res)
+    _un = sum(1 for _t, _c, _w in _res if _c is None)
+    print(f"  {_n} Damodaran US members: {_n - _un} with a CIK, {_un} with a named reason")
+_A13_MUT = []
+for _name, _mod, _edit, _run in (
+        ("A13a", _MC, dict(override={"_out": lambda cik=None, how=None, reason=None:
+                                     {"cik": cik, "how": how, "reason": None}}),
+         lambda m: _a13a(_a13_resolution(m) if _res is not None else
+                         [(t, m.resolve(t, "", None, {}, {}, m.NameIndex({}), set())["cik"],
+                           m.resolve(t, "", None, {}, {}, m.NameIndex({}), set())["reason"]) for t in ("ZZ.A", "QX")])),
+        ("A13b", _PP, dict(old='"n_members": len(ciks),',
+                           new='"n_members": sum(1 for c in members.values() if c),'),
+         lambda m: _a13b(_a13_shares(m)[:2])),
+        ("A13c", _FR, dict(old='            pick, note = over, note or "revenues_component"',
+                           new="            pick = over"), lambda m: _a13c(m)),
+        ("A13c", _FR, dict(override={"choose": _a13_max_of_concepts}), lambda m: _a13c(m)),
+        ("A13d", _PP, dict(old='        flags.append(f"หา CIK ไม่ได้ {len(no_cik)} ราย (ไม่นับ): {\', \'.join(no_cik[:6])}{more}")',
+                           new="        pass"), lambda m: _a13d(_a13_shares(m)[:2]))):
+    try:
+        _m = _variant(_mod, **_edit)
+    except _Stale as _e:
+        print(f"  mutation for {_name}: STALE ({_e})")
+        flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
+        continue
+    _hit = _run(_m)
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
+
 def _ui_gm_cells(js_patch=None):
     """A12e: the GM cells the tab renders for a financial target whose stored rows still
     carry GM numbers, with gm_compare (R25) and without it (a panel stored before R25,

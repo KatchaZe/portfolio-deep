@@ -54,6 +54,13 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E47 | English engine reasons reaching a Thai UI one template at a time | PP_TH render-time table plus a source scan of every reason template (test_peer_panel_th) |
 | E48 | Loose company-name matching picks a different firm (TSMC vs Taiwan Semiconductor Co., Ltd.; ticker text BASML) | exact equality of normalised full names, country check, unique hit (RealRows tests) |
 | E49 | A mutation self-test that "passes" because its text patch no longer applies (audit2 m3) | _variant raises _Stale, reported as stale; the financial mutants override globals, not text; A12b reads its own 6000-6799 range and has edge cases at 6000/6799/6800 |
+| E50 | A share-class ticker spelled one way by Damodaran (BRK.A, BF.B, RUSH.A, QVCG.A) and another by SEC (BRK-A, RUSHA, QVCG) left 25 US members with no CIK: Diversified counted $74B without Berkshire's $371B (share audit D2, 2026-11-22) | R32 member_cik share-class spellings, one CIK or a reason (test_share_data_fix ShareClassTickers); audit2 A13a over all 4,014 US members, mutant drops the reasons |
+| E51 | Members absent from today's company_tickers.json (renamed, acquired, taken private) dropped although SEC frames hold their revenue: QRVO, SKYT, MASI and 235 more (D1) | R33 exact normalised name to one frames entity with panel-year revenue; near names (CHAC/Crane, INDV/Indivior Pharmaceuticals) and two-CIK names (BBBY) refused (NameFallback); A13a |
+| E52 | IFRS filers read as members with no revenue: GFS's $6.8B missing from NVDA's group, frames read us-gaap only (D1) | R34 ifrs-full Revenue USD frames; other currencies named, never converted (test_share_data_fix Ifrs); A13d checks the IFRS flag |
+| E53 | The largest of four revenue concepts across filings: TMDX CY2021 $31.385M (a line its later 10-Ks dropped) over $30.262M; MA's gross $29.8B over net $18.9B; Tigo's 1000x twin (D3) | R35 frames_revenue.choose (RevenueRule, real frames fixture); A13c: no chosen value above Revenues by >1% without a note, mutants max-of-concepts and note-dropped |
+| E54 | One calendar year holding two different fiscal years: SEC frames put SYNA's FY ending 2026-06-27 in CY2025 beside RMD's ending 2025-06-30 and left SYNA's FY2024 out (D4) | R36 june_cy in rebucket and frames_cy (JuneYears) |
+| E55 | A denominator that hides what it dropped: "N members have no SEC CIK" with no names or reasons, coverage only over the resolved members | R38 members_unresolved, unresolved [ticker, reason], coverage_incl_unresolved, members_ifrs_other, dropped_weight; A13d, mutant removes the flag |
+| E56 | A CIK counted once per ticker instead of once per filer (BRK.A and BRK.B both resolve to 1067983) | industry_share counts CIKs (test_share_classes_of_one_filer_count_once); A13b, mutant counts tickers |
 
 The stale OperatingIncomeLoss and interest concepts recorded here as open on 2026-11-17 are
 E31 and E33. Still open (not changed in this round): ACHC tags interest only as
@@ -62,3 +69,10 @@ InterestExpenseNonoperating only in the 10-K, so its TTM EBIT adds the FY2025 in
 the app's and the reference's debt ladders disagree on 36 of 183 cached filers; debt and
 cash come from different balance-sheet dates for AHCO, COCO, GM, GRDN, KTOS (one concept
 tagged only annually).
+Open, found 2026-11-22 (report only, scored path, PP1): S1's ROIC window is the newest
+contiguous run of trend.roic_series, and ic_components_dated keeps a year only when the ONE
+long-term-debt concept instant_at_dates picked for the whole series is filed that year. A
+filer that switches debt concept loses every year after the switch: TMDX (LongTermDebtNoncurrent
+to ConvertibleDebtNoncurrent in 2023) has ROIC FY2019-FY2022 only, so S1 reads FY2019..FY2022
+while S3/S4 read FY2022..FY2025; CELH keeps FY2018 only and AVGO FY2017-21 plus FY2025 (both
+S1 absent). The same series feeds the engine's per-year ROIC, so the fix is a scored change.
