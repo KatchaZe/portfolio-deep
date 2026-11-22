@@ -53,6 +53,7 @@ const PP_TH=[
   // S1-S4 (domain/moat_trend.py)
   [/^no WACC$/,()=>'ไม่มี WACC'],
   [/^(\d+) contiguous fiscal years of ROIC \(need (\d+)\)$/,m=>`ROIC ปีงบต่อเนื่องมี ${m[1]} ปี (ต้องมีอย่างน้อย ${m[2]} ปี)`],
+  [/^ROIC ends FY(\d{4}), (\d+) fiscal years before the latest FY(\d{4})$/,m=>`ROIC ล่าสุดคือ FY${m[1]} ห่างจากปีงบล่าสุด FY${m[3]} อยู่ ${m[2]} ปี จึงไม่ใช้เป็นแนวโน้มปัจจุบัน`],
   [/^fiscal-year dates do not vary$/,()=>'วันที่ปีงบไม่ต่างกัน คิดความชันไม่ได้'],
   [/^no industry share$/,()=>'ไม่มีส่วนแบ่งในอุตสาหกรรม'],
   [/^no target share on the filers reporting in both CY(\d{4}) and CY(\d{4})$/,m=>`ไม่มีส่วนแบ่งของหุ้นนี้ในกลุ่มบริษัทที่มีรายได้ทั้ง CY${m[1]} และ CY${m[2]}`],

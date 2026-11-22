@@ -543,6 +543,20 @@ class Moat(unittest.TestCase):
         self.assertIsNone(sig)
         self.assertIn("2 contiguous", why)
 
+    def test_E57_S1_window_more_than_one_fy_behind_the_latest_is_absent(self):
+        ends = ["2019-12-28", "2020-12-31", "2021-12-31", "2022-12-31"]
+        m = roic([-10, -5, 20, 30], ends)                    # TMDX: ROIC stops at FY2022
+        sig, why = MT.spread_slope(m, 8.0, latest_fy="2025-12-31")
+        self.assertIsNone(sig)
+        self.assertEqual(why, "S1: ROIC ends FY2022, 3 fiscal years before the latest FY2025")
+        sig, _ = MT.spread_slope(m, 8.0, latest_fy="2023-12-31")    # one FY behind still counts
+        self.assertEqual(sig["window"], "FY2019..FY2022")
+        f = {"operating_income_annuals_dated": [[d, 100.0] for d in ends + ["2023-12-31", "2024-12-31", "2025-12-31"]],
+             "ic_components_dated": {d: {"equity": 500.0, "cash": 100.0, "debt": 0} for d in ends}}
+        out = MT.build(f, None, [], None, 8.0)
+        self.assertNotIn("spread_slope", [x["name"] for x in out["signals"]])
+        self.assertIn("S1: ROIC ends FY2022, 3 fiscal years before the latest FY2025", out["flags"])
+
     def test_E5_S1_without_wacc_is_absent(self):
         sig, why = MT.spread_slope(roic([10, 11, 12]), None)
         self.assertIsNone(sig)

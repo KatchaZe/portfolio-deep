@@ -67,14 +67,19 @@ def _slope(xs, ys):
     return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else None
 
 
-def spread_slope(roic_map, wacc_pct):
+def spread_slope(roic_map, wacc_pct, latest_fy=None):
     """(signal, reason). `roic_map` is trend.roic_series; WACC is today's, held across
-    the window (the app keeps no WACC history)."""
+    the window (the app keeps no WACC history). `latest_fy` the newest fiscal-year end
+    with operating income: a window ending more than one fiscal year before it is not
+    today's trend (E57, TMDX's ROIC stops at FY2022 while S3 and S4 read FY2025)."""
     if wacc_pct is None:
         return None, "S1: no WACC"
     win = trend._window(roic_map)
     if len(win) < MIN_SLOPE_YEARS:
         return None, f"S1: {len(win)} contiguous fiscal years of ROIC (need {MIN_SLOPE_YEARS})"
+    if latest_fy and (dt.date.fromisoformat(latest_fy[:10]) - dt.date.fromisoformat(win[-1][:10])).days > trend.FY_STEP_DAYS[1]:
+        behind = round(_years(win[-1], latest_fy))
+        return None, f"S1: ROIC ends FY{win[-1][:4]}, {behind} fiscal years before the latest FY{latest_fy[:4]}"
     xs = [_years(win[0], d) for d in win]
     ys = [roic_map[d]["roic"] - wacc_pct for d in win]
     b = _slope(xs, ys)
@@ -354,7 +359,8 @@ def build(f, target, peers, share, wacc_pct, spread_pct=None, sics=None):
     s3, s3_why, s3_ok = gm_signal(tgt, peers or [], sics)
     if not s3_ok:
         na.append("gm_gap_change")
-    for sig, why in (spread_slope(rmap, wacc_pct), share_change(share),
+    latest = max(trend._pairs(trend._get(f, "operating_income_annuals_dated")), default=None)
+    for sig, why in (spread_slope(rmap, wacc_pct, latest), share_change(share),
                      (s3, s3_why), incremental_margin(tgt)):
         if sig:
             signals.append(sig)

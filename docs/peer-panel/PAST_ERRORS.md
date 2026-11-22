@@ -61,6 +61,7 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E54 | One calendar year holding two different fiscal years: SEC frames put SYNA's FY ending 2026-06-27 in CY2025 beside RMD's ending 2025-06-30 and left SYNA's FY2024 out (D4) | R36 june_cy in rebucket and frames_cy (JuneYears) |
 | E55 | A denominator that hides what it dropped: "N members have no SEC CIK" with no names or reasons, coverage only over the resolved members | R38 members_unresolved, unresolved [ticker, reason], coverage_incl_unresolved, members_ifrs_other, dropped_weight; A13d, mutant removes the flag |
 | E56 | A CIK counted once per ticker instead of once per filer (BRK.A and BRK.B both resolve to 1067983) | industry_share counts CIKs (test_share_classes_of_one_filer_count_once); A13b, mutant counts tickers |
+| E57 | A moat signal from a stale window: TMDX's S1 slope (+61.26 pp/yr) came from FY2019..FY2022 because its invested capital stops at FY2022, while S3 and S4 read FY2022..FY2025 | R39 spread_slope absent when its window ends over one FY before the newest operating-income FY (test_E57_S1_window_more_than_one_fy_behind_the_latest_is_absent) |
 
 The stale OperatingIncomeLoss and interest concepts recorded here as open on 2026-11-17 are
 E31 and E33. Still open (not changed in this round): ACHC tags interest only as

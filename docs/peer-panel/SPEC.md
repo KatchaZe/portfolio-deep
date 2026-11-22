@@ -295,3 +295,11 @@ R38 Denominator report. industry_share and sub_group store members_unresolved, u
 members_ifrs_other [[currency, n]], revenue_notes {CY: [[cik, note]]} and dropped_weight
 (null: no revenue is known for a member without a CIK, and non-USD revenue is not converted).
 The 70% coverage rule (R20) is unchanged and still reads coverage.
+
+## Resolution 2026-11-22f (S1 window)
+R39 S1 is today's trend. spread_slope reads the newest contiguous ROIC run (E3) and is absent
+when that run ends more than one fiscal year (over 400 days) before the newest fiscal year with
+operating income, with the flag "S1: ROIC ends FY<a>, <n> fiscal years before the latest FY<b>".
+TMDX's invested capital stops at FY2022 (its debt moved from LongTermDebtNoncurrent to
+ConvertibleDebtNoncurrent in FY2023 and _ic_components requires the first tag every year),
+so S1 read FY2019..FY2022 beside S3 and S4 on FY2022..FY2025. Display only (PP1).
