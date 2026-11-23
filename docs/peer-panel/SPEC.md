@@ -321,4 +321,14 @@ under ...IncludingAssessedTax (Molson Coors), flagged "แท็ก SEC สล�
 <n> ราย (<tickers>)"; else excise_net. No excise tag: no change (Xylem's two revenue values differ
 by 4% with no excise). A cache without excise_read is refreshed, and while it is the only copy
 the panel notes that net revenue was not applied. Display only (PP1).
+R42 Debt (SEC extract; scored, outside the panel). total_debt, total_debt_prior and every
+ic_components_dated year read one balance-sheet date through sec_edgar.debt_on: the combined
+total, else noncurrent + (DebtCurrent | current maturities + short-term borrowings), else
+LongTermDebt as the total (when the filer's own dates show LongTermDebt = noncurrent + current)
+or as the noncurrent line, plus finance leases unless a ...CapitalLeaseObligations concept
+already carries them. Each bucket takes the first total filed on the date, else the sum of its
+disjoint parts: never a total and its own part, never one concept carried across years, never
+a total below one of its parts. An IC year is left out only when no debt concept is filed on
+it. A filer with finance leases only keeps total_debt None (Ford's debt is in extension tags).
+S1 then reads TMDX's FY2021..FY2025 ROIC run (R39's guard no longer fires for it).
 

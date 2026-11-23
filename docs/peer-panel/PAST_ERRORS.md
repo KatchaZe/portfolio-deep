@@ -64,6 +64,10 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E57 | A moat signal from a stale window: TMDX's S1 slope (+61.26 pp/yr) came from FY2019..FY2022 because its invested capital stops at FY2022, while S3 and S4 read FY2022..FY2025 | R39 spread_slope absent when its window ends over one FY before the newest operating-income FY (test_E57_S1_window_more_than_one_fy_behind_the_latest_is_absent) |
 | E58 | A counted member with no revenue in any year and no reason: GFS (CIK 1709048, 20-F under IFRS in USD) sat in NVDA's SIC 3674 sub-group with shares [null x5] while unresolved and members_ifrs_other were empty, because the offline frames cache has no IFRS frames and only the panel notes said so (E13's class) | R40 no_revenue with a Thai reason and a counted flag (tests/test_share_data_fix NoRevenue); audit2 A13e, mutants drop the list or the flag |
 | E59 | Gross sales counted as revenue for a filer whose tags read the wrong way round: Molson Coors tags gross sales $13,734.3M as ...ExcludingAssessedTax and net sales $11,627.0M as ...IncludingAssessedTax (FY2024 10-K), so the priority took gross; the >10% component rule could also replace a net Revenues with a gross contract figure (Brown-Forman's excise is 21% of sales) | R41 net of the filer's own ExciseAndSalesTaxes, swapped tags flagged (tests/test_share_data_fix Excise); no excise tag means no change |
+| E60 | Invested capital required ONE long-term debt concept, chosen for the whole series, in every year: a filer that switched concept lost every later year (TMDX LongTermDebtNoncurrent to ConvertibleDebtNoncurrent in FY2023, so ROIC stopped at FY2022; AVGO FY2022-24; AXON FY2022) | ic_components_dated reads debt_on per year-end from the concepts filed on that date (tests/test_sec_debt E60); audit2 A14 "debt vanished", mutant reads one concept |
+| E61 | A total summed with its own parts: DebtLongtermAndShorttermCombinedAmount + DebtCurrent (LLY FY2024 38,761M vs 33,644M on the balance sheet), LongTermDebt + LongTermDebtCurrent where LongTermDebt is the total, NotesPayableCurrent beside the LongTermDebtCurrent it repeats (AXON 279.6M twice) | sec_edgar._Debt tree: a bucket takes its first total filed on the date, else the sum of its disjoint parts; LongTermDebt's relation to noncurrent + current checked per filer (_ltd_relations); NotesPayableCurrent read only in place of maturities (E61 tests); audit2 A14 "total + its part" and "LongTermDebt total + its current maturities", two mutants |
+| E62 | The per-year IC debt and the TTM total_debt were two different rules: IC took one long-term concept + one short-term concept per series, so current maturities (ABBV 6,804M), commercial paper (AAPL 9,967M) and finance leases (TSLA 335M) were missing from history but present today, and a footnote total below its own part won (BKD 2025 357.8M beside 4,215M) | One function, debt_on, for total_debt, total_debt_prior and every IC year; a total below one of its own parts on the date is passed over (E62 tests) |
+| E63 | The first draft of E60's fix dropped a year whose only debt is current (UTHR FY2014 convertible notes 126.4M): "long-term concept required" was the wrong test | A year is left out only when no debt concept at all is filed on it (test_E63; A14 "debt vanished") |
 
 The stale OperatingIncomeLoss and interest concepts recorded here as open on 2026-11-17 are
 E31 and E33. Still open (not changed in this round): ACHC tags interest only as
@@ -72,10 +76,15 @@ InterestExpenseNonoperating only in the 10-K, so its TTM EBIT adds the FY2025 in
 the app's and the reference's debt ladders disagree on 36 of 183 cached filers; debt and
 cash come from different balance-sheet dates for AHCO, COCO, GM, GRDN, KTOS (one concept
 tagged only annually).
-Open, found 2026-11-22 (report only, scored path, PP1): S1's ROIC window is the newest
+Fixed 2026-11-23 as E60-E62 (scored, roic-convert-excise): the paragraph below. Found 2026-11-22: S1's ROIC window is the newest
 contiguous run of trend.roic_series, and ic_components_dated keeps a year only when the ONE
 long-term-debt concept instant_at_dates picked for the whole series is filed that year. A
 filer that switches debt concept loses every year after the switch: TMDX (LongTermDebtNoncurrent
 to ConvertibleDebtNoncurrent in 2023) has ROIC FY2019-FY2022 only, so S1 reads FY2019..FY2022
 while S3/S4 read FY2022..FY2025; CELH keeps FY2018 only and AVGO FY2017-21 plus FY2025 (both
 S1 absent). The same series feeds the engine's per-year ROIC, so the fix is a scored change.
+Still open after E60-E62: DebtLongtermAndShorttermCombinedAmount wins over the balance-sheet
+lines and can be the principal, not the carrying amount (AVGO FY2024 69,847M vs 67,566M on
+the balance sheet; the base's total_debt rule, unchanged); SeniorNotes is no longer read
+(no cached filer used it); a total below a sibling part is passed over even where the part
+may sit outside it (GAIA 2026-09-30, 5.3M noncurrent beside a 7.0M line of credit).

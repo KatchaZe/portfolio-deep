@@ -137,8 +137,11 @@ def test_gap_detection():
     if os.path.exists(fx):
         with open(fx, encoding="utf-8") as fh:
             ff = normalize.build("AVGO", sec_companyfacts=json.load(fh))
-        check("gap_invested_capital" in _codes(ff),
-              "AVGO's invested-capital gap is reported", str(sorted(_codes(ff))))
+        # E60 (2026-11-23): the FY2022-24 hole was the extract reading one debt concept for the
+        # whole series; AVGO's balance sheet has debt every year, so no gap is left to report
+        check("gap_invested_capital" not in _codes(ff) and
+              {"2022-10-30", "2023-10-29", "2024-11-03"} <= set(ff.ic_components_dated),
+              "AVGO's FY2022-24 invested capital is read, so no gap is reported", str(sorted(_codes(ff))))
 
 
 def test_unconverted_currency_blocks():

@@ -705,6 +705,77 @@ else:
     if not _ui_m:
         flag("HIGH", "A12e cannot fire: removing the cell guard rendered no GM number")
 
+# ---------------------------------------------------------------- A14  [E60-E63]
+hdr("A14", "debt: never vanishes from a year that files a debt concept; no total summed with its own parts")
+_DEBT_FIX = os.path.join(APP, "tests", "fixtures", "sec_debt")
+
+
+def _a14_nodes(sec):
+    out, todo = [], list(sec.DEBT_ALL)
+    while todo:
+        n = todo.pop()
+        out.append(n)
+        todo += list(n.parts) + list(n.alt)
+    return out
+
+
+def _a14(sec=_sec):
+    """A14 over the real trimmed filers: a fiscal year-end whose IC debt is 0 or absent while
+    a non-zero debt concept is filed on it (equity and cash filed too), or a year whose
+    concepts used hold a total beside one of its own parts (combined beside anything but
+    finance leases)."""
+    bad = []
+    for name in sorted(os.listdir(_DEBT_FIX)):
+        if not name.endswith(".json"):
+            continue
+        with open(os.path.join(_DEBT_FIX, name)) as fh:
+            cf = _json.load(fh)
+        e, x = sec.extract(cf), sec._Xbrl(cf["facts"])
+        rel = _sec._ltd_relations(_sec._Xbrl(cf["facts"]))      # the unmutated relation, so a mutant cannot hide
+        ic = e.get("ic_components_dated") or {}
+        ends = [r[0] for r in e.get("operating_income_annuals_dated") or []][:12] or sorted(ic)   # the IC window
+        eq = x.instant_at_dates(list(sec.EQUITY_TAGS), ends)[0]
+        cash = x.instant_at_dates(list(sec.CASH_TAGS), ends)[0]
+        for d in ends:
+            on = {c: m[d] for c in sec.DEBT_CONCEPTS for m in [x.instant_at_dates([c], [d])[0]] if d in m}
+            if any(on.values()) and d in eq and d in cash and not (ic.get(d) or {}).get("debt"):
+                bad.append((name, d, "debt vanished", sorted(c for c, v in on.items() if v)))
+            used = set(((ic.get(d) or {}).get("lt_source") or "").split("+")) - {""}
+            for n in _a14_nodes(sec):
+                parts = {c for p in n.parts + n.alt for c in p.concepts()}
+                if used & set(n.totals) and used & parts:
+                    bad.append((name, d, "total + its part", sorted(used & set(n.totals)), sorted(used & parts)))
+            if used & set(sec.DEBT_COMBINED.totals) and used - set(sec.DEBT_COMBINED.totals) - sec.LEASE_CONCEPTS:
+                bad.append((name, d, "combined + other", sorted(used)))
+            cur = set(sec.DEBT_CURRENT_TOTAL.concepts()) | set(sec.DEBT_MATURITIES.concepts()) | \
+                set(sec.DEBT_NOTES_CURRENT.concepts())
+            if "LongTermDebt" in used and used & cur and _sec._ltd_is_total(rel, d):
+                bad.append((name, d, "LongTermDebt total + its current maturities", sorted(used)))
+    return bad
+
+
+_f14 = _a14()
+print(f"  A14: {len(_f14)} over {len([n for n in os.listdir(_DEBT_FIX) if n.endswith('.json')])} filers")
+if _f14:
+    flag("HIGH", f"A14 {_f14[:3]}")
+for _name, _edit in (
+        ("A14 vanish", dict(override={"debt_on": lambda on, ltd_is_total=False:
+                                      (on.get("LongTermDebtNoncurrent"), ("LongTermDebtNoncurrent",))})),
+        ("A14 LongTermDebt total+current", dict(override={"_ltd_is_total": lambda relations, d: False})),
+        ("A14 total+parts", dict(old="            return nonzero[0][0], (nonzero[0][1],)",
+                                 new="            return (nonzero[0][0] + sum(v for got in parts for v, _ in got), "
+                                     "(nonzero[0][1],) + tuple(c for got in parts for _, u in got for c in u))"))):
+    try:
+        _m = _variant(_sec, **_edit)
+    except _Stale as _e:
+        print(f"  mutation for {_name}: STALE ({_e})")
+        flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
+        continue
+    _hit = _a14(_m)
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:

@@ -363,46 +363,139 @@ SBC_TAGS = ["ShareBasedCompensation",
             "ShareBasedCompensationArrangementByShareBasedPaymentAwardCompensationCost",
             "ExpenseFromSharebasedPaymentTransactionsWithEmployees"]
 
-# Debt: a filed total wins on its date, else long-term + current legs off that date.
-# Ladders run most-specific-first; the convertible and capital-lease variants come
-# last, so they only answer for a filer that tags nothing else (HIMS files only
-# ConvertibleDebtNoncurrent; KO only the ...AndCapitalLeaseObligations family).
-COMBINED_DEBT = ("DebtLongtermAndShorttermCombinedAmount",
-                 "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities")
-LT_DEBT = ("LongTermDebtNoncurrent", "LongTermNotesAndLoans", "LongTermDebt",
-           "LongTermNotesPayable", "Borrowings", "LongTermDebtAndCapitalLeaseObligations",
-           "ConvertibleDebtNoncurrent", "ConvertibleNotesPayable", "ConvertibleDebt",
-           "SeniorNotes")
-ST_DEBT = ("LongTermDebtCurrent", "DebtCurrent", "ShortTermBorrowings",
-           "NotesPayableCurrent", "NotesAndLoansPayableCurrent",
-           "LongTermDebtAndCapitalLeaseObligationsCurrent", "ConvertibleDebtCurrent",
-           "ConvertibleNotesPayableCurrent")
-# total_debt reads ONE date as buckets, because the tags overlap: LongTermDebt already
-# holds the current maturities that LongTermDebtCurrent repeats (MELI 4.57 + 4.623 =
-# 9.193), and a filed 0 (ABBV's ShortTermBorrowings) must not hide the 8.3B of current
-# maturities beside it.
-#   combined total                                  -> as filed
-#   else NONCURRENT + (DebtCurrent | maturities + short-term borrowings)
-#   else TOTAL long-term + (DebtCurrent | short-term borrowings)
-# plus finance leases unless a ...CapitalLeaseObligations tag already carries them.
-DEBT_COMBINED = ("DebtLongtermAndShorttermCombinedAmount",
-                 "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
-                 "Borrowings")
-DEBT_NONCURRENT = ("LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations",
-                   "LongTermNotesAndLoans", "LongTermNotesPayable", "ConvertibleDebtNoncurrent")
-DEBT_TOTAL_LT = ("LongTermDebt", "ConvertibleNotesPayable", "ConvertibleDebt")
-DEBT_CURRENT_TOTAL = ("DebtCurrent",)
-DEBT_MATURITIES = ("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent",
-                   "ConvertibleDebtCurrent", "ConvertibleNotesPayableCurrent")
-DEBT_SHORT = ("ShortTermBorrowings", "CommercialPaper", "NotesPayableCurrent",
-              "NotesAndLoansPayableCurrent", "OtherShortTermBorrowings")
+# Debt is read off ONE balance-sheet date as us-gaap's calculation tree. Each bucket
+# takes the first total the filer tagged on that date, else the sum of its disjoint
+# parts on that date, so a total is never added to its own parts. A single concept is
+# never carried across years: TMDX tags LongTermDebtNoncurrent to FY2022 and from FY2023
+# ConvertibleDebtNoncurrent + OtherLongTermDebtNoncurrent; AMN tags no noncurrent total
+# and files its notes and its revolver as two lines.
+TOTAL_TOL = 0.01                 # a total within 1% of a part still counts as that total
+
+
+class _Debt:
+    """totals: concepts that each carry the whole bucket, most specific first.
+    parts: _Debt buckets for disjoint instruments. alt: the same debt split another way
+    (secured / unsecured), read only when no instrument part is filed."""
+
+    def __init__(self, totals=(), parts=(), alt=()):
+        self.totals, self.parts, self.alt = tuple(totals), tuple(parts), tuple(alt)
+
+    def concepts(self):
+        yield from self.totals
+        for p in self.parts + self.alt:
+            yield from p.concepts()
+
+    def read(self, on):
+        """(value, concepts used) from {concept: value} filed on one date, or (None, ()).
+        A total below one of its own parts on that date is not the total and is passed
+        over (AXON 2016-12-31: CapitalLeaseObligations 0.1M beside its noncurrent part 2.3M)."""
+        parts = [[r for r in (p.read(on) for p in split) if r[0] is not None] for split in (self.parts, self.alt)]
+        floor = max((v for got in parts for v, _ in got), default=0)
+        hits = [(on[c], c) for c in self.totals if c in on]
+        nonzero = [h for h in hits if h[0] and h[0] >= floor * (1 - TOTAL_TOL)]
+        if nonzero:
+            return nonzero[0][0], (nonzero[0][1],)
+        for got in parts:
+            if any(v for v, _ in got):
+                return sum(v for v, _ in got), tuple(c for _, u in got for c in u)
+        # a filed 0 counts only if no part carries a figure
+        if hits and not floor:
+            return hits[0][0], (hits[0][1],)
+        zero = [r for got in parts for r in got]
+        return (0, zero[0][1]) if zero else (None, ())
+
+
+def _one(*tags):
+    return _Debt(totals=tags)
+
+
+DEBT_COMBINED = _one("DebtLongtermAndShorttermCombinedAmount",
+                     "LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities", "Borrowings")
+DEBT_NONCURRENT = _Debt(
+    totals=("LongTermDebtNoncurrent", "LongTermDebtAndCapitalLeaseObligations"),
+    parts=(_one("ConvertibleDebtNoncurrent", "ConvertibleLongTermNotesPayable"),
+           _Debt(totals=("LongTermNotesAndLoans",),
+                 parts=(_one("LongTermNotesPayable"), _one("LongTermLoansPayable"))),
+           _one("SeniorLongTermNotes"), _one("LongTermLineOfCredit"),
+           _one("OtherLongTermDebtNoncurrent"), _one("CommercialPaperNoncurrent")),
+    alt=(_one("SecuredLongTermDebt"), _one("UnsecuredLongTermDebt")))
+# LongTermDebt = noncurrent + current maturities (the relation checked on each date)
+DEBT_TOTAL_LT = _Debt(totals=("LongTermDebt",),
+                      parts=(_one("ConvertibleDebt", "ConvertibleNotesPayable"),))
+DEBT_CURRENT_TOTAL = _one("DebtCurrent")
+DEBT_MATURITIES = _Debt(
+    totals=("LongTermDebtCurrent", "LongTermDebtAndCapitalLeaseObligationsCurrent"),
+    parts=(_one("ConvertibleDebtCurrent", "ConvertibleNotesPayableCurrent"),
+           _one("OtherLongTermDebtCurrent"), _one("SeniorNotesCurrent")),
+    alt=(_one("SecuredDebtCurrent"), _one("UnsecuredDebtCurrent")))
+# Notes payable, current, repeats the current maturities of notes beside
+# LongTermDebtCurrent (AXON 680.3 under both at 2024-12-31): read only in their place.
+DEBT_NOTES_CURRENT = _one("NotesPayableCurrent", "NotesAndLoansPayableCurrent")
+DEBT_SHORT = _one("ShortTermBorrowings", "CommercialPaper", "OtherShortTermBorrowings")
 # Finance (capital) leases are debt too and sit outside LongTermDebt*: MSFT carries
-# $66.6B of them.
-FIN_LEASE_TOTAL = ("FinanceLeaseLiability",)
-FIN_LEASE_LEGS = ("FinanceLeaseLiabilityNoncurrent", "FinanceLeaseLiabilityCurrent")
-LEASE_INCLUSIVE = "CapitalLeaseObligations"
-DEBT_LADDERS = (DEBT_COMBINED, DEBT_NONCURRENT, DEBT_TOTAL_LT, DEBT_CURRENT_TOTAL,
-                DEBT_MATURITIES, DEBT_SHORT, FIN_LEASE_TOTAL, FIN_LEASE_LEGS)
+# $66.6B of them. CapitalLeaseObligations* is the pre-ASC 842 name. As S5 reads
+# operating leases: the total filed on the date, else the legs filed on it.
+DEBT_FIN_LEASE = _Debt(totals=("FinanceLeaseLiability", "CapitalLeaseObligations"),
+                       parts=(_one("FinanceLeaseLiabilityNoncurrent", "CapitalLeaseObligationsNoncurrent"),
+                              _one("FinanceLeaseLiabilityCurrent", "CapitalLeaseObligationsCurrent")))
+DEBT_LEASE_INCLUSIVE = frozenset(("LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
+                                  "LongTermDebtAndCapitalLeaseObligations",
+                                  "LongTermDebtAndCapitalLeaseObligationsCurrent"))
+DEBT_LONG = (DEBT_COMBINED, DEBT_NONCURRENT, DEBT_TOTAL_LT)
+DEBT_ALL = DEBT_LONG + (DEBT_CURRENT_TOTAL, DEBT_MATURITIES, DEBT_NOTES_CURRENT, DEBT_SHORT,
+                        DEBT_FIN_LEASE)
+DEBT_CONCEPTS = tuple(dict.fromkeys(c for b in DEBT_ALL for c in b.concepts()))
+LEASE_CONCEPTS = frozenset(DEBT_FIN_LEASE.concepts())
+LONG_DEBT_CONCEPTS = frozenset(c for b in DEBT_LONG for c in b.concepts())
+
+
+def debt_on(on, ltd_is_total=False):
+    """(total debt, concepts used) from {concept: value} filed on ONE date.
+
+      combined total                                       -> as filed
+      else noncurrent + (DebtCurrent | maturities + short-term borrowings)
+      else LongTermDebt + short-term borrowings, when the filer's LongTermDebt is
+           its total (_ltd_is_total); else LongTermDebt as the noncurrent line +
+           (DebtCurrent | maturities + short-term borrowings): TSLA tags its
+           5,535M noncurrent line LongTermDebt beside 2,343M DebtCurrent (2024-12-31);
+           a current figure equal to LongTermDebt is all of it (PANW FY2015, 487.1M)
+      else current debt alone
+    LongTermDebt is read only without a noncurrent figure: where both are filed it is
+    often a footnote figure (PFE 2020 4.6B beside a 39.1B noncurrent line).
+    Plus finance leases unless a ...CapitalLeaseObligations debt concept carries them."""
+    v, used = DEBT_COMBINED.read(on)
+    nc, u_nc = DEBT_NONCURRENT.read(on)
+    tot, u_tot = DEBT_TOTAL_LT.read(on)
+    if v is not None and v < max(nc or 0, tot or 0) * (1 - TOTAL_TOL):
+        v, used = None, ()           # a combined figure below the long-term line is not the total (BKD)
+    if nc == 0 and tot:
+        nc, u_nc = None, ()          # a zero revolver line beside a filed LongTermDebt (MD 2019)
+    if v is None:
+        cur, u_cur = DEBT_CURRENT_TOTAL.read(on)
+        mat, u_mat = DEBT_MATURITIES.read(on)
+        if mat is None:
+            mat, u_mat = DEBT_NOTES_CURRENT.read(on)
+        short, u_short = DEBT_SHORT.read(on)
+        if nc is not None:
+            if cur is not None:
+                v, used = nc + cur, u_nc + u_cur
+            else:
+                v, used = nc + (mat or 0) + (short or 0), u_nc + u_mat + u_short
+        elif tot is not None and (ltd_is_total or (cur or mat) == tot):
+            v, used = tot + (short or 0), u_tot + u_short
+        elif tot is not None:
+            v, used = ((tot + cur, u_tot + u_cur) if cur is not None else
+                       (tot + (mat or 0) + (short or 0), u_tot + u_mat + u_short))
+        elif cur is not None or mat is not None or short is not None:
+            v = cur if cur is not None else (mat or 0) + (short or 0)
+            used = u_cur if cur is not None else u_mat + u_short
+    if not DEBT_LEASE_INCLUSIVE & set(used):
+        fin, u_fin = DEBT_FIN_LEASE.read(on)
+        if fin:                      # a date with finance leases only is that much debt (VRTX 2018)
+            v, used = (v or 0) + fin, used + u_fin
+    return v, used
+
+
 EQUITY_TAGS = ("StockholdersEquity", "Equity",
                "StockholdersEquityIncludingPortionAttributableToNoncontrollingInterest")
 # The current-year and prior-year lookups share one ladder each, so the two can never
@@ -634,62 +727,70 @@ def _total_else_legs(rule):
     return read
 
 
+def _ltd_relations(x):
+    """[(date, is_total)] on the dates where this filer tagged LongTermDebt, a
+    noncurrent figure and a current one together and LongTermDebt equals either
+    noncurrent + current (its total) or the noncurrent figure alone."""
+    by = {}
+    for t in DEBT_CONCEPTS:
+        for e in x.entries(t):
+            if not e.get("start") and e.get("val") is not None:
+                by.setdefault(e["end"], {})[t] = e["val"]
+    out = []
+    for d, on in sorted(by.items()):
+        tot = on.get("LongTermDebt")
+        nc = DEBT_NONCURRENT.read(on)[0]
+        cur = on.get("DebtCurrent")
+        cur = cur if cur is not None else DEBT_MATURITIES.read(on)[0]
+        if not tot or nc is None or not cur:
+            continue
+        if abs(tot - nc - cur) <= 0.01 * abs(tot):
+            out.append((d, True))
+        elif abs(tot - nc) <= 0.01 * abs(tot):
+            out.append((d, False))
+    return out
+
+
+LTD_RELATION_DAYS = 730
+
+
+def _ltd_is_total(relations, d):
+    """Whether LongTermDebt on date `d` is the total: the relation on the nearest date
+    within two years that shows it, else the noncurrent line. TSLA's LongTermDebt was
+    its total in 2011-12 and has been its noncurrent line since (5,535M beside 2,343M
+    DebtCurrent at 2024-12-31); PANW's FY2022 LongTermDebt is its total, all current."""
+    near = [(abs(_days(d, r)), tot) for r, tot in relations if abs(_days(d, r)) <= LTD_RELATION_DAYS]
+    return min(near)[1] if near else False
+
+
+def _debt_by_date(x, at, days):
+    """{concept: {date: value}} for every debt concept, within `days` of the anchor."""
+    return {t: {e["end"]: e["val"] for e in x.entries(t)
+                if not e.get("start") and e.get("val") is not None
+                and _recent(e["end"], at.ref_end, days=days)} for t in DEBT_CONCEPTS}
+
+
 def _total_debt(x, ladders, at, prior=False):
-    """Total debt read off ONE balance-sheet date: the latest that yields a figure
-    (with `prior`, the date a year before it). See DEBT_LADDERS for the buckets.
+    """Total debt read off ONE balance-sheet date by debt_on: the newest date with a
+    long-term or combined figure (with `prior`, the date a year before it); a filer with
+    no long-term concept at all is read off its newest current-debt date.
 
     The legs must never be summed across dates. ORCL files the combined amount
     annually (92.6B @ 2025-05-31) and the legs quarterly (134.6B @ 2026-02-28); either
     shortcut understated debt by 31%, which flowed into invested capital, net debt,
     EV and every multiple."""
-    window = 540 + (400 if prior else 0)
-    comb, nc, tot, cur, mat, short, fl_total, fl_legs = (
-        {t: {e["end"]: e["val"] for e in x.entries(t)
-             if not e.get("start") and e.get("val") is not None
-             and _recent(e["end"], at.ref_end, days=window)} for t in tags}
-        for tags in ladders)
-
-    def first(bucket, d):
-        """(value, tag) of the first tag filed on `d`; a 0 counts only if nothing else is."""
-        hits = [(v[d], t) for t, v in bucket.items() if d in v]
-        nonzero = [h for h in hits if h[0]]
-        return (nonzero or hits or [(None, None)])[0]
-
-    dates = sorted({d for b in (comb, nc, tot) for v in b.values() for d in v}, reverse=True)
+    by = _debt_by_date(x, at, 540 + (400 if prior else 0))
+    long_dates = {d for t, v in by.items() if t in LONG_DEBT_CONCEPTS for d in v}
+    # a filer with finance leases only stays None, as before: Ford's debt is in its own
+    # extension tags and its 890M of leases is not its debt
+    any_dates = {d for t, v in by.items() if t not in LEASE_CONCEPTS for d in v}
+    dates = sorted(long_dates or any_dates, reverse=True)
     if prior and dates:
         d0 = _year_before(dates, dates[0])
         dates = [d0] if d0 else []
     for d in dates:
-        used = []
-        v, t = first(comb, d)
-        if v is not None:
-            debt = v
-            used.append(t)
-        else:
-            v, t = first(nc, d)
-            if v is not None:
-                used.append(t)
-                c, ct = first(cur, d)
-                if c is not None:
-                    debt = _sum(v, c)
-                else:
-                    m, mt = first(mat, d)
-                    sb, _ = first(short, d)
-                    debt = _sum(v, m, sb)
-                    used.append(mt or "")
-            else:
-                v, t = first(tot, d)
-                if v is None:
-                    continue
-                used.append(t)
-                c, _ = first(cur, d)
-                debt = _sum(v, c if c is not None else first(short, d)[0])
-        if not any(LEASE_INCLUSIVE in (u or "") for u in used):
-            fin, _ = first(fl_total, d)
-            if fin is None:
-                fin = _sum(*(fl_legs[t].get(d) for t in fl_legs))
-            debt = _sum(debt, fin)
-        return debt
+        return debt_on({t: m[d] for t, m in by.items() if d in m},
+                       _ltd_is_total(_ltd_relations(x), d))[0]
     return None
 
 
@@ -767,30 +868,36 @@ def _leases(x, ladders, at, prior=False):
     return None
 
 
-def _ic_components(x, ladders, at):
+def _ic_components(x, ladders, at, tol_days=6):
     """{FY_end: {"equity", "debt", "cash", "lt_source"}} at the income-statement
     year-ends, for the per-year ROIC series.
 
     A year is returned ONLY when every leg is filed: invested capital from a partial
-    balance sheet reads as a real change in the capital base. If a long-term debt
-    concept appears in ANY year of the window it is required in EVERY year: a missing
-    year is a filing gap, not a debt-free year."""
-    (eq, _), (cash, _), (lt, lt_tag), (st, _) = (
-        x.instant_at_dates(list(tags), at.fy_ends) for tags in ladders[:4])
+    balance sheet reads as a real change in the capital base. Debt is debt_on at each
+    year-end, from the concepts filed on that date (lt_source names them). If a
+    long-term debt concept is filed at ANY year-end, a year-end with no debt concept at
+    all is a filing gap, not a debt-free year, and is left out; a year-end with any debt
+    concept is kept (UTHR's FY2014 debt is a current convertible note only)."""
+    (eq, _), (cash, _) = (x.instant_at_dates(list(tags), at.fy_ends) for tags in ladders[:2])
     # securities tags are alternatives for ONE line, so each date takes the first filed
     sti = {}
-    for tag in ladders[4]:
+    for tag in ladders[2]:
         for d, v in x.instant_at_dates([tag], at.fy_ends)[0].items():
             sti.setdefault(d, v)
+    debt = {t: x.instant_at_dates([t], at.fy_ends)[0] for t in DEBT_CONCEPTS}
+    debt = {t: m for t, m in debt.items() if m}
+    long_filed = any(t in LONG_DEBT_CONCEPTS for t in debt)
+    relations = _ltd_relations(x)
     out = {}
     for d in at.fy_ends:
         if d not in eq or d not in cash:
             continue
-        if lt_tag and d not in lt:
+        on = {t: m[d] for t, m in debt.items() if d in m}
+        if long_filed and not on:
             continue
+        v, used = debt_on(on, _ltd_is_total(relations, d))
         out[d] = {"equity": eq[d], "cash": cash[d] + (sti.get(d) or 0),
-                  "debt": (lt.get(d) or 0) + (st.get(d) or 0),
-                  "lt_source": lt_tag}
+                  "debt": v or 0, "lt_source": "+".join(used) or None}
     return out
 
 
@@ -812,7 +919,7 @@ FIELD_LADDERS = {
     # measures GROSS grants and disagrees in SIGN for MSFT and ABBV. A count, never
     # FX-converted.
     "shares_diluted_annuals": (_annual, (("WeightedAverageNumberOfDilutedSharesOutstanding", SHARES),)),
-    "total_debt": (_total_debt, DEBT_LADDERS),
+    "total_debt": (_total_debt, DEBT_ALL),
     "cash": (_cash_and_securities, ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "equity": (_fresh, EQUITY_TAGS),
     "capex": (_ttm_present, CAPEX_TAGS),
@@ -824,8 +931,7 @@ FIELD_LADDERS = {
     "capex_annuals_dated": (_trend_series, CAPEX_TAGS),
     "gross_profit_annuals_dated": (_trend_series, GROSS_PROFIT_TAGS),
     "cost_of_revenue_annuals_dated": (_trend_series, COST_OF_REV_TAGS),
-    "ic_components_dated": (_ic_components, (EQUITY_TAGS, CASH_TAGS,
-                                             (*COMBINED_DEBT, *LT_DEBT), ST_DEBT, STI_TAGS)),
+    "ic_components_dated": (_ic_components, (EQUITY_TAGS, CASH_TAGS, STI_TAGS)),
     "dep_amort": (_ttm, ("DepreciationAndAmortization", "Depreciation",
                          "DepreciationDepletionAndAmortization",
                          "DepreciationAndAmortisationExpense",
@@ -849,7 +955,7 @@ FIELD_LADDERS = {
     "rnd_annuals": (_annual, RND_TAGS),
     "equity_prior": (_prior_year, EQUITY_TAGS),
     "total_debt_prior": (lambda x, ladders, at: _total_debt(x, ladders, at, prior=True),
-                         DEBT_LADDERS),
+                         DEBT_ALL),
     "cash_prior": (lambda x, ladders, at: _cash_and_securities(x, ladders, at, prior=True),
                    ((COMBINED_CASH,), CASH_TAGS, STI_TAGS)),
     "acquisitions_net": (_ttm, ACQUISITION_TAGS),
