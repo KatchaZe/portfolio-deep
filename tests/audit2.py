@@ -736,7 +736,7 @@ def _a14(sec=_sec):
             cf = _json.load(fh)
         e, x = sec.extract(cf), sec._Xbrl(cf["facts"])
         _x0 = _sec._Xbrl(cf["facts"]); _x0.cik = cf.get("cik")
-        rel = _x0.debt_book().relations      # the unmutated relation, so a mutant cannot hide
+        _book0 = _x0.debt_book()             # the unmutated relation, so a mutant cannot hide
         ic = e.get("ic_components_dated") or {}
         ends = [r[0] for r in e.get("operating_income_annuals_dated") or []][:12] or sorted(ic)   # the IC window
         eq = x.instant_at_dates(list(sec.EQUITY_TAGS), ends)[0]
@@ -755,7 +755,7 @@ def _a14(sec=_sec):
                 bad.append((name, d, "combined + other", sorted(used)))
             cur = set(sec.DEBT_CURRENT_TOTAL.concepts()) | set(sec.DEBT_MATURITIES.concepts()) | \
                 set(sec.DEBT_NOTES_CURRENT.concepts())
-            if "LongTermDebt" in used and used & cur and _sec._ltd_is_total(rel, d):
+            if "LongTermDebt" in used and used & cur and _book0.ltd_is_total(d):
                 bad.append((name, d, "LongTermDebt total + its current maturities", sorted(used)))
     return bad + _a14_values(sec)
 

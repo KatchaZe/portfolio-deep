@@ -359,3 +359,7 @@ elsewhere: total_debt / total_debt_prior None, the IC year left out, and xbrl_fl
 value, was considered and not adopted: companyfacts carries no dimensions, so a filed figure
 cannot be shown to be the total rather than one instrument, and Cinemark's equals the sum of
 its principal maturities (E72).
+R45 LongTermDebt relation per kind of report (scored, SEC extract; amends R42). Whether LongTermDebt is the total or the
+noncurrent line is learnt separately from the filer's annual reports and from its other periodic reports, and each date is
+read with the relation of the kind of report its LongTermDebt value came from (year-ends prefer the annual report, E68).
+A filer may tag the concept differently in its 10-K and its 10-Qs; Biogen does (E73).

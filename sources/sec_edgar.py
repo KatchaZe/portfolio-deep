@@ -147,6 +147,12 @@ class _Xbrl:
         2022-06-09 re-tags FY2021 LongTermDebtNoncurrent at the principal 41,235M where the
         10-Ks file the carrying 39,440M. Among annual reports the latest wins, as entries()
         does: a later 10-K restates (ASU 2015-03 netted issuance costs into debt from FY2015)."""
+        return {d: v for d, (_, v) in self.instant_picks(concept, prefer).items()}
+
+    def instant_picks(self, concept, prefer=USD, annual=None):
+        """instants() as {date: ((from an annual report, filed), value)}. `annual` True or
+        False keeps only annual reports or only the others (E73: a filer can tag one concept
+        as two different lines in its 10-K and its 10-Qs)."""
         u, _ = _units(self.ns.get(concept), prefer)
         best = {}
         for e in u or ():
@@ -155,9 +161,11 @@ class _Xbrl:
             if self.periodic_only and not _periodic(e, self.foreign):
                 continue
             k = (e.get("form") in ANNUAL_FORMS, e.get("filed", ""))
+            if annual is not None and k[0] != annual:
+                continue
             if e["end"] not in best or k > best[e["end"]][0]:
                 best[e["end"]] = (k, e["val"])
-        return {d: v for d, (_, v) in best.items()}
+        return best
 
     def debt_book(self):
         if self._debt_book is None:
@@ -887,7 +895,18 @@ class _DebtBook:
 
         self.sheets = {d for c in BALANCE_SHEET_TAGS for d in x.instants(c)}
         self.leases_in_debt = x.cik in FIN_LEASE_IN_DEBT
-        self.relations = _ltd_relations(self.on)
+        # LongTermDebt's relation (total or noncurrent) is learnt per kind of report and read
+        # for the kind the date's LongTermDebt came from (E73): Biogen's 10-K tags it as the
+        # total (6,295.8M = 4,547.2 + 1,748.6 at 2024-12-31), its 10-Qs as the noncurrent line
+        # (4,547.2M for the same date; 7,292.0M beside 400.0M current at 2026-09-30).
+        self.ltd_annual = {d: k[0] for d, (k, _) in x.instant_picks("LongTermDebt").items()}
+        self.relations = {}
+        for annual in (True, False):
+            by_date = {}
+            for c in DEBT_CONCEPTS:
+                for d, (_, v) in x.instant_picks(c, annual=annual).items():
+                    by_date.setdefault(d, {})[c] = v
+            self.relations[annual] = _ltd_relations(by_date)
 
     def dates(self, concepts):
         return {d for d, on in self.on.items() if concepts & set(on)}
@@ -915,7 +934,11 @@ class _DebtBook:
     def read(self, d):
         if self.untagged(d):
             return None, ()
-        return debt_on(self.on.get(d, {}), _ltd_is_total(self.relations, d), self.leases_in_debt)
+        return debt_on(self.on.get(d, {}), self.ltd_is_total(d), self.leases_in_debt)
+
+    def ltd_is_total(self, d):
+        """_ltd_is_total over the relations of the kind of report d's LongTermDebt came from."""
+        return _ltd_is_total(self.relations[self.ltd_annual.get(d, True)], d)
 
 
 def _total_debt(x, ladders, at, prior=False):
