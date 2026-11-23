@@ -381,6 +381,11 @@ def _in_frames(frames, cik, ys):
     return False
 
 
+# revenue notes (frames_revenue.choose) with their own Thai flag, naming the filers
+NOTE_TH = {"excise_tags_swapped": "แท็ก SEC สลับกัน ใช้ค่ารายได้สุทธิที่ต่ำกว่า",
+           "excise_net": "ใช้รายได้สุทธิหลังหักภาษีสรรพสามิต"}
+
+
 def industry_share(members, frames, target_cik, years, as_of, foreign=None, assets=None, unresolved=None,
                    ifrs_other=None, ifrs_unread=None):
     """Share of revenue among the US SEC filers in one Damodaran industry, per calendar
@@ -484,8 +489,16 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
         by.sort()
         for c, n in by:
             notes.setdefault(n, set()).add(c)
+    sym = {}
+    for t, c in list((foreign or {}).items()) + list(members.items()):
+        if c:
+            sym.setdefault(int(c), set()).add(t)
     for n in sorted(notes):
-        flags.append(f"กฎรายได้ {n}: {len(notes[n])} ราย ไม่ได้ใช้ค่า Revenues ตรง ๆ อย่างน้อยหนึ่งปี")
+        if n in NOTE_TH:
+            ts = sorted("/".join(sorted(sym.get(c) or [str(c)])) for c in notes[n])
+            flags.append(f"{NOTE_TH[n]} {len(ts)} ราย ({', '.join(ts)})")
+        else:
+            flags.append(f"กฎรายได้ {n}: {len(notes[n])} ราย ไม่ได้ใช้ค่า Revenues ตรง ๆ อย่างน้อยหนึ่งปี")
     if ys:
         new = ys[-1]
         matched_change(out, shown.get(new), shown.get(new - SHARE_LOOKBACK), tc, new - SHARE_LOOKBACK, new)

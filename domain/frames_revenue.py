@@ -11,9 +11,14 @@ and the accession it came from. A filer can tag several revenue concepts in one 
   * BlackRock, General Mills and BNSF tag Revenues on a component line ($0.1B of BNSF's
     $23B) in the same filing as the total under RevenueFromContract.
   * Tigo Energy tagged one value twice, once 1000x too large.
+  * Brewers and distillers report sales, excise taxes, and net sales. Molson Coors tags
+    gross sales as ...ExcludingAssessedTax and net sales as ...IncludingAssessedTax (the
+    reverse of the names), so the priority read its gross $13.7B for FY2024.
 So the rule reads the filings, not the sizes: the newest filing first, Revenues (the
 us-gaap total) first within it, a contract-revenue concept only when Revenues is
-materially below it in that same filing, and a 1000x twin dropped.
+materially below it in that same filing, and a 1000x twin dropped. Then net of excise
+(R41): when the filer's ExciseAndSalesTaxes for that period is the gap between two of its
+revenue values, the smaller one is the revenue.
 """
 import datetime as dt
 
@@ -29,6 +34,10 @@ COMPONENT_GAP = 0.10
 UNIT_SLIPS = (1e3, 1e6)
 UNIT_TOL = 0.01
 JUNE_WINDOW_DAYS = 7
+# R41: the excise the filer tagged for the period, read only as evidence that two of its
+# revenue values are gross and net; within this share of the gross value
+EXCISE = "us-gaap:ExciseAndSalesTaxes"
+EXCISE_TOL = 0.01
 
 
 def _accn_year(accn):
@@ -71,8 +80,30 @@ def choose(entries):
             pick, note = over, note or "revenues_component"
     if pick != "us-gaap:Revenues" and "us-gaap:Revenues" in ok and "us-gaap:Revenues" not in keep and not note:
         note = "revenues_older_filing"
+    net = _net_of_excise(keep, pick, (entries or {}).get(EXCISE))
+    if net:
+        pick, note = net
     e = keep[pick]
     return {"val": e["val"], "end": e.get("end"), "concept": pick, "note": note}
+
+
+def _net_of_excise(keep, pick, tax):
+    """(concept, note) when `pick` is the gross figure of a gross/net pair the filer's own
+    excise tag explains (gross - net = excise, same period end), else None. Note
+    "excise_tags_swapped" when the gross value sits under ...ExcludingAssessedTax and the
+    net under ...IncludingAssessedTax, else "excise_net". No excise tag: no change, since a
+    second revenue value alone does not say which is net (Xylem's two differ by 4%)."""
+    t = (tax or {}).get("val")
+    if not isinstance(t, (int, float)) or isinstance(t, bool) or t <= 0:
+        return None
+    g = keep[pick]
+    if str(tax.get("end")) != str(g.get("end")):
+        return None
+    for c, e in keep.items():
+        if c != pick and 0 < e["val"] < g["val"] and abs(g["val"] - e["val"] - t) <= EXCISE_TOL * g["val"]:
+            swapped = pick == CONTRACT[0] and c == CONTRACT[1]
+            return c, "excise_tags_swapped" if swapped else "excise_net"
+    return None
 
 
 def _d(s):

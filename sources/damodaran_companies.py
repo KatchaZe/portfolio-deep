@@ -45,6 +45,8 @@ FRAMES_CONCEPTS = ("Revenues", "RevenueFromContractWithCustomerExcludingAssessed
                    "SalesRevenueNet", "RevenueFromContractWithCustomerIncludingAssessedTax")
 FRAMES_TTL_DAYS = 30
 IFRS_URL = "https://data.sec.gov/api/xbrl/frames/ifrs-full/Revenue/{unit}/CY{year}.json"
+# R41: excise is read for the panel's net-revenue rule only (frames_revenue.choose), never sized on
+EXCISE_CONCEPT = "ExciseAndSalesTaxes"
 # 20-F filers' reporting currencies, read only to NAME a member that reports outside USD
 # (R34: never converted, never counted). One call each per year, 404 when nobody filed.
 IFRS_OTHER_CURRENCIES = ("EUR", "GBP", "CAD", "JPY", "CHF", "AUD", "CNY", "HKD", "BRL", "INR", "ILS",
@@ -297,7 +299,7 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
 
     # a cache read on a shorter concept list, or before the panel reading, is refreshed
     same_ladder = (bool(cached) and cached.get("concepts") == list(FRAMES_CONCEPTS)
-                   and cached.get("panel_schema") == PANEL_SCHEMA)
+                   and cached.get("panel_schema") == PANEL_SCHEMA and "excise_read" in cached)
     if same_ladder and now - cached.get("at", 0) < FRAMES_TTL_DAYS * 86400:
         return (*_from(cached), None)
     out, end, raw, names, other = {}, {}, {}, {}, {}
@@ -331,6 +333,14 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
         if cached:
             return (*_from(cached), "SEC revenue frames from cache (refresh failed)")
         return {}, {}, f"SEC revenue frames unavailable ({type(e).__name__})"
+    excise_read = True
+    try:
+        for d in get(FRAMES_URL.format(concept=EXCISE_CONCEPT, year=year)):
+            if d.get("cik") and isinstance(d.get("val"), (int, float)) and int(d["cik"]) in raw:
+                raw[int(d["cik"])]["us-gaap:" + EXCISE_CONCEPT] = d
+    except Exception as e:
+        log.warning("SEC excise frames CY%s failed: %s", year, e)
+        excise_read = False
     ifrs_note = None
     try:
         for d in get(IFRS_URL.format(unit="USD", year=year)):
@@ -354,7 +364,7 @@ def _frames(cache_dir, year, user_agent, requests_mod=None, timeout=60, now=None
             panel[cik] = [c["val"], c["end"], c["concept"], c["note"]]
     _write(path, {"at": now, "concepts": list(FRAMES_CONCEPTS), "rev": out, "end": end,
                   "panel_schema": PANEL_SCHEMA, "panel": panel, "name": {k: v for k, v in names.items() if v},
-                  "ifrs_other": other, "ifrs_note": ifrs_note})
+                  "ifrs_other": other, "ifrs_note": ifrs_note, "excise_read": excise_read})
     return out, end, None
 
 
@@ -450,6 +460,8 @@ def load_revenue_frames_years(cache_dir, today, user_agent, requests_mod=None, t
                 notes.append(f"CY{year}: รายได้ส่วนแบ่งอุตสาหกรรมมาจากแคชรุ่นเก่า (ค่าที่มากที่สุดในหลาย concept)")
             elif c.get("ifrs_note") and year in years:
                 notes.append(c["ifrs_note"])
+            if year in years and c.get("excise_read") is not True:
+                notes.append(f"CY{year}: ไม่มีข้อมูลภาษีสรรพสามิตของ SEC ในแคชรายได้ จึงยังไม่ปรับรายได้ของผู้ที่แท็กทั้งยอดก่อนและหลังภาษีเป็นรายได้สุทธิ")
         if note and year in years:
             notes.append(f"CY{year}: {note}")
     cy = frames_revenue.rebucket(by_sec)

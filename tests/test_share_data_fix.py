@@ -214,6 +214,55 @@ class JuneYears(unittest.TestCase):
         self.assertEqual(PP.frames_cy("2025-05-31", {"2025-05-31": 2024}), 2024)
 
 
+def _e(val, accn, end="2024-12-31"):
+    return {"val": val, "end": end, "accn": accn}
+
+
+class Excise(unittest.TestCase):
+    """E59, R41. Industry share counts NET revenue, after excise, for every filer. Values are
+    the SEC frames entries in sec_cache (fetched 2026-11-20) and each 10-K's net sales:
+    TAP FY2024 net sales $11,627.0M (sales $13,734.3M, excise $2,107.3M); STZ FY2025 net
+    sales $10,208.7M (excise $748.2M); SAM FY2024 net revenue $2,012.926M (excise
+    $124.876M); BF FY2025 net sales $3,975M."""
+    X = "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax"
+    I = "us-gaap:RevenueFromContractWithCustomerIncludingAssessedTax"
+    T = "us-gaap:ExciseAndSalesTaxes"
+
+    def test_swapped_tags_take_the_smaller_and_say_so(self):
+        a = "0000024545-26-000006"
+        got = FR.choose({self.X: _e(13734300000, a), self.I: _e(11627000000, a), self.T: _e(2107300000, a)})
+        self.assertEqual((got["val"], got["concept"], got["note"]), (11627000000, self.I, "excise_tags_swapped"))
+
+    def test_correct_tags_keep_the_excluding_value(self):
+        a = "0000016918-26-000011"
+        got = FR.choose({self.X: _e(10208700000, a), self.I: _e(10956900000, a), self.T: _e(748200000, a)})
+        self.assertEqual((got["val"], got["note"]), (10208700000, None))
+
+    def test_revenues_net_of_excise_is_not_a_component_line(self):
+        a = "0001193125-26-067467"
+        got = FR.choose({"us-gaap:Revenues": _e(3975000000, a), self.I: _e(5056000000, a), self.T: _e(1081000000, a)})
+        self.assertEqual((got["val"], got["concept"]), (3975000000, "us-gaap:Revenues"))
+        sam = FR.choose({"us-gaap:Revenues": _e(2012926000, a), self.I: _e(2137802000, a), self.T: _e(124876000, a)})
+        self.assertEqual(sam["val"], 2012926000)
+
+    def test_revenues_tagged_gross_gives_way_to_the_net_figure(self):
+        a = "0000000001-25-000001"
+        got = FR.choose({"us-gaap:Revenues": _e(1200.0, a), self.X: _e(1000.0, a), self.T: _e(200.0, a)})
+        self.assertEqual((got["val"], got["concept"], got["note"]), (1000.0, self.X, "excise_net"))
+
+    def test_no_excise_evidence_changes_nothing(self):
+        a = "0001524472-22-000010"                   # Xylem CY2021: no excise, Including is not gross
+        got = FR.choose({self.X: _e(5195000000, a), self.I: _e(4998000000, a)})
+        self.assertEqual((got["val"], got["note"]), (5195000000, None))
+        far = FR.choose({self.X: _e(5195000000, a), self.I: _e(4998000000, a), self.T: _e(50000000, a)})
+        self.assertEqual(far["val"], 5195000000)
+
+    def test_swapped_tags_flag_names_the_filer(self):
+        frames = {y: {1: [10.0, f"{y}-12-31", self.I, "excise_tags_swapped"], 2: [30.0, f"{y}-12-31"]} for y in Y5}
+        s = PP.industry_share({"TAP": 1, "B": 2}, frames, 1, Y5, AS_OF)
+        self.assertIn("แท็ก SEC สลับกัน ใช้ค่ารายได้สุทธิที่ต่ำกว่า 1 ราย (TAP)", s["flags"])
+
+
 class Ifrs(unittest.TestCase):
     """R34. GlobalFoundries files IFRS in USD: it counted as a member with no revenue (D1)."""
 
@@ -261,7 +310,25 @@ class Ifrs(unittest.TestCase):
         self.assertEqual(other, {4242: "EUR"})
         self.assertNotIn(4242, panel)
         self.assertEqual(names[1709048], "GLOBALFOUNDRIES Inc.")
-        self.assertEqual(len(calls), len(dc.FRAMES_CONCEPTS) + 1 + len(dc.IFRS_OTHER_CURRENCIES))
+        self.assertEqual(len(calls), len(dc.FRAMES_CONCEPTS) + 1 + 1 + len(dc.IFRS_OTHER_CURRENCIES))
+
+    def test_excise_fetch_failure_keeps_the_panel_and_is_noted(self):
+        import tempfile
+        from sources import damodaran_companies as dc
+        calls, base = [], self._fake([])
+
+        def get(url, headers=None, timeout=None):
+            calls.append(url)
+            if "/ExciseAndSalesTaxes/" in url:
+                raise ConnectionError("excise down")
+            return base.get(url)
+        req = type("Req", (), {"get": staticmethod(get)})
+        with tempfile.TemporaryDirectory() as d:
+            dc._frames(d, 2025, "test", req, throttle=lambda: None)
+            panel, _n, _o = dc.panel_frames_of(d, 2025)
+            cache = json.load(open(os.path.join(d, "sec_frames_revenue_CY2025.json")))
+        self.assertEqual(panel[1045810][0], 215938000000)
+        self.assertIs(cache["excise_read"], False)
 
     def test_non_usd_ifrs_members_are_flagged_not_counted(self):
         members = {"A": 1, "B": 2, "EU": 3}

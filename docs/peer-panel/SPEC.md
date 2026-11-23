@@ -312,4 +312,13 @@ revenue 0 (R20); no us-gaap revenue and the run could not read IFRS frames (the 
 from the frames cache's ifrs_note); no revenue under either taxonomy. A non-USD IFRS member is
 named by its R34 flag instead. GFS (20-F, IFRS, USD) on an offline cache with no IFRS frames
 is the case that had no reason. Display only (PP1).
+R41 Net revenue. The industry share counts revenue net of excise for every filer. The frames
+fetch also reads us-gaap ExciseAndSalesTaxes per year (evidence only, never sized on; the cache
+stores excise_read). When the chosen value minus another revenue value of the same filer-year
+equals the filer's excise for that period end (within 1% of the larger), the smaller value is the
+revenue: note excise_tags_swapped when the gross sits under ...ExcludingAssessedTax and the net
+under ...IncludingAssessedTax (Molson Coors), flagged "แท็ก SEC สลับกัน ใช้ค่ารายได้สุทธิที่ต่ำกว่า
+<n> ราย (<tickers>)"; else excise_net. No excise tag: no change (Xylem's two revenue values differ
+by 4% with no excise). A cache without excise_read is refreshed, and while it is the only copy
+the panel notes that net revenue was not applied. Display only (PP1).
 
