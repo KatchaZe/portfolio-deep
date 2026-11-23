@@ -303,3 +303,13 @@ operating income, with the flag "S1: ROIC ends FY<a>, <n> fiscal years before th
 TMDX's invested capital stops at FY2022 (its debt moved from LongTermDebtNoncurrent to
 ConvertibleDebtNoncurrent in FY2023 and _ic_components requires the first tag every year),
 so S1 read FY2019..FY2022 beside S3 and S4 on FY2022..FY2025. Display only (PP1).
+
+## Resolutions 2026-11-23 (roic-convert-excise)
+R40 No-revenue members. A member industry_share counts (it has a CIK) with no positive revenue
+in any panel year is listed in no_revenue [[tickers, cik, Thai reason]] and counted in a flag
+per reason ("ไม่มีรายได้ใน SEC frames <n> ราย (...): <reason>"). Reasons: a balance sheet with
+revenue 0 (R20); no us-gaap revenue and the run could not read IFRS frames (the years named,
+from the frames cache's ifrs_note); no revenue under either taxonomy. A non-USD IFRS member is
+named by its R34 flag instead. GFS (20-F, IFRS, USD) on an offline cache with no IFRS frames
+is the case that had no reason. Display only (PP1).
+

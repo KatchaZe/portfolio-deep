@@ -119,7 +119,7 @@ def _offline_universe(cache):
     from domain import frames_revenue
     from pipeline import cik
     rows = (_load(os.path.join(cache, "damodaran_indname.json")) or {}).get("rows") or {}
-    by_sec, assets, names, other = {}, {}, {}, {}
+    by_sec, assets, names, other, unread = {}, {}, {}, {}, []
     for name in sorted(os.listdir(cache)):
         if name.startswith("sec_frames_revenue_CY"):
             y = int(name[21:25])
@@ -128,13 +128,15 @@ def _offline_universe(cache):
                 if v not in names.setdefault(k, []):
                     names[k].append(v)
             other.update(o)
+            if (_load(os.path.join(cache, name)) or {}).get("ifrs_note"):
+                unread.append(y)
         elif name.startswith("sec_frames_assets_CY"):
             assets[int(name[20:24])] = set(_load(os.path.join(cache, name))["ciks"])
     frames = frames_revenue.rebucket(by_sec)                        # R36
     glob = (_load(os.path.join(cache, "damodaran_global_sic.json")) or {}).get("rows") or []
     us_names = (_load(os.path.join(cache, dc.NAMES_CACHE)) or {}).get("names") or {}
     return peers.Universe(rows=rows, frames=frames, assets=assets, global_rows=glob, frame_names=names,
-                          ifrs_other=other, us_names=us_names, sec_map=cik.ticker_map())
+                          ifrs_other=other, ifrs_unread=unread, us_names=us_names, sec_map=cik.ticker_map())
 
 
 def offline(s, tickers, universe):

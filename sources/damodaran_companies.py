@@ -457,10 +457,10 @@ def load_revenue_frames_years(cache_dir, today, user_agent, requests_mod=None, t
 
 
 def load_frame_extras(cache_dir, today):
-    """({cik: [SEC entity names, oldest year first]}, {cik: IFRS currency}) over the panel
-    years' caches (plus the year before), read after load_revenue_frames_years. No fetch.
-    Never raises."""
-    names, other = {}, {}
+    """({cik: [SEC entity names, oldest year first]}, {cik: IFRS currency}, [CY whose IFRS
+    frames were not read]) over the panel years' caches (plus the year before), read after
+    load_revenue_frames_years. No fetch. Never raises."""
+    names, other, unread = {}, {}, []
     years = panel_years(today)
     for year in [years[0] - 1] + years:
         try:
@@ -473,4 +473,7 @@ def load_frame_extras(cache_dir, today):
                 names[k].append(v)               # a renamed filer keeps every name it used
         if year in years:
             other.update(o)
-    return names, other
+            c = _read(os.path.join(cache_dir, f"sec_frames_revenue_CY{year}.json")) or {}
+            if c.get("ifrs_note"):
+                unread.append(year)
+    return names, other, unread

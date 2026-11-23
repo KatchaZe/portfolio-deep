@@ -272,6 +272,42 @@ class Ifrs(unittest.TestCase):
         self.assertEqual(s["members_ifrs_other"], [["EUR", 1]])
 
 
+class NoRevenue(unittest.TestCase):
+    """E58. A member with a CIK and no revenue in any panel year (GFS on an offline cache with
+    no IFRS frames) was counted in n_members with no reason and no flag. Each such member
+    is named with a Thai reason and counted in a flag."""
+    members = {"A": 1, "B": 2, "GFS": 1709048}
+
+    def frames(self):
+        return {y: {1: [10.0, f"{y}-12-31"], 2: [30.0, f"{y}-12-31"]} for y in Y5}
+
+    def test_member_with_no_revenue_anywhere_is_named_and_flagged(self):
+        s = PP.industry_share(self.members, self.frames(), 1, Y5, AS_OF)
+        self.assertEqual([r[0] for r in s["no_revenue"]], ["GFS"])
+        self.assertIn("ifrs-full", s["no_revenue"][0][2])
+        self.assertTrue(any("ไม่มีรายได้ใน SEC frames" in f and "1 ราย" in f and "GFS" in f for f in s["flags"]))
+
+    def test_unread_ifrs_frames_are_the_named_reason(self):
+        s = PP.industry_share(self.members, self.frames(), 1, Y5, AS_OF, ifrs_unread=[2024, 2025])
+        self.assertIn("IFRS", s["no_revenue"][0][2])
+        self.assertIn("CY2024", s["no_revenue"][0][2])
+
+    def test_a_balance_sheet_with_no_revenue_is_a_different_reason(self):
+        assets = {y: {1, 2, 1709048} for y in Y5}
+        s = PP.industry_share(self.members, self.frames(), 1, Y5, AS_OF, assets=assets)
+        self.assertIn("รายได้ 0", s["no_revenue"][0][2])
+
+    def test_non_usd_ifrs_member_is_not_named_twice(self):
+        s = PP.industry_share(self.members, self.frames(), 1, Y5, AS_OF, ifrs_other={1709048: "EUR"})
+        self.assertEqual(s["no_revenue"], [])
+
+    def test_sub_group_carries_the_reason(self):
+        sics = {"A": "3674", "B": "3674", "GFS": "3674"}
+        sub = PP.sub_group(self.members, self.frames(), 1, Y5, AS_OF, sics=sics, target_symbol="A")
+        self.assertEqual([r[0] for r in sub["no_revenue"]], ["GFS"])
+        self.assertTrue(any(f.startswith("sub-group SIC 3674: ไม่มีรายได้") for f in sub["flags"]))
+
+
 class Scope(unittest.TestCase):
     """R37. The sub-group is Damodaran's SIC group; a same-business firm filed under another
     SIC is outside it, and the stored panel says so."""

@@ -274,6 +274,8 @@ PANEL_CLOCK = {
     # 2026-11-22 share-data fix (R33-R38): who the share could not count, and why
     "coverage_incl_unresolved": CY, "members_unresolved": STATIC, "unresolved": STATIC,
     "members_ifrs_other": STATIC, "dropped_weight": STATIC, "revenue_notes": CY, "scope_note": STATIC,
+    # 2026-11-23: a counted member with no revenue in any year, named with its reason (R40)
+    "no_revenue": STATIC,
 }
 PANEL_UNIT = {
     "revenue_ttm": MONEY, "ebit_ttm": MONEY, "net_income_ttm": MONEY, "ev": MONEY,

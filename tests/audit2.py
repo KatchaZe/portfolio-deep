@@ -520,11 +520,12 @@ def _a13a(res):
 def _a13_shares(pp=_PP):
     """Synthetic share groups (share classes, an unresolved member, a non-USD IFRS member)
     through `pp`, plus the live holdings' rebuilt panels (_built_now)."""
-    members = {"T": 1, "TB": 1, "P": 2, "Q": 3, "QQ": None, "EU": 4}
-    sics = {"T": "3674", "TB": "3674", "P": "3674", "Q": "3672", "QQ": "3674", "EU": "3674"}
+    members = {"T": 1, "TB": 1, "P": 2, "Q": 3, "QQ": None, "EU": 4, "GF": 5, "R": 6, "S": 7}
+    sics = {"T": "3674", "TB": "3674", "P": "3674", "Q": "3672", "QQ": "3674", "EU": "3674", "GF": "3674",
+            "R": "3674", "S": "3674"}
     frames = {y: {1: [50.0, f"{y}-12-31"], 2: [30.0, f"{y}-12-31", "us-gaap:Revenues", None],
                   3: [20.0, f"{y}-12-31", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
-                      "revenues_component"]} for y in _Y5}
+                      "revenues_component"], 6: [5.0, f"{y}-12-31"], 7: [5.0, f"{y}-12-31"]} for y in _Y5}
     s = pp.industry_share(members, frames, 1, _Y5, "2026-11-16", None, None, {"QQ": "ไม่พบชื่อ"}, {4: "EUR"})
     s["sub_group"] = pp.sub_group(members, frames, 1, _Y5, "2026-11-16", None, None, sics, "T",
                                   {"QQ": "ไม่พบชื่อ"}, {4: "EUR"})
@@ -590,6 +591,29 @@ def _a13d(shares):
     return bad
 
 
+def _a13e(shares):
+    """A13e [E58]: a counted member with no revenue in any year and no reason, or a
+    no-revenue count the flags do not add up to."""
+    bad = []
+    for k, _m, s in shares:
+        named = {c for _t, c, _w in s.get("no_revenue") or []}
+        if "no_revenue" not in s:
+            bad.append((k, "key"))
+            continue
+        ifrs = " ".join(f for f in s.get("flags") or [] if "รายงาน IFRS สกุล" in f)
+        top = s.get("top5_share") or {}
+        if top and all(v is not None for v in top.values()):
+            for r in (s.get("chart") or {}).get("members") or []:
+                if r["revenue_now"] is None and all(x is None for x in r["share"]) and r["cik"] not in named \
+                        and not any(f"{t})" in ifrs or f"{t}," in ifrs for t in r["symbols"]):
+                    bad.append((k, "silent", r["symbols"]))
+        n = sum(int(m.group(1)) for f in s.get("flags") or []
+                for m in [_re.search(r"ไม่มีรายได้ใน SEC frames (\d+) ราย", f)] if m)
+        if n != len(named):
+            bad.append((k, "flag count", n, len(named)))
+    return bad
+
+
 def _a13_max_of_concepts(e):
     """The rule R35 replaced: the largest concept across filings, no note (TMDX CY2021)."""
     c, v = max(((c, v["val"]) for c, v in e.items()), key=lambda cv: cv[1])
@@ -598,7 +622,8 @@ def _a13_max_of_concepts(e):
 
 _res = _a13_resolution()
 _sh = _a13_shares()
-for _name, _found in (("A13a", _a13a(_res)), ("A13b", _a13b(_sh)), ("A13c", _a13c()), ("A13d", _a13d(_sh))):
+for _name, _found in (("A13a", _a13a(_res)), ("A13b", _a13b(_sh)), ("A13c", _a13c()), ("A13d", _a13d(_sh)),
+                      ("A13e", _a13e(_sh))):
     print(f"  {_name}: {len(_found)}" + ("" if _res is not None or _name != "A13a" else " (no offline caches: synthetic only)"))
     if _found:
         flag("HIGH", f"{_name} {_found[:3]}")
@@ -620,7 +645,10 @@ for _name, _mod, _edit, _run in (
                            new="            pick = over"), lambda m: _a13c(m)),
         ("A13c", _FR, dict(override={"choose": _a13_max_of_concepts}), lambda m: _a13c(m)),
         ("A13d", _PP, dict(old='        flags.append(f"หา CIK ไม่ได้ {len(no_cik)} ราย (ไม่นับ): {\', \'.join(no_cik[:6])}{more}")',
-                           new="        pass"), lambda m: _a13d(_a13_shares(m)[:2]))):
+                           new="        pass"), lambda m: _a13d(_a13_shares(m)[:2])),
+        ("A13e", _PP, dict(override={"no_revenue": lambda *a, **k: None}), lambda m: _a13e(_a13_shares(m)[:2])),
+        ("A13e", _PP, dict(old='        out["flags"].append(f"ไม่มีรายได้ใน SEC frames {len(ts)} ราย',
+                           new='        out["flags"].append(f"ไม่มีรายได้ {len(ts)} ราย'), lambda m: _a13e(_a13_shares(m)[:2]))):
     try:
         _m = _variant(_mod, **_edit)
     except _Stale as _e:

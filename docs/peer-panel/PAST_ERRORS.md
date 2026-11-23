@@ -62,6 +62,7 @@ for the peer panel. A guard counts only if a mutation test has shown it going re
 | E55 | A denominator that hides what it dropped: "N members have no SEC CIK" with no names or reasons, coverage only over the resolved members | R38 members_unresolved, unresolved [ticker, reason], coverage_incl_unresolved, members_ifrs_other, dropped_weight; A13d, mutant removes the flag |
 | E56 | A CIK counted once per ticker instead of once per filer (BRK.A and BRK.B both resolve to 1067983) | industry_share counts CIKs (test_share_classes_of_one_filer_count_once); A13b, mutant counts tickers |
 | E57 | A moat signal from a stale window: TMDX's S1 slope (+61.26 pp/yr) came from FY2019..FY2022 because its invested capital stops at FY2022, while S3 and S4 read FY2022..FY2025 | R39 spread_slope absent when its window ends over one FY before the newest operating-income FY (test_E57_S1_window_more_than_one_fy_behind_the_latest_is_absent) |
+| E58 | A counted member with no revenue in any year and no reason: GFS (CIK 1709048, 20-F under IFRS in USD) sat in NVDA's SIC 3674 sub-group with shares [null x5] while unresolved and members_ifrs_other were empty, because the offline frames cache has no IFRS frames and only the panel notes said so (E13's class) | R40 no_revenue with a Thai reason and a counted flag (tests/test_share_data_fix NoRevenue); audit2 A13e, mutants drop the list or the flag |
 
 The stale OperatingIncomeLoss and interest concepts recorded here as open on 2026-11-17 are
 E31 and E33. Still open (not changed in this round): ACHC tags interest only as

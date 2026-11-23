@@ -265,14 +265,14 @@ class Universe:
     def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None,
                  frames=None, frames_loader=None, assets=None, global_rows=None, global_loader=None,
                  frame_names=None, ifrs_other=None, us_names=None, names_loader=None, sec_map=None,
-                 sec_map_loader=None):
+                 sec_map_loader=None, ifrs_unread=None):
         self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
                                           [n for n in notes if n], as_of)
         self._loader, self._lock = loader, threading.Lock()
         # the peer panel's five calendar years of frames (revenue, and the Assets filers
         # that count toward coverage, R20), loaded only when a panel asks
         self._frames = None if frames_loader else (frames or {}, [], assets or {}, frame_names or {},
-                                                   ifrs_other or {})
+                                                   ifrs_other or {}, list(ifrs_unread or ()))
         self._frames_loader = frames_loader
         # the industry share's member resolution (R32, R33): Damodaran's company names, SEC's
         # ticker map ({ticker: cik}, {cik: title}); a Universe built from parts has neither
@@ -338,6 +338,7 @@ class Universe:
     name_notes = property(lambda self: self._get_names()[1])
     frame_names = property(lambda self: (self._get_frames()[3:] or ({},))[0])
     ifrs_other = property(lambda self: (self._get_frames()[4:] or ({},))[0])
+    ifrs_unread = property(lambda self: (self._get_frames()[5:] or ([],))[0])
 
     def members_of(self, industry):
         """(members, foreign, unresolved) for one Damodaran industry: {ticker: cik or None}
@@ -401,8 +402,8 @@ class Universe:
             cd, ua = cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT
             rev, n1 = dc.load_revenue_frames_years(cd, today, ua)
             assets, n2 = dc.load_assets_frames_years(cd, today, ua)
-            names, other = dc.load_frame_extras(cd, today)
-            return rev, n1 + n2, assets, names, other
+            names, other, unread = dc.load_frame_extras(cd, today)
+            return rev, n1 + n2, assets, names, other, unread
         def load_global():
             from sources import damodaran_companies as dc
             return dc.load_global_sic(cache_dir or config.CACHE_DIR, user_agent or config.SEC_USER_AGENT)
@@ -595,9 +596,10 @@ def panel_and_moat(f, val, block, universe, today):
         years = dc.panel_years(today)
         other = universe.ifrs_other
         share = peer_panel.industry_share(members, universe.frames, tcik, years, as_of,
-                                          foreign, universe.assets, unresolved, other)
+                                          foreign, universe.assets, unresolved, other, universe.ifrs_unread)
         share["sub_group"] = peer_panel.sub_group(members, universe.frames, tcik, years, as_of, foreign,
-                                                  universe.assets, sics, f.ticker, unresolved, other)
+                                                  universe.assets, sics, f.ticker, unresolved, other,
+                                                  universe.ifrs_unread)
     notes = list(universe.frame_notes) + list(universe.name_notes if industry else []) + \
         list(block.get("notes") or [])
     if tsic["source"] != peer_panel.SIC_SOURCE:

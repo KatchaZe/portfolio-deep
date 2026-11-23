@@ -382,7 +382,7 @@ def _in_frames(frames, cik, ys):
 
 
 def industry_share(members, frames, target_cik, years, as_of, foreign=None, assets=None, unresolved=None,
-                   ifrs_other=None):
+                   ifrs_other=None, ifrs_unread=None):
     """Share of revenue among the US SEC filers in one Damodaran industry, per calendar
     year. `members` {ticker: cik or None} is the industry's own US-domiciled list (no
     other peer source); `foreign` the US-listed members domiciled elsewhere, counted
@@ -395,7 +395,10 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
     Calendar years not complete by as_of are not used. A member with no CIK (`unresolved`
     {ticker: Thai reason}, R33) or one filing IFRS in another currency (`ifrs_other`
     {cik: currency}, R34) is not counted, and both are named with their counts; coverage
-    is also reported over the members including the unresolved ones (R38)."""
+    is also reported over the members including the unresolved ones (R38). A counted
+    member with no revenue in any year (`no_revenue` [ticker, cik, Thai reason], R40) is
+    named: no frame at all (the reason names the years `ifrs_unread` could not read IFRS
+    frames), or a balance sheet with revenue 0."""
     flags = []
     ciks = {int(c) for c in members.values() if c}
     no_cik = sorted(t for t, c in members.items() if not c)
@@ -421,7 +424,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
            "coverage": {}, "coverage_incl_unresolved": {}, "members_unresolved": len(no_cik),
            "unresolved": [[t, reasons.get(t)] for t in no_cik],
            "members_ifrs_other": [[cur, len(v)] for cur, v in sorted(other.items())],
-           "dropped_weight": None, "revenue_notes": {},
+           "dropped_weight": None, "revenue_notes": {}, "no_revenue": [],
            "target_share": {}, "top5_share": {}, "hhi": {},
            "target_frames_end": {}, "share_change_pp": None, "top5_change_pp": None,
            "matched_n": None, "matched_share_then": None, "matched_share_now": None,
@@ -475,6 +478,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
             out["target_share"][k] = None
             if tc is not None:
                 flags.append(f"CY{y}: no revenue frame for the target")
+    no_revenue(out, ciks, {**(foreign or {}), **members}, raw, assets, other, ys, ifrs_unread)
     notes = {}
     for k, by in out["revenue_notes"].items():
         by.sort()
@@ -487,6 +491,40 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
         matched_change(out, shown.get(new), shown.get(new - SHARE_LOOKBACK), tc, new - SHARE_LOOKBACK, new)
     out["chart"] = share_chart(ciks, {**(foreign or {}), **members}, ys, shown, raw, tc, out)
     return out
+
+
+def no_revenue(out, ciks, symbols_of, raw, assets, other, ys, ifrs_unread):
+    """R40: every counted member with no positive revenue in any panel year gets a Thai
+    reason in out["no_revenue"] and a flag per reason with its count. A non-USD IFRS
+    member is already named by its own flag and is skipped here."""
+    if not raw:
+        return                       # no frames in any year: that flag already says so
+    named = {c for v in other.values() for c in v}
+    sym = {}
+    for t, c in symbols_of.items():
+        if c:
+            sym.setdefault(int(c), []).append(t)
+    unread = sorted(y for y in (ifrs_unread or ()) if y in ys)
+    span = f"CY{ys[0]}–CY{ys[-1]}" if ys else ""
+    by = {}
+    for c in sorted(ciks - named):
+        if any(c in v for v in raw.values()):
+            continue
+        if any(c in ((assets or {}).get(y) or (assets or {}).get(str(y)) or ()) for y in ys):
+            why = f"มีงบดุลใน SEC แต่ไม่มีรายได้ {span} (นับเป็นรายได้ 0)"
+        elif unread:
+            why = (f"ไม่มีรายได้ us-gaap (Revenues และ concept รายได้อีก 3 ตัว) ใน SEC frames {span} "
+                   f"และรอบนี้อ่านรายได้ IFRS ไม่ได้ ({', '.join(f'CY{y}' for y in unread)}) "
+                   "ถ้ารายงาน IFRS จะไม่ถูกนับ")
+        else:
+            why = (f"ไม่มีรายได้ใน SEC frames {span} ทั้ง us-gaap (Revenues และ concept รายได้อีก 3 ตัว) "
+                   "และ ifrs-full (USD)")
+        t = "/".join(sorted(sym.get(c) or [str(c)]))
+        out["no_revenue"].append([t, c, why])
+        by.setdefault(why, []).append(t)
+    for why, ts in by.items():
+        more = f" และอีก {len(ts) - 6} ราย" if len(ts) > 6 else ""
+        out["flags"].append(f"ไม่มีรายได้ใน SEC frames {len(ts)} ราย ({', '.join(ts[:6])}{more}): {why}")
 
 
 def share_chart(ciks, symbols_of, ys, shown, raw, tc, out):
@@ -567,7 +605,7 @@ def scope_note(sic):
 
 
 def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=None, sics=None,
-              target_symbol=None, unresolved=None, ifrs_other=None):
+              target_symbol=None, unresolved=None, ifrs_other=None, ifrs_unread=None):
     """industry_share over the industry members whose 4-digit SIC equals the target's
     (R28): same matched set (R13), coverage (R20) and calendar years (R10) as the full
     industry, plus `members`, one row per filer in the newest calendar year, revenue and
@@ -581,7 +619,7 @@ def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=No
                 "scope_note": scope_note(None)}
     pick = lambda d: {t: c for t, c in (d or {}).items() if sic4(sics.get(t)) == ts}
     sm, sf = pick(members), pick(foreign)
-    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets, unresolved, ifrs_other)
+    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets, unresolved, ifrs_other, ifrs_unread)
     out.update(group=SUB_GROUP, sic=ts, sic_source=SIC_SOURCE, reason=None, scope_note=scope_note(ts),
                flags=[f"sub-group SIC {ts}: {f}" for f in out["flags"]])
     ys = out["years"]
