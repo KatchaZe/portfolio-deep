@@ -442,6 +442,26 @@ def industry_beta_for(ticker, sector, table=None, fmp_industry=None):
     return b, ind if basis in ("override", "industry") else f"{ind} ({basis}-level)"
 
 
+# Industry cost of capital (wacc.html "Cost of Capital", US, January vintage). Read only by
+# tools/scout_fetch: no score or fair value uses it (each firm's WACC is built bottom-up).
+# No bundled snapshot: an unreachable page with no cache gives {} and the caller says so.
+WACC_URL = "https://pages.stern.nyu.edu/~adamodar/New_Home_Page/datafile/wacc.html"
+WACC_CACHE_FILE = "damodaran_wacc.json"
+WACC_HEADER = "cost of capital"
+
+
+def parse_wacc_html(html):
+    """wacc.html -> {normalized industry: cost of capital as a decimal}."""
+    return _parse_by_header(html, lambda h: h == WACC_HEADER, _pct, lambda v: 0 < v < 0.5)
+
+
+def fetch_wacc_table(cache_dir=None, ttl_days=TTL_DAYS, requests_mod=None, timeout=12,
+                     user_agent="PortfolioDeepApp"):
+    """{industry: cost of capital}. Disk cache -> network -> stale cache -> {}. Never raises."""
+    return _fetch_table(WACC_URL, WACC_CACHE_FILE, parse_wacc_html, {}, "wacc",
+                        cache_dir, ttl_days, requests_mod, timeout, user_agent)
+
+
 # --------------------------------------------------------------------------- #
 #  Industry operating margin and sales-to-capital (margin.html, capex.html)     #
 # --------------------------------------------------------------------------- #
