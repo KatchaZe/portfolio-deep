@@ -329,20 +329,47 @@ svg.ch text.bull{fill:color-mix(in srgb,var(--bull) 72%,var(--ink))} svg.ch text
 /* How to / Ref */
 .prose{font-size:var(--t-sm);line-height:1.75}
 .prose>p{max-width:120ch}
-.htfig{position:relative;margin:8px 0 2px;padding:14px;border:1px solid var(--line);border-radius:var(--r);background:var(--sunken);overflow:hidden}
-.htstage{pointer-events:none;user-select:none;position:absolute;left:14px;top:14px;transform-origin:0 0}
-.htstage .card{max-width:none}
-.htmark{position:absolute;z-index:2;min-width:22px;height:22px;padding:0 5px;border-radius:11px;background:var(--ink);color:var(--surface);font:700 12px/22px var(--f-num);text-align:center;box-shadow:0 0 0 2px var(--surface),0 1px 3px rgba(0,0,0,.35)}
-.htph{padding:18px;text-align:center;color:var(--muted);font-size:var(--t-sm)}
-.htcap{margin:0 0 8px;font-size:var(--t-xs);color:var(--muted)}
 .heat.heatw{width:100%}
 .ht{font-size:var(--t-lg);margin:6px 0 4px}
 .ht2{font-size:var(--t-md);margin:20px 0 6px;color:var(--ink)}
-.httab{width:100%;border-collapse:collapse;font-size:var(--t-sm);margin:4px 0 10px;table-layout:fixed}
-.httab td,.httab th{overflow-wrap:anywhere;white-space:normal}
-.httab:has(th[style*="58px"]) tr>:first-child{overflow-wrap:normal;white-space:nowrap}
-.httab th{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.03em;color:var(--muted);text-align:left;padding:7px 9px;background:var(--sunken)}
-.httab td{text-align:left;white-space:normal;vertical-align:top;padding:7px 9px;border-bottom:1px solid var(--line)}
+/* How to + Ref (tools/build_ref.py writes the markup, static/js/ref_page.js the behaviour) */
+.howto,.refpage{max-width:110ch}
+.reftoc ol{display:flex;flex-wrap:wrap;gap:6px 8px;list-style:none;margin:10px 0 14px;padding:0}
+.reftoc a{display:inline-flex;align-items:center;min-height:32px;padding:4px 10px;border:1px solid var(--line);border-radius:999px;background:var(--surface);color:var(--ink-2);text-decoration:none;font-size:var(--t-xs)}
+.reftoc a:hover{background:var(--soft);color:var(--ink)}
+.reftoc li{display:inline-flex;align-items:center;gap:4px}
+.reftoc .refn{font:var(--t-xs) var(--f-num);color:var(--muted)}
+.reftools{position:sticky;top:0;z-index:4;display:flex;flex-wrap:wrap;align-items:center;gap:8px 10px;padding:10px 0;background:var(--surface);border-bottom:1px solid var(--line)}
+.reftools label{font-weight:600}
+.reftools input{flex:1 1 220px;min-width:0;min-height:36px;font-size:var(--t-sm)}
+.refbtns{display:inline-flex;gap:6px;margin-left:auto}
+.refsec{border:1px solid var(--line);border-radius:var(--r);margin:10px 0;background:var(--surface)}
+.refsec>summary{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px;cursor:pointer;min-height:44px;list-style-position:inside}
+.refsec>summary .ht2{display:inline;margin:0}
+.refsec>summary:hover{background:var(--soft)}
+.refsec .refn{font-size:var(--t-xs);color:var(--muted)}
+.refbody{padding:0 14px 8px}
+.refent{border-top:1px solid var(--line);padding:12px 0;scroll-margin-top:72px}
+.refent:focus-visible{outline:2px solid var(--focus);outline-offset:2px}
+.refterm{font-size:var(--t-md);margin:0 0 6px;color:var(--ink);display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+.refkind{display:inline-block;font-size:var(--t-xs);font-weight:600;line-height:1.4;padding:1px 8px;border-radius:999px;border:1px solid currentColor}
+.refkind.k-score{color:var(--accent)}
+.refkind.k-show{color:var(--muted)}
+.refkind.k-input{color:var(--info)}
+.refkind.k-ctl{color:var(--ink-2)}
+.refdl{display:grid;gap:4px;margin:0}
+.refdl>div{display:grid;grid-template-columns:minmax(0,1fr);gap:0}
+.refdl dt{font-size:var(--t-xs);font-weight:600;color:var(--muted)}
+.refdl dd{margin:0 0 4px;color:var(--ink-2);overflow-wrap:anywhere}
+.refli{margin:0;padding-left:1.1em;display:grid;gap:2px}
+.htask{border:1px solid var(--line);border-radius:var(--r);padding:4px 14px 10px;margin:12px 0;background:var(--surface);scroll-margin-top:72px}
+.hsteps{margin:6px 0 0;padding-left:1.4em;display:grid;gap:8px}
+.hsteps li{overflow-wrap:anywhere}
+.refsee{display:block;font-size:var(--t-xs);color:var(--muted)}
+.reflink{display:inline-block;margin-left:2px;padding:2px 0;line-height:20px;white-space:nowrap}
+.refsec{scroll-margin-top:120px}
+@media (min-width:760px){.refdl>div{grid-template-columns:150px minmax(0,1fr);gap:12px}.refdl dt{padding-top:2px}}
+@media (max-width:720px){.reftools{top:44px}.refbtns{margin-left:0}.refsec,.refent,.htask{scroll-margin-top:180px}}
 .foot{margin-top:28px;font-size:var(--t-xs);color:var(--muted);border-top:1px solid var(--line);padding-top:10px;display:flex;flex-wrap:wrap;gap:6px 18px;justify-content:space-between}
 
 .fxgrid{grid-template-columns:minmax(0,2fr) minmax(0,1fr)}

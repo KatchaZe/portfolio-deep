@@ -265,7 +265,7 @@ def test_docs_quote_the_numbers_the_code_runs():
     for want in (f"ภาษี capital gains {config.CAPGAINS_TAX_RATE * 100:g}%",
                  f"ภาษีปันผล {config.DIVIDEND_WITHHOLDING * 100:g}%",
                  f"ครบ {L.XIRR_MIN_DAYS} วัน", f"ช่วงละ {S.BOOT_BLOCK} วัน", f"{S.BOOT_SIMS:,} รอบ",
-                 "6) หน้า Performance", "Ledoit-Wolf δ"):
+                 'id="refsec-ledger"', "Ledoit-Wolf δ"):
         check(want in html, f"index.html says: {want}")
 
 

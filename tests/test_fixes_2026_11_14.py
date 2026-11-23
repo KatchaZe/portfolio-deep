@@ -937,7 +937,9 @@ def test_ui_and_docs_name_not_rated():
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     html = open(os.path.join(root, "index.html"), encoding="utf-8").read()
     assert "ไม่จัดอันดับ" in html and "NOT RATED" in html, "How-to/Ref must explain NOT RATED"
-    row = html.split("<b>DEEP recommendation</b>", 1)[1].split("</tr>", 1)[0]
+    from docs.ref.content import entry
+    assert 'id="ref-rating"' in html, "the Ref page ships the DEEP rating entry"
+    row = entry("rating").text()
     for why in ("ไม่จัดอันดับ", "NOT RATED", "Extreme", "liquidation", "terminal", "TTM"):
         assert why in row, why
     card = open(os.path.join(root, "static", "js", "card.js"), encoding="utf-8").read()
