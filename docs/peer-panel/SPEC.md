@@ -323,12 +323,20 @@ by 4% with no excise). A cache without excise_read is refreshed, and while it is
 the panel notes that net revenue was not applied. Display only (PP1).
 R42 Debt (SEC extract; scored, outside the panel). total_debt, total_debt_prior and every
 ic_components_dated year read one balance-sheet date through sec_edgar.debt_on: the combined
-total, else noncurrent + (DebtCurrent | current maturities + short-term borrowings), else
-LongTermDebt as the total (when the filer's own dates show LongTermDebt = noncurrent + current)
-or as the noncurrent line, plus finance leases unless a ...CapitalLeaseObligations concept
-already carries them. Each bucket takes the first total filed on the date, else the sum of its
-disjoint parts: never a total and its own part, never one concept carried across years, never
-a total below one of its parts. An IC year is left out only when no debt concept is filed on
-it. A filer with finance leases only keeps total_debt None (Ford's debt is in extension tags).
+total (unless it exceeds the lines below by the unamortized discount filed on the date: then
+it is the principal and the lines are the carrying amount, E67), else noncurrent + (DebtCurrent |
+current maturities + short-term borrowings), else LongTermDebt as the total (when the filer's
+own dates show LongTermDebt = noncurrent + current) or as the noncurrent line, plus finance
+leases unless a ...CapitalLeaseObligations concept is among the lines read or the filer's
+filing says its leases sit inside its debt lines (FIN_LEASE_IN_DEBT, each entry cited: HCA,
+AVGO; an equal lease-inclusive twin is no evidence, ASML). Each bucket takes the first total
+filed on the date, else the sum of its disjoint parts: never a total and its own part, never
+one concept carried across years, never a total below one of its parts. A fiscal-year-end
+date reads the annual report over a 10-Q comparative (E68).
+Debt-free and untagged (one rule for total_debt, total_debt_prior and IC, S5): a date with no
+borrowing line is debt 0 (or its finance leases, which are debt) when a balance sheet is filed
+for it; it is unread (IC year left out, total_debt None) when interest payable is filed, or a
+debt concept the tree does not read, or a debt concept outside a periodic report, at a filer
+the tree reads elsewhere (E65, E66). No balance sheet for the date: a filing gap, left out.
 S1 then reads TMDX's FY2021..FY2025 ROIC run (R39's guard no longer fires for it).
 

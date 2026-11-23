@@ -63,5 +63,73 @@ class Debt(unittest.TestCase):
         self.assertAlmostEqual(ic_debt("UTHR")["2014-12-31"] / M, 126.4, delta=0.1)
 
 
+    # ---- E64-E68 (round 3, 2026-11-23): each was seen red on a604340 ----
+
+    def test_E64_finance_leases_inside_the_debt_lines_are_not_added_again(self):
+        # HCA 10-K FY2024: the lease note classifies finance lease liabilities under "Long-term
+        # debt due within one year" and "Long-term debt"; total debt 43,031 / 39,593 ($M,
+        # 2024 / 2023). a604340 added FinanceLeaseLiability 786 / 707 on top.
+        d = ic_debt("HCA")
+        self.assertEqual(d["2024-12-31"], 43031 * M)
+        self.assertEqual(d["2023-12-31"], 39593 * M)
+
+    def test_E64_finance_leases_outside_the_debt_lines_are_still_added(self):
+        # AAPL FY2025 10-K: term debt 78,328 + 12,350, commercial paper 7,979; finance lease
+        # liabilities 1,230 sit in other current / non-current liabilities ($M)
+        self.assertEqual(ic_debt("AAPL")["2025-09-27"], (78328 + 12350 + 7979 + 1230) * M)
+        # MSFT FY2026: long-term debt 31,067 + current 9,227; finance leases 66,594 outside it
+        self.assertEqual(ic_debt("MSFT")["2026-06-30"], (31067 + 9227 + 66594) * M)
+
+    def test_E64_an_equal_lease_inclusive_twin_is_no_sign_of_leases_inside(self):
+        # ASML 2024-12-31 files LongTermDebtNoncurrent and LongTermDebtAndCapitalLeaseObligations
+        # both at 3,677.3 (EUR M). Its 20-F note 16 totals long-term debt at 4,687.6 (current
+        # 1,010.3) with no lease line, and note 14 puts leases in accrued and other liabilities:
+        # the 16.9 finance lease is outside the debt lines and is added.
+        self.assertAlmostEqual(ic_debt("ASML")["2024-12-31"] / M, 3677.3 + 1010.3 + 16.9, delta=0.2)
+
+    def test_E65_a_year_with_a_balance_sheet_and_no_debt_is_zero_debt(self):
+        # AXON had no borrowings from FY2019 to FY2021 (its 0.50% convertible notes were issued
+        # in December 2022); TTWO had none at FY2020-21 (March year ends)
+        d = ic_debt("AXON")
+        for y in ("2019-12-31", "2020-12-31", "2021-12-31"):
+            self.assertIn(y, d)
+            self.assertEqual(d[y], 0)
+        t = ic_debt("TTWO")
+        self.assertEqual(t["2020-03-31"], 0)
+        self.assertEqual(t["2021-03-31"], 0)
+
+    def test_E66_lease_only_debt_is_the_same_in_total_debt_and_invested_capital(self):
+        # INCY has no borrowings; finance leases 4.1 + 27.6 at 2026-09-30, 38.0 at 2024-12-31
+        # ($M). a604340 booked them in invested capital and left total_debt None.
+        e = extract("INCY")
+        self.assertAlmostEqual(e["total_debt"] / M, 4.1 + 27.6, delta=0.1)
+        self.assertAlmostEqual(e["ic_components_dated"]["2024-12-31"]["debt"] / M, 38.0, delta=0.1)
+
+    def test_E66_debt_raised_with_no_debt_line_filed_is_unread_not_leases(self):
+        # Ford tags its borrowings in its own extension concepts: at 2024-12-31 it files
+        # InterestPayableCurrent 1,346 while its only us-gaap debt concept is
+        # FinanceLeaseLiability 805 ($M). a604340 read 805 as Ford's debt (ROIC 56-133%).
+        e = extract("F")
+        self.assertIsNone(e["total_debt"])
+        for y in ("2021-12-31", "2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31"):
+            self.assertNotIn(y, e["ic_components_dated"] or {})
+
+    def test_E67_a_combined_principal_amount_yields_to_the_carrying_lines(self):
+        # AVGO FY2024 10-K borrowings note: principal 69,847, unamortized discount and issuance
+        # costs (2,320); balance sheet 66,295 + 1,271 = 67,566 ($M). FY2025: 65,136.
+        d = ic_debt("AVGO")
+        self.assertEqual(d["2024-11-03"], 67566 * M)
+        self.assertEqual(d["2025-11-02"], 65136 * M)
+
+    def test_E68_a_fiscal_year_end_reads_the_annual_report_not_a_10q_comparative(self):
+        # AVGO's 10-Q of 2022-06-09 re-tags FY2021 LongTermDebtNoncurrent as 41,235 (principal);
+        # the 10-Ks file 39,440. The FY2021 10-K's lines (39,440 + 290 current) hold the finance
+        # leases (lease note: 26 current, 39 long-term), so none is added; the FY2022 10-K
+        # restates the current portion as 264 without leases, the figure read: 39,704.
+        self.assertEqual(ic_debt("AVGO")["2021-10-31"], (39440 + 264) * M)
+        # TTM total debt (2026-08-02): carrying lines 59,419, not the combined principal 61,079
+        self.assertEqual(extract("AVGO")["total_debt"], 59419 * M)
+
+
 if __name__ == "__main__":
     unittest.main()

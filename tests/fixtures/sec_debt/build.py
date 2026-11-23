@@ -28,7 +28,13 @@ DEBT = ["DebtLongtermAndShorttermCombinedAmount", "LongTermDebtAndCapitalLeaseOb
         "CommercialPaper", "OtherShortTermBorrowings", "FinanceLeaseLiability", "CapitalLeaseObligations",
         "FinanceLeaseLiabilityNoncurrent", "CapitalLeaseObligationsNoncurrent", "FinanceLeaseLiabilityCurrent",
         "CapitalLeaseObligationsCurrent", "SeniorNotes"]
-TICKERS = ("TMDX", "LLY", "ABBV", "AXON", "BKD", "UTHR", "AVGO", "MELI", "ENSG")
+# read beside the debt lines (E64-E68): the unamortized discount that tells principal from
+# carrying value, interest payable that shows untagged debt, and the balance-sheet total
+AUX = ["DebtInstrumentUnamortizedDiscountPremiumAndDebtIssuanceCostsNet", "DebtInstrumentUnamortizedDiscount",
+       "UnamortizedDebtIssuanceExpense", "DebtInstrumentUnamortizedDiscountPremiumNet", "LiabilitiesAndStockholdersEquity",
+       "InterestPayableCurrent", "InterestPayableCurrentAndNoncurrent"]
+TICKERS = ("TMDX", "LLY", "ABBV", "AXON", "BKD", "UTHR", "AVGO", "MELI", "ENSG",
+           "HCA", "AAPL", "MSFT", "DIS", "ASML", "F", "VRTX", "NEOG", "TTWO", "INCY", "GKOS")
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
@@ -36,7 +42,7 @@ if __name__ == "__main__":
         cf = json.load(open(os.path.join(sys.argv[1], "companyfacts_%s.json" % t)))
         g = cf["facts"]["us-gaap"]
         trimmed = {"cik": cf.get("cik"), "entityName": cf.get("entityName"),
-                   "facts": {"us-gaap": {c: g[c] for c in REV + OP + BS + DEBT if c in g}}}
+                   "facts": {"us-gaap": {c: g[c] for c in REV + OP + BS + DEBT + AUX if c in g}}}
         with open(os.path.join(here, t + ".json"), "w") as fh:
             json.dump(trimmed, fh, separators=(",", ":"))
         print(t, len(trimmed["facts"]["us-gaap"]))

@@ -95,6 +95,7 @@ PERIODIC_FORMS = frozenset(("10-K", "10-K/A", "10-Q", "10-Q/A", "10-KT", "10-QT"
 # statements on 6-K as well: NVO's FY2015-2018 revenue and EBIT exist only there.
 FOREIGN_FORMS = frozenset(("20-F", "20-F/A", "40-F", "40-F/A"))
 FOREIGN_INTERIM_FORMS = frozenset(("6-K", "6-K/A"))
+ANNUAL_FORMS = frozenset(("10-K", "10-K/A", "10-KT", "20-F", "20-F/A", "40-F", "40-F/A"))
 
 
 def _periodic(e, foreign=False):
@@ -123,6 +124,8 @@ class _Xbrl:
         self.standard = ("us-gaap" if facts.get("us-gaap") else
                          "ifrs" if facts.get("ifrs-full") else None)
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
+        self.cik = None                # set by extract from the companyfacts header
+        self._debt_book = None
 
     def entries(self, concept, prefer=USD):
         """One entry per (start, end) period, keeping the most recently filed."""
@@ -137,6 +140,29 @@ class _Xbrl:
             if k not in best or x.get("filed", "") > best[k].get("filed", ""):
                 best[k] = x
         return list(best.values())
+
+    def instants(self, concept, prefer=USD):
+        """{date: value} for a balance-sheet concept. A fiscal-year-end date takes the
+        latest annual report that files it over any 10-Q comparative: AVGO's 10-Q of
+        2022-06-09 re-tags FY2021 LongTermDebtNoncurrent at the principal 41,235M where the
+        10-Ks file the carrying 39,440M. Among annual reports the latest wins, as entries()
+        does: a later 10-K restates (ASU 2015-03 netted issuance costs into debt from FY2015)."""
+        u, _ = _units(self.ns.get(concept), prefer)
+        best = {}
+        for e in u or ():
+            if e.get("start") or not e.get("end") or e.get("val") is None:
+                continue
+            if self.periodic_only and not _periodic(e, self.foreign):
+                continue
+            k = (e.get("form") in ANNUAL_FORMS, e.get("filed", ""))
+            if e["end"] not in best or k > best[e["end"]][0]:
+                best[e["end"]] = (k, e["val"])
+        return {d: v for d, (_, v) in best.items()}
+
+    def debt_book(self):
+        if self._debt_book is None:
+            self._debt_book = _DebtBook(self)
+        return self._debt_book
 
     def currency(self, concept):
         return _units(self.ns.get(concept), USD)[1]
@@ -441,18 +467,60 @@ DEBT_FIN_LEASE = _Debt(totals=("FinanceLeaseLiability", "CapitalLeaseObligations
 DEBT_LEASE_INCLUSIVE = frozenset(("LongTermDebtAndCapitalLeaseObligationsIncludingCurrentMaturities",
                                   "LongTermDebtAndCapitalLeaseObligations",
                                   "LongTermDebtAndCapitalLeaseObligationsCurrent"))
+# The unamortized discount and issuance costs filed on a date: a combined figure that exceeds
+# the balance-sheet lines by this much is the principal, not the carrying amount (AVGO FY2024
+# 69,847M principal, 2,320M discount, 67,566M on the balance sheet).
+DEBT_DISCOUNT = ("DebtInstrumentUnamortizedDiscountPremiumAndDebtIssuanceCostsNet",
+                 "DebtInstrumentUnamortizedDiscount", "UnamortizedDebtIssuanceExpense",
+                 "DebtInstrumentUnamortizedDiscountPremiumNet")
+PRINCIPAL_TOL = (0.002, 0.15)    # of the combined figure, of the discount: the larger
+# Interest accrued on borrowings. A balance-sheet date with interest payable and no debt line
+# filed has its debt in the filer's own extension concepts: Ford files InterestPayableCurrent
+# 1,346M at 2024-12-31 beside FinanceLeaseLiability 805M, its only us-gaap debt concept.
+# Debt raised or repaid in the year is no such sign: revolvers drawn and repaid inside the
+# year (OFIX 2020, 100M each way) and debt paid off (VRTX 2017) end at no debt.
+INTEREST_PAYABLE = ("InterestPayableCurrent", "InterestPayableCurrentAndNoncurrent")
+# Debt concepts the ladders above do not read (and a debt concept filed outside a periodic
+# report, which the extract never reads, E30). A date that files one is not debt-free: NVO
+# files ifrs ShorttermBorrowings 229M / 1,694M DKK at 2016 / 2017 year-end and no concept the
+# tree reads; STAA and GAIA file LineOfCredit. Checked only for a filer whose other dates the
+# tree reads: TSM files none of the tree's concepts on any date (its IFRS borrowings are unread
+# throughout, a separate open defect), and stays as it was.
+UNREAD_DEBT = ("LineOfCredit", "OtherLongTermDebt", "NotesPayable", "LoansPayable",
+               "NotesPayableRelatedPartiesNoncurrent", "NotesPayableRelatedPartiesClassifiedCurrent",
+               "ShorttermBorrowings", "LongtermBorrowings", "CurrentPortionOfLongtermBorrowings")
+# Concepts filed only on a balance sheet (the statement of equity and the cash-flow statement
+# also carry equity and cash for earlier dates): a date with one of these is a balance sheet.
+BALANCE_SHEET_TAGS = ("Assets", "LiabilitiesAndStockholdersEquity")
+# Filers whose finance leases sit inside their debt lines with no XBRL value that shows it
+# (the filing's lease table says so). CIK -> where the filing says it. Companyfacts cannot
+# tell: HCA files the same LongTermDebt = noncurrent + current shape and the same lease legs
+# as AAPL, DIS and MSFT, whose leases sit in other liabilities; and a ...CapitalLeaseObligations
+# tag equal to the plain line is no sign either (ASML 2024 files both at 3,677.3M EUR, and its
+# 20-F puts its finance lease in accrued and other liabilities).
+FIN_LEASE_IN_DEBT = {
+    1730168: "AVGO 10-K FY2021 lease note: short-term finance lease liabilities 26M in 'Current portion "
+             "of long-term debt', long-term 39M in 'Long-term debt'; https://www.sec.gov/Archives/edgar/"
+             "data/1730168/000173016821000153/avgo-20211031.htm",
+    860730: "HCA 10-K FY2024 lease note: finance lease liabilities classified in 'Long-term debt "
+            "due within one year' and 'Long-term debt'; https://www.sec.gov/Archives/edgar/data/"
+            "860730/000095017025020134/hca-20241231.htm",
+}
 DEBT_LONG = (DEBT_COMBINED, DEBT_NONCURRENT, DEBT_TOTAL_LT)
 DEBT_ALL = DEBT_LONG + (DEBT_CURRENT_TOTAL, DEBT_MATURITIES, DEBT_NOTES_CURRENT, DEBT_SHORT,
                         DEBT_FIN_LEASE)
 DEBT_CONCEPTS = tuple(dict.fromkeys(c for b in DEBT_ALL for c in b.concepts()))
 LEASE_CONCEPTS = frozenset(DEBT_FIN_LEASE.concepts())
 LONG_DEBT_CONCEPTS = frozenset(c for b in DEBT_LONG for c in b.concepts())
+BORROWING_CONCEPTS = frozenset(DEBT_CONCEPTS) - LEASE_CONCEPTS
 
 
-def debt_on(on, ltd_is_total=False):
+def debt_on(on, ltd_is_total=False, leases_in_debt=False):
     """(total debt, concepts used) from {concept: value} filed on ONE date.
 
-      combined total                                       -> as filed
+      combined total                                       -> as filed, unless it exceeds
+           the balance-sheet lines below by the unamortized discount filed on the date:
+           then it is the principal and the lines (the carrying amount) are read
       else noncurrent + (DebtCurrent | maturities + short-term borrowings)
       else LongTermDebt + short-term borrowings, when the filer's LongTermDebt is
            its total (_ltd_is_total); else LongTermDebt as the noncurrent line +
@@ -462,7 +530,9 @@ def debt_on(on, ltd_is_total=False):
       else current debt alone
     LongTermDebt is read only without a noncurrent figure: where both are filed it is
     often a footnote figure (PFE 2020 4.6B beside a 39.1B noncurrent line).
-    Plus finance leases unless a ...CapitalLeaseObligations debt concept carries them."""
+    Plus finance leases, unless a ...CapitalLeaseObligations
+    concept is among the lines read or `leases_in_debt` (FIN_LEASE_IN_DEBT: the filing's
+    lease table says the leases are inside lines that carry no lease-inclusive tag)."""
     v, used = DEBT_COMBINED.read(on)
     nc, u_nc = DEBT_NONCURRENT.read(on)
     tot, u_tot = DEBT_TOTAL_LT.read(on)
@@ -470,29 +540,45 @@ def debt_on(on, ltd_is_total=False):
         v, used = None, ()           # a combined figure below the long-term line is not the total (BKD)
     if nc == 0 and tot:
         nc, u_nc = None, ()          # a zero revolver line beside a filed LongTermDebt (MD 2019)
-    if v is None:
-        cur, u_cur = DEBT_CURRENT_TOTAL.read(on)
-        mat, u_mat = DEBT_MATURITIES.read(on)
-        if mat is None:
-            mat, u_mat = DEBT_NOTES_CURRENT.read(on)
-        short, u_short = DEBT_SHORT.read(on)
-        if nc is not None:
-            if cur is not None:
-                v, used = nc + cur, u_nc + u_cur
-            else:
-                v, used = nc + (mat or 0) + (short or 0), u_nc + u_mat + u_short
-        elif tot is not None and (ltd_is_total or (cur or mat) == tot):
-            v, used = tot + (short or 0), u_tot + u_short
-        elif tot is not None:
-            v, used = ((tot + cur, u_tot + u_cur) if cur is not None else
-                       (tot + (mat or 0) + (short or 0), u_tot + u_mat + u_short))
-        elif cur is not None or mat is not None or short is not None:
-            v = cur if cur is not None else (mat or 0) + (short or 0)
-            used = u_cur if cur is not None else u_mat + u_short
-    if not DEBT_LEASE_INCLUSIVE & set(used):
+    legs, u_legs = _debt_legs(on, nc, u_nc, tot, u_tot, ltd_is_total)
+    if v is None or (nc is not None and legs is not None and _is_principal(on, v, legs)):
+        v, used = legs, u_legs
+    if not leases_in_debt and not DEBT_LEASE_INCLUSIVE & set(used):
         fin, u_fin = DEBT_FIN_LEASE.read(on)
-        if fin:                      # a date with finance leases only is that much debt (VRTX 2018)
+        if fin:                      # a date with finance leases only is that much debt (INCY 2024)
             v, used = (v or 0) + fin, used + u_fin
+    return v, used
+
+
+def _is_principal(on, combined, legs):
+    """True when `combined` exceeds the balance-sheet lines by the discount filed on the date."""
+    disc = next((abs(on[c]) for c in DEBT_DISCOUNT if on.get(c)), None)
+    gap = combined - legs
+    return bool(disc) and gap > 0 and abs(gap - disc) <= max(PRINCIPAL_TOL[0] * combined,
+                                                              PRINCIPAL_TOL[1] * disc)
+
+
+def _debt_legs(on, nc, u_nc, tot, u_tot, ltd_is_total):
+    """Debt from the balance-sheet lines on the date, without a combined total."""
+    v, used = None, ()
+    cur, u_cur = DEBT_CURRENT_TOTAL.read(on)
+    mat, u_mat = DEBT_MATURITIES.read(on)
+    if mat is None:
+        mat, u_mat = DEBT_NOTES_CURRENT.read(on)
+    short, u_short = DEBT_SHORT.read(on)
+    if nc is not None:
+        if cur is not None:
+            v, used = nc + cur, u_nc + u_cur
+        else:
+            v, used = nc + (mat or 0) + (short or 0), u_nc + u_mat + u_short
+    elif tot is not None and (ltd_is_total or (cur or mat) == tot):
+        v, used = tot + (short or 0), u_tot + u_short
+    elif tot is not None:
+        v, used = ((tot + cur, u_tot + u_cur) if cur is not None else
+                   (tot + (mat or 0) + (short or 0), u_tot + u_mat + u_short))
+    elif cur is not None or mat is not None or short is not None:
+        v = cur if cur is not None else (mat or 0) + (short or 0)
+        used = u_cur if cur is not None else u_mat + u_short
     return v, used
 
 
@@ -727,17 +813,12 @@ def _total_else_legs(rule):
     return read
 
 
-def _ltd_relations(x):
+def _ltd_relations(by_date):
     """[(date, is_total)] on the dates where this filer tagged LongTermDebt, a
     noncurrent figure and a current one together and LongTermDebt equals either
     noncurrent + current (its total) or the noncurrent figure alone."""
-    by = {}
-    for t in DEBT_CONCEPTS:
-        for e in x.entries(t):
-            if not e.get("start") and e.get("val") is not None:
-                by.setdefault(e["end"], {})[t] = e["val"]
     out = []
-    for d, on in sorted(by.items()):
+    for d, on in sorted(by_date.items()):
         tot = on.get("LongTermDebt")
         nc = DEBT_NONCURRENT.read(on)[0]
         cur = on.get("DebtCurrent")
@@ -763,34 +844,83 @@ def _ltd_is_total(relations, d):
     return min(near)[1] if near else False
 
 
-def _debt_by_date(x, at, days):
-    """{concept: {date: value}} for every debt concept, within `days` of the anchor."""
-    return {t: {e["end"]: e["val"] for e in x.entries(t)
-                if not e.get("start") and e.get("val") is not None
-                and _recent(e["end"], at.ref_end, days=days)} for t in DEBT_CONCEPTS}
+class _DebtBook:
+    """Every debt fact of one filer, by balance-sheet date, read once (x.debt_book()).
+
+    on:      {date: {concept: value}}, debt concepts and the discount (x.instants: an
+             annual report's figure over a 10-Q comparative for the same date)
+    interest: dates with interest payable filed (INTEREST_PAYABLE)
+    sheets:  dates a balance sheet was filed for (BALANCE_SHEET_TAGS)
+
+    read(d) is the one debt rule for total_debt, total_debt_prior and every IC year (S5):
+    debt_on over the concepts filed on d, or None when no debt line is filed on d while
+    interest payable is (the debt is in extension concepts)."""
+
+    def __init__(self, x):
+        self.on = {}
+        for c in DEBT_CONCEPTS + DEBT_DISCOUNT:
+            for d, v in x.instants(c).items():
+                self.on.setdefault(d, {})[c] = v
+        self.interest = {d for c in INTEREST_PAYABLE for d, v in x.instants(c).items() if v}
+        self.unread = {d for c in UNREAD_DEBT for d, v in x.instants(c).items() if v}
+        # a debt figure filed for the date outside a periodic report (HIMS: DebtCurrent 1.5M at
+        # 2019-12-31 in an 8-K only; its 10-K line "Term loan, current" is untagged)
+        for c in BORROWING_CONCEPTS:
+            for e in _units(x.ns.get(c), USD)[0] or ():
+                if not e.get("start") and e.get("val") and e.get("end") and not _periodic(e, x.foreign):
+                    self.unread.add(e["end"])
+        self.readable = any(BORROWING_CONCEPTS & set(on) for on in self.on.values())
+
+        self.sheets = {d for c in BALANCE_SHEET_TAGS for d in x.instants(c)}
+        self.leases_in_debt = x.cik in FIN_LEASE_IN_DEBT
+        self.relations = _ltd_relations(self.on)
+
+    def dates(self, concepts):
+        return {d for d, on in self.on.items() if concepts & set(on)}
+
+    def near(self, dates, d, tol_days):
+        """`d` if in `dates`, else the nearest within tol_days, else None."""
+        if d in dates:
+            return d
+        hit = min(((abs(_days(d, e)), e) for e in dates if abs(_days(d, e)) <= tol_days), default=None)
+        return hit[1] if hit else None
+
+    def untagged(self, d, tol_days=6):
+        """No borrowing line read on d, yet the filer shows debt there: interest payable, or
+        a debt fact outside the ladders (UNREAD_DEBT) at a filer the ladders read elsewhere."""
+        if BORROWING_CONCEPTS & set(self.on.get(d, ())):
+            return False
+        if self.near(self.interest, d, tol_days):
+            return True
+        return bool(self.readable and self.near(self.unread, d, tol_days))
+
+    def read(self, d):
+        if self.untagged(d):
+            return None, ()
+        return debt_on(self.on.get(d, {}), _ltd_is_total(self.relations, d), self.leases_in_debt)
 
 
 def _total_debt(x, ladders, at, prior=False):
-    """Total debt read off ONE balance-sheet date by debt_on: the newest date with a
+    """Total debt read off ONE balance-sheet date by _DebtBook.read: the newest date with a
     long-term or combined figure (with `prior`, the date a year before it); a filer with
-    no long-term concept at all is read off its newest current-debt date.
+    no long-term concept is read off its newest current-debt date, and a filer with
+    finance leases only off its newest lease date (INCY: leases are its debt, as they are
+    in its invested capital). Ford, whose borrowings are in extension concepts, reads None.
 
     The legs must never be summed across dates. ORCL files the combined amount
     annually (92.6B @ 2025-05-31) and the legs quarterly (134.6B @ 2026-02-28); either
     shortcut understated debt by 31%, which flowed into invested capital, net debt,
     EV and every multiple."""
-    by = _debt_by_date(x, at, 540 + (400 if prior else 0))
-    long_dates = {d for t, v in by.items() if t in LONG_DEBT_CONCEPTS for d in v}
-    # a filer with finance leases only stays None, as before: Ford's debt is in its own
-    # extension tags and its 890M of leases is not its debt
-    any_dates = {d for t, v in by.items() if t not in LEASE_CONCEPTS for d in v}
-    dates = sorted(long_dates or any_dates, reverse=True)
+    book = x.debt_book()
+    days = 540 + (400 if prior else 0)
+    recent = {d for d in book.on if _recent(d, at.ref_end, days=days)}
+    dates = sorted((recent & book.dates(LONG_DEBT_CONCEPTS)) or (recent & book.dates(BORROWING_CONCEPTS))
+                   or (recent & book.dates(LEASE_CONCEPTS)), reverse=True)
     if prior and dates:
         d0 = _year_before(dates, dates[0])
         dates = [d0] if d0 else []
     for d in dates:
-        return debt_on({t: m[d] for t, m in by.items() if d in m},
-                       _ltd_is_total(_ltd_relations(x), d))[0]
+        return book.read(d)[0]
     return None
 
 
@@ -873,29 +1003,32 @@ def _ic_components(x, ladders, at, tol_days=6):
     year-ends, for the per-year ROIC series.
 
     A year is returned ONLY when every leg is filed: invested capital from a partial
-    balance sheet reads as a real change in the capital base. Debt is debt_on at each
-    year-end, from the concepts filed on that date (lt_source names them). If a
-    long-term debt concept is filed at ANY year-end, a year-end with no debt concept at
-    all is a filing gap, not a debt-free year, and is left out; a year-end with any debt
-    concept is kept (UTHR's FY2014 debt is a current convertible note only)."""
+    balance sheet reads as a real change in the capital base. Debt is _DebtBook.read at
+    each year-end (lt_source names the concepts used). A year-end with no debt concept
+    filed is debt-free (0) when a balance sheet was filed for it and no borrowing was
+    interest payable is filed for it (AXON FY2019-21, TTWO FY2020-21); without a balance
+    sheet it is a filing gap, and with interest payable the debt is untagged (Ford): left out."""
     (eq, _), (cash, _) = (x.instant_at_dates(list(tags), at.fy_ends) for tags in ladders[:2])
     # securities tags are alternatives for ONE line, so each date takes the first filed
     sti = {}
     for tag in ladders[2]:
         for d, v in x.instant_at_dates([tag], at.fy_ends)[0].items():
             sti.setdefault(d, v)
-    debt = {t: x.instant_at_dates([t], at.fy_ends)[0] for t in DEBT_CONCEPTS}
-    debt = {t: m for t, m in debt.items() if m}
-    long_filed = any(t in LONG_DEBT_CONCEPTS for t in debt)
-    relations = _ltd_relations(x)
+    book = x.debt_book()
+    debt_dates = book.dates(frozenset(DEBT_CONCEPTS))
     out = {}
     for d in at.fy_ends:
         if d not in eq or d not in cash:
             continue
-        on = {t: m[d] for t, m in debt.items() if d in m}
-        if long_filed and not on:
+        dd = book.near(debt_dates, d, tol_days)
+        if dd is None:
+            if book.near(book.sheets, d, tol_days) is None or book.untagged(d, tol_days):
+                continue
+            v, used = 0, ()
+        elif book.untagged(dd):
             continue
-        v, used = debt_on(on, _ltd_is_total(relations, d))
+        else:
+            v, used = book.read(dd)
         out[d] = {"equity": eq[d], "cash": cash[d] + (sti.get(d) or 0),
                   "debt": v or 0, "lt_source": "+".join(used) or None}
     return out
@@ -1225,10 +1358,13 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
     with them, so the note is exact rather than a guess from the facts' periods."""
     facts = companyfacts.get("facts", companyfacts)
     x = _Xbrl(facts)
+    x.cik = companyfacts.get("cik")
     out = _extract(x, splits, cash_excludes_securities)
     forms = _nonperiodic_forms(x)
     if forms:
-        unfiltered = _extract(_Xbrl(facts, periodic_only=False), splits, cash_excludes_securities)
+        xu = _Xbrl(facts, periodic_only=False)
+        xu.cik = x.cik
+        unfiltered = _extract(xu, splits, cash_excludes_securities)
         changed = sorted(k for k in set(out) | set(unfiltered)
                          if k != "xbrl_flags" and out.get(k) != unfiltered.get(k))
         if changed:

@@ -719,6 +719,10 @@ def _a14_nodes(sec):
     return out
 
 
+with open(os.path.join(_DEBT_FIX, "expected.json")) as _fh:
+    _A14_ABSENT = {(r[0], r[1]) for r in _json.load(_fh)["rows"] if r[2] is None}
+
+
 def _a14(sec=_sec):
     """A14 over the real trimmed filers: a fiscal year-end whose IC debt is 0 or absent while
     a non-zero debt concept is filed on it (equity and cash filed too), or a year whose
@@ -726,19 +730,21 @@ def _a14(sec=_sec):
     finance leases)."""
     bad = []
     for name in sorted(os.listdir(_DEBT_FIX)):
-        if not name.endswith(".json"):
+        if not name.endswith(".json") or name == "expected.json":
             continue
         with open(os.path.join(_DEBT_FIX, name)) as fh:
             cf = _json.load(fh)
         e, x = sec.extract(cf), sec._Xbrl(cf["facts"])
-        rel = _sec._ltd_relations(_sec._Xbrl(cf["facts"]))      # the unmutated relation, so a mutant cannot hide
+        _x0 = _sec._Xbrl(cf["facts"]); _x0.cik = cf.get("cik")
+        rel = _x0.debt_book().relations      # the unmutated relation, so a mutant cannot hide
         ic = e.get("ic_components_dated") or {}
         ends = [r[0] for r in e.get("operating_income_annuals_dated") or []][:12] or sorted(ic)   # the IC window
         eq = x.instant_at_dates(list(sec.EQUITY_TAGS), ends)[0]
         cash = x.instant_at_dates(list(sec.CASH_TAGS), ends)[0]
         for d in ends:
             on = {c: m[d] for c in sec.DEBT_CONCEPTS for m in [x.instant_at_dates([c], [d])[0]] if d in m}
-            if any(on.values()) and d in eq and d in cash and not (ic.get(d) or {}).get("debt"):
+            if (any(on.values()) and d in eq and d in cash and not (ic.get(d) or {}).get("debt")
+                    and (name[:-5], d) not in _A14_ABSENT):
                 bad.append((name, d, "debt vanished", sorted(c for c, v in on.items() if v)))
             used = set(((ic.get(d) or {}).get("lt_source") or "").split("+")) - {""}
             for n in _a14_nodes(sec):
@@ -751,17 +757,57 @@ def _a14(sec=_sec):
                 set(sec.DEBT_NOTES_CURRENT.concepts())
             if "LongTermDebt" in used and used & cur and _sec._ltd_is_total(rel, d):
                 bad.append((name, d, "LongTermDebt total + its current maturities", sorted(used)))
+    return bad + _a14_values(sec)
+
+
+def _a14_values(sec):
+    """A14 at the value level (E64-E68): extract against the hand-written balance-sheet debt in
+    tests/fixtures/sec_debt/expected.json (each row names its filing). A total summed with its
+    own part, a concept carried from another year, finance leases counted twice or dropped, a
+    principal amount read as debt, and lease-only debt missing from total_debt all show here as
+    a wrong number, whatever lt_source says."""
+    with open(os.path.join(_DEBT_FIX, "expected.json")) as fh:
+        rows = _json.load(fh)["rows"]
+    bad, cache = [], {}
+    for t, d, want, why, _url in rows:
+        if t not in cache:
+            with open(os.path.join(_DEBT_FIX, t + ".json")) as fh:
+                cache[t] = sec.extract(_json.load(fh))
+        e = cache[t]
+        if d == "total_debt":
+            got = e.get("total_debt")
+        else:
+            got = ((e.get("ic_components_dated") or {}).get(d) or {}).get("debt") if d in (e.get("ic_components_dated") or {}) else None
+        if want is None:
+            if got is not None:
+                bad.append((t, d, "should be absent", got))
+            continue
+        if got is None or abs(got / 1e6 - want) > max(0.2, 0.001 * abs(want)):
+            bad.append((t, d, "value", got and round(got / 1e6, 1), want))
     return bad
 
 
 _f14 = _a14()
-print(f"  A14: {len(_f14)} over {len([n for n in os.listdir(_DEBT_FIX) if n.endswith('.json')])} filers")
+print(f"  A14: {len(_f14)} over {len([n for n in os.listdir(_DEBT_FIX) if n.endswith('.json')]) - 1} filers")
 if _f14:
     flag("HIGH", f"A14 {_f14[:3]}")
 for _name, _edit in (
-        ("A14 vanish", dict(override={"debt_on": lambda on, ltd_is_total=False:
+        ("A14 vanish", dict(override={"debt_on": lambda on, *a:
                                       (on.get("LongTermDebtNoncurrent"), ("LongTermDebtNoncurrent",))})),
         ("A14 LongTermDebt total+current", dict(override={"_ltd_is_total": lambda relations, d: False})),
+        ("A14 M1 combined + DebtCurrent", dict(old="    legs, u_legs = _debt_legs(on, nc, u_nc, tot, u_tot, ltd_is_total)",
+                                               new="    v = v + (DEBT_CURRENT_TOTAL.read(on)[0] or 0) if v is not None else v\n"
+                                                   "    legs, u_legs = _debt_legs(on, nc, u_nc, tot, u_tot, ltd_is_total)")),
+        ("A14 M2 tags carried across years", dict(old="        dd = book.near(debt_dates, d, tol_days)",
+                                                  new="        dd = max((e for e in debt_dates if e <= d), default=None)")),
+        ("A14 M3 lease-only total_debt None", dict(old="                   or (recent & book.dates(LEASE_CONCEPTS)), reverse=True)",
+                                                   new="                   , reverse=True)")),
+        ("A14 leases inside the lines added again", dict(old="        self.leases_in_debt = x.cik in FIN_LEASE_IN_DEBT",
+                                                         new="        self.leases_in_debt = False")),
+        ("A14 principal read as debt", dict(old="    if v is None or (nc is not None and legs is not None and _is_principal(on, v, legs)):",
+                                            new="    if v is None:")),
+        ("A14 debt-free year dropped", dict(old="            v, used = 0, ()\n",
+                                            new="            continue\n")),
         ("A14 total+parts", dict(old="            return nonzero[0][0], (nonzero[0][1],)",
                                  new="            return (nonzero[0][0] + sum(v for got in parts for v, _ in got), "
                                      "(nonzero[0][1],) + tuple(c for got in parts for _, u in got for c in u))"))):
@@ -772,7 +818,7 @@ for _name, _edit in (
         flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
         continue
     _hit = _a14(_m)
-    print(f"  mutation for {_name}: {len(_hit)} violation(s) found")
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:2]}")
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
