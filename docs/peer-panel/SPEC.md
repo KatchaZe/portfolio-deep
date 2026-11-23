@@ -363,3 +363,10 @@ R45 LongTermDebt relation per kind of report (scored, SEC extract; amends R42). 
 noncurrent line is learnt separately from the filer's annual reports and from its other periodic reports, and each date is
 read with the relation of the kind of report its LongTermDebt value came from (year-ends prefer the annual report, E68).
 A filer may tag the concept differently in its 10-K and its 10-Qs; Biogen does (E73).
+R46 Do-not-zero evidence (scored, SEC extract; amends R42 and R44). A balance-sheet date is debt-free only when
+the liabilities side is filed (LiabilitiesAndStockholdersEquity, Liabilities or EquityAndLiabilities; Assets alone is
+not a balance sheet) and nothing on the record shows debt there. A borrowing line counts as read only when filed
+non-zero. A non-zero UNREAD_DEBT balance on the date makes the date unread even beside lines filed at 0. With no
+debt concept filed at all, finance-lease interest in the fiscal year ending on the date makes it unread. A flow
+(interest) never overrides a debt line the filer itself files at 0 on the date; interest expense in general stays
+no sign (revolvers drawn and repaid in the year). Unread dates are left out of IC with the Thai reason (E74).

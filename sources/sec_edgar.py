@@ -509,7 +509,15 @@ UNREAD_DEBT = ("LineOfCredit", "OtherLongTermDebt", "NotesPayable", "LoansPayabl
                "SecuredDebt", "UnsecuredDebt", "LinesOfCreditCurrent")
 # Concepts filed only on a balance sheet (the statement of equity and the cash-flow statement
 # also carry equity and cash for earlier dates): a date with one of these is a balance sheet.
-BALANCE_SHEET_TAGS = ("Assets", "LiabilitiesAndStockholdersEquity")
+# The liabilities side, not Assets (E74): NVO's 6-K of 2018-02-08 files Assets, Equity, cash
+# and bank overdrafts for 2015-12-31 and no liability, so 2015 is no balance sheet.
+BALANCE_SHEET_TAGS = ("LiabilitiesAndStockholdersEquity", "Liabilities", "EquityAndLiabilities")
+# Finance-lease interest for a fiscal year (E74): a year-end where no debt concept is filed at
+# all is not debt-free when the year ending there paid it. REGN FY2017 files
+# InterestExpenseLesseeAssetsUnderCapitalLease 19.5M while its 703.5M of capital and facility
+# lease obligations sit in an extension concept. A flow fills absence only: a debt line the
+# filer itself files at 0 on the date stands (RKLB FY2020, 0.1M of lease interest).
+LEASE_INTEREST = ("InterestExpenseLesseeAssetsUnderCapitalLease", "FinanceLeaseInterestExpense")
 # Filers whose finance leases sit inside their debt lines with no XBRL value that shows it
 # (the filing's lease table says so). CIK -> where the filing says it. Companyfacts cannot
 # tell: HCA files the same LongTermDebt = noncurrent + current shape and the same lease legs
@@ -894,6 +902,8 @@ class _DebtBook:
         self.readable = any(BORROWING_CONCEPTS & set(on) for on in self.on.values())
 
         self.sheets = {d for c in BALANCE_SHEET_TAGS for d in x.instants(c)}
+        self.lease_interest = {e["end"] for c in LEASE_INTEREST for e in x.entries(c)
+                               if e.get("start") and e.get("val") and 340 <= _span(e) <= 380}
         self.leases_in_debt = x.cik in FIN_LEASE_IN_DEBT
         # LongTermDebt's relation (total or noncurrent) is learnt per kind of report and read
         # for the kind the date's LongTermDebt came from (E73): Biogen's 10-K tags it as the
@@ -919,16 +929,27 @@ class _DebtBook:
         return hit[1] if hit else None
 
     def untagged(self, d, tol_days=6):
-        """No borrowing line read on d, yet the filer shows debt there: interest payable, or
-        a debt fact outside the ladders (UNREAD_DEBT) at a filer the ladders read elsewhere.
-        Returns the Thai reason, or None."""
-        if BORROWING_CONCEPTS & set(self.on.get(d, ())):
+        """No borrowing read on d, yet the filer shows debt there. Returns the Thai reason, or None.
+
+        A borrowing line filed non-zero on d is read. Otherwise d is unread when: a debt
+        balance outside the ladders (UNREAD_DEBT) is filed non-zero near d at a filer the
+        ladders read elsewhere, even beside a line filed at 0 (UTHR 2024: LinesOfCreditCurrent
+        300M, LongTermLineOfCredit 0; E74); no borrowing line is filed and interest payable is;
+        or no debt concept at all is filed and the year ending on d paid finance-lease
+        interest (REGN FY2017, E74)."""
+        on = self.on.get(d, {})
+        filed = BORROWING_CONCEPTS & set(on)
+        if any(on[c] for c in filed):
             return None
-        if self.near(self.interest, d, tol_days):
-            return "มีดอกเบี้ยค้างจ่าย (InterestPayable) แต่ไม่มีแท็กหนี้ที่ระบบอ่านเป็นมูลค่า"
         u = self.readable and self.near(self.unread, d, tol_days)
         if u:
             return "ผู้ยื่นแท็กหนี้ไว้ใน %s ซึ่งระบบไม่อ่านเป็นมูลค่า" % ", ".join(sorted(set(self.unread[u])))
+        if filed:
+            return None
+        if self.near(self.interest, d, tol_days):
+            return "มีดอกเบี้ยค้างจ่าย (InterestPayable) แต่ไม่มีแท็กหนี้ที่ระบบอ่านเป็นมูลค่า"
+        if not on and self.near(self.lease_interest, d, tol_days):
+            return "มีดอกเบี้ยสัญญาเช่าการเงินในปีที่สิ้นสุด ณ วันนี้ แต่ไม่มีแท็กหนี้หรือสัญญาเช่าที่ระบบอ่านได้"
         return None
 
     def read(self, d):

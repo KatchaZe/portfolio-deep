@@ -165,6 +165,16 @@ class Debt(unittest.TestCase):
         self.assertNotIn("2017-12-31", ic_debt("REGN"))
         self.assertNotIn("2015-12-31", ic_debt("NVO"))
         self.assertIn("2018-12-31", ic_debt("REGN"))
+        self.assertIn("2018-12-31", ic_debt("NVO"))
+
+    def test_E74_a_debt_balance_filed_on_the_date_overrides_a_line_filed_at_zero(self):
+        # UTHR 10-K FY2024: LinesOfCreditCurrent 300.0 beside LongTermLineOfCredit 0; CELH 10-K
+        # FY2016: NotesPayableRelatedPartiesNoncurrent 4.5 beside ConvertibleNotesPayable 0.
+        # Both read 0 at a1905a9. UTHR FY2025 files the line of credit at 0: debt-free.
+        self.assertNotIn("2024-12-31", ic_debt("UTHR"))
+        self.assertEqual(ic_debt("UTHR")["2025-12-31"], 0)
+        self.assertNotIn("2016-12-31", ic_debt("CELH"))
+        self.assertNotIn("2015-12-31", ic_debt("CELH"))
 
 if __name__ == "__main__":
     unittest.main()
