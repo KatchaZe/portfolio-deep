@@ -534,6 +534,21 @@ class Moat(unittest.TestCase):
         sig, _ = MT.spread_slope(roic([10, 11, 12, 13, 14]), 30.0)
         self.assertEqual((sig["window"], sig["unit"]), ("FY2021..FY2025", "pp/yr"))
 
+    def test_E70_S1_is_the_median_pairwise_slope_so_one_start_up_year_cannot_drive_it(self):
+        # TMDX FY2021..FY2025 ROIC -308.4, -55.9, -9.1, 7.4, 17.3 (WACC 7.88): OLS 71.5 pp/yr
+        # comes from FY2021 alone; the median of the ten pairwise slopes is 39.2 (verifier
+        # v_r2 check 4). A slope that ignores one outlier year in five is the band's question.
+        ends = ["2021-12-31", "2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31"]
+        sig, _ = MT.spread_slope(roic([-308.4, -55.9, -9.1, 7.4, 17.3], ends), 7.88)
+        self.assertAlmostEqual(sig["value"], 39.2, delta=0.1)
+        self.assertEqual(sig["direction"], 1)
+        # a straight line has one slope under either estimator
+        sig, _ = MT.spread_slope(roic([10, 12, 14, 16, 18], ends), 8.0)
+        self.assertAlmostEqual(sig["value"], 2.0, delta=0.01)
+        # one wild year among four steady ones moves the median slope hardly at all
+        sig, _ = MT.spread_slope(roic([-300, 11, 12, 13, 14], ends), 8.0)
+        self.assertLess(abs(sig["value"] - 1.0), 0.5)
+
     def test_E3_S1_reads_only_the_contiguous_recent_run(self):
         ends = ["2018-12-31", "2019-12-31", "2023-12-31", "2024-12-31", "2025-12-31"]
         sig, _ = MT.spread_slope(roic([50, 50, 10, 12, 14], ends), 8.0)

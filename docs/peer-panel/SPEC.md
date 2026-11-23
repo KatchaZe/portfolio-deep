@@ -62,7 +62,7 @@ Coverage below 70% of members with revenue in a year sets a flag and nulls that 
   "flags": [str]
 }
 Signals:
-- S1 spread_slope: OLS slope of ROIC - WACC over the contiguous FY window (trend._window),
+- S1 spread_slope: Theil-Sen slope (median of pairwise slopes, E70) of ROIC - WACC over the contiguous FY window (trend._window),
   pp per year; direction by +/- SPREAD_SLOPE_PP.
 - S2 share_change: matched_share_now / matched_share_then - 1 (R13), direction by +/- SHARE_REL.
 - S3 gm_gap_change: (target GM FY0 - peer median GM FY0) - (same at FY3), direction by +/- GM_GAP_PP.

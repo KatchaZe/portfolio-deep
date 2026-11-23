@@ -2,7 +2,7 @@
 moat_trend — is the competitive position widening or narrowing? Four signals and a
 label (docs/peer-panel/SPEC.md). Display only: nothing here feeds a score (PP1).
 
-    S1 spread_slope        OLS slope of ROIC - WACC across the contiguous fiscal years
+    S1 spread_slope        Theil-Sen slope of ROIC - WACC across the contiguous fiscal years
     S2 share_change        3-year change in industry revenue share, relative to the base
     S3 gm_gap_change       (target GM - peer median GM) at FY0 minus the same at FY3
     S4 incremental_margin  operating margin on the revenue added FY3 -> FY0, vs FY0's own
@@ -62,9 +62,14 @@ def _years(d0, d1):
 
 
 def _slope(xs, ys):
-    mx, my = sum(xs) / len(xs), sum(ys) / len(ys)
-    sxx = sum((x - mx) ** 2 for x in xs)
-    return sum((x - mx) * (y - my) for x, y in zip(xs, ys)) / sxx if sxx else None
+    """Theil-Sen: the median of the pairwise slopes. A start-up year on a tiny capital base
+    (TMDX FY2021 ROIC -308%) makes OLS read +71 pp/yr; the median slope reads +39 (E70)."""
+    ss = sorted((ys[j] - ys[i]) / (xs[j] - xs[i]) for i in range(len(xs))
+                for j in range(i + 1, len(xs)) if xs[j] != xs[i])
+    if not ss:
+        return None
+    n = len(ss)
+    return ss[n // 2] if n % 2 else (ss[n // 2 - 1] + ss[n // 2]) / 2
 
 
 def spread_slope(roic_map, wacc_pct, latest_fy=None):
