@@ -38,5 +38,6 @@
   ["UTHR", "2024-12-31", null, "United Therapeutics 10-K FY2024 (accn 0001082554-25-000005): LinesOfCreditCurrent 300.0 beside LongTermLineOfCredit 0; a debt balance filed on the date, not a debt-free year (E74)", null],
   ["UTHR", "2025-12-31", 0.0, "10-K FY2025 (accn 0001082554-26-000006): LinesOfCreditCurrent 0, no other debt line; debt-free (E74 control)", null],
   ["CELH", "2016-12-31", null, "Celsius 10-K FY2016 (accn 0001615774-17-001341): NotesPayableRelatedPartiesNoncurrent 4.5 beside ConvertibleNotesPayable 0 (E74)", null],
-  ["VRTX", "2016-12-31", null, "Vertex 10-K FY2016: LoansPayable and LinesOfCreditCurrent 300.0 (credit facility, repaid 2017) beside SeniorLongTermNotes 0 and capital leases 54.4; the leases alone are not its debt (E74)", null]
+  ["VRTX", "2016-12-31", null, "Vertex 10-K FY2016: LoansPayable and LinesOfCreditCurrent 300.0 (credit facility, repaid 2017) beside SeniorLongTermNotes 0 and capital leases 54.4; the leases alone are not its debt (E74)", null],
+  ["CNK", "total_debt_prior", null, "Cinemark 10-K FY2025 (accn 0001193125-26-056015): the prior-year date files borrowings only as DebtInstrumentCarryingAmount beside FinanceLeaseLiability 125.3; unread, not leases (E72)", null]
  ]}

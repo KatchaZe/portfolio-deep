@@ -774,8 +774,8 @@ def _a14_values(sec):
             with open(os.path.join(_DEBT_FIX, t + ".json")) as fh:
                 cache[t] = sec.extract(_json.load(fh))
         e = cache[t]
-        if d == "total_debt":
-            got = e.get("total_debt")
+        if d in ("total_debt", "total_debt_prior"):
+            got = e.get(d)
         else:
             got = ((e.get("ic_components_dated") or {}).get(d) or {}).get("debt") if d in (e.get("ic_components_dated") or {}) else None
         if want is None:
