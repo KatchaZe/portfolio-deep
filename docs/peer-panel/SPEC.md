@@ -340,3 +340,11 @@ debt concept the tree does not read, or a debt concept outside a periodic report
 the tree reads elsewhere (E65, E66). No balance sheet for the date: a filing gap, left out.
 S1 then reads TMDX's FY2021..FY2025 ROIC run (R39's guard no longer fires for it).
 
+## Resolutions 2026-11-24 (roic-convert-excise, fix round 4)
+R43 Incremental-ROIC window (scored, E_exec). ΔNOPAT/ΔIC is measured over the newest contiguous
+run of at most 5 year-ends, starting at the first year with positive NOPAT inside it
+(trend.incremental_window). A loss year at the start is trimmed, not a reason to skip: a
+turnaround is no return on new capital, but the capital added after the first profitable year
+still is. Minimum span INC_MIN_YEARS = 2 year-ends (one year of new capital, the minimum the
+measure always had); below it the measure is skipped with a Thai reason and no 1-year proxy.
+The 5% capital-change guard is unchanged. The dashboard's ROIC strip uses the same window (E71).

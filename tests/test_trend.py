@@ -310,5 +310,51 @@ def test_frontend_renders_the_strip():
         check(needle in html, f"the frontend has {needle}")
 
 
+def _rm(rows):
+    return {d: {"nopat": n * 1e6, "ic": ic * 1e6, "roic": n / ic * 100} for d, n, ic in rows}
+
+
+def test_E71_incremental_window_starts_at_first_profitable_year():
+    """E71. A 5-year window whose first year lost money used to switch the measure off,
+    so adding older history removed a real penalty: AXON's debt-free FY2019-21 moved the
+    window start from FY2022 to the loss year FY2021 and E_exec lost its -1.0 (the
+    capital added FY2022-25 earns -5.2%, ~16 pts below WACC); HIMS lost -0.5 the same way.
+    The window now starts at the first year with positive NOPAT inside it, and is
+    skipped only when fewer than INC_MIN_YEARS year-ends remain."""
+    print("E71 incremental ROIC is measured from the first profitable year in the window")
+    from types import SimpleNamespace
+    axon = _rm([("2021-12-31", -129, 679), ("2022-12-31", 73, 1009), ("2023-12-31", 124, 1050),
+                ("2024-12-31", 46, 2220), ("2025-12-31", -49, 3347)])
+    win = trend.incremental_window(axon)
+    check(win == ["2022-12-31", "2023-12-31", "2024-12-31", "2025-12-31"],
+          "AXON: FY2021 (a loss) is trimmed, FY2022-25 kept", str(win))
+    inc, why = trend.incremental_roic_pct(axon, win)
+    check(inc == -5.2, "AXON: dNOPAT -122M / dIC 2,338M = -5.2%", str((inc, why)))
+    f = SimpleNamespace(operating_income_annuals=[], capex=None, dep_amort=None)
+    notes = []
+    r, src, declined = E._incremental_roic(f, axon, 0.0, 0.21, notes)
+    check(r is not None and round(r, 3) == -0.052 and src == "ΔNOPAT/ΔIC 4y" and not declined,
+          "the engine scores the trimmed 4-year window", str((r, src, declined, notes)))
+
+    hims = _rm([("2021-12-31", -91, 87), ("2022-12-31", -54, 132), ("2023-12-31", -23, 123),
+                ("2024-12-31", 49, 176), ("2025-12-31", 83, 936)])
+    check(trend.incremental_window(hims) == ["2024-12-31", "2025-12-31"],
+          "HIMS: three loss years trimmed, FY2024-25 kept (= INC_MIN_YEARS)")
+    check(trend.INC_MIN_YEARS == 2, "the documented minimum is 2 year-ends")
+
+    late = _rm([("2022-12-31", -10, 100), ("2023-12-31", -5, 120), ("2024-12-31", -1, 130),
+                ("2025-12-31", 20, 200)])
+    check(trend.incremental_window(late) == [], "one profitable year left: nothing to measure")
+    notes = []
+    r, src, declined = E._incremental_roic(f, late, 0.0, 0.21, notes)
+    check(r is None and declined and any("INC_MIN_YEARS" in n or "กำไร" in n for n in notes),
+          "the engine skips with a reason and no 1-year proxy", str((r, declined, notes)))
+
+    prof = _rm([("2021-12-31", 100, 500), ("2022-12-31", -10, 600), ("2023-12-31", 50, 700),
+                ("2024-12-31", 80, 800), ("2025-12-31", 200, 900)])
+    check(trend.incremental_window(prof) == sorted(prof),
+          "a profitable start keeps the whole window, even across a later loss year")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "test_trend OK - the 5-year strip cannot lie in any of the ways checked")

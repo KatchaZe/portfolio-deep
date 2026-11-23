@@ -41,6 +41,7 @@ MARGIN_FLAT_PP = 1.0       # margins / ROIC: |change| <= 1pp over the window rea
 # anything. Below it the denominator is noise and the ratio explodes.
 MIN_IC_DELTA_FRAC = 0.05
 MAX_YEARS = 5
+INC_MIN_YEARS = 2   # year-ends an incremental-ROIC window needs: one year of new capital (E71)
 
 
 def _pairs(dated):
@@ -225,6 +226,19 @@ def roic_series(oi_dated, ic_components, tax_rate):
     return out
 
 
+def incremental_window(roic_map, years=MAX_YEARS):
+    """The window incremental ROIC is measured over: the newest contiguous run of at
+    most `years` year-ends, starting at the first year with positive NOPAT in it
+    (E71). Starting in a loss year refuses the measure (see incremental_roic_pct), so
+    without the trim more history could remove a real penalty: AXON's window moved
+    back to the loss year FY2021 and its capital added FY2022-25 went unscored.
+    Returns [] when fewer than INC_MIN_YEARS year-ends remain."""
+    win = _window(roic_map, years=years)
+    while win and roic_map[win[0]]["nopat"] <= 0:
+        win = win[1:]
+    return win if len(win) >= INC_MIN_YEARS else []
+
+
 def incremental_roic_pct(roic_map, dates):
     """Return on the capital added ACROSS the window: ΔNOPAT / ΔIC.
 
@@ -332,13 +346,15 @@ def _roic_row(f, years):
         return None
     win = _window(rmap, years)
     pts = [{"fy": d[:4], "end": d, "v": round(rmap[d]["roic"], 1)} for d in win]
-    inc, why = incremental_roic_pct(rmap, win)
+    inc_win = incremental_window(rmap, years)
+    inc, why = (incremental_roic_pct(rmap, inc_win) if inc_win
+                else (None, "มีปีที่ NOPAT เป็นบวกไม่ถึง 2 ปีติดกัน"))
     if inc is None:
         return _row("roic", "ROIC", "pct", pts, _delta(pts), "Δ 5y", MARGIN_FLAT_PP,
                     note=f"incremental ROIC: {why}",
                     summary_unit="pp")  # fell back to the CHANGE in level
     row = _row("roic", "ROIC", "pct", pts, inc, "ทุนใหม่", MARGIN_FLAT_PP,
-               note=f"เส้น = ROIC รายปี · ตัวเลข = ผลตอบแทนของทุนที่ใส่เพิ่ม {len(win)} ปีนี้",
+               note=f"เส้น = ROIC รายปี · ตัวเลข = ผลตอบแทนของทุนที่ใส่เพิ่ม {len(inc_win)} ปีนี้",
                summary_unit="%")   # a RETURN on the capital added, not a delta
     # new capital vs the legacy average: the comparison Damodaran cares about
     row["vs_average_pp"] = round(inc - pts[-1]["v"], 1)

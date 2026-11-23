@@ -20,7 +20,7 @@ Math contract in `../formulas-reference.md`. **Every input carries a source tag;
 ## E — Execution (weight 0.20)
 - **Base = earnings-quality verdict** (`scripts/value.py`): CLEAN→4.0 · REVIEW→3.0 · LOW→1.5
 - **Margin-trend adj:** up +0.5 · flat 0 · down −0.5
-- **Incremental ROIC adj ★v8.2** (inc = ΔNOPAT/ΔIC − WACC): ≥+10%→+1.0 · 0–10%→+0.5 · −5–0%→−0.5 · <−5%→−1.0
+- **Incremental ROIC adj ★v8.2** (inc = ΔNOPAT/ΔIC − WACC): ≥+10%→+1.0 · 0–10%→+0.5 · −5–0%→−0.5 · <−5%→−1.0. Window = newest contiguous ≤5 year-ends, starting at the first year with positive NOPAT; skipped below 2 year-ends (R43/E71)
   *(quality of capital allocation; value-destroying reinvestment penalized even if EQ clean)*
 - **Insider adj:** buy +0.25 · sell −0.25
 - SBC NOT penalized here (handled as dilution in 1.5/1.7).
