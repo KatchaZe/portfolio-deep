@@ -2290,16 +2290,17 @@ def _earnings_signals(f, rev_growth_yoy):
 
 
 def _incremental_roic(f, roic_map, acq, tax, notes):
-    """Incremental ROIC: dNOPAT / dIC over up to 5 contiguous years, whose
+    """Incremental ROIC: dNOPAT / dIC over up to 5 contiguous years starting at the
+    first profitable one (trend.incremental_window, E71), whose
     denominator is large and stable. The 1-year capex + M&A - D&A fallback has a
     near-zero denominator whenever capex ~ D&A, hence the [-2, 2] clamp. Both are
     raw (no R&D or lease capitalization). Returns (roic, source, declined)."""
     oia = f.operating_income_annuals or []
     inc_roic, inc_src, declined = None, None, False
     if roic_map:
-        win = trend_mod._window(roic_map, years=5)
-        pct, why = (trend_mod.incremental_roic_pct(roic_map, win) if len(win) >= 2
-                    else (None, "ปีงบไม่ต่อเนื่องพอ"))
+        win = trend_mod.incremental_window(roic_map, years=5)
+        pct, why = (trend_mod.incremental_roic_pct(roic_map, win) if win
+                    else (None, "มีปีที่ NOPAT เป็นบวกไม่ถึง %d ปีติดกัน (INC_MIN_YEARS)" % trend_mod.INC_MIN_YEARS))
         if pct is not None:
             inc_roic = _clamp(pct / 100.0, -2.0, 2.0)
             inc_src = f"ΔNOPAT/ΔIC {len(win)}y"
