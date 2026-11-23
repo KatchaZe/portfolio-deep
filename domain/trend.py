@@ -348,7 +348,7 @@ def _roic_row(f, years):
     pts = [{"fy": d[:4], "end": d, "v": round(rmap[d]["roic"], 1)} for d in win]
     inc_win = incremental_window(rmap, years)
     inc, why = (incremental_roic_pct(rmap, inc_win) if inc_win
-                else (None, "มีปีที่ NOPAT เป็นบวกไม่ถึง 2 ปีติดกัน"))
+                else (None, "มีปีที่ NOPAT เป็นบวกไม่ถึง %d ปีติดกัน" % INC_MIN_YEARS))
     if inc is None:
         return _row("roic", "ROIC", "pct", pts, _delta(pts), "Δ 5y", MARGIN_FLAT_PP,
                     note=f"incremental ROIC: {why}",
