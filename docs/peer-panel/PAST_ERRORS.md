@@ -97,7 +97,7 @@ while S3/S4 read FY2022..FY2025; CELH keeps FY2018 only and AVGO FY2017-21 plus 
 S1 absent). The same series feeds the engine's per-year ROIC, so the fix is a scored change.
 Fixed 2026-11-23 round 3 as E64-E69: the combined principal (E67), HCA's double-counted
 leases (E64), debt-free years (E65), lease-only debt (E66), 10-Q comparatives (E68).
-Still open after E64-E69: CNK reads finance leases alone from 2023 (its 2.4B of borrowings
+Fixed 2026-11-24: CNK (E72), BIIB (E73), REGN FY2017 and NVO FY2015 (E74). Still open after E64-E69: CNK reads finance leases alone from 2023 (its 2.4B of borrowings
 moved to extension concepts with no interest payable tagged); Ford 2018-20 reads partial
 us-gaap lines (600-888M); REGN FY2017 reads 0 (its facility financing obligation is an
 extension concept) and NVO FY2015 0, both outside every scored window; TSM's IFRS borrowings
