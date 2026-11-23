@@ -268,10 +268,13 @@ def test_tab_renders_every_shape():
     store_checks(cases, out)
     if "UNH_v3" in out:
         v3_checks(out)
+    else:
+        print("  v3 panels not rebuilt: data/cache has no damodaran_indname.json (gitignored cache)")
     print("peer tab renders on NVDA UNH ASML ABBV SPCX (stored + replayed) and synthetic shapes OK")
 
 
 def v3_checks(out):
+    assert 'role="img" aria-label="NVDA ส่วนแบ่ง' in out["NVDA_v3"]["pane"], "the rebuilt panel draws the charts"
     os.makedirs(RENDER_DIR, exist_ok=True)
     for t in V3:
         v = out[t + "_v3"]
@@ -329,7 +332,6 @@ def store_checks(cases, out):
     assert n.split("<tbody>")[1].split("</tbody>")[0].count("<tr") == len(rows) == 6
     assert "median คู่แข่ง" in n.split("<tfoot>")[1] and "รายได้ทั้งบริษัท ไม่ใช่เฉพาะสายธุรกิจ" in n
     assert "NVDA ส่วนแบ่ง CY2025" in n and "กราฟรายบริษัทจะแสดงหลัง refresh รอบหน้า" in n, "a panel stored before the chart block"
-    assert 'role="img" aria-label="NVDA ส่วนแบ่ง' in out["NVDA_v3"]["pane"], "the rebuilt panel draws the charts"
     assert ("(นอกกรอบ)" in n) == any(r["outlier"] for r in rows)
     assert "แข็งขึ้น" in out["NVDA_new"]["pane"] and "ติดตามไตรมาสหน้า:" in out["NVDA_new"]["pane"]
     assert "gross margin สูงกว่า median คู่แข่ง 18%" in n, "stored English evidence is translated"
