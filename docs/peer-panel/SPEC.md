@@ -377,3 +377,13 @@ nor credit capital added late in the year (HIMS FY2025: +760M, 4.5%). Below the 
 (no bonus, no penalty, no 1-year proxy), the existing rule for a refused window. The 2-year-end minimum of R43
 was the old measure's floor, not a choice on evidence; 3 was compared on AXON (4 year-ends, unchanged), HIMS
 and TMDX (2 year-ends, skipped) before adoption (E75).
+Considered, not adopted (2026-11-24): leaving young years out of ROIC normalisation (proposed in round 3 for TMDX).
+The proposal dropped a year from the 5-year normalisation median when its invested capital was below 10-25% of the
+latest year's. Not adopted, for two reasons. (1) 25% is too wide: it also drops MELI FY2021-23 (IC 0.17 / 0.24 /
+0.16 of latest) and NVDA FY2022-24 (0.14 / 0.17 / 0.23), fast-growing mature firms whose history is valid
+evidence, and through NORMALIZE_MIN_YEARS (4) it would switch their damping off. (2) At 10%, the only variant that
+spares them, trimming leading years and keeping the damping on the years left gives TMDX the same result as today
+(median over FY2023-25 7.4% vs latest 17.3% gives factor 0.43, floored at 0.6, the factor already applied; E_econ
+stays 0). TMDX's lift in the proposal came only from the 4-year gate turning damping off, not from a better median.
+Damodaran's case that history says little about a young firm argues against an undamped ROIC from one year above
+WACC, not for one. Source: independent verifier report v_r3 (h), 2026-11-23.
