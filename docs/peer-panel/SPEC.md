@@ -348,3 +348,14 @@ turnaround is no return on new capital, but the capital added after the first pr
 still is. Minimum span INC_MIN_YEARS = 2 year-ends (one year of new capital, the minimum the
 measure always had); below it the measure is skipped with a Thai reason and no 1-year proxy.
 The 5% capital-change guard is unchanged. The dashboard's ROIC strip uses the same window (E71).
+R44 Unread debt evidence (scored, SEC extract; amends R42's "debt concept the tree does not read").
+UNREAD_DEBT is the documented list of debt tags that are evidence, never a value: LineOfCredit,
+OtherLongTermDebt, NotesPayable, LoansPayable, the related-party notes, the IFRS borrowings,
+DebtInstrumentCarryingAmount, DebtInstrumentFaceAmount, LongTermDebtFairValue, SecuredDebt,
+UnsecuredDebt, LinesOfCreditCurrent. A balance-sheet date where one is filed non-zero and no
+borrowing line is read (debt 0 or finance leases only) is unread at a filer the tree reads
+elsewhere: total_debt / total_debt_prior None, the IC year left out, and xbrl_flags carries
+"หนี้สินรวม ณ <date> ไม่ทราบ: <reason>". Option (a), reading DebtInstrumentCarryingAmount as the
+value, was considered and not adopted: companyfacts carries no dimensions, so a filed figure
+cannot be shown to be the total rather than one instrument, and Cinemark's equals the sum of
+its principal maturities (E72).

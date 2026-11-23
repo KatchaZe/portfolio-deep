@@ -32,17 +32,27 @@ DEBT = ["DebtLongtermAndShorttermCombinedAmount", "LongTermDebtAndCapitalLeaseOb
 # carrying value, interest payable that shows untagged debt, and the balance-sheet total
 AUX = ["DebtInstrumentUnamortizedDiscountPremiumAndDebtIssuanceCostsNet", "DebtInstrumentUnamortizedDiscount",
        "UnamortizedDebtIssuanceExpense", "DebtInstrumentUnamortizedDiscountPremiumNet", "LiabilitiesAndStockholdersEquity",
-       "InterestPayableCurrent", "InterestPayableCurrentAndNoncurrent"]
+       "InterestPayableCurrent", "InterestPayableCurrentAndNoncurrent",
+       # E72-E74: debt evidence the tree does not read as a value, finance-lease interest, and
+       # the liabilities side that makes a date a balance sheet
+       "DebtInstrumentCarryingAmount", "DebtInstrumentFaceAmount", "LongTermDebtFairValue", "SecuredDebt",
+       "UnsecuredDebt", "LinesOfCreditCurrent", "OtherLongTermDebt", "LineOfCredit", "NotesPayable", "LoansPayable",
+       "InterestExpenseLesseeAssetsUnderCapitalLease", "FinanceLeaseInterestExpense", "Liabilities"]
 TICKERS = ("TMDX", "LLY", "ABBV", "AXON", "BKD", "UTHR", "AVGO", "MELI", "ENSG",
-           "HCA", "AAPL", "MSFT", "DIS", "ASML", "F", "VRTX", "NEOG", "TTWO", "INCY", "GKOS")
+           "HCA", "AAPL", "MSFT", "DIS", "ASML", "F", "VRTX", "NEOG", "TTWO", "INCY", "GKOS",
+           "CNK", "BIIB", "REGN", "NVO")
+# an IFRS filer keeps its whole ifrs-full namespace (NVO: 253 concepts, 0.7 MB)
+WHOLE_NS = ("ifrs-full",)
 
 if __name__ == "__main__":
     here = os.path.dirname(os.path.abspath(__file__))
     for t in TICKERS:
         cf = json.load(open(os.path.join(sys.argv[1], "companyfacts_%s.json" % t)))
-        g = cf["facts"]["us-gaap"]
-        trimmed = {"cik": cf.get("cik"), "entityName": cf.get("entityName"),
-                   "facts": {"us-gaap": {c: g[c] for c in REV + OP + BS + DEBT + AUX if c in g}}}
+        facts = {ns: g for ns, g in cf["facts"].items() if ns in WHOLE_NS}
+        g = cf["facts"].get("us-gaap")
+        if g:
+            facts["us-gaap"] = {c: g[c] for c in REV + OP + BS + DEBT + AUX if c in g}
+        trimmed = {"cik": cf.get("cik"), "entityName": cf.get("entityName"), "facts": facts}
         with open(os.path.join(here, t + ".json"), "w") as fh:
             json.dump(trimmed, fh, separators=(",", ":"))
-        print(t, len(trimmed["facts"]["us-gaap"]))
+        print(t, {ns: len(v) for ns, v in facts.items()})

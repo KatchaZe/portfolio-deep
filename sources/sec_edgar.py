@@ -486,9 +486,19 @@ INTEREST_PAYABLE = ("InterestPayableCurrent", "InterestPayableCurrentAndNoncurre
 # tree reads; STAA and GAIA file LineOfCredit. Checked only for a filer whose other dates the
 # tree reads: TSM files none of the tree's concepts on any date (its IFRS borrowings are unread
 # throughout, a separate open defect), and stays as it was.
+#
+# E72: also the recognised debt tags the tree never reads as a value, evidence only. Cinemark
+# files its borrowings since 2022-09 only as DebtInstrumentCarryingAmount (1,897.3M at
+# 2025-12-31) beside FinanceLeaseLiability 110.2M, so the lease-only rule read 110.2M as its
+# total debt. DebtInstrumentCarryingAmount is not read as a value: companyfacts carries no
+# dimensions, so a single instrument cannot be told from the total, and CNK's figure equals
+# the sum of its principal maturities (possibly principal, not carrying). The date is unread
+# (total debt None, IC year left out) instead. DebtInstrumentFaceAmount is evidence only.
 UNREAD_DEBT = ("LineOfCredit", "OtherLongTermDebt", "NotesPayable", "LoansPayable",
                "NotesPayableRelatedPartiesNoncurrent", "NotesPayableRelatedPartiesClassifiedCurrent",
-               "ShorttermBorrowings", "LongtermBorrowings", "CurrentPortionOfLongtermBorrowings")
+               "ShorttermBorrowings", "LongtermBorrowings", "CurrentPortionOfLongtermBorrowings",
+               "DebtInstrumentCarryingAmount", "DebtInstrumentFaceAmount", "LongTermDebtFairValue",
+               "SecuredDebt", "UnsecuredDebt", "LinesOfCreditCurrent")
 # Concepts filed only on a balance sheet (the statement of equity and the cash-flow statement
 # also carry equity and cash for earlier dates): a date with one of these is a balance sheet.
 BALANCE_SHEET_TAGS = ("Assets", "LiabilitiesAndStockholdersEquity")
@@ -862,13 +872,17 @@ class _DebtBook:
             for d, v in x.instants(c).items():
                 self.on.setdefault(d, {})[c] = v
         self.interest = {d for c in INTEREST_PAYABLE for d, v in x.instants(c).items() if v}
-        self.unread = {d for c in UNREAD_DEBT for d, v in x.instants(c).items() if v}
+        self.unread = {}             # {date: concepts}: debt filed where the tree does not read it
+        for c in UNREAD_DEBT:
+            for d, v in x.instants(c).items():
+                if v:
+                    self.unread.setdefault(d, []).append(c)
         # a debt figure filed for the date outside a periodic report (HIMS: DebtCurrent 1.5M at
         # 2019-12-31 in an 8-K only; its 10-K line "Term loan, current" is untagged)
         for c in BORROWING_CONCEPTS:
             for e in _units(x.ns.get(c), USD)[0] or ():
                 if not e.get("start") and e.get("val") and e.get("end") and not _periodic(e, x.foreign):
-                    self.unread.add(e["end"])
+                    self.unread.setdefault(e["end"], []).append(c + " (%s)" % e.get("form"))
         self.readable = any(BORROWING_CONCEPTS & set(on) for on in self.on.values())
 
         self.sheets = {d for c in BALANCE_SHEET_TAGS for d in x.instants(c)}
@@ -887,12 +901,16 @@ class _DebtBook:
 
     def untagged(self, d, tol_days=6):
         """No borrowing line read on d, yet the filer shows debt there: interest payable, or
-        a debt fact outside the ladders (UNREAD_DEBT) at a filer the ladders read elsewhere."""
+        a debt fact outside the ladders (UNREAD_DEBT) at a filer the ladders read elsewhere.
+        Returns the Thai reason, or None."""
         if BORROWING_CONCEPTS & set(self.on.get(d, ())):
-            return False
+            return None
         if self.near(self.interest, d, tol_days):
-            return True
-        return bool(self.readable and self.near(self.unread, d, tol_days))
+            return "มีดอกเบี้ยค้างจ่าย (InterestPayable) แต่ไม่มีแท็กหนี้ที่ระบบอ่านเป็นมูลค่า"
+        u = self.readable and self.near(self.unread, d, tol_days)
+        if u:
+            return "ผู้ยื่นแท็กหนี้ไว้ใน %s ซึ่งระบบไม่อ่านเป็นมูลค่า" % ", ".join(sorted(set(self.unread[u])))
+        return None
 
     def read(self, d):
         if self.untagged(d):
@@ -920,6 +938,10 @@ def _total_debt(x, ladders, at, prior=False):
         d0 = _year_before(dates, dates[0])
         dates = [d0] if d0 else []
     for d in dates:
+        why = book.untagged(d)
+        if why:
+            at.notes.append("หนี้สินรวม%s ณ %s ไม่ทราบ: %s (ไม่ใช้ 0 หรือค่าสัญญาเช่าการเงินอย่างเดียวแทน)"
+                            % (" ปีก่อน" if prior else "", d, why))
         return book.read(d)[0]
     return None
 

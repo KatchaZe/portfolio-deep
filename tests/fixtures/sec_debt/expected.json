@@ -29,5 +29,10 @@
   ["F", "2021-12-31", null, "same", null],
   ["F", "2022-12-31", null, "same", null],
   ["F", "2023-12-31", null, "same", null],
-  ["F", "2025-12-31", null, "same", null]
+  ["F", "2025-12-31", null, "same", null],
+  ["F", "total_debt", null, "Ford's borrowings are in extension concepts: 10-K FY2025 (accn 0000037996-26-000015) files InterestPayableCurrent 1,453 beside FinanceLeaseLiability 890, its only us-gaap debt concept; total debt is unknown, not 890 of leases (E66, E72)", null],
+  ["CNK", "total_debt", null, "Cinemark 10-K FY2025 (accn 0001193125-26-056015, filed 2026-02-18): borrowings tagged only as DebtInstrumentCarryingAmount 1,897.3 (equal to the sum of its principal maturities, so possibly principal); FinanceLeaseLiability 110.2 is not its total debt (E72)", null],
+  ["BIIB", "total_debt", 7692.0, "Biogen 10-Q Q3 2026 (accn 0000875045-26-000096): LongTermDebt 7,292.0 is the noncurrent line in Biogen's 10-Qs, plus SecuredDebtCurrent 400.0 (current portion of term loan); NotesPayable 7,692.0. The 10-K tags LongTermDebt as the total (6,295.8 = 4,547.2 + 1,748.6 at 2024-12-31, accn 0000875045-25-000009) (E73)", "https://investors.biogen.com/static-files/fdd9f18b-3e21-4148-9243-cdcc908a281b"],
+  ["REGN", "2017-12-31", null, "10-K FY2017 (accn 0001532176-18-000013): capital and facility lease obligations 703.5 sit in an extension concept (10-Q Q3 2018 comparative); InterestExpenseLesseeAssetsUnderCapitalLease 19.5 for FY2017 (10-K FY2018, accn 0001532176-19-000009) shows them; not 0 (E74)", "https://www.sec.gov/Archives/edgar/data/872589/000153217618000036/regn-093018x10q.htm"],
+  ["NVO", "2015-12-31", null, "Novo Nordisk 2015 annual report: current debt DKK 1,073M; companyfacts files only Assets, Equity, cash and a few notes for 2015 (6-K accn 0001628280-18-001261), no liabilities side, so it is no balance sheet and not a debt-free year (E74)", "https://sec.gov/Archives/edgar/data/353278/000117184316007794/f6k_021016.htm"]
  ]}

@@ -131,5 +131,40 @@ class Debt(unittest.TestCase):
         self.assertEqual(extract("AVGO")["total_debt"], 59419 * M)
 
 
+    def test_E72_debt_tagged_where_the_tree_does_not_read_is_unknown_not_leases(self):
+        # Cinemark 10-K FY2025: borrowings only as DebtInstrumentCarryingAmount 1,897.3 and
+        # extension concepts, no interest payable; FinanceLeaseLiability 110.2 ($M). a6eacdf
+        # read the leases as total debt (a 94% understatement that looked like a value).
+        e = extract("CNK")
+        self.assertIsNone(e["total_debt"])
+        self.assertIsNone(e["total_debt_prior"])
+        self.assertTrue(any("DebtInstrumentCarryingAmount" in n and "หนี้" in n for n in e["xbrl_flags"]),
+                        e["xbrl_flags"])
+        # a debt-free year with no such evidence is still 0 (AXON FY2019-21, E65)
+        d = ic_debt("AXON")
+        self.assertEqual([d[y] for y in ("2019-12-31", "2020-12-31", "2021-12-31")], [0, 0, 0])
+
+    def test_E72_evidence_tags_are_never_read_as_values(self):
+        for c in ("DebtInstrumentCarryingAmount", "DebtInstrumentFaceAmount", "LongTermDebtFairValue",
+                  "SecuredDebt", "UnsecuredDebt", "LinesOfCreditCurrent", "OtherLongTermDebt"):
+            self.assertIn(c, S.UNREAD_DEBT)
+            self.assertNotIn(c, S.DEBT_CONCEPTS)
+
+    def test_E73_longtermdebt_means_what_the_filing_it_came_from_says(self):
+        # Biogen's 10-K tags LongTermDebt as the total (6,295.8 = 4,547.2 + 1,748.6 at
+        # 2024-12-31); its 10-Qs tag it as the noncurrent line (4,547.2 for the same date).
+        # Q3 2026 10-Q: LongTermDebt 7,292.0 + current portion of term loan 400.0 = 7,692.0.
+        self.assertEqual(extract("BIIB")["total_debt"], 7692 * M)
+        d = ic_debt("BIIB")
+        self.assertEqual(d["2024-12-31"], 6295.8 * M)
+
+    def test_E74_a_year_with_evidence_of_unread_debt_is_not_debt_free(self):
+        # REGN FY2017: capital and facility lease obligations 703.5 in an extension concept,
+        # finance-lease interest 19.5 for the year; NVO 2015: current debt DKK 1,073M, and
+        # companyfacts holds no liabilities side for the date. Both read 0 at a6eacdf.
+        self.assertNotIn("2017-12-31", ic_debt("REGN"))
+        self.assertNotIn("2015-12-31", ic_debt("NVO"))
+        self.assertIn("2018-12-31", ic_debt("REGN"))
+
 if __name__ == "__main__":
     unittest.main()
