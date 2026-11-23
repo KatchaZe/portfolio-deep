@@ -2300,7 +2300,7 @@ def _incremental_roic(f, roic_map, acq, tax, notes):
     if roic_map:
         win = trend_mod.incremental_window(roic_map, years=5)
         pct, why = (trend_mod.incremental_roic_pct(roic_map, win) if win
-                    else (None, "มีปีที่ NOPAT เป็นบวกไม่ถึง 2 ปีติดกัน (INC_MIN_YEARS)"))
+                    else (None, "มีปีที่ NOPAT เป็นบวกไม่ถึง %d ปีติดกัน (INC_MIN_YEARS)" % trend_mod.INC_MIN_YEARS))
         if pct is not None:
             inc_roic = _clamp(pct / 100.0, -2.0, 2.0)
             inc_src = f"ΔNOPAT/ΔIC {len(win)}y"

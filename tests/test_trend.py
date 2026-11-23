@@ -338,9 +338,8 @@ def test_E71_incremental_window_starts_at_first_profitable_year():
 
     hims = _rm([("2021-12-31", -91, 87), ("2022-12-31", -54, 132), ("2023-12-31", -23, 123),
                 ("2024-12-31", 49, 176), ("2025-12-31", 83, 936)])
-    check(trend.incremental_window(hims) == ["2024-12-31", "2025-12-31"],
-          "HIMS: three loss years trimmed, FY2024-25 kept (= INC_MIN_YEARS)")
-    check(trend.INC_MIN_YEARS == 2, "the documented minimum is 2 year-ends")
+    check(trend.incremental_window(hims) == [],
+          "HIMS: three loss years trimmed, FY2024-25 left: below INC_MIN_YEARS (E75)")
 
     late = _rm([("2022-12-31", -10, 100), ("2023-12-31", -5, 120), ("2024-12-31", -1, 130),
                 ("2025-12-31", 20, 200)])
@@ -354,6 +353,28 @@ def test_E71_incremental_window_starts_at_first_profitable_year():
                 ("2024-12-31", 80, 800), ("2025-12-31", 200, 900)])
     check(trend.incremental_window(prof) == sorted(prof),
           "a profitable start keeps the whole window, even across a later loss year")
+
+
+def test_E75_one_year_of_new_capital_is_not_an_incremental_return():
+    """E75. With a 2-year-end minimum, TMDX's window after the loss years is FY2024-25:
+    dNOPAT 56.2M / dIC 95.8M = 58.6% (10-K FY2025: operating income 108.6M vs 37.5M; IC
+    496.6M vs 400.8M), which lifted E_exec 3.5 -> 4.5. That NOPAT came mostly from capital
+    added before FY2024 (IC 44M -> 248M -> 401M over FY2022-24) reaching scale; one increment
+    credits it to the latest 96M. The minimum is 3 year-ends (two increments); below it the
+    measure is skipped with no bonus, no penalty and no 1-year proxy."""
+    print("E75 incremental ROIC needs 3 profitable year-ends")
+    from types import SimpleNamespace
+    check(trend.INC_MIN_YEARS == 3, "the documented minimum is 3 year-ends")
+    tmdx = _rm([("2021-12-31", -31, 10), ("2022-12-31", -25, 44), ("2023-12-31", -23, 248),
+                ("2024-12-31", 30, 401), ("2025-12-31", 86, 497)])
+    check(trend.incremental_window(tmdx) == [], "TMDX: FY2024-25 is one increment: skipped")
+    f = SimpleNamespace(operating_income_annuals=[108.6, 37.5], capex=50.0, dep_amort=20.0)
+    notes = []
+    r, src, declined = E._incremental_roic(f, tmdx, 0.0, 0.21, notes)
+    check(r is None and declined and any("3" in n and "INC_MIN_YEARS" in n for n in notes),
+          "the engine skips TMDX with the reason and no 1-year proxy", str((r, src, declined, notes)))
+    three = _rm([("2023-12-31", 10, 200), ("2024-12-31", 30, 401), ("2025-12-31", 86, 497)])
+    check(trend.incremental_window(three) == sorted(three), "three profitable year-ends are measured")
 
 
 if __name__ == "__main__":

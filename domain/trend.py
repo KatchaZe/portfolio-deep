@@ -41,7 +41,7 @@ MARGIN_FLAT_PP = 1.0       # margins / ROIC: |change| <= 1pp over the window rea
 # anything. Below it the denominator is noise and the ratio explodes.
 MIN_IC_DELTA_FRAC = 0.05
 MAX_YEARS = 5
-INC_MIN_YEARS = 2   # year-ends an incremental-ROIC window needs: one year of new capital (E71)
+INC_MIN_YEARS = 3   # year-ends an incremental-ROIC window needs: two years of new capital (E71, E75)
 
 
 def _pairs(dated):

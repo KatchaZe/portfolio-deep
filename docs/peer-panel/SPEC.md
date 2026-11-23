@@ -370,3 +370,10 @@ non-zero. A non-zero UNREAD_DEBT balance on the date makes the date unread even 
 debt concept filed at all, finance-lease interest in the fiscal year ending on the date makes it unread. A flow
 (interest) never overrides a debt line the filer itself files at 0 on the date; interest expense in general stays
 no sign (revolvers drawn and repaid in the year). Unread dates are left out of IC with the Thai reason (E74).
+R47 Incremental-ROIC minimum span (scored, E_exec; amends R43). INC_MIN_YEARS = 3 year-ends, counted after the
+loss-year trim: two years of new capital. One increment cannot separate the return on that year's capital from
+earlier capital reaching scale (TMDX FY2024-25: 58.6% on 96M added, mostly earned by the 357M added FY2022-24),
+nor credit capital added late in the year (HIMS FY2025: +760M, 4.5%). Below the minimum the measure is skipped
+(no bonus, no penalty, no 1-year proxy), the existing rule for a refused window. The 2-year-end minimum of R43
+was the old measure's floor, not a choice on evidence; 3 was compared on AXON (4 year-ends, unchanged), HIMS
+and TMDX (2 year-ends, skipped) before adoption (E75).
