@@ -257,7 +257,9 @@ def test_findings_and_labels():
     rows = _rows()
     out = _render({k: rows[k] for k in ("head_NVDA", "head_TMDX", "head_UNH", "head_MELI", "head_TSLA", "live_NVDA")})
     n = out["share"]["head_NVDA|sub"]["html"]
-    assert 'role="img" aria-label="NVDA ส่วนแบ่งเพิ่มจาก 8.2% เป็น 39.3% อันดับ 1 จาก 63"' in n, \
+    # 38.8%, not 39.3%: GlobalFoundries' IFRS revenue counts (R48, E76); the cache's
+    # sec_ifrs_member_revenue.json carries it once a live refresh has read GFS's companyfacts
+    assert 'role="img" aria-label="NVDA ส่วนแบ่งเพิ่มจาก 8.0% เป็น 38.8% อันดับ 1 จาก 63"' in n, \
         re.findall(r'class="pp-db" role="img" aria-label="([^"]+)"', n)
     assert 'aria-label="ส่วนแบ่งรายปี CY2021 ถึง CY2025: NVDA' in n and "กลุ่มอื่น ๆ" in n
     tm = _text(out["share"]["head_TMDX|sub"]["html"])

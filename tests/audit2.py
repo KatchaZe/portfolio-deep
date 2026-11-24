@@ -822,6 +822,51 @@ for _name, _edit in (
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
+# ---------------------------------------------------------------- A15  [E76]
+hdr("A15", "an IFRS member whose companyfacts carry revenue is never reported as no-revenue")
+from domain import frames_revenue as _FR15         # noqa: E402
+_IFRS_FIX = os.path.join(APP, "tests", "fixtures", "ifrs", "GFS_companyfacts.json")
+
+
+def _a15(pp=_PP, fr=_FR15):
+    """Members in the no-revenue list whose own companyfacts give USD revenue in a panel
+    year: GFS (20-F, IFRS, USD; in no SEC frame) beside two us-gaap filers, read the way
+    pipeline.peers.share_frames reads them (candidates -> companyfacts rows -> with_ifrs)."""
+    with open(_IFRS_FIX) as fh:
+        cf = _json.load(fh)
+    ys = [2021, 2022, 2023, 2024, 2025]
+    members = {"NVDA": 1045810, "AMD": 2488, "GFS": 1709048}
+    frames = {y: {1045810: [100.0 * (y - 2020), f"{y + 1}-01-25", "us-gaap:Revenues", None],
+                  2488: [50.0, f"{y}-12-27", "us-gaap:Revenues", None]} for y in ys}
+    cand = pp.ifrs_candidates(members, {}, frames, {}, ys)
+    ifrs = {c: {"currency": fr.ifrs_currency(cf), "cy": fr.cy_rows_from_facts(cf)} for c in cand
+            if c == int(cf["cik"])}
+    fr2, other = pp.with_ifrs(frames, {}, ifrs)
+    out = pp.industry_share(members, fr2, 1045810, ys, "2026-11-24", {}, {}, {}, other, [], set())
+    has = {int(cf["cik"])} if any(r[0] > 0 for y, r in fr.cy_rows_from_facts(cf).items() if y in ys) else set()
+    return [r for r in out["no_revenue"] if r[1] in has] + ([] if has else [("fixture", "no revenue read")])
+
+
+_hit15 = _a15()
+print(f"  A15: {len(_hit15)} IFRS member(s) with companyfacts revenue reported as no-revenue")
+if _hit15:
+    flag("HIGH", f"A15 IFRS member with revenue reported as no-revenue: {_hit15[:3]}")
+for _name, _mod, _edit in (
+        ("A15 with_ifrs dropped", "pp", dict(override={"with_ifrs": lambda frames, other, ifrs: (frames, other)})),
+        ("A15 no candidates", "pp", dict(override={"ifrs_candidates": lambda *a: set()})),
+        ("A15 quarter frames read as years", "fr", dict(old='_CY = re.compile(r"^CY(\\d{4})$")',
+                                                        new='_CY = re.compile(r"^CY(\\d{4})Q4I$")'))):
+    try:
+        _m = _variant(_PP if _mod == "pp" else _FR15, **_edit)
+    except _Stale as _e:
+        print(f"  mutation for {_name}: STALE ({_e})")
+        flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
+        continue
+    _hit = _a15(**{_mod: _m})
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:

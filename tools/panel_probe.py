@@ -37,7 +37,8 @@ from domain.facts import FinancialFacts
 from pipeline import peers
 from sources import damodaran_companies as dc, fmp
 
-SEED = ("damodaran_indname.json", "damodaran_global_sic.json", "damodaran_us_names.json", "company_tickers.json")
+SEED = ("damodaran_indname.json", "damodaran_global_sic.json", "damodaran_us_names.json", "company_tickers.json",
+        "sec_ifrs_member_revenue.json")
 
 
 def _isolated_cache():
@@ -135,8 +136,12 @@ def _offline_universe(cache):
     frames = frames_revenue.rebucket(by_sec)                        # R36
     glob = (_load(os.path.join(cache, "damodaran_global_sic.json")) or {}).get("rows") or []
     us_names = (_load(os.path.join(cache, dc.NAMES_CACHE)) or {}).get("names") or {}
+    ifrs_path = os.path.join(cache, dc.IFRS_MEMBERS_CACHE)            # R48, as the live run cached it
+    ifrs = {int(k): {"currency": v.get("currency"), "cy": {int(y): r for y, r in (v.get("cy") or {}).items()}}
+            for k, v in ((_load(ifrs_path) if os.path.exists(ifrs_path) else None) or {}).items()}
     return peers.Universe(rows=rows, frames=frames, assets=assets, global_rows=glob, frame_names=names,
-                          ifrs_other=other, ifrs_unread=unread, us_names=us_names, sec_map=cik.ticker_map())
+                          ifrs_other=other, ifrs_unread=unread, us_names=us_names, sec_map=cik.ticker_map(),
+                          ifrs_revenue=ifrs)
 
 
 def offline(s, tickers, universe):

@@ -1,0 +1,131 @@
+{
+ "_doc": "Constructed for tests: GlobalFoundries' ifrs-full Revenue (USD, 20-F) with SEC frame tags CY2021..CY2025 as companyconcept serves them (values from the user brief; FY2025 6,791 and FY2024 6,750 $M match GF's release of 2026-02-11, https://investors.gf.com/news-releases/news-release-details/globalfoundries-reports-fourth-quarter-2025-and-fiscal-year-2025). Accession numbers and filed dates are placeholders.",
+ "cik": 1709048,
+ "entityName": "GLOBALFOUNDRIES Inc.",
+ "facts": {
+  "ifrs-full": {
+   "Revenue": {
+    "units": {
+     "USD": [
+      {
+       "start": "2021-01-01",
+       "end": "2021-12-31",
+       "val": 6585000000,
+       "accn": "0001709048-22-000000",
+       "fy": 2021,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2022-03-15",
+       "frame": "CY2021"
+      },
+      {
+       "start": "2021-01-01",
+       "end": "2021-12-31",
+       "val": 6585000000,
+       "accn": "0001709048-23-000000",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2023-03-15"
+      },
+      {
+       "start": "2022-01-01",
+       "end": "2022-12-31",
+       "val": 8108000000,
+       "accn": "0001709048-23-000000",
+       "fy": 2022,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2023-03-15",
+       "frame": "CY2022"
+      },
+      {
+       "start": "2022-01-01",
+       "end": "2022-12-31",
+       "val": 8108000000,
+       "accn": "0001709048-24-000000",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-03-15"
+      },
+      {
+       "start": "2023-01-01",
+       "end": "2023-12-31",
+       "val": 7392000000,
+       "accn": "0001709048-24-000000",
+       "fy": 2023,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2024-03-15",
+       "frame": "CY2023"
+      },
+      {
+       "start": "2023-01-01",
+       "end": "2023-12-31",
+       "val": 7392000000,
+       "accn": "0001709048-25-000000",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-03-15"
+      },
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": 6750000000,
+       "accn": "0001709048-25-000000",
+       "fy": 2024,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2025-03-15",
+       "frame": "CY2024"
+      },
+      {
+       "start": "2024-01-01",
+       "end": "2024-12-31",
+       "val": 6750000000,
+       "accn": "0001709048-26-000000",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-15"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 6791000000,
+       "accn": "0001709048-26-000000",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-15",
+       "frame": "CY2025"
+      },
+      {
+       "start": "2025-01-01",
+       "end": "2025-12-31",
+       "val": 6791000000,
+       "accn": "0001709048-27-000000",
+       "fy": 2026,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2027-03-15"
+      },
+      {
+       "start": "2025-10-01",
+       "end": "2025-12-31",
+       "val": 1830000000,
+       "accn": "0001709048-26-000000",
+       "fy": 2025,
+       "fp": "FY",
+       "form": "20-F",
+       "filed": "2026-03-15",
+       "frame": "CY2025Q4"
+      }
+     ]
+    }
+   }
+  }
+ }
+}

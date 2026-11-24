@@ -21,6 +21,7 @@ materially below it in that same filing, and a 1000x twin dropped. Then net of e
 revenue values, the smaller one is the revenue.
 """
 import datetime as dt
+import re
 
 # priority within one filing; ifrs-full is read only when no us-gaap value exists
 PRIORITY = ("us-gaap:Revenues", "us-gaap:RevenueFromContractWithCustomerExcludingAssessedTax",
@@ -137,3 +138,47 @@ def rebucket(by_sec_year):
             out.setdefault(cy, {})[cik] = row
             own[(cy, cik)] = cy == int(y)
     return out
+
+
+# --------------------------------------------------------------------------- #
+#  An IFRS filer's CY revenue from its own companyfacts (R48)                   #
+# --------------------------------------------------------------------------- #
+# SEC's frames API has no ifrs-full frames from CY2022 (frames/ifrs-full/Revenue/USD/CY2025
+# answers NoSuchKey), so a 20-F filer's calendar-year revenue is read from the facts in its
+# own companyfacts that carry SEC's `frame` tag: the facts a frames call would have returned.
+_CY = re.compile(r"^CY(\d{4})$")
+IFRS_REVENUE = "ifrs-full:Revenue"
+
+
+def cy_rows_from_facts(cf, as_of=None):
+    """{CY: [revenue, end, concept, note]} for one filer from its companyfacts: per SEC
+    `frame` tag (CY2024, not CY2024Q4I) the facts a frames call would return, in USD, read
+    by choose and rebucket exactly as the frames are read. A fact filed after `as_of` is
+    left out. Shared by the industry share and tools/scout_fetch."""
+    facts = (cf or {}).get("facts") or {}
+    by_year = {}
+    for qname in PRIORITY + (EXCISE,):
+        ns, concept = qname.split(":")
+        for e in (((facts.get(ns) or {}).get(concept) or {}).get("units") or {}).get("USD") or []:
+            m = _CY.match(str(e.get("frame") or ""))
+            if not m or (as_of and str(e.get("filed") or "") > str(as_of)):
+                continue
+            year = by_year.setdefault(int(m.group(1)), {})
+            if qname not in year or str(e.get("filed")) > str(year[qname].get("filed")):
+                year[qname] = {"val": e.get("val"), "end": e.get("end"), "accn": e.get("accn"),
+                               "filed": e.get("filed")}
+    rows = {}
+    for y, entries in by_year.items():
+        c = choose(entries)
+        if c:
+            rows[y] = {0: [c["val"], c["end"], c["concept"], c["note"]]}
+    return {y: r[0] for y, r in rebucket(rows).items()}
+
+
+def ifrs_currency(cf):
+    """The currency of the filer's ifrs-full Revenue facts ("USD" when any is in USD), or
+    None when it files no ifrs-full Revenue (not an IFRS filer)."""
+    units = ((((cf or {}).get("facts") or {}).get("ifrs-full") or {}).get("Revenue") or {}).get("units") or {}
+    if not units:
+        return None
+    return "USD" if "USD" in units else sorted(units)[0]

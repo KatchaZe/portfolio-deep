@@ -265,7 +265,7 @@ class Universe:
     def __init__(self, rows=None, revenue_by_cik=None, psdata=None, notes=(), as_of=None, loader=None,
                  frames=None, frames_loader=None, assets=None, global_rows=None, global_loader=None,
                  frame_names=None, ifrs_other=None, us_names=None, names_loader=None, sec_map=None,
-                 sec_map_loader=None, ifrs_unread=None):
+                 sec_map_loader=None, ifrs_unread=None, ifrs_revenue=None, ifrs_loader=None):
         self._data = None if loader else (rows or {}, revenue_by_cik or {}, psdata or {},
                                           [n for n in notes if n], as_of)
         self._loader, self._lock = loader, threading.Lock()
@@ -285,6 +285,11 @@ class Universe:
         # Damodaran's non-US rows: a home-listed target's own SIC only (R29)
         self._global = None if global_loader else (global_rows or [], [])
         self._global_loader = global_loader
+        # R48: IFRS members' CY revenue from their own companyfacts. `ifrs_loader(ciks)` ->
+        # ({cik: {currency, cy}}, failed, n_requests), cached across tickers for the run; a
+        # Universe from parts reads `ifrs_revenue` (the cache file's content) and fetches nothing
+        self._ifrs = {int(k): v for k, v in (ifrs_revenue or {}).items()}
+        self._ifrs_failed, self._ifrs_loader, self.ifrs_requests = set(), ifrs_loader, 0
 
     def _get(self):
         with self._lock:
@@ -371,6 +376,22 @@ class Universe:
         self._members[industry] = res
         return res
 
+    def ifrs_revenue(self, ciks):
+        """({cik: {currency, cy}}, {cik}: failed) for `ciks`; each filer read once per run."""
+        ciks = {int(c) for c in ciks}
+        with self._lock:
+            todo = ciks - set(self._ifrs) - self._ifrs_failed
+            if todo and self._ifrs_loader:
+                try:
+                    got, failed, n = self._ifrs_loader(todo)
+                except Exception as e:          # never fails the refresh
+                    log.warning("IFRS member revenue failed to load: %s", e)
+                    got, failed, n = {}, set(todo), 0
+                self._ifrs.update(got)
+                self._ifrs_failed |= set(failed)
+                self.ifrs_requests += n
+            return {c: self._ifrs[c] for c in ciks if c in self._ifrs}, ciks & self._ifrs_failed
+
     global_rows = property(lambda self: self._get_global()[0])
     global_notes = property(lambda self: self._get_global()[1])
     frames = property(lambda self: self._get_frames()[0])
@@ -413,8 +434,12 @@ class Universe:
         def load_sec_map():
             from pipeline import cik
             return cik.ticker_map()
+        def load_ifrs(ciks):
+            from sources import damodaran_companies as dc
+            return dc.load_ifrs_member_revenue(cache_dir or config.CACHE_DIR, ciks,
+                                               user_agent or config.SEC_USER_AGENT, today.isoformat())
         return cls(loader=load, frames_loader=load_frames, global_loader=load_global, names_loader=load_names,
-                   sec_map_loader=load_sec_map)
+                   sec_map_loader=load_sec_map, ifrs_loader=load_ifrs)
 
     def target_sic(self, f):
         """{code, source, reason} for the target (R25, R29): the US rows of Damodaran's list,
@@ -573,6 +598,15 @@ def _target_panel_point(f, today):
                 **peer_panel.point_fields(x, today.isoformat())), None
 
 
+def share_frames(universe, members, foreign, years):
+    """(frames, ifrs_other, failed) the industry share reads: SEC's frames plus each IFRS
+    member's own companyfacts revenue (R48) for the members no frame holds."""
+    ifrs, failed = universe.ifrs_revenue(peer_panel.ifrs_candidates(members, foreign, universe.frames,
+                                                                    universe.assets, years))
+    frames, other = peer_panel.with_ifrs(universe.frames, universe.ifrs_other, ifrs)
+    return frames, other, failed
+
+
 def panel_and_moat(f, val, block, universe, today):
     """(peer_panel, moat_trend) for one ticker. Display only: reads the relative block
     and the facts, writes nothing back into either, and no score reads its output
@@ -594,12 +628,12 @@ def panel_and_moat(f, val, block, universe, today):
         members, foreign, unresolved = universe.members_of(industry)
         tcik, _ = resolve_cik(f.ticker)
         years = dc.panel_years(today)
-        other = universe.ifrs_other
-        share = peer_panel.industry_share(members, universe.frames, tcik, years, as_of,
-                                          foreign, universe.assets, unresolved, other, universe.ifrs_unread)
-        share["sub_group"] = peer_panel.sub_group(members, universe.frames, tcik, years, as_of, foreign,
+        frames, other, failed = share_frames(universe, members, foreign, years)
+        share = peer_panel.industry_share(members, frames, tcik, years, as_of, foreign, universe.assets,
+                                          unresolved, other, universe.ifrs_unread, failed)
+        share["sub_group"] = peer_panel.sub_group(members, frames, tcik, years, as_of, foreign,
                                                   universe.assets, sics, f.ticker, unresolved, other,
-                                                  universe.ifrs_unread)
+                                                  universe.ifrs_unread, failed)
     notes = list(universe.frame_notes) + list(universe.name_notes if industry else []) + \
         list(block.get("notes") or [])
     if tsic["source"] != peer_panel.SIC_SOURCE:

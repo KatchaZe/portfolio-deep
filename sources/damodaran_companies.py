@@ -468,6 +468,46 @@ def load_revenue_frames_years(cache_dir, today, user_agent, requests_mod=None, t
     return {y: cy[y] for y in years if cy.get(y)}, notes
 
 
+IFRS_MEMBERS_CACHE = "sec_ifrs_member_revenue.json"
+
+
+def load_ifrs_member_revenue(cache_dir, ciks, user_agent, as_of, fetch=None, now=None):
+    """({cik: {"currency", "cy": {CY: [revenue, end, concept, note]}}}, {cik}: failed, n_requests)
+    for the members the frames do not hold (R48): one companyfacts request per filer, its
+    reading cached FRAMES_TTL_DAYS in IFRS_MEMBERS_CACHE (the derived rows, not the file).
+    currency None: no ifrs-full Revenue (not an IFRS filer); "USD": cy holds its rows; any
+    other currency: cy empty, the member is named by the R34 flag. A failed request is in
+    `failed` and not cached. Never raises."""
+    from domain import frames_revenue
+    now = now or time.time()
+    path = os.path.join(cache_dir, IFRS_MEMBERS_CACHE)
+    cache = _read(path) or {}
+    if fetch is None:
+        from sources import sec_edgar
+        fetch = lambda cik: sec_edgar.fetch_companyfacts(cik, user_agent, timeout=60)   # noqa: E731
+    out, failed, n, dirty = {}, set(), 0, False
+    for cik in sorted({int(c) for c in ciks}):
+        hit = cache.get(str(cik))
+        if hit and now - hit.get("at", 0) < FRAMES_TTL_DAYS * 86400:
+            out[cik] = {"currency": hit.get("currency"), "cy": {int(k): v for k, v in (hit.get("cy") or {}).items()}}
+            continue
+        n += 1
+        try:
+            cf = fetch(cik)
+        except Exception as e:
+            log.warning("SEC companyfacts %s for IFRS revenue failed: %s", cik, e)
+            failed.add(cik)
+            continue
+        cur = frames_revenue.ifrs_currency(cf)
+        cy = frames_revenue.cy_rows_from_facts(cf, as_of) if cur == "USD" else {}
+        out[cik] = {"currency": cur, "cy": cy}
+        cache[str(cik)] = {"at": now, "currency": cur, "cy": {str(k): v for k, v in cy.items()}}
+        dirty = True
+    if dirty:
+        _write(path, cache)
+    return out, failed, n
+
+
 def load_frame_extras(cache_dir, today):
     """({cik: [SEC entity names, oldest year first]}, {cik: IFRS currency}, [CY whose IFRS
     frames were not read]) over the panel years' caches (plus the year before), read after

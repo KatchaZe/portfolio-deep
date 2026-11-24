@@ -387,3 +387,18 @@ spares them, trimming leading years and keeping the damping on the years left gi
 stays 0). TMDX's lift in the proposal came only from the 4-year gate turning damping off, not from a better median.
 Damodaran's case that history says little about a young firm argues against an undamped ROIC from one year above
 WACC, not for one. Source: independent verifier report v_r3 (h), 2026-11-23.
+
+## Resolution 2026-11-24b (IFRS members from companyfacts; amends R34 and R40)
+R48 IFRS members. SEC's frames API serves no ifrs-full frames from CY2022, so the R34 frames read finds no IFRS
+filer after CY2021. A member (US or foreign) with a CIK that no frame holds in any panel year, neither a revenue row
+nor a us-gaap Assets balance sheet, is an IFRS candidate: its own companyfacts are read once
+(damodaran_companies.load_ifrs_member_revenue: one request per filer, the derived rows cached FRAMES_TTL_DAYS in
+sec_ifrs_member_revenue.json, a failed request not cached), and frames_revenue.cy_rows_from_facts reads the
+ifrs-full Revenue facts that carry SEC's CY#### frame tag, in USD, through the same choose + rebucket as the frames
+(R35, R36). It is the one function for this reading: tools/scout_fetch (branch scout-fetch) keeps a copy that must be replaced by an import when it rebases. A USD filer's rows fill the
+years the frames have none for it and it counts like any member; a filer whose ifrs-full Revenue is in another
+currency joins ifrs_other and is named by the R34 flag (never converted, never counted); a filer with no ifrs-full
+Revenue keeps its R40 reason; a failed request gives the reason "อ่าน companyfacts ของ SEC ไม่ได้". Cost: one
+companyfacts request per candidate per 30 days (52 over the 25 holdings' industries on a cold refresh, 0 while
+cached). A Universe built from parts reads the cache file's content (tools/panel_probe --offline) and fetches
+nothing. Display only (PP1). E76.

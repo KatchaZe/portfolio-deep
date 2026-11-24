@@ -386,8 +386,45 @@ NOTE_TH = {"excise_tags_swapped": "แท็ก SEC สลับกัน ใช
            "excise_net": "ใช้รายได้สุทธิหลังหักภาษีสรรพสามิต"}
 
 
+def ifrs_candidates(members, foreign, frames, assets, years):
+    """R48: the members with a CIK that no frame holds in any of `years`, neither a revenue
+    row nor a us-gaap balance sheet (Assets): every 10-K filer files Assets, so these are
+    the 20-F / 40-F filers whose revenue the frames cannot give."""
+    out = set()
+    for c in list((members or {}).values()) + list((foreign or {}).values()):
+        if not c:
+            continue
+        c = int(c)
+        if any(_frame_row((frames or {}).get(y) or (frames or {}).get(str(y)), c) is not None
+               or c in ((assets or {}).get(y) or (assets or {}).get(str(y)) or ()) for y in years):
+            continue
+        out.add(c)
+    return out
+
+
+def _frame_row(yr, c):
+    return (yr or {}).get(c, (yr or {}).get(str(c)))
+
+
+def with_ifrs(frames, ifrs_other, ifrs):
+    """(frames, ifrs_other) with each IFRS member's own CY revenue added (R48): a USD
+    filer's companyfacts rows fill the years the frames have no row for it; a filer whose
+    IFRS revenue is in another currency joins ifrs_other (named, never counted, R34)."""
+    frames = {y: dict(r or {}) for y, r in (frames or {}).items()}
+    other = dict(ifrs_other or {})
+    for cik, got in (ifrs or {}).items():
+        cur = got.get("currency")
+        if cur and cur != "USD":
+            other.setdefault(int(cik), cur)
+        for y, row in (got.get("cy") or {}).items() if cur == "USD" else ():
+            yr = frames.setdefault(int(y), {})
+            if _frame_row(yr, int(cik)) is None:
+                yr[int(cik)] = list(row)
+    return frames, other
+
+
 def industry_share(members, frames, target_cik, years, as_of, foreign=None, assets=None, unresolved=None,
-                   ifrs_other=None, ifrs_unread=None):
+                   ifrs_other=None, ifrs_unread=None, ifrs_failed=None):
     """Share of revenue among the US SEC filers in one Damodaran industry, per calendar
     year. `members` {ticker: cik or None} is the industry's own US-domiciled list (no
     other peer source); `foreign` the US-listed members domiciled elsewhere, counted
@@ -403,7 +440,9 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
     is also reported over the members including the unresolved ones (R38). A counted
     member with no revenue in any year (`no_revenue` [ticker, cik, Thai reason], R40) is
     named: no frame at all (the reason names the years `ifrs_unread` could not read IFRS
-    frames), or a balance sheet with revenue 0."""
+    frames), or a balance sheet with revenue 0. `frames` and `ifrs_other` already carry the
+    IFRS members' own companyfacts reading (with_ifrs, R48); `ifrs_failed` {cik} are the
+    members whose companyfacts request failed this run."""
     flags = []
     ciks = {int(c) for c in members.values() if c}
     no_cik = sorted(t for t, c in members.items() if not c)
@@ -483,7 +522,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
             out["target_share"][k] = None
             if tc is not None:
                 flags.append(f"CY{y}: no revenue frame for the target")
-    no_revenue(out, ciks, {**(foreign or {}), **members}, raw, assets, other, ys, ifrs_unread)
+    no_revenue(out, ciks, {**(foreign or {}), **members}, raw, assets, other, ys, ifrs_unread, ifrs_failed)
     notes = {}
     for k, by in out["revenue_notes"].items():
         by.sort()
@@ -506,7 +545,7 @@ def industry_share(members, frames, target_cik, years, as_of, foreign=None, asse
     return out
 
 
-def no_revenue(out, ciks, symbols_of, raw, assets, other, ys, ifrs_unread):
+def no_revenue(out, ciks, symbols_of, raw, assets, other, ys, ifrs_unread, ifrs_failed=None):
     """R40: every counted member with no positive revenue in any panel year gets a Thai
     reason in out["no_revenue"] and a flag per reason with its count. A non-USD IFRS
     member is already named by its own flag and is skipped here."""
@@ -525,6 +564,9 @@ def no_revenue(out, ciks, symbols_of, raw, assets, other, ys, ifrs_unread):
             continue
         if any(c in ((assets or {}).get(y) or (assets or {}).get(str(y)) or ()) for y in ys):
             why = f"มีงบดุลใน SEC แต่ไม่มีรายได้ {span} (นับเป็นรายได้ 0)"
+        elif c in (ifrs_failed or ()):
+            why = (f"ไม่มีรายได้ us-gaap ใน SEC frames {span} และรอบนี้อ่าน companyfacts ของ SEC ไม่ได้ "
+                   "ถ้ารายงาน IFRS จะไม่ถูกนับ")
         elif unread:
             why = (f"ไม่มีรายได้ us-gaap (Revenues และ concept รายได้อีก 3 ตัว) ใน SEC frames {span} "
                    f"และรอบนี้อ่านรายได้ IFRS ไม่ได้ ({', '.join(f'CY{y}' for y in unread)}) "
@@ -618,7 +660,7 @@ def scope_note(sic):
 
 
 def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=None, sics=None,
-              target_symbol=None, unresolved=None, ifrs_other=None, ifrs_unread=None):
+              target_symbol=None, unresolved=None, ifrs_other=None, ifrs_unread=None, ifrs_failed=None):
     """industry_share over the industry members whose 4-digit SIC equals the target's
     (R28): same matched set (R13), coverage (R20) and calendar years (R10) as the full
     industry, plus `members`, one row per filer in the newest calendar year, revenue and
@@ -632,7 +674,8 @@ def sub_group(members, frames, target_cik, years, as_of, foreign=None, assets=No
                 "scope_note": scope_note(None)}
     pick = lambda d: {t: c for t, c in (d or {}).items() if sic4(sics.get(t)) == ts}
     sm, sf = pick(members), pick(foreign)
-    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets, unresolved, ifrs_other, ifrs_unread)
+    out = industry_share(sm, frames, target_cik, years, as_of, sf, assets, unresolved, ifrs_other, ifrs_unread,
+                         ifrs_failed)
     out.update(group=SUB_GROUP, sic=ts, sic_source=SIC_SOURCE, reason=None, scope_note=scope_note(ts),
                flags=[f"sub-group SIC {ts}: {f}" for f in out["flags"]])
     ys = out["years"]
