@@ -41,7 +41,7 @@ AUX = ["DebtInstrumentUnamortizedDiscountPremiumAndDebtIssuanceCostsNet", "DebtI
        "NotesPayableRelatedPartiesNoncurrent", "NotesPayableRelatedPartiesClassifiedCurrent"]
 TICKERS = ("TMDX", "LLY", "ABBV", "AXON", "BKD", "UTHR", "AVGO", "MELI", "ENSG",
            "HCA", "AAPL", "MSFT", "DIS", "ASML", "F", "VRTX", "NEOG", "TTWO", "INCY", "GKOS",
-           "CNK", "BIIB", "REGN", "NVO", "CELH")
+           "CNK", "BIIB", "REGN", "NVO", "CELH", "NVDA")
 # an IFRS filer keeps its whole ifrs-full namespace (NVO: 253 concepts, 0.7 MB)
 WHOLE_NS = ("ifrs-full",)
 
