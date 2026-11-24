@@ -3,18 +3,11 @@ import datetime as dt
 import unittest
 
 from sources import damodaran, fmp
+from tests.test_ifrs_members import gfs_cf
 from tools import scout_fetch as sf
 
 TODAY = dt.date(2026, 11, 24)
 YEARS = [2021, 2022, 2023, 2024, 2025]
-
-
-def fact(val, end, frame, filed="2025-03-01", accn="0001-25-000001"):
-    return {"val": val, "start": None, "end": end, "frame": frame, "filed": filed, "accn": accn}
-
-
-def ifrs_facts(entries, unit="USD"):
-    return {"facts": {"ifrs-full": {"Revenue": {"units": {unit: entries}}}}}
 
 
 def sec(cik=7, currency="USD", ifrs_cy=None, total_debt=500.0, debt_notes=()):
@@ -44,27 +37,21 @@ def nulls_without_reason(node, path=""):
     return out
 
 
-class IfrsCalendarYears(unittest.TestCase):
-    def test_reads_annual_usd_frames_only(self):
-        cf = ifrs_facts([fact(5e9, "2023-12-31", "CY2023"), fact(6e9, "2024-12-31", "CY2024"),
-                         fact(1.5e9, "2024-12-31", "CY2024Q4I")])
-        cf["facts"]["ifrs-full"]["Revenue"]["units"]["TWD"] = [fact(9e11, "2024-12-31", "CY2024")]
-        rows = sf.cy_rows_from_facts(cf, "2026-11-24")
-        self.assertEqual({y: r[0] for y, r in rows.items()}, {2023: 5e9, 2024: 6e9})
-        self.assertEqual(rows[2024][2], "ifrs-full:Revenue")
+class IfrsMember(unittest.TestCase):
+    """The extract labels an IFRS filer "ifrs" (not "ifrs-full"); the scout used to test the
+    wrong label, so GFS's calendar-year revenue was never read. Red on 6e74b39."""
 
-    def test_fact_filed_after_as_of_is_left_out(self):
-        cf = ifrs_facts([fact(6e9, "2024-12-31", "CY2024", filed="2026-12-01")])
-        self.assertEqual(sf.cy_rows_from_facts(cf, "2026-11-24"), {})
+    def test_gfs_gets_calendar_year_revenue(self):
+        part = sf.sec_part("GFS", 1709048, gfs_cf(), "2026-11-24")
+        self.assertEqual(part["x"]["accounting_standard"], "ifrs")
+        r = sf.assemble(dict(META, ticker="GFS", cik=1709048), part, PRICE, {}, YEARS, TODAY, 0.1055)
+        got = {y: round(r["revenue_cy"][str(y)]["value"] / 1e6) for y in YEARS}
+        self.assertEqual(got, {2021: 6585, 2022: 8108, 2023: 7392, 2024: 6750, 2025: 6791})
+        self.assertIn("companyfacts ifrs-full:Revenue", r["revenue_cy"]["2025"]["source"])
 
-    def test_june_year_end_rebucketed_as_the_frames_are(self):
-        cf = ifrs_facts([fact(4e9, "2024-06-30", "CY2023")])
-        self.assertEqual(list(sf.cy_rows_from_facts(cf)), [2024])
-
-    def test_us_gaap_wins_over_ifrs_in_one_year(self):
-        cf = ifrs_facts([fact(6e9, "2024-12-31", "CY2024")])
-        cf["facts"]["us-gaap"] = {"Revenues": {"units": {"USD": [fact(7e9, "2024-12-31", "CY2024")]}}}
-        self.assertEqual(sf.cy_rows_from_facts(cf)[2024][:3], [7e9, "2024-12-31", "us-gaap:Revenues"])
+    def test_non_ifrs_member_reads_no_companyfacts_cy(self):
+        part = sf.sec_part("X", 7, {"facts": {"us-gaap": {}}}, "2026-11-24")
+        self.assertEqual(part["ifrs_cy"], {})
 
 
 class Assembly(unittest.TestCase):
@@ -100,6 +87,75 @@ class Assembly(unittest.TestCase):
         self.assertEqual(r["balance"]["debt"]["reason"], "untagged at 2026-06-30")
         self.assertIn("TWD", r["market"]["ev"]["reason"])
         self.assertEqual(nulls_without_reason(r), [])
+
+
+class Labels(unittest.TestCase):
+    def test_debt_free_member_is_labelled_debt_free(self):
+        s_ = sec(total_debt=None)
+        s_["fy"] = [{"end": "2025-12-31", "debt": 0}]
+        r = sf.assemble(META, s_, PRICE, {}, YEARS, TODAY)
+        self.assertTrue(r["balance"]["debt"]["reason"].startswith("debt-free"))
+        s_["fy"] = [{"end": "2025-12-31", "debt": 40.0}]
+        r = sf.assemble(META, s_, PRICE, {}, YEARS, TODAY)
+        self.assertTrue(r["balance"]["debt"]["reason"].startswith("no debt concept"))
+
+    def test_missing_raw_ebit_does_not_claim_facts_were_unread(self):
+        s_ = sec()
+        s_["ebit_ttm_raw"] = None
+        r = sf.assemble(META, s_, PRICE, {}, YEARS, TODAY)
+        self.assertNotIn("not read", r["ttm"]["ebit_raw"]["reason"])
+
+
+class Group1Assembly(unittest.TestCase):
+    def window(self, *roic):
+        return {"value": [{"end": f"{2021 + i}-12-31", "roic_pct": v} for i, v in enumerate(roic)]}
+
+    def part(self, cap_window):
+        s_ = sec()
+        s_["g1"] = {"fy": [], "derived": {"cap_window": cap_window}, "latest_filed": "2026-11-05"}
+        return s_
+
+    def test_cap_years_counted_at_the_industry_wacc(self):
+        r = sf.assemble(META, self.part(self.window(8.0, 12.0, 15.0, 9.0, 11.0)), PRICE, {}, YEARS, TODAY, 0.10)
+        cap = r["group1"]["derived"]["cap_years"]
+        self.assertEqual((cap["value"], cap["of"]), (3, 5))
+        self.assertIn("10.00%", cap["source"])
+
+    def test_old_cache_part_says_group1_is_missing(self):
+        r = sf.assemble(META, sec(), PRICE, {}, YEARS, TODAY, 0.10)
+        self.assertIn("older cache", r["group1"]["reason"])
+        self.assertEqual(nulls_without_reason(r), [])
+
+    def test_next_filing_due_after_the_quarter_and_the_fast_lag(self):
+        r = sf.assemble(META, self.part(self.window(1, 2, 3, 4)), PRICE, {}, YEARS, TODAY, 0.10)
+        self.assertEqual(r["filing"]["next_expected_by"], "2027-01-20",
+                         "2026-09-30 + 91 + 21 days")
+        self.assertEqual(r["filing"]["latest_filed"], "2026-11-05")
+
+
+class Group2(unittest.TestCase):
+    def series(self, n, f):
+        import datetime as d
+        days = [(d.date(2024, 1, 1) + d.timedelta(days=i)).isoformat() for i in range(n)]
+        closes = [100.0 + f(i) for i in range(n)]
+        return {"closes": closes, "dates": days, "volumes": [1e6] * n, "source": "test", "dividend_adjusted": True}
+
+    def test_highest_correlation_names_the_holding_and_short_overlaps_are_skipped(self):
+        import math
+        me = self.series(300, lambda i: 10 * math.sin(i / 7.0) + i * 0.05)
+        twin = self.series(300, lambda i: 10 * math.sin(i / 7.0) + i * 0.05 + (i % 3) * 0.01)
+        other = self.series(300, lambda i: 10 * math.cos(i / 3.0))
+        short = self.series(60, lambda i: 10 * math.sin(i / 7.0))
+        g = sf.scout_groups.group2("ME", me, None, None, {"TWIN": twin, "OTHER": other, "SHORT": short, "ME": me})
+        self.assertEqual(g["top_corr"]["value"]["ticker"], "TWIN")
+        self.assertNotIn("SHORT", g["corr"]["value"], "fewer shared days than CORR_MIN_DAYS")
+        self.assertNotIn("ME", g["corr"]["value"])
+        self.assertIsNone(g["beta_spy"]["value"])
+        self.assertTrue(g["beta_spy"]["reason"])
+
+    def test_no_history_gives_a_reason(self):
+        g = sf.scout_groups.group2("ME", None, "offline run: no cached price history", None, {})
+        self.assertEqual((g["bars"], g["reason"]), (0, "offline run: no cached price history"))
 
 
 class Sources(unittest.TestCase):

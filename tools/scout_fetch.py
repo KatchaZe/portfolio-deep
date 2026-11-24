@@ -12,9 +12,13 @@ sources.sec_gap (debt by _DebtBook, R42-R44, E58-E75); TTM EBIT is peers.normali
 T-1 close is peers._t1 (Yahoo, then Stooq); market cap and EV are relative.point;
 industry beta and WACC are sources.damodaran. FMP is never called (guarded).
 
-SEC's frames API has no ifrs-full frames, so an IFRS member's CY revenue is read from the
-ifrs-full:Revenue facts in its own companyfacts by their SEC `frame` tag (the same facts
-/api/xbrl/companyconcept serves), through the same choose + rebucket. USD only (R34).
+Group 1 (cash flow, SBC, dilution, leverage and the engine's ROIC-derived metrics) and
+group 2 (2y price history: volatility, beta, correlation to holdings, momentum, sector
+headroom) are tools/scout_groups.py, which composes the engine's own functions.
+
+SEC's frames API has no ifrs-full frames, so an IFRS member's CY revenue is read from its
+own companyfacts by frames_revenue.cy_rows_from_facts, the reader the industry share uses
+(E76). USD only (R34).
 
 Resumable: the SEC part of each member is cached for SEC_TTL_DAYS, the close per day, and
 the app's frames / indname / ticker-map caches keep their own TTLs, all under --cache.
@@ -41,11 +45,14 @@ from pipeline.cik import resolve_cik                              # noqa: E402
 from sources import damodaran, fmp, sec_edgar, sec_gap            # noqa: E402
 from sources import damodaran_companies as dc                     # noqa: E402
 from sources.industries import securities_are_operating           # noqa: E402
+from tools import scout_groups                                    # noqa: E402
 
 log = logging.getLogger("portfolio.scout")
 
 INDUSTRIES = ("Semiconductor", "Healthcare Products", "Software (System & Application)")
 SEC_TTL_DAYS = 7
+PART_VERSION = 2                 # 2 = group 1 inside the SEC part; an older part is refetched
+NEW_FILING_LAG_DAYS = 21         # earliest a quarter's 10-Q is filed after the quarter ends (NVDA ~21-25)
 FY_KEEP = 6
 STALE_BASE_DAYS = 200
 MIN_REVENUE = 200e6
@@ -57,7 +64,7 @@ X_KEYS = ("currency", "accounting_standard", "latest_period_end", "revenue", "op
 FRAMES_PER_YEAR = len(dc.FRAMES_CONCEPTS) + 1 + 1 + len(dc.IFRS_OTHER_CURRENCIES)
 SEC_PER_MEMBER = 2               # companyfacts + submissions (sec_gap); a missing filing adds 1-2
 GUESS_SECS_PER_MEMBER = 2.5      # a guess: companyfacts is 1-7 MB; the log prints the measured rate
-_CY = re.compile(r"^CY(\d{4})$")
+GUESS_SECS_HISTORY = 1.0         # a guess: one 2y daily chart from Yahoo (Stooq on a miss)
 UNTAGGED_DEBT = "หนี้สินรวม"     # sec_edgar._total_debt's note when the debt date is untagged
 
 
@@ -111,36 +118,16 @@ def _write(path, obj):
 
 
 # --------------------------------------------------------------------------- #
-#  Pure: CY revenue from a filer's own facts (the IFRS path)                    #
-# --------------------------------------------------------------------------- #
-def cy_rows_from_facts(cf, as_of=None):
-    """{CY: [revenue, end, concept, note]} for one filer from its companyfacts: per SEC
-    `frame` tag (CY2024, not CY2024Q4I) the facts a frames call would return, in USD, read
-    by frames_revenue.choose and rebucket exactly as damodaran_companies._frames reads the
-    frames. A fact filed after `as_of` is left out."""
-    facts = (cf or {}).get("facts") or {}
-    by_year = {}
-    for qname in frames_revenue.PRIORITY + (frames_revenue.EXCISE,):
-        ns, concept = qname.split(":")
-        for e in (((facts.get(ns) or {}).get(concept) or {}).get("units") or {}).get("USD") or []:
-            m = _CY.match(str(e.get("frame") or ""))
-            if not m or (as_of and str(e.get("filed") or "") > as_of):
-                continue
-            year = by_year.setdefault(int(m.group(1)), {})
-            if qname not in year or str(e.get("filed")) > str(year[qname].get("filed")):
-                year[qname] = {"val": e.get("val"), "end": e.get("end"), "accn": e.get("accn"),
-                               "filed": e.get("filed")}
-    rows = {}
-    for y, entries in by_year.items():
-        c = frames_revenue.choose(entries)
-        if c:
-            rows[y] = {0: [c["val"], c["end"], c["concept"], c["note"]]}
-    return {y: r[0] for y, r in frames_revenue.rebucket(rows).items()}
-
-
-# --------------------------------------------------------------------------- #
 #  SEC part of one member (network: companyfacts, submissions)                  #
 # --------------------------------------------------------------------------- #
+def _group1(ticker, cf, x):
+    try:
+        return scout_groups.group1(ticker, cf, x, securities_are_operating(ticker))
+    except Exception as e:                    # one member's odd facts cost only its group 1
+        log.warning("%s group 1 failed: %s", ticker, e)
+        return {"error": f"{type(e).__name__}: {str(e)[:120]}"}
+
+
 def sec_part(ticker, cik, cf, as_of):
     """The member's SEC figures from completed companyfacts, JSON-ready."""
     x = sec_edgar.extract(cf, cash_excludes_securities=securities_are_operating(ticker))
@@ -161,8 +148,9 @@ def sec_part(ticker, cik, cf, as_of):
     return {"cik": int(cik), "as_of": as_of, "x": {k: xn.get(k) for k in X_KEYS},
             "ebit_ttm_raw": x.get("operating_income"), "addback": addback or 0.0,
             "ebit_derived": bool(x.get("operating_income_derived")), "gp_basis": gp_basis, "fy": fy,
-            "ifrs_cy": ({str(k): v for k, v in cy_rows_from_facts(cf, as_of).items()}
-                        if x.get("accounting_standard") == "ifrs-full" else {}),
+            "ifrs_cy": ({str(k): v for k, v in frames_revenue.cy_rows_from_facts(cf, as_of).items()}
+                        if frames_revenue.ifrs_currency(cf) == "USD" else {}),
+            "g1": _group1(ticker, cf, x),
             "debt_notes": [f for f in x.get("xbrl_flags") or [] if UNTAGGED_DEBT in f],
             "fin_lease_in_debt": int(cik) in sec_edgar.FIN_LEASE_IN_DEBT,
             "flags": x.get("xbrl_flags") or [], "sec_gap": g or None, "sec_sic": cf.get("_sic"),
@@ -205,10 +193,42 @@ def _revenue_cy(meta, sec, frames, years):
     return out
 
 
-def assemble(meta, sec, price, frames, years, today):
+def _group1_out(sec, no_sec, wacc):
+    """The SEC part's group 1 with the CAP count at the industry WACC."""
+    if sec is None:
+        return {"reason": no_sec}
+    g = sec.get("g1")
+    if not g or g.get("error"):
+        return {"reason": (g or {}).get("error") or "group 1 not read (SEC part from an older cache)"}
+    d = g["derived"]
+    above, n = scout_groups.cap_years((d.get("cap_window") or {}).get("value"), wacc)
+    return dict(g, derived=dict(d, cap_years=dict(
+        fld(above, f"years ROIC > industry WACC {wacc:.2%} over the last {n} FY "
+                   "(deep_v82.competitive_advantage_period's count)" if wacc else None,
+            "no industry WACC" if wacc is None else (d.get("cap_window") or {}).get("reason")),
+        of=n)))
+
+
+def _filing(sec, x, today):
+    """Latest periodic filing date and when the next one is due at the earliest, so the
+    page can say a newer statement may exist than the one read."""
+    end = x.get("latest_period_end")
+    if not end:
+        return {"latest_filed": None, "period_end": None, "next_expected_by": None}
+    annual = (_age(end, today) or 0) > STALE_BASE_DAYS
+    nxt = dt.date.fromisoformat(end[:10]) + dt.timedelta(days=(365 + 90) if annual else (91 + NEW_FILING_LAG_DAYS))
+    return {"latest_filed": ((sec or {}).get("g1") or {}).get("latest_filed"), "period_end": end,
+            "next_expected_by": nxt.isoformat(),
+            "rule": ("annual filer: FY end + 365 + 90 days" if annual else
+                     f"next quarter end (+91 days) + {NEW_FILING_LAG_DAYS} days, the fastest 10-Q lag seen"),
+            "fetched": (sec or {}).get("as_of")}
+
+
+def assemble(meta, sec, price, frames, years, today, wacc=None, g2=None):
     """The member record: every figure as {value, source, reason}. `meta` {ticker, name,
     cik, cik_how, cik_reason, domicile, sic}; `sec` a sec_part or None (meta.sec_error);
-    `price` {close, day, src, reason}; `frames` {CY: {cik: row}}."""
+    `price` {close, day, src, reason}; `frames` {CY: {cik: row}}; `wacc` the industry
+    WACC; `g2` the member's group-2 block."""
     x = (sec or {}).get("x") or {}
     no_sec = meta.get("cik_reason") if not meta.get("cik") else (meta.get("sec_error") or "SEC facts not read")
     src_x = "sec_edgar.extract (companyfacts" + (" + sec_gap filing" if ((sec or {}).get("sec_gap") or {}).get("read") else "") + ")"
@@ -216,11 +236,15 @@ def assemble(meta, sec, price, frames, years, today):
     def xf(k, source=src_x, reason=None):
         if sec is None:
             return fld(None, None, no_sec)
-        return fld(x.get(k), source, reason)
+        return fld(x.get(k), source, reason or f"{k} not filed in the SEC facts read")
 
     debt_reason = None
     if sec is not None and x.get("total_debt") is None:
+        fy0 = (sec.get("fy") or [{}])[0]
         debt_reason = ("; ".join(sec["debt_notes"]) if sec["debt_notes"] else
+                       f"debt-free: no debt concept filed in the 540 days before the latest balance "
+                       f"sheet and FY{str(fy0.get('end'))[:4]} reads 0 (relative.point counts 0 in EV)"
+                       if fy0.get("debt") == 0 else
                        "no debt concept filed in the 540 days before the latest balance sheet "
                        "(relative.point counts it as 0 in EV)")
     debt = dict(xf("total_debt", reason=debt_reason),
@@ -248,7 +272,8 @@ def assemble(meta, sec, price, frames, years, today):
                 "revenue": xf("revenue"),
                 "ebit": xf("operating_income", "peers.normalized(sec_edgar.extract) one-time add-back",
                            "no operating income or pretax+interest filed"),
-                "ebit_raw": fld((sec or {}).get("ebit_ttm_raw"), src_x, no_sec or "not filed"),
+                "ebit_raw": fld((sec or {}).get("ebit_ttm_raw"), src_x,
+                                no_sec if sec is None else "no operating income or pretax+interest filed"),
                 "addback": (sec or {}).get("addback"), "ebit_derived": (sec or {}).get("ebit_derived"),
                 "net_income": xf("net_income")},
         "balance": {"equity": xf("equity"), "debt": debt, "cash": xf("cash"),
@@ -274,6 +299,9 @@ def assemble(meta, sec, price, frames, years, today):
                    "usd": (x.get("currency") or "USD") == "USD" if sec else None,
                    "sec_gap": (sec or {}).get("sec_gap"), "stale_cache": (sec or {}).get("stale_cache"),
                    "flags": (sec or {}).get("flags") or []},
+        "group1": _group1_out(sec, no_sec, wacc),
+        "group2": g2 or {"reason": "price history not read"},
+        "filing": _filing(sec, x, today),
     }
     return rec
 
@@ -303,7 +331,8 @@ class Fetcher:
         """(sec_part, error, from_cache)."""
         path = os.path.join(self.cache, "members_sec", f"{int(cik)}.json")
         got = _read(path)
-        if got and not self.args.refresh and _age(got.get("as_of"), self.today) is not None \
+        if got and not self.args.refresh and got.get("v") == PART_VERSION \
+                and _age(got.get("as_of"), self.today) is not None \
                 and _age(got["as_of"], self.today) < SEC_TTL_DAYS:
             return got.get("part"), got.get("error"), True
         try:
@@ -313,9 +342,11 @@ class Fetcher:
                                       throttle=lambda: sec_edgar._throttle(config.SEC_MIN_INTERVAL))
             part, err = sec_part(ticker, cik, cf, self.as_of), None
         except Exception as e:
+            if got and got.get("part"):      # an older part beats none: v1 fields stay, group 1 says why
+                return got["part"], got.get("error"), True
             part, err = None, f"SEC facts unavailable ({type(e).__name__}: {str(e)[:80]})"
         if not self.args.offline or part:
-            _write(path, {"as_of": self.as_of, "part": part, "error": err})
+            _write(path, {"v": PART_VERSION, "as_of": self.as_of, "part": part, "error": err})
         return part, err, False
 
     def price(self, ticker):
@@ -361,9 +392,17 @@ def damodaran_block(industry, cache):
 def estimate(n_uncached, frames_cached):
     sec = n_uncached * SEC_PER_MEMBER
     frames = 0 if frames_cached else (dc.PANEL_YEARS + 1) * FRAMES_PER_YEAR + dc.PANEL_YEARS + 1
-    return {"sec_requests": sec + frames, "yahoo_requests": n_uncached,
+    return {"sec_requests": sec + frames, "yahoo_requests": n_uncached * 2,
             "minutes_floor_by_sec_throttle": round((sec + frames) * config.SEC_MIN_INTERVAL / 60, 1),
-            "minutes_guess": round((n_uncached * GUESS_SECS_PER_MEMBER / 2 + frames * 1.0) / 60, 1)}
+            "minutes_guess": round((n_uncached * (GUESS_SECS_PER_MEMBER + GUESS_SECS_HISTORY) / 2
+                                    + frames * 1.0) / 60, 1)}
+
+
+def _history(ticker, args):
+    if not getattr(args, "group2", True):
+        return None, "group 2 skipped (--no-group2)"
+    CALLS.add("history")
+    return scout_groups.history(ticker, offline=args.offline)
 
 
 def _frames_cached(cache, years):
@@ -390,6 +429,17 @@ def run(args):
     say(lines[-1])
     frames = uni.frames
     say(f"universe loaded in {time.time() - t0:.0f}s (frames years {sorted(frames)})")
+    store = _read(args.portfolio) or {}
+    if not store:
+        lines.append(f"portfolio {args.portfolio} not readable: no correlation to holdings, no sector headroom")
+        say(lines[-1])
+    book = {}
+    spy, spy_why = _history("SPY", args)
+    for h in sorted(store.get("holdings") or {}):
+        book[h], _ = _history(h, args)
+    lines.append(f"group 2 context: SPY {len(spy['closes']) if spy else 0} bars ({spy_why or spy['source']}); "
+                 f"holdings with history {sum(1 for v in book.values() if v)}/{len(book)}")
+    say(lines[-1])
     names = uni.us_names
     fetch = Fetcher(args, today)
     for industry in args.industry:
@@ -408,21 +458,25 @@ def run(args):
                                   "SEC frames name matched (members_of keeps a reason for US members only)"))})
         if args.limit:
             metas = metas[:args.limit]
-        uncached = sum(1 for m in metas if m["cik"] and not _read(
-            os.path.join(args.cache, "members_sec", f"{int(m['cik'])}.json")))
+        uncached = sum(1 for m in metas if m["cik"] and (_read(
+            os.path.join(args.cache, "members_sec", f"{int(m['cik'])}.json")) or {}).get("v") != PART_VERSION)
         est = estimate(0 if args.offline else uncached, frames_were_cached)
         lines.append(f"[{industry}] members {len(metas)} (us {len(members)}, foreign {len(foreign)}); "
                      f"SEC part to fetch {uncached}; estimate {est}")
         say(lines[-1])
         frames_were_cached = True
         recs, t1, done = [None] * len(metas), time.time(), [0]
+        dam = damodaran_block(industry, args.cache)
+        wacc = dam["wacc"]["value"]
 
         def one(i):
             m = metas[i]
             sec, err, hit = (None, None, True) if not m["cik"] else fetch.sec(m["ticker"], m["cik"])
             m["sec_error"] = err
             price, _ = fetch.price(m["ticker"])
-            recs[i] = assemble(m, sec, price, frames, years, today)
+            hist, why = _history(m["ticker"], args)
+            g2 = scout_groups.group2(m["ticker"], hist, why, spy, book)
+            recs[i] = assemble(m, sec, price, frames, years, today, wacc, g2)
             done[0] += 1
             el = time.time() - t1
             eta = el / done[0] * (len(metas) - done[0])
@@ -434,7 +488,12 @@ def run(args):
             for f in [ex.submit(one, i) for i in range(len(metas))]:
                 f.result()
         out = {"industry": industry, "as_of": today.isoformat(), "panel_years": years,
-               "damodaran": damodaran_block(industry, args.cache),
+               "damodaran": dam,
+               "sector_headroom": scout_groups.sector_headroom(store, industry) if store else
+               fld(None, None, f"portfolio {args.portfolio} not readable"),
+               "holdings": sorted(store.get("holdings") or {}),
+               "holding_sic": {h: (f.get("sic") or [None])[0] for h, f in (store.get("facts") or {}).items()
+                               if h in (store.get("holdings") or {})},
                "sic_counts": dict(collections.Counter(m["sic"] for m in metas).most_common()),
                "notes": list(uni.frame_notes) + list(uni.name_notes) + list(uni.notes),
                "members": recs}
@@ -445,7 +504,8 @@ def run(args):
                      + json.dumps(out["coverage"], ensure_ascii=False))
         say(lines[-1])
     lines.append(f"requests: SEC {CALLS.n['sec']} (companyfacts {CALLS.n['companyfacts']}), "
-                 f"price {CALLS.n['price']}, FMP {CALLS.n['fmp']}; total {(time.time() - t0) / 60:.1f} min")
+                 f"price {CALLS.n['price']}, price history {CALLS.n['history']} (cache first), "
+                 f"FMP {CALLS.n['fmp']}; total {(time.time() - t0) / 60:.1f} min")
     say(lines[-1])
     with open(os.path.join(args.out, "_scout_summary.log"), "a", encoding="utf-8") as fh:
         fh.write("\n".join(lines) + "\n\n")
@@ -470,6 +530,11 @@ def coverage(recs, years):
         c["revenue_ge_200m"] += bool(r["checks"]["revenue_ge_200m"])
         c["value_tier_eligible"] += bool(r["checks"]["revenue_ge_200m"] and r["checks"]["ebit_positive"])
         c["stale_base"] += r["checks"]["stale_base"]
+        g1 = (r.get("group1") or {}).get("derived")
+        c["group1"] += bool(g1)
+        c["group1_cap_years"] += bool(g1 and g1["cap_years"]["value"] is not None)
+        c["group1_incremental_roic"] += bool(g1 and g1["incremental_roic"]["value"] is not None)
+        c["group2_history"] += bool((r.get("group2") or {}).get("bars"))
     return dict(c)
 
 
@@ -489,6 +554,9 @@ def main(argv=None):
     ap.add_argument("--keep-facts", action="store_true", help="also cache raw companyfacts (~3 MB each)")
     ap.add_argument("--offline", action="store_true", help="cut the network; caches and --facts-dir only")
     ap.add_argument("--facts-dir", help="read companyfacts_<TICKER|CIK10>.json from here")
+    ap.add_argument("--portfolio", default=os.path.join("..", "portfolio-app-v2", "data", "portfolio.json"),
+                    help="the app's store: holdings for correlation, sector headroom and SIC tags")
+    ap.add_argument("--no-group2", dest="group2", action="store_false", help="skip price history (group 2)")
     args = ap.parse_args(argv)
     args.industry = args.industry or list(INDUSTRIES)
     args.cache = args.cache or os.path.join(args.out, "_cache")
