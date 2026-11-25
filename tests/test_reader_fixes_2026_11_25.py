@@ -77,5 +77,38 @@ class ImplausibleMarketCap(unittest.TestCase):
         self.assertAlmostEqual(p["market_cap"] / 1e9, 16.82, places=2)
 
 
+class TwoClassShares(unittest.TestCase):
+    """E78. VERX and YOU (Up-C) tag diluted counts per class; companyfacts keeps no
+    dimensioned fact, so the scout read no share count and no reason. Constructed from the
+    LOAR fixture with its weighted count removed (no cached filer lacks one)."""
+
+    def _cf(self):
+        with open(os.path.join(FIX, "LOAR.json")) as fh:
+            cf = json.load(fh)
+        cf["facts"]["us-gaap"].pop("WeightedAverageNumberOfDilutedSharesOutstanding")
+        return cf
+
+    def test_E78_an_undimensioned_cover_count_is_the_total(self):
+        cf = self._cf()
+        cover = cf["facts"]["dei"]["EntityCommonStockSharesOutstanding"]["units"]["shares"]
+        top = max(cover, key=lambda e: (e.get("filed", ""), e["end"]))
+        cover.append(dict(top, val=1000000))          # a second class on the same cover
+        d = S.extract(cf)
+        self.assertEqual(d["shares_diluted"], top["val"] + 1000000)
+        self.assertTrue(any("every class filed on that cover summed" in f for f in d["xbrl_flags"]))
+
+    def test_E78_no_count_at_all_says_why(self):
+        cf = self._cf()
+        cf["facts"].pop("dei")
+        d = S.extract(cf)
+        self.assertIsNone(d["shares_diluted"])
+        self.assertIn("two-class or Up-C", d["shares_unknown_reason"])
+        p, why = relative.point("VERX", dict(ImplausibleMarketCap.X, shares_diluted=None,
+                                             shares_unknown_reason=d["shares_unknown_reason"]),
+                                17.92, "2026-11-23", "2026-11-24", check_base=False)
+        self.assertIsNone(p)
+        self.assertIn("two-class or Up-C", why)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -1470,10 +1470,29 @@ def cover_shares(dei):
     return top["end"], sum(v for _, v in same)
 
 
+# E78: a two-class or Up-C filer (VERX, YOU) tags its weighted counts per class, on the
+# class axis, and companyfacts carries no dimensioned fact. The cover page's count, when it
+# is filed undimensioned (one entry per class on one cover), is the total; else unknown.
+NO_SHARES_REASON = ("no undimensioned diluted share count or cover-page count filed (a two-class or "
+                    "Up-C filer tags its counts per class, which companyfacts does not carry)")
+
+
+def _shares_fallback(x, out):
+    if out.get("shares_diluted") is not None:
+        return []
+    cov = cover_shares(getattr(x, "dei", None))
+    if cov and cov[1] > 0:
+        out["shares_diluted"] = cov[1]
+        return ["DATA[info] no diluted weighted share count filed: cover-page shares outstanding "
+                "%s (%s, every class filed on that cover summed) used" % (f"{cov[1]:,.0f}", cov[0])]
+    out["shares_unknown_reason"] = NO_SHARES_REASON
+    return []
+
+
 def _check_share_scale(x, out):
     s = out.get("shares_diluted")
     if not isinstance(s, (int, float)) or s <= 0:
-        return []
+        return _shares_fallback(x, out)
     checks = []
     cov = cover_shares(getattr(x, "dei", None))
     if cov and cov[1] > 0:
