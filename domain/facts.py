@@ -83,6 +83,7 @@ class FinancialFacts:
     impairment_ttm: Optional[float] = None      # asset/goodwill impairment charges (TTM)
     restructuring_ttm: Optional[float] = None   # restructuring charges (TTM)
     acquired_iprd_ttm: Optional[float] = None   # acquired in-process R&D expensed (TTM)
+    gain_ttm: Optional[float] = None            # one-time gain the filer's lines put inside EBIT (TTM)
     operating_income_gaap: Optional[float] = None   # reported EBIT before the add-back
     deferred_revenue: Optional[float] = None    # contract liability — billings/leading signal
     deferred_revenue_prior: Optional[float] = None
@@ -180,6 +181,7 @@ class FinancialFacts:
     restructuring_annuals_dated: list = field(default_factory=list)
     impairment_annuals_dated: list = field(default_factory=list)
     acquired_iprd_annuals_dated: list = field(default_factory=list)
+    gain_annuals_dated: list = field(default_factory=list)
     # peer panel only (display): one value per fiscal-year END DATE, revenue merged
     # across concepts (sec_edgar.panel_fy_series); no score reads these
     revenue_fy_dated: list = field(default_factory=list)

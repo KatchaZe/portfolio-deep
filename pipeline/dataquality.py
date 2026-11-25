@@ -217,7 +217,7 @@ FALLBACK_CLEARS = ("cfo", "total_assets", "interest_expense", "rnd_expense",
                    "accounts_payable", "accounts_payable_prior", "deferred_revenue",
                    "deferred_revenue_prior", "equity_prior", "cash_prior", "total_debt_prior",
                    "operating_leases", "operating_leases_prior", "minority_interest", "acquisitions_net",
-                   "impairment_ttm", "restructuring_ttm", "acquired_iprd_ttm")
+                   "impairment_ttm", "restructuring_ttm", "acquired_iprd_ttm", "gain_ttm")
 # The fields above that carry a CURRENCY, derived from the unit contract so the two
 # lists cannot drift (a hand-typed list once omitted eps_gaap and left TSM's EPS in
 # TWD beside a USD ADR price). `shares_diluted` is excluded by construction: a COUNT.
@@ -233,7 +233,7 @@ FALLBACK_INVALIDATES = ("revenue_annuals", "revenue_annuals_dated",
                         "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
                         "rnd_annuals", "shares_diluted_annuals", "acquisitions_annuals_dated",
                         "restructuring_annuals_dated", "acquired_iprd_annuals_dated",
-                        "impairment_annuals_dated")
+                        "impairment_annuals_dated", "gain_annuals_dated")
 
 
 def fallback_rate(alt_currency, sec_currency, sec_fx, fetch_rate):

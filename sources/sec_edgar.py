@@ -650,6 +650,24 @@ RESTRUCTURING_TAGS = ("RestructuringCharges", "RestructuringCosts",
                       "RestructuringCostsAndAssetImpairmentCharges")
 ACQUIRED_IPRD_TAGS = ("ResearchAndDevelopmentInProcess",
                       "ResearchAndDevelopmentAssetAcquiredOtherThanThroughBusinessCombinationWrittenOff")
+# E79: one-time GAINS inside operating income, the mirror of the add-backs above. A gain on
+# selling a business, an asset or a facility, a step-acquisition remeasurement, a bargain
+# purchase, a realized translation (CTA) release or a litigation gain is not run-rate
+# EBIT. Gains on investments, securities and FX are left out of the list: they sit below
+# operating income by definition (GOOGL's 129.6B of equity-security gains, NVDA's 30.6B).
+# A listed gain is subtracted only where the filer's own lines put it inside operating
+# income: OI - (GrossProfit - OperatingExpenses) or OI - (revenue - CostsAndExpenses), the
+# lines filed for the same period, equals the gain. Elsewhere it is named, not subtracted.
+GAIN_TAGS = ("GainLossOnSaleOfBusiness", "DisposalGroupNotDiscontinuedOperationGainLossOnDisposal",
+             "GainLossOnDispositionOfAssets", "GainLossOnDispositionOfAssets1",
+             "GainLossOnSaleOfPropertyPlantEquipment", "GainLossOnDispositionOfIntangibleAssets",
+             "GainLossOnSaleOfOtherAssets", "GainsLossesOnSalesOfAssets",
+             "BusinessCombinationBargainPurchaseGainRecognizedAmount",
+             "BusinessCombinationStepAcquisitionEquityInterestInAcquireeRemeasurementGain",
+             "OtherComprehensiveIncomeReclassificationAdjustmentForSaleOfForeignEntitiesBeforeTax",
+             "GainLossRelatedToLitigationSettlement")
+GAIN_TOL = 0.10                 # of the gain: a residual this close to it is the gain
+GAIN_MIN_SHARE = 0.005          # of revenue: a smaller gain is left alone (and not named)
 ACQUISITION_TAGS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",
                     "PaymentsToAcquireBusinessesAndInterestInAffiliates",
                     "PaymentsToAcquireBusinessesGross")
@@ -1528,6 +1546,46 @@ def _check_share_scale(x, out):
     return ["DATA[warn] " + out["shares_unknown_reason"]]
 
 
+def _gain_inside(gain, oi, rev, gp, opex, costs):
+    tol = GAIN_TOL * gain
+    for resid in ((oi - (gp - opex)) if None not in (oi, gp, opex) else None,
+                  (oi - (rev - costs)) if None not in (oi, rev, costs) else None):
+        if resid is not None and abs(resid - gain) <= tol:
+            return True
+    return False
+
+
+def _gain_ttm(x, rev, oi, at):
+    """(gain inside operating income, concept, note) for the TTM, or (None, None, note)."""
+    best = None
+    for t, p in _live_tags(x, tuple((t, USD) for t in GAIN_TAGS), at):
+        v = x.ttm(t, p)
+        if v and v > 0 and (best is None or v > best[1]):
+            best = (t, v)
+    if not best or oi is None or not rev or best[1] < GAIN_MIN_SHARE * rev:
+        return None, None, None
+    t, v = best
+    if _gain_inside(v, oi, rev, x.ttm("GrossProfit"), x.ttm("OperatingExpenses"), x.ttm("CostsAndExpenses")):
+        return v, t, None
+    return None, None, ("DATA[info] %s %.1fM filed for the TTM; the filer's lines do not place it inside "
+                        "operating income, so EBIT keeps it" % (t, v / 1e6))
+
+
+def _gain_annuals(x, at, op_dated, rev_dated):
+    """[[fy end, gain inside operating income]] per fiscal year, newest first."""
+    oi, rev = dict(op_dated or []), dict(rev_dated or [])
+    series = lambda c: dict(x.annual_series_dated(c))      # noqa: E731
+    gp, opex, costs = series("GrossProfit"), series("OperatingExpenses"), series("CostsAndExpenses")
+    best = {}
+    for t, p in _live_tags(x, tuple((t, USD) for t in GAIN_TAGS), at):
+        for d, v in x.annual_series_dated(t, p):
+            if v and v > 0 and (d not in best or v > best[d]):
+                best[d] = v
+    out = [[d, v] for d, v in best.items() if rev.get(d) and v >= GAIN_MIN_SHARE * rev[d]
+           and _gain_inside(v, oi.get(d), rev.get(d), gp.get(d), opex.get(d), costs.get(d))]
+    return sorted(out, reverse=True)
+
+
 def _extract(x, splits, cash_excludes_securities):
 
     rev, rev_concept, rev_alts = _pick(x, REV)
@@ -1571,6 +1629,11 @@ def _extract(x, splits, cash_excludes_securities):
         out["cash_prior"] = _cash_and_securities(x, cash_only, at, prior=True)
     dated = _split_adjust_dated(x, out, at, splits) if splits and x.standard == "us-gaap" else None
     out["split_boundaries"] = dated if dated is not None else _split_adjust(x, out, ni_concept)
+    out["gain_ttm"], out["gain_concept"], note = _gain_ttm(
+        x, rev, oi if op_concept else (ebit or {}).get("operating_income"), at)
+    out["xbrl_flags"] += [note] if note else []
+    out["gain_annuals_dated"] = _gain_annuals(x, at, out.get("operating_income_annuals_dated"),
+                                              out.get("revenue_annuals_dated"))
     out["prior_fallbacks"] = sorted(at.prior_fallbacks)
     out["xbrl_flags"] += _check_share_scale(x, out)
     return out
@@ -1780,6 +1843,7 @@ POPULATED = (
     "ic_components_dated",
     "acquisitions_annuals_dated", "impairment_ttm", "impairment_annuals_dated", "restructuring_ttm",
     "restructuring_annuals_dated", "acquired_iprd_ttm", "acquired_iprd_annuals_dated",
+    "gain_ttm", "gain_annuals_dated",
     "revenue_fy_dated", "gross_profit_fy_dated", "cost_of_revenue_fy_dated",
     "operating_income_fy_dated")
 EBIT_DERIVED = ("operating_income", "operating_income_annuals", "operating_income_quarters")

@@ -171,7 +171,8 @@ def peer_point(sym, today, fetch_facts=None, fetch_price=None, complete=_complet
 
 ONE_TIME_FIELDS = ("operating_income", "revenue", "impairment_ttm", "restructuring_ttm",
                    "restructuring_annuals_dated", "acquired_iprd_ttm",
-                   "acquired_iprd_annuals_dated", "revenue_annuals_dated")
+                   "acquired_iprd_annuals_dated", "gain_ttm", "gain_annuals_dated",
+                   "revenue_annuals_dated")
 
 
 def normalized(x):

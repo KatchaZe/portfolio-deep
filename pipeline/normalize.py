@@ -19,7 +19,7 @@ _MONEY = ("revenue", "operating_income", "net_income", "total_debt", "cash",
           "acquisitions_net", "deferred_revenue", "deferred_revenue_prior",
           "operating_leases", "operating_leases_prior", "minority_interest",
           "sbc",
-          "impairment_ttm", "restructuring_ttm", "acquired_iprd_ttm", "operating_income_gaap",
+          "impairment_ttm", "restructuring_ttm", "acquired_iprd_ttm", "gain_ttm", "operating_income_gaap",
           "receivables_prior", "inventory", "inventory_prior",
           "accounts_payable", "accounts_payable_prior",
           # Scalar eps_gaap is divided into the USD listed price, so both sides of that
@@ -34,7 +34,7 @@ _MONEY_SERIES_DATED = ("revenue_annuals_dated", "operating_income_annuals_dated"
                        "gross_profit_annuals_dated", "cost_of_revenue_annuals_dated",
                        "acquisitions_annuals_dated", "restructuring_annuals_dated",
                        "impairment_annuals_dated",
-                       "acquired_iprd_annuals_dated",
+                       "acquired_iprd_annuals_dated", "gain_annuals_dated",
                        "revenue_fy_dated", "gross_profit_fy_dated",
                        "cost_of_revenue_fy_dated", "operating_income_fy_dated")
 

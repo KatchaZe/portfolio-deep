@@ -110,5 +110,45 @@ class TwoClassShares(unittest.TestCase):
         self.assertIn("two-class or Up-C", why)
 
 
+class OneTimeGains(unittest.TestCase):
+    """E79. The add-back added costs back and never took a gain out."""
+
+    def test_E79_hca_fy2021_facility_gain_is_inside_ebit_and_comes_out(self):
+        # HCA release 2022-01-27 (dollars in millions): "Losses (gains) on sales of
+        # facilities (1,620)" among the expense lines above income before income taxes.
+        from domain import one_time
+        from domain.facts import FinancialFacts
+        d = extract("HCA_gains")
+        self.assertIn(["2021-12-31", 1620000000], d["gain_annuals_dated"])
+        ff = FinancialFacts(ticker="HCA")
+        ff.revenue_annuals_dated = d["revenue_annuals_dated"]
+        ff.gain_annuals_dated = d["gain_annuals_dated"]
+        self.assertEqual(one_time.annual_addbacks(ff)["2021-12-31"], -1620000000)
+
+    def test_E79_a_gain_the_filers_lines_do_not_place_is_named_not_subtracted(self):
+        d = extract("SNPS_gains")
+        self.assertIsNone(d["gain_ttm"])
+        self.assertTrue(any("GainLossOnSaleOfBusiness" in f and "EBIT keeps it" in f for f in d["xbrl_flags"]))
+
+    def test_E79_a_ttm_gain_comes_out_capped_like_an_addback(self):
+        # NVST Q3 2026 (release 2026-11-04): a $428.1M realized cumulative translation gain
+        # inside operating profit; TTM EBIT read $757M in the scout run.
+        from domain import one_time
+        from domain.facts import FinancialFacts
+        ff = FinancialFacts(ticker="NVST")
+        ff.set("revenue", 2600e6, "sec")
+        ff.set("operating_income", 757e6, "sec")
+        ff.gain_ttm = 428.1e6
+        self.assertAlmostEqual(one_time.normalize_operating_income(ff), -428.1e6)
+        self.assertAlmostEqual(ff.operating_income, 328.9e6)
+        self.assertEqual(ff.operating_income_gaap, 757e6)
+        self.assertTrue(any("-$0.43B one-time gain" in f for f in ff.flags))
+        ff2 = FinancialFacts(ticker="X")
+        ff2.set("revenue", 1000e6, "sec")
+        ff2.set("operating_income", 400e6, "sec")
+        ff2.gain_ttm = 390e6
+        self.assertAlmostEqual(one_time.normalize_operating_income(ff2), -250e6)
+
+
 if __name__ == "__main__":
     unittest.main()
