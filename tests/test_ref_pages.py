@@ -106,7 +106,7 @@ def test_howto_links_and_toc_resolve():
         assert 'href="#refsec-%s"' % s.id in page, "TOC lacks section %s" % s.id
     linked = {i for _, _, _, steps in TASKS for _, refs in steps for i in refs}
     assert linked <= {e.id for e in entries()}
-    assert len(TASKS) == 6 and len(linked) >= 30, (len(TASKS), len(linked))
+    assert len(TASKS) == 7 and len(linked) >= 30, (len(TASKS), len(linked))
     print("How to (%d tasks, %d Ref links) and TOC resolve OK" % (len(TASKS), len(linked)))
 
 
@@ -181,6 +181,17 @@ def test_ref_thresholds_equal_the_code():
     _has("eq-chip", "cash conversion ≥0.8", "accruals ≤5%", "เกิน 10%", "เกิน 15%")
     # signals, regime and overlay
     _has("earn-row", f"±{g(margin_track.THRESHOLD_PP)}%")
+    # Sector scout (display only)
+    from domain import relative as REL, scout as SC
+    from pipeline import scout_job as SJ
+    from tools import scout_fetch as SF
+    _has("scout-tiers", f"{g(SC.W['value'] * 100)}% Value", f"{g(SC.W['quality'] * 100)}% Quality",
+         f"{g(SC.W['moat'] * 100)}% Moat", f"≥ ${g(SC.REV_MIN / 1e6)}M", f"≥{pc(SC.COVER_MIN)}%",
+         *(f"{w}%" for w in SC.QW.values()), f"ไม่เกิน {SC.PEN_CAP}")
+    _has("scout-excl", f"ต่ำกว่า {pc(REL.MCAP_SALES_FLOOR)}% ของรายได้", f"เกิน ${g(REL.MCAP_FLOOR_REVENUE / 1e6)}M",
+         f"เก่ากว่า {SF.STALE_BASE_DAYS} วัน")
+    _has("scout-flags", f"เกิน {g(SC.RECOVERY_PP)} จุด")
+    _has("scout-job", f"เก็บไว้ {SF.SEC_TTL_DAYS} วัน", f"ครั้งละ {SJ.SCOUT_WORKERS} บริษัท")
     stale = inspect.signature(PF._momentum_meta).parameters["stale_after"].default
     for eid in ("momentum", "banner-mom"):
         _has(eid, f"{stale} วัน")

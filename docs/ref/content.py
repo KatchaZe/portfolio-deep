@@ -2,8 +2,10 @@
 from docs.ref.content_a import SECTIONS_A
 from docs.ref.content_b import SECTIONS_B
 from docs.ref.content_c import SECTIONS_C
+from docs.ref.content_scout import SCOUT
 
-SECTIONS = SECTIONS_A + SECTIONS_B + SECTIONS_C
+# the Sector scout tab sits after Performance (LEDGER), before the glossary
+SECTIONS = SECTIONS_A + SECTIONS_B + SECTIONS_C[:5] + (SCOUT,) + SECTIONS_C[5:]
 
 # Inventory labels with no meaning of their own beyond the word: generic column heads,
 # edit/delete controls and screen-reader names of controls the Ref already explains.
