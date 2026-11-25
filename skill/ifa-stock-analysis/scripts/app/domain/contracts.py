@@ -76,7 +76,7 @@ CLOCK = {
     "income_before_tax": TTM, "tax_expense": TTM, "interest_expense": TTM,
     "rnd_expense": TTM, "capex": TTM, "dep_amort": TTM, "sbc": TTM, "cfo": TTM,
     "acquisitions_net": TTM, "dividend_ps": TTM,
-    "impairment_ttm": TTM, "restructuring_ttm": TTM, "acquired_iprd_ttm": TTM,
+    "impairment_ttm": TTM, "restructuring_ttm": TTM, "acquired_iprd_ttm": TTM, "gain_ttm": TTM,
     "operating_income_gaap": TTM,
 
     # --- balance sheet, a point in time --------------------------------------
@@ -100,7 +100,7 @@ CLOCK = {
     "eps_annuals_dated": FY_DATED, "ic_components_dated": FY_DATED,
     "acquisitions_annuals_dated": FY_DATED, "restructuring_annuals_dated": FY_DATED,
     "impairment_annuals_dated": FY_DATED,
-    "acquired_iprd_annuals_dated": FY_DATED,
+    "acquired_iprd_annuals_dated": FY_DATED, "gain_annuals_dated": FY_DATED,
     # peer panel only: one value per year-end DATE (sec_edgar.panel_fy_series)
     "revenue_fy_dated": FY_DATED, "gross_profit_fy_dated": FY_DATED,
     "cost_of_revenue_fy_dated": FY_DATED, "operating_income_fy_dated": FY_DATED,
@@ -140,9 +140,9 @@ UNIT = {
     "income_before_tax": MONEY, "tax_expense": MONEY, "interest_expense": MONEY,
     "rnd_expense": MONEY, "capex": MONEY, "dep_amort": MONEY, "sbc": MONEY, "cfo": MONEY,
     "acquisitions_net": MONEY, "impairment_ttm": MONEY, "restructuring_ttm": MONEY,
-    "acquired_iprd_ttm": MONEY, "operating_income_gaap": MONEY,
+    "acquired_iprd_ttm": MONEY, "gain_ttm": MONEY, "operating_income_gaap": MONEY,
     "acquisitions_annuals_dated": MONEY, "restructuring_annuals_dated": MONEY,
-    "impairment_annuals_dated": MONEY,
+    "impairment_annuals_dated": MONEY, "gain_annuals_dated": MONEY,
     "acquired_iprd_annuals_dated": MONEY, "total_debt": MONEY, "cash": MONEY, "equity": MONEY,
     "total_assets": MONEY, "receivables": MONEY, "inventory": MONEY,
     "accounts_payable": MONEY, "operating_leases": MONEY, "deferred_revenue": MONEY,
