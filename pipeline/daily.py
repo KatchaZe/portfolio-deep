@@ -27,6 +27,19 @@ def spy_series(fmp_key):
     return s
 
 
+def beta_vs_spy(series, spy):
+    """(regression beta vs SPY, last common date) on completed bars: the one beta the
+    holdings, the watchlist and the Sector scout show (E82). Weekly returns are sampled
+    back from the last common date, so two runs on different days differ (NVDA: 1.94
+    through 2026-11-19, 2.03 through 2026-11-20, 1.85 through 2026-11-23 on one series)."""
+    if not series or not spy:
+        return None, None
+    c, d = pricing.completed_bars(series.get("closes"), series.get("dates"))
+    mc, md = pricing.completed_bars(spy.get("closes"), spy.get("dates"))
+    common = set(str(x)[:10] for x in d) & set(str(x)[:10] for x in md)
+    return momentum.regression_beta(c, d, mc, md), (max(common) if common else None)
+
+
 def short_indicators(t):
     """RSI/MACD/DBBMV over the short series; {} when the indicators refuse it.
     Raises when no price source answers."""
@@ -65,8 +78,7 @@ def _daily_one(t, fmp_key, sp):
         if mv is not None:
             if sp:                     # regression beta vs SPY: cross-check of the vendor beta
                 try:
-                    b = momentum.regression_beta(lc["closes"], lc["dates"],
-                                                 sp["closes"], sp["dates"])
+                    b, _ = beta_vs_spy(lc, sp)
                     if b is not None:
                         mv["beta_calc"] = b
                 except Exception as e:

@@ -161,6 +161,21 @@ class Group2(unittest.TestCase):
         closes = [100.0 + f(i) for i in range(n)]
         return {"closes": closes, "dates": days, "volumes": [1e6] * n, "source": "test", "dividend_adjusted": True}
 
+    def test_E82_beta_is_the_apps_beta_on_the_same_window(self):
+        import math
+        from pipeline import daily
+        from tools import scout_groups
+        spy = self.series(500, lambda i: 10 * math.sin(i / 7.0) + i * 0.05)
+        m = self.series(500, lambda i: 23 * math.sin(i / 7.0) + 4 * math.cos(i / 3.0) + i * 0.1)
+        g = scout_groups.group2("ABC", m, None, spy, {})
+        b, end = daily.beta_vs_spy(m, spy)
+        self.assertIsNotNone(b)
+        self.assertEqual(g["beta_spy"]["value"], b)
+        self.assertEqual(g["beta_spy"]["window_end"], end)
+        cut = 380                                    # an earlier as-of samples other weeks
+        short = {k: (v[:cut] if isinstance(v, list) else v) for k, v in m.items()}
+        self.assertEqual(scout_groups.group2("ABC", short, None, spy, {})["beta_spy"]["window_end"], m["dates"][cut - 1])
+
     def test_highest_correlation_names_the_holding_and_short_overlaps_are_skipped(self):
         import math
         me = self.series(300, lambda i: 10 * math.sin(i / 7.0) + i * 0.05)

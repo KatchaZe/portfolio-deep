@@ -229,7 +229,8 @@ def group2(ticker, s, why, spy, holdings):
     n = SHORT_TAIL
     ind = (indicators.compute(ticker, s["closes"][-n:], s["volumes"][-n:], s["dates"][-n:])
            if s.get("volumes") else {"error": "no volumes"})
-    beta = momentum.regression_beta(s["closes"], s["dates"], spy["closes"], spy["dates"]) if spy else None
+    from pipeline import daily
+    beta, beta_end = daily.beta_vs_spy(s, spy)
     a, ad = _rets(s)
     corr = {}
     for h, hs in sorted(holdings.items()):
@@ -246,7 +247,8 @@ def group2(ticker, s, why, spy, holdings):
         "bars": len(s["closes"]), "first": s["dates"][0], "last": s["dates"][-1], "source": src,
         "stale_cache": bool(s.get("stale_cache")),
         "vol_ann": fld(mv.get("vol_ann"), "momentum.annualized_vol (126 trading days, annualised)", mv.get("error")),
-        "beta_spy": fld(beta, "momentum.regression_beta (weekly returns vs SPY)", "SPY history missing or overlap short"),
+        "beta_spy": dict(fld(beta, "pipeline.daily.beta_vs_spy (the app's beta: weekly returns vs SPY 2y, completed bars)",
+                             "SPY history missing or overlap short"), window_end=beta_end),
         "corr": fld(corr or None, f"risk.correlation.pair_corr_dated on shared dates (>= {CORR_MIN_DAYS} days)",
                     "no holding with enough shared days"),
         "top_corr": fld({"ticker": top[0], "value": top[1]} if top else None, "max of corr", "no correlation measured"),
