@@ -41,9 +41,9 @@ function viewRows(I) {
 function mlabel(r) { return r.moat.label || 'none'; }
 
 function sigText(s) {
-  const val = s.name === 'spread_slope' ? (s.value < 0 ? MINUS : '+') + Math.abs(s.value).toFixed(2) + ' pp/ปี'
+  const val = s.name === 'spread_slope' ? (s.value < 0 ? MINUS : '+') + Math.abs(s.value).toFixed(2) + '%/ปี'
     : s.name === 'share_change' ? pct(s.value) + ' (เทียบส่วนแบ่งเดิม)' : pct(s.value) + ' จุด';
-  const band = { spread_slope: '±1.0 pp/ปี', share_change: '±10%', gm_gap_change: '±2 จุด', incremental_margin: '±5 จุด' }[s.name];
+  const band = { spread_slope: '±1.0%/ปี', share_change: '±10%', gm_gap_change: '±2 จุด', incremental_margin: '±5 จุด' }[s.name];
   let basis = '';
   if (s.name === 'share_change') basis = s.basis === 'sub_group' ? ` · ฐาน SIC ${esc(s.sic)} ${s.matched_n} ราย (${pctU(s.share_then, 2)} → ${pctU(s.share_now, 2)})` : ` · ฐานทั้งอุตสาหกรรม ${s.matched_n} ราย (${pctU(s.share_then, 2)} → ${pctU(s.share_now, 2)})${s.basis_reason ? ' · ' + esc(s.basis_reason) : ''}`;
   if (s.name === 'gm_gap_change' && s.comparators) basis = ` · เทียบ SIC ${esc(s.comparators.level === 4 ? s.comparators.sic : String(s.comparators.sic).slice(0, 3) + 'x')} ${s.comparators.n} ราย`;
