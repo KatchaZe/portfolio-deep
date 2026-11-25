@@ -251,6 +251,10 @@ def assemble(meta, sec, price, frames, years, today, wacc=None, g2=None):
                 rule=(("sec_edgar._total_debt: _DebtBook.read on the newest long-term-debt date"
                        + ("; finance leases inside debt per FIN_LEASE_IN_DEBT" if sec["fin_lease_in_debt"] else ""))
                       if sec else None))
+    # E80: unknown debt counts 0 in EV, so the EV is a floor whenever the record shows debt
+    fy0 = ((sec or {}).get("fy") or [{}])[0]
+    ev_lower_bound = bool(sec is not None and x.get("total_debt") is None
+                          and (sec["debt_notes"] or (fy0.get("debt") or 0) > 0))
     close, day = (price or {}).get("close"), (price or {}).get("day")
     p, why = (None, "no SEC facts") if sec is None else relative.point(
         meta["ticker"], x, close, day, today, check_base=False, need_growth=False, margin_floor=False)
@@ -294,9 +298,9 @@ def assemble(meta, sec, price, frames, years, today, wacc=None, g2=None):
                                   xf("shares_diluted", reason=x.get("shares_unknown_reason") or "no diluted share count filed"),
                                   note="SEC diluted weighted shares, as relative.point uses"),
                    "market_cap": fld(mcap, "relative.point: price x SEC diluted shares", mcap_reason),
-                   "ev": fld(p["ev"] if p else None,
-                             "relative.point: mcap + debt + operating leases - cash + minority interest",
-                             why)},
+                   "ev": dict(fld(p["ev"] if p else None,
+                                  "relative.point: mcap + debt + operating leases - cash + minority interest",
+                                  why), lower_bound=ev_lower_bound)},
         "checks": {"latest_period_age_days": age, "stale_base": bool(age is not None and age > STALE_BASE_DAYS),
                    "revenue_ge_200m": bool(rev and rev >= MIN_REVENUE) if rev is not None else None,
                    "ebit_positive": bool(ebit > 0) if ebit is not None else None,

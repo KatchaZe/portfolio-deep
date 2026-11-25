@@ -89,6 +89,27 @@ class Assembly(unittest.TestCase):
         self.assertEqual(nulls_without_reason(r), [])
 
 
+class ReaderGuards(unittest.TestCase):
+    """E77 / E80 in the scout record. Red on 809b652."""
+
+    def test_E80_unknown_debt_with_evidence_makes_ev_a_lower_bound(self):
+        r = sf.assemble(META, sec(total_debt=None, debt_notes=["untagged at 2026-06-30"]), PRICE, {}, YEARS, TODAY)
+        self.assertTrue(r["market"]["ev"]["lower_bound"])
+        s_ = sec(total_debt=None)
+        s_["fy"] = [{"end": "2025-12-31", "debt": 0}]
+        self.assertFalse(sf.assemble(META, s_, PRICE, {}, YEARS, TODAY)["market"]["ev"]["lower_bound"])
+
+    def test_E77_a_misscaled_count_gives_no_market_cap_and_says_why(self):
+        s_ = sec()
+        s_["x"]["shares_diluted"] = 2000.0           # $100K market cap on $1B of revenue
+        r = sf.assemble(META, s_, PRICE, {}, YEARS, TODAY)
+        self.assertIsNone(r["market"]["market_cap"]["value"])
+        self.assertIn("share count implausible", r["market"]["market_cap"]["reason"])
+        self.assertIsNone(r["market"]["shares"]["value"])
+        self.assertIsNone(r["market"]["ev"]["value"])
+        self.assertEqual(nulls_without_reason(r), [])
+
+
 class Labels(unittest.TestCase):
     def test_debt_free_member_is_labelled_debt_free(self):
         s_ = sec(total_debt=None)

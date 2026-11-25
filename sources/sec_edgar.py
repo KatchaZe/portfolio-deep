@@ -533,6 +533,17 @@ FIN_LEASE_IN_DEBT = {
             "due within one year' and 'Long-term debt'; https://www.sec.gov/Archives/edgar/data/"
             "860730/000095017025020134/hca-20241231.htm",
 }
+# E80: filers whose filing shows borrowings in extension concepts companyfacts does not carry,
+# beside us-gaap lines the tree does read. CIK -> (first balance-sheet date the filing shows
+# it, where it says so). From that date the debt is unread (R44's rule, with the filing as the
+# evidence): total debt None, the IC year left out, the Thai reason in xbrl_flags.
+DEBT_IN_EXTENSION = {
+    2098: ("2025-12-31", "ACU 10-Q Q1 2026 balance sheet: 'Mortgage payable, net of current portion' "
+                         "9,362 / 9,432 $K (2026-03-31 / 2025-12-31) beside 'Long-term debt'; "
+                         "https://www.sec.gov/Archives/edgar/data/2098/000119312526209010/acu-20260331.htm"),
+    783412: ("2025-09-30", "DJCO Q3 FY2026 release 2026-08-12: 'Investment margin account borrowings' "
+                           "20,000 / 22,000 $K (2026-06-30 / 2025-09-30)"),
+}
 DEBT_LONG = (DEBT_COMBINED, DEBT_NONCURRENT, DEBT_TOTAL_LT)
 DEBT_ALL = DEBT_LONG + (DEBT_CURRENT_TOTAL, DEBT_MATURITIES, DEBT_NOTES_CURRENT, DEBT_SHORT,
                         DEBT_FIN_LEASE)
@@ -569,6 +580,12 @@ def debt_on(on, ltd_is_total=False, leases_in_debt=False):
         nc, u_nc = None, ()          # a zero revolver line beside a filed LongTermDebt (MD 2019)
     legs, u_legs = _debt_legs(on, nc, u_nc, tot, u_tot, ltd_is_total)
     if v is None or (nc is not None and legs is not None and _is_principal(on, v, legs)):
+        v, used = legs, u_legs
+    elif (nc is not None and legs is not None and "DebtCurrent" in u_legs
+          and legs > v * (1 + TOTAL_TOL)):
+        # E80: a combined figure below the balance-sheet lines is the notes alone. QCOM
+        # FY2026: 14,613M combined = notes; the lines are 12,620M noncurrent + 2,492M
+        # short-term debt, 499M of it commercial paper the note leaves out.
         v, used = legs, u_legs
     if not leases_in_debt and not DEBT_LEASE_INCLUSIVE & set(used):
         fin, u_fin = DEBT_FIN_LEASE.read(on)
@@ -924,6 +941,7 @@ class _DebtBook:
         self.lease_interest = {e["end"] for c in LEASE_INTEREST for e in x.entries(c)
                                if e.get("start") and e.get("val") and 340 <= _span(e) <= 380}
         self.leases_in_debt = x.cik in FIN_LEASE_IN_DEBT
+        self.cik = x.cik
         # LongTermDebt's relation (total or noncurrent) is learnt per kind of report and read
         # for the kind the date's LongTermDebt came from (E73): Biogen's 10-K tags it as the
         # total (6,295.8M = 4,547.2 + 1,748.6 at 2024-12-31), its 10-Qs as the noncurrent line
@@ -956,6 +974,9 @@ class _DebtBook:
         300M, LongTermLineOfCredit 0; E74); no borrowing line is filed and interest payable is;
         or no debt concept at all is filed and the year ending on d paid finance-lease
         interest (REGN FY2017, E74)."""
+        ext = DEBT_IN_EXTENSION.get(self.cik)
+        if ext and d >= ext[0]:
+            return "หนี้บางส่วนอยู่ในแท็กเฉพาะของผู้ยื่นที่ companyfacts ไม่มี (%s)" % ext[1]
         on = self.on.get(d, {})
         filed = BORROWING_CONCEPTS & set(on)
         if any(on[c] for c in filed):

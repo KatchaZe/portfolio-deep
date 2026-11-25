@@ -150,5 +150,33 @@ class OneTimeGains(unittest.TestCase):
         self.assertAlmostEqual(one_time.normalize_operating_income(ff2), -250e6)
 
 
+def _inst(end, val, form="10-Q", filed="2026-05-07"):
+    return {"end": end, "val": val, "form": form, "filed": filed, "accn": "x"}
+
+
+class DebtMisses(unittest.TestCase):
+    """E80. Debt the reader missed or read short."""
+
+    def test_E80_qcom_reads_its_balance_sheet_lines_not_the_notes_only_total(self):
+        # 10-K FY2026 (2026-09-27, $M): long-term debt 12,620, short-term debt 2,492 (1,993
+        # current notes + 499 commercial paper); DebtLongtermAndShorttermCombinedAmount 14,613.
+        self.assertEqual(extract("QCOM_debt")["total_debt"], 15112e6)
+
+    def test_E80_acu_mortgage_in_an_extension_concept_leaves_debt_unknown(self):
+        # ACU 10-Q Q1 2026: 'Long-term debt' 33,030 and 'Current portion of mortgage payable'
+        # 458 are us-gaap; 'Mortgage payable, net of current portion' 9,362 ($K) is not.
+        cf = {"cik": 2098, "facts": {"us-gaap": {
+            "Revenues": {"units": {"USD": [dict(_inst("2026-03-31", 45e6), start="2026-01-01")]}},
+            "OperatingIncomeLoss": {"units": {"USD": [dict(_inst("2026-03-31", 2e6), start="2026-01-01")]}},
+            "LongTermDebtNoncurrent": {"units": {"USD": [_inst("2026-03-31", 33030e3)]}},
+            "SecuredDebtCurrent": {"units": {"USD": [_inst("2026-03-31", 458e3)]}},
+            "Liabilities": {"units": {"USD": [_inst("2026-03-31", 90e6)]}}}}}
+        d = S.extract(cf)
+        self.assertIsNone(d["total_debt"])
+        self.assertTrue(any("ACU 10-Q Q1 2026" in f for f in d["xbrl_flags"]))
+        cf["cik"] = 1                              # the same facts at any other filer are read
+        self.assertEqual(S.extract(cf)["total_debt"], 33488e3)
+
+
 if __name__ == "__main__":
     unittest.main()
