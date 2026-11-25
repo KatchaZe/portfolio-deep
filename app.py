@@ -26,7 +26,7 @@ import hmac
 import logging
 from typing import List, Optional
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -248,6 +248,46 @@ def api_screen():
                       "economics": v.get("E_econ"), "price": v.get("P"), "demand": v.get("D"),
                       "composite": v.get("composite"), "recommendation": v.get("recommendation")})
     return JSONResponse({"items": screen_mod.rank(items)})
+
+
+# --------------------------------------------------------------------------- #
+#  Sector scout (display only: no score reads it)                              #
+# --------------------------------------------------------------------------- #
+@app.get("/api/scout")
+def api_scout():
+    """The job's status, every industry it can run, and which hold the user's names."""
+    from pipeline import scout_job
+    s = st.load()
+    held = scout_job.holding_industries(s)
+    counts = scout_job.all_industries()
+    runs = scout_job.status().get("runs") or {}
+    names = sorted(set(counts) | set(held))
+    return JSONResponse({"status": scout_job.status(), "default": sorted(held),
+                         "industries": [{"name": n, "members": counts.get(n), "held": held.get(n, []),
+                                         "run": runs.get(n)} for n in names]})
+
+
+@app.get("/api/scout/view")
+def api_scout_view(industry: str):
+    from domain import scout
+    from pipeline import scout_job
+    d = scout_job.load(industry)
+    if not d:
+        return JSONResponse({"error": "ยังไม่มีข้อมูลของอุตสาหกรรมนี้ กดรันก่อน"}, status_code=404)
+    s = st.load()
+    book = {t: ((m.get("v2") or {}).get("beta_calc"), (m.get("v2") or {}).get("price_date"))
+            for t, m in (s.get("momentum") or {}).items() if (m.get("v2") or {}).get("beta_calc") is not None}
+    return JSONResponse(scout.slim(scout.build(d, list(s.get("holdings") or {}), book=book)))
+
+
+@app.post("/api/scout/run")
+def api_scout_run(industry: List[str] = Query(...)):
+    from pipeline import scout_job
+    known = set(scout_job.all_industries()) | set(scout_job.holding_industries(st.load()))
+    bad = [i for i in industry if i not in known]
+    if bad:
+        return _invalid("unknown industry: " + ", ".join(bad))
+    return JSONResponse(scout_job.enqueue(industry))
 
 
 @app.get("/api/allocation")

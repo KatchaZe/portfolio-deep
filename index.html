@@ -27,6 +27,7 @@
     <button type="button" class="tab" role="tab" id="tab3" aria-controls="p3" aria-selected="false" tabindex="-1" onclick="showTab(3)">Allocation</button>
     <button type="button" class="tab" role="tab" id="tab6" aria-controls="p6" aria-selected="false" tabindex="-1" onclick="showTab(6)">Correlation</button>
     <button type="button" class="tab" role="tab" id="tab7" aria-controls="p7" aria-selected="false" tabindex="-1" onclick="showTab(7)">Performance</button>
+    <button type="button" class="tab" role="tab" id="tab8" aria-controls="p8" aria-selected="false" tabindex="-1" onclick="showTab(8)">Sector scout</button>
     <button type="button" class="tab" role="tab" id="tab4" aria-controls="p4" aria-selected="false" tabindex="-1" onclick="showTab(4)">How to</button>
     <button type="button" class="tab" role="tab" id="tab5" aria-controls="p5" aria-selected="false" tabindex="-1" onclick="showTab(5)">Ref</button>
   </div></nav>
@@ -144,6 +145,17 @@
       <div id="ledgerBody"><div class="empty">กำลังโหลด&hellip;</div></div>
     </div>
 
+    <!-- ===================== SECTOR SCOUT (tab8): display only ===================== -->
+    <div id="p8" role="tabpanel" aria-labelledby="tab8" class="scout" style="display:none">
+      <div class="phead">
+        <h2 style="font-size:var(--t-lg)">Sector scout <span class="proxy">ค่าประมาณ ไม่ใช่คะแนน DEEP</span> <span class="note">หาหุ้นน่ารัน DEEP ในอุตสาหกรรมเดียวกับพอร์ต &mdash; แสดงผลอย่างเดียว ไม่เปลี่ยนคะแนนหุ้นในพอร์ต</span></h2>
+      </div>
+      <p id="scoutLive" class="sr" aria-live="polite"></p>
+      <div id="scoutCtl"></div>
+      <div id="scoutBody"><div class="empty">กำลังโหลด&hellip;</div></div>
+      <p class="note" id="scoutFoot"></p>
+    </div>
+
     <!-- HOWTO-REF:BEGIN -->
     <div id="p4" role="tabpanel" aria-labelledby="tab4" class="prose pnl howto" style="display:none">
       <h2 class="ht">How to · ใช้แดชบอร์ดนี้ทีละงาน</h2>
@@ -186,6 +198,7 @@
 <script src="/static/js/fx_usdthb.js"></script>
 <script src="/static/js/watchlist.js"></script>
 <script src="/static/js/ledger.js"></script>
+<script src="/static/js/scout.js"></script>
 <script src="/static/js/ref_page.js"></script>
 <script src="/static/js/app.js"></script>
 </body>

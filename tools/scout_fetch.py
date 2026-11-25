@@ -81,11 +81,15 @@ CALLS = Counter()
 
 
 def _count_sec():
+    """Count SEC requests (idempotent: the app's scout job calls run() repeatedly)."""
+    if getattr(sec_edgar._throttle, "scout_counted", False):
+        return
     real = sec_edgar._throttle
 
     def counted(min_interval):
         CALLS.add("sec")
         return real(min_interval)
+    counted.scout_counted = True
     sec_edgar._throttle = counted
 
 
@@ -486,6 +490,8 @@ def run(args):
             g2 = scout_groups.group2(m["ticker"], hist, why, spy, book)
             recs[i] = assemble(m, sec, price, frames, years, today, wacc, g2)
             done[0] += 1
+            if getattr(args, "progress", None):
+                args.progress(industry, done[0], len(metas), m["ticker"])
             el = time.time() - t1
             eta = el / done[0] * (len(metas) - done[0])
             say(f"  [{done[0]}/{len(metas)}] {m['ticker']:<8} {'cache' if hit else 'fetch'} "
