@@ -51,14 +51,14 @@ log = logging.getLogger("portfolio.scout")
 
 INDUSTRIES = ("Semiconductor", "Healthcare Products", "Software (System & Application)")
 SEC_TTL_DAYS = 7
-PART_VERSION = 2                 # 2 = group 1 inside the SEC part; an older part is refetched
+PART_VERSION = 3                 # 3 = readers after E77-E81 (share scale, gains, debt, cash); an older part is refetched
 NEW_FILING_LAG_DAYS = 21         # earliest a quarter's 10-Q is filed after the quarter ends (NVDA ~21-25)
 FY_KEEP = 6
 STALE_BASE_DAYS = 200
 MIN_REVENUE = 200e6
 X_KEYS = ("currency", "accounting_standard", "latest_period_end", "revenue", "operating_income",
           "net_income", "shares_diluted", "total_debt", "operating_leases", "cash",
-          "minority_interest", "equity", "revenue_annuals_dated")
+          "minority_interest", "equity", "revenue_annuals_dated", "shares_unknown_reason")
 # requests the app's frames reader makes per calendar year (4 revenue concepts, excise,
 # ifrs USD, the other IFRS currencies), the Assets frame per panel year, the ticker map
 FRAMES_PER_YEAR = len(dc.FRAMES_CONCEPTS) + 1 + 1 + len(dc.IFRS_OTHER_CURRENCIES)
@@ -256,8 +256,11 @@ def assemble(meta, sec, price, frames, years, today, wacc=None, g2=None):
         meta["ticker"], x, close, day, today, check_base=False, need_growth=False, margin_floor=False)
     shares = x.get("shares_diluted")
     mcap = p["market_cap"] if p else (close * shares if close and shares else None)
-    mcap_reason = None if mcap else ("no T-1 close: " + str((price or {}).get("reason")) if not close else
-                                     "no diluted share count in SEC facts")
+    implausible = mcap and relative.implausible_market_cap(mcap, x.get("revenue"), shares)
+    if implausible:             # E77: never a silent market cap from a mis-scaled count
+        mcap = None
+    mcap_reason = None if mcap else (implausible or ("no T-1 close: " + str((price or {}).get("reason")) if not close else
+                                     x.get("shares_unknown_reason") or "no diluted share count in SEC facts"))
     ebit, rev = x.get("operating_income"), x.get("revenue")
     end = x.get("latest_period_end")
     age = _age(end, today)
@@ -287,7 +290,8 @@ def assemble(meta, sec, price, frames, years, today, wacc=None, g2=None):
                "reason": None if sec else no_sec},
         "market": {"price": dict(fld(close, (price or {}).get("src") and f"{price['src']} T-1 close (peers._t1)",
                                      (price or {}).get("reason")), date=day),
-                   "shares": dict(xf("shares_diluted", reason="no diluted share count filed"),
+                   "shares": dict(fld(None, None, implausible) if implausible else
+                                  xf("shares_diluted", reason=x.get("shares_unknown_reason") or "no diluted share count filed"),
                                   note="SEC diluted weighted shares, as relative.point uses"),
                    "market_cap": fld(mcap, "relative.point: price x SEC diluted shares", mcap_reason),
                    "ev": fld(p["ev"] if p else None,

@@ -48,6 +48,26 @@ def fy_growth(annuals_dated):
     return a[0][1] / a[1][1] - 1, str(a[0][0])[:10]
 
 
+# E77: a market cap this far below revenue is a share count filed in the wrong unit, not a
+# price (NTNX $16.8M on $2.85B of revenue, BTDR $0.79M on $0.43B); never used, always said.
+MCAP_SALES_FLOOR, MCAP_FLOOR_REVENUE = 0.05, 50e6
+MIN_SHARES, MIN_SHARES_REVENUE = 1e6, 5e6
+MIN_SHARES_ANY = 1e4                     # no listed share count is this small (TNON reads 630)
+
+
+def implausible_market_cap(mcap, revenue, shares=None):
+    """The reason a market cap cannot be right, or None."""
+    if revenue and revenue > MCAP_FLOOR_REVENUE and mcap < MCAP_SALES_FLOOR * revenue:
+        return ("share count implausible: market cap $%.1fM is under %.0f%% of TTM revenue $%.0fM "
+                "(a count filed in thousands?)" % (mcap / 1e6, MCAP_SALES_FLOOR * 100, revenue / 1e6))
+    if shares is not None and shares < MIN_SHARES and revenue and revenue > MIN_SHARES_REVENUE:
+        return ("share count implausible: %s shares against TTM revenue $%.0fM (a count filed in "
+                "thousands?)" % (f"{shares:,.0f}", revenue / 1e6))
+    if shares is not None and shares < MIN_SHARES_ANY:
+        return "share count implausible: %s shares (a count filed in thousands?)" % f"{shares:,.0f}"
+    return None
+
+
 def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_base=True,
           need_growth=True, margin_floor=True):
     """One peer (or the target) on the common clock, or (None, reason).
@@ -74,7 +94,10 @@ def point(sym, x, price, price_date, today, market_cap=None, shares=None, check_
     shares = shares or x.get("shares_diluted")
     mcap = market_cap or (price * shares if shares else None)
     if not mcap or mcap <= 0:
-        return None, "no share count"
+        return None, x.get("shares_unknown_reason") or "no share count"
+    why = implausible_market_cap(mcap, rev, None if market_cap else shares)
+    if why:
+        return None, why
     debt = (x.get("total_debt") or 0) + (x.get("operating_leases") or 0)
     # noncontrolling interest is a claim on the consolidated firm, like debt
     ev = mcap + debt - (x.get("cash") or 0) + (x.get("minority_interest") or 0)

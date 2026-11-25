@@ -126,6 +126,7 @@ class _Xbrl:
         self.q4_derived = set()        # fiscal-year ends whose Q4 quarters() computed
         self.cik = None                # set by extract from the companyfacts header
         self._debt_book = None
+        self.dei = {}                  # the dei namespace (cover page), set by extract
 
     def entries(self, concept, prefer=USD):
         """One entry per (start, end) period, keeping the most recently filed."""
@@ -1425,11 +1426,13 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
     facts = companyfacts.get("facts", companyfacts)
     x = _Xbrl(facts)
     x.cik = companyfacts.get("cik")
+    x.dei = facts.get("dei") or {}
     out = _extract(x, splits, cash_excludes_securities)
     forms = _nonperiodic_forms(x)
     if forms:
         xu = _Xbrl(facts, periodic_only=False)
         xu.cik = x.cik
+        xu.dei = x.dei
         unfiltered = _extract(xu, splits, cash_excludes_securities)
         changed = sorted(k for k in set(out) | set(unfiltered)
                          if k != "xbrl_flags" and out.get(k) != unfiltered.get(k))
@@ -1438,6 +1441,72 @@ def extract(companyfacts, splits=None, cash_excludes_securities=False):
                 "DATA[info] SEC facts from non-periodic filings (%s) ignored; they would have "
                 "changed %s" % (", ".join(forms), ", ".join(changed)))
     return out
+
+
+# E77: a share count filed as the "in thousands" table figure. Companyfacts carries the
+# value as the filer tagged it; NTNX's diluted weighted count reads 292,183 for FY2026
+# (10-K: 292,183 thousand), so price x shares put its market cap at $16.8M against $2.85B
+# of revenue. Two figures filed in the same companyfacts check the count: the cover page's
+# shares outstanding (dei) and TTM net income / TTM diluted EPS. A count about 1000x below
+# a check, with no check agreeing with it as filed, is restated x1000 and flagged; a count
+# that disagrees with the cover page (and is not the 1000x pattern) is left unknown with the
+# reason. LOAR, a holding's peer, files 95,647 against a cover count of 93,690,471.
+SHARE_SCALES = (1000, 1000000)          # "in thousands", "in millions" (MCD files 712 for 712M)
+SHARE_AGREE = (0.5, 2.0)                 # check / filed count read as "the same count"
+SHARE_SCALE_BAND = (0.6, 1.6)            # check / (filed x scale) read as the scale pattern
+COVER_SHARES = "EntityCommonStockSharesOutstanding"
+
+
+def cover_shares(dei):
+    """(date, shares) from the newest cover page, every class filed on it summed, or None.
+    Companyfacts keeps one undimensioned cover figure per class only when the filer tagged
+    them so; a dimensioned per-class count is not in companyfacts at all."""
+    es = [e for e in ((dei or {}).get(COVER_SHARES, {}).get("units", {}).get("shares") or [])
+          if e.get("end") and isinstance(e.get("val"), (int, float)) and _periodic(e)]
+    if not es:
+        return None
+    top = max(es, key=lambda e: (e.get("filed", ""), e["end"]))
+    same = {(e["end"], e["val"]) for e in es if e.get("accn") == top.get("accn") and e["end"] == top["end"]}
+    return top["end"], sum(v for _, v in same)
+
+
+def _check_share_scale(x, out):
+    s = out.get("shares_diluted")
+    if not isinstance(s, (int, float)) or s <= 0:
+        return []
+    checks = []
+    cov = cover_shares(getattr(x, "dei", None))
+    if cov and cov[1] > 0:
+        checks.append(("cover-page shares outstanding %s %s" % (cov[0], f"{cov[1]:,.0f}"), cov[1]))
+    ni, eps = out.get("net_income"), out.get("eps_gaap")
+    if isinstance(ni, (int, float)) and isinstance(eps, (int, float)) and abs(eps) >= 0.01 and abs(ni) >= 1e6:
+        implied = ni / eps
+        if implied > 0:
+            checks.append(("TTM net income / diluted EPS %s" % f"{implied:,.0f}", implied))
+    if not checks:
+        return []
+    agree = [n for n, c in checks if SHARE_AGREE[0] <= c / s <= SHARE_AGREE[1]]
+    if agree:
+        return []
+    scaled = []
+    for k in SHARE_SCALES:
+        scaled = [n for n, c in checks if SHARE_SCALE_BAND[0] <= c / (s * k) <= SHARE_SCALE_BAND[1]]
+        if scaled and len(scaled) == len(checks):
+            out["shares_diluted"] = s * k
+            out["shares_diluted_annuals"] = [v * k if v and 0.2 <= v / s <= 5 else v
+                                             for v in (out.get("shares_diluted_annuals") or [])]
+            out["shares_scale_restated"] = k
+            return ["DATA[warn] SEC diluted shares %s filed as an 'in %s' table figure: restated x%d "
+                    "to %s, matching %s" % (f"{s:,.0f}", "thousands" if k == 1000 else "millions", k,
+                                            f"{s * k:,.0f}", "; ".join(scaled))]
+    # Net income / EPS alone decides nothing beyond the 1000x pattern: a two-class or Up-C
+    # filer's EPS is per Class A share (TKO: 77.0M implied against 192.3M diluted, filed).
+    if not cov or scaled:
+        return []
+    out["shares_diluted"] = None
+    out["shares_unknown_reason"] = ("SEC diluted shares %s disagree with %s; share count left unknown"
+                                    % (f"{s:,.0f}", "; ".join(n for n, _ in checks)))
+    return ["DATA[warn] " + out["shares_unknown_reason"]]
 
 
 def _extract(x, splits, cash_excludes_securities):
@@ -1484,6 +1553,7 @@ def _extract(x, splits, cash_excludes_securities):
     dated = _split_adjust_dated(x, out, at, splits) if splits and x.standard == "us-gaap" else None
     out["split_boundaries"] = dated if dated is not None else _split_adjust(x, out, ni_concept)
     out["prior_fallbacks"] = sorted(at.prior_fallbacks)
+    out["xbrl_flags"] += _check_share_scale(x, out)
     return out
 
 
