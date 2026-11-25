@@ -641,10 +641,19 @@ CASH_TAGS = ("CashAndCashEquivalentsAtCarryingValue", "CashAndCashEquivalents",
 # Damodaran nets cash AND marketable securities out of debt and invested capital.
 # Cash-only read GOOGL at $55.9B against $242.5B, MSFT $20.9B against $76.8B.
 COMBINED_CASH = "CashCashEquivalentsAndShortTermInvestments"
+# E81, the one cash definition (every EV, net debt and IC year reads this field): cash and
+# equivalents plus the CURRENT marketable securities on the same balance sheet, as Damodaran
+# nets them. Noncurrent investments, equity stakes (NVDA's EquitySecuritiesFvNi 42.8B) and
+# restricted cash are not cash. The AFS-debt "excluding accrued interest" tag is the current
+# line of filers that tag nothing else: INTU's 1,279M at 2026-10-31 was left out (cash-only
+# 4,042M) while MU, MSFT and ADBE counted theirs. Health insurers keep cash only
+# (cash_excludes_securities: the securities back claim reserves).
 STI_TAGS = ("ShortTermInvestments", "MarketableSecuritiesCurrent", "DebtSecuritiesCurrent",
             # PFE files its balance-sheet line here; AFS debt below is one part of it
             "OtherShortTermInvestments",
-            "AvailableForSaleSecuritiesDebtSecuritiesCurrent")
+            "AvailableForSaleSecuritiesDebtSecuritiesCurrent",
+            "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent",
+            "HeldToMaturitySecuritiesCurrent")
 DEFREV_TAGS = ("ContractWithCustomerLiabilityCurrent", "ContractWithCustomerLiability",
                "DeferredRevenueCurrent", "DeferredRevenue")
 RND_TAGS = ("ResearchAndDevelopmentExpense",

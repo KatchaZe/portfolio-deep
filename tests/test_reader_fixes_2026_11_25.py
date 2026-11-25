@@ -178,5 +178,22 @@ class DebtMisses(unittest.TestCase):
         self.assertEqual(S.extract(cf)["total_debt"], 33488e3)
 
 
+class CashDefinition(unittest.TestCase):
+    """E81. Cash = cash and equivalents + current marketable securities, for every filer."""
+
+    def test_E81_intu_current_investments_count_as_cash(self):
+        # INTU's 10-Q for 2026-10-31 files CashAndCashEquivalentsAtCarryingValue 4,042M and
+        # its current AFS debt only as ...ExcludingAccruedInterestCurrent 1,279M ($M, as filed).
+        self.assertEqual(extract("INTU_cash")["cash"], 5321e6)
+
+    def test_E81_noncurrent_and_equity_investments_are_not_cash(self):
+        d = extract("INTU_cash")
+        with open(os.path.join(FIX, "INTU_cash.json")) as fh:
+            g = json.load(fh)["facts"]["us-gaap"]
+        lti = max(g["LongTermInvestments"]["units"]["USD"], key=lambda e: e["end"])["val"]
+        self.assertNotEqual(d["cash"], 5321e6 + lti)
+        self.assertNotIn("EquitySecuritiesFvNi", S.STI_TAGS)
+
+
 if __name__ == "__main__":
     unittest.main()
