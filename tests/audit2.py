@@ -867,6 +867,99 @@ for _name, _mod, _edit in (
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
+hdr("A16-A19", "shared readers after the scout audit: share scale, one-time gains, debt lines, cash (E77-E81)")
+from domain import one_time as _OT                 # noqa: E402
+from domain import relative as _REL                # noqa: E402
+_SHF = os.path.join(APP, "tests", "fixtures", "sec_shares")
+
+
+def _cf(name):
+    with open(os.path.join(_SHF, name + ".json")) as fh:
+        return _json.load(fh)
+
+
+def _a16(sec=_sec, rel=_REL):
+    """A share count used is within 2x of the filer's cover page; an implausible market
+    cap is refused with a reason (NTNX as the scout read it)."""
+    bad = []
+    for n in ("LOAR", "MCD"):
+        cf = _cf(n)
+        cov = sec.cover_shares(cf["facts"].get("dei"))[1]
+        s = sec.extract(cf)["shares_diluted"]
+        if not s or not 0.5 <= cov / s <= 2:
+            bad.append((n, s, cov))
+    x = {"currency": "USD", "revenue": 2853545000, "operating_income": 273970000, "shares_diluted": 292183,
+         "latest_period_end": "2026-07-31", "revenue_annuals_dated": [["2026-07-31", 1], ["2025-07-31", 1]]}
+    p, why = rel.point("NTNX", x, 57.56, "2026-11-23", "2026-11-24", check_base=False)
+    if p is not None:
+        bad.append(("NTNX", "market cap used", p["market_cap"]))
+    return bad
+
+
+def _a17(sec=_sec, ot=_OT):
+    """HCA's FY2021 facility gain (inside its costs and expenses) comes out of that year's
+    margin; a TTM gain comes out of EBIT."""
+    bad = []
+    d = sec.extract(_cf("HCA_gains"))
+    f = FF("HCA", revenue_annuals_dated=d["revenue_annuals_dated"], gain_annuals_dated=d["gain_annuals_dated"])
+    if ot.annual_addbacks(f).get("2021-12-31", 0) >= 0:
+        bad.append(("HCA FY2021", "gain kept in EBIT"))
+    g = FF("G", revenue=1000e6, operating_income=300e6, gain_ttm=100e6)
+    ot.normalize_operating_income(g)
+    if g.operating_income != 200e6:
+        bad.append(("TTM gain", g.operating_income))
+    return bad
+
+
+def _a18(sec=_sec):
+    """Debt is never below the balance-sheet lines filed on its date; a cited extension-concept
+    debt date is unread, not partial."""
+    bad = []
+    d = sec.extract(_cf("QCOM_debt"))
+    if d["total_debt"] < 12620e6 + 2492e6:
+        bad.append(("QCOM", d["total_debt"]))
+    inst = lambda v: {"units": {"USD": [{"end": "2026-03-31", "val": v, "form": "10-Q", "filed": "2026-05-07"}]}}
+    flow = lambda v: {"units": {"USD": [{"start": "2026-01-01", "end": "2026-03-31", "val": v, "form": "10-Q",
+                                         "filed": "2026-05-07"}]}}
+    acu = {"cik": 2098, "facts": {"us-gaap": {"Revenues": flow(45e6), "OperatingIncomeLoss": flow(2e6),
+                                              "LongTermDebtNoncurrent": inst(33030e3),
+                                              "SecuredDebtCurrent": inst(458e3), "Liabilities": inst(90e6)}}}
+    if sec.extract(acu)["total_debt"] is not None:
+        bad.append(("ACU", "partial debt read as the total"))
+    return bad
+
+
+def _a19(sec=_sec):
+    """Cash is cash and equivalents plus every current marketable-securities leg filed on the date."""
+    d = sec.extract(_cf("INTU_cash"))
+    return [] if d["cash"] == 4042e6 + 1279e6 else [("INTU", d["cash"])]
+
+
+for _lbl, _fn, _muts in (
+        ("A16", _a16, (("A16 no share-scale check", lambda: dict(sec=_variant(_sec, override={"_check_share_scale": lambda x, out: []}))),
+                       ("A16 no market-cap guard", lambda: dict(rel=_variant(_REL, override={"implausible_market_cap": lambda *a, **k: None}))))),
+        ("A17", _a17, (("A17 no annual gain read", lambda: dict(sec=_variant(_sec, override={"_gain_annuals": lambda *a: []}))),
+                       ("A17 TTM gain ignored", lambda: dict(ot=_variant(_OT, override={"_gain": lambda ff: 0.0}))))),
+        ("A18", _a18, (("A18 combined total over the lines", lambda: dict(sec=_variant(_sec, old="legs > v * (1 + TOTAL_TOL)", new="legs > v * 1e9"))),
+                       ("A18 extension debt read as partial", lambda: dict(sec=_variant(_sec, override={"DEBT_IN_EXTENSION": {}}))))),
+        ("A19", _a19, (("A19 current AFS debt left out", lambda: dict(sec=_variant(
+            _sec, old='            "DebtSecuritiesAvailableForSaleExcludingAccruedInterestCurrent",\n', new=""))),))):
+    _hit = _fn()
+    print(f"  {_lbl}: {len(_hit)} violation(s)")
+    if _hit:
+        flag("HIGH", f"{_lbl} reader guard: {_hit[:2]}")
+    for _name, _mk in _muts:
+        try:
+            _kw = _mk()
+        except _Stale as _e:
+            print(f"  mutation for {_name}: STALE ({_e})")
+            flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
+            continue
+        _hit = _fn(**_kw)
+        print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
+        if not _hit:
+            flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:
