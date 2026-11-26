@@ -12,6 +12,8 @@ priced_in(...)   the input the price implies, the others held:
                  - first-year growth at the model's margin, as year-10 revenue x today
 scenarios(...)   Bear / Base / Bull from the firm's own history, 25/50/25:
                  operating firm  margin = min / model / max of its last 5 years
+                                 (a cyclical: lower quartile / median / upper
+                                 quartile of up to 10 years, no half-model floor)
                                  growth = consensus -/+ max(2pp, 20% of the year)
                  pre-profit      margin = industry / model / 2x industry
                                  first-year growth -/+ 15pp
@@ -28,6 +30,28 @@ YOUNG_GROWTH_SHIFT = 0.15
 MARGIN_LO, MARGIN_HI = 0.005, 0.80
 HISTORY_YEARS, HISTORY_MIN = 5, 3
 BEAR_MARGIN_FLOOR = 0.5
+# A cyclical whose price implies a margin this many times below today's, on today's
+# revenue, is priced for the cycle to turn: the same 1.5x that marks a peak margin.
+CYCLE_PRICED_DOWN_X = 1.5
+CYCLE_DOWN_LABEL = "ตลาดตั้งราคาว่ารอบกำลังจะลง"
+from domain.company_type import BEAR_CYCLE_FLOOR  # noqa: E402
+BEAR_CYCLE_FLOOR_PCT = round(BEAR_CYCLE_FLOOR * 100, 1)
+
+
+def cycle_priced(kw, price, cycle):
+    """What a cyclical's price implies on TODAY's revenue (no convergence to trend,
+    growing at the through-cycle trend): the margin the price pays for, and whether it
+    sits CYCLE_PRICED_DOWN_X below today's. The model's own path already reverts, so
+    its priced-in margin answers a different question (MU 2026-11: no margin under
+    80% reaches the price there, while on today's revenue the price pays ~18%)."""
+    g = cycle.trend_growth if cycle.trend_growth is not None else kw["g_high"]
+    held = dict(kw, growth_path=[g], g_high=g)
+    m, why = _bisect(lambda x: _dcf(held, margin_target=x), price, MARGIN_LO, MARGIN_HI)
+    down = bool(m is not None and m > 0 and kw["margin_now"] / m > CYCLE_PRICED_DOWN_X)
+    return {"margin_at_revenue_now_pct": round(m * 100, 2) if m is not None else None,
+            "margin_at_revenue_now_note": why,
+            "cycle_priced_down": down,
+            "cycle_verdict": CYCLE_DOWN_LABEL if down else None}
 
 
 def _bisect(fn, target, lo, hi, n=60):
@@ -93,11 +117,12 @@ def _pack(names, values, inputs, price, basis):
             "growth_destroys_value": values[0] > values[1]}
 
 
-def operating(kw, price, margin_history, margin_now_unadjusted=None):
+def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None):
     """(priced_in, scenarios) for an FCFF DCF firm. `kw` is the anchor's own
     fcff_dcf.value() input; `margin_history` the firm's annual margins, newest first
     (one-time add-backs applied), without the lease-interest add-back the DCF makes,
-    which is `kw["margin_now"] - margin_now_unadjusted`."""
+    which is `kw["margin_now"] - margin_now_unadjusted`. `cycle` (a
+    domain.company_type.Cycle) sets a cyclical's Bear / Bull from its whole cycle."""
     if not kw or not price:
         return None, None
     m_model = kw["margin_target"]
@@ -121,25 +146,37 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None):
               "growth_pct": round(g_star * 100, 1) if g_star is not None else None,
               "growth_note": why_g,
               "rev10_x": round(rev10 / kw["revenue"], 1) if rev10 else None}
-    # scenarios: margins from the firm's own last five years (lease adjustment carried)
     lease_adj = (kw["margin_now"] - margin_now_unadjusted) if margin_now_unadjusted is not None else 0.0
-    hist = [m for m in (margin_history or [])[:HISTORY_YEARS] if m is not None]
-    if len(hist) >= HISTORY_MIN:
-        lo = min(min(hist) + lease_adj, kw["margin_now"])
-        hi = max(hist) + lease_adj
-        basis = "margin = ต่ำสุด / โมเดล / สูงสุดใน 5 ปี (รวม TTM)"
+    if cycle is not None:
+        priced.update(cycle_priced(kw, price, cycle))
+        # the whole cycle, not its last five years: the lower and upper quartile of up
+        # to ten fiscal years. No half-model floor: a cyclical's low years ARE its story
+        # never above today's when today is the trough (TSLA 2026: 4.1% under a 5.5%
+        # quartile), never under BEAR_CYCLE_FLOOR (a going concern, not a liquidation)
+        lo = max(min(cycle.low_margin + lease_adj, kw["margin_now"]), BEAR_CYCLE_FLOOR + lease_adj)
+        hi = cycle.high_margin + lease_adj
+        lo, hi = min(lo, m_model), max(hi, m_model)
+        basis = (f"margin = ควอไทล์ล่าง / median / ควอไทล์บนของ {cycle.margin_years} ปีงบ "
+                 f"(วัฏจักร: รวมปีขาลง, Bear ไม่ต่ำกว่า {BEAR_CYCLE_FLOOR_PCT}%)")
     else:
-        lo, hi = 0.8 * m_model, 1.2 * m_model
-        basis = "margin = โมเดล ∓20% (ประวัติไม่ถึง 3 ปี)"
-    # a loss year or a charge-laden year is not a steady-state story: TMDX's -130%
-    # margins from its pre-profit years made every Bear and most Monte Carlo draws
-    # worth zero. Bear is floored at half the model margin, and the floor is reported.
-    floor = BEAR_MARGIN_FLOOR * m_model
-    floored = lo < floor
-    lo = max(lo, floor)
-    lo, hi = min(lo, m_model), max(hi, m_model)
-    if floored:
-        basis += " · Bear ไม่ต่ำกว่าครึ่งหนึ่งของ margin โมเดล (ปีขาดทุน/ปีพิเศษไม่ใช่ steady state)"
+        # scenarios: margins from the firm's own last five years (lease adjustment carried)
+        hist = [m for m in (margin_history or [])[:HISTORY_YEARS] if m is not None]
+        if len(hist) >= HISTORY_MIN:
+            lo = min(min(hist) + lease_adj, kw["margin_now"])
+            hi = max(hist) + lease_adj
+            basis = "margin = ต่ำสุด / โมเดล / สูงสุดใน 5 ปี (รวม TTM)"
+        else:
+            lo, hi = 0.8 * m_model, 1.2 * m_model
+            basis = "margin = โมเดล ∓20% (ประวัติไม่ถึง 3 ปี)"
+        # a loss year or a charge-laden year is not a steady-state story: TMDX's -130%
+        # margins from its pre-profit years made every Bear and most Monte Carlo draws
+        # worth zero. Bear is floored at half the model margin, and the floor is reported.
+        floor = BEAR_MARGIN_FLOOR * m_model
+        floored = lo < floor
+        lo = max(lo, floor)
+        lo, hi = min(lo, m_model), max(hi, m_model)
+        if floored:
+            basis += " · Bear ไม่ต่ำกว่าครึ่งหนึ่งของ margin โมเดล (ปีขาดทุน/ปีพิเศษไม่ใช่ steady state)"
     path = kw.get("growth_path") or [kw["g_high"]]
     cases = [("Bear", dict(margin_target=lo, growth_path=_shift(path, -1))),
              ("Base", {}),

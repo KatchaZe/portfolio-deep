@@ -8,7 +8,8 @@ simple Ginzu: revenue growth, operating margin, sales-to-capital, cost of capita
     margin_t    moves from today's margin to the target margin by `margin_years`
     tax_t       effective rate for years 1-5, then a straight line to the marginal rate
     NOPAT_t     = revenue_t x margin_t x (1 - tax_t)
-    reinvest_t  = (revenue_t - revenue_{t-1}) / sales_to_capital
+    reinvest_t  = (revenue_t - revenue_{t-1}) / sales_to_capital   (floored at 0 when
+                  release_capital is False: a cyclical's way back to trend)
     FCFF_t      = NOPAT_t - reinvest_t
     discount    WACC for years 1-5, then a straight line to the stable-phase WACC
     terminal    NOPAT_11 x (1 - g_stable / ROIC_stable) / (WACC_stable - g_stable)
@@ -33,11 +34,13 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
           tax_now, tax_marginal, wacc, wacc_stable, roic_stable, cash, debt, shares,
           minority_interest=0.0,
           margin_years=5, growth_path=None, fade_start_cap=None,
-          high_years=HIGH_YEARS, total_years=TOTAL_YEARS) -> Optional[dict]:
+          high_years=HIGH_YEARS, total_years=TOTAL_YEARS, release_capital=True) -> Optional[dict]:
     """Per-share value and the projection behind it, or None when the inputs cannot
     support a DCF (no revenue, no shares, or a stable WACC at or below g).
     `high_years` / `total_years` set how long the firm earns above its stable state
-    (the competitive advantage period); the defaults are 5 + 5."""
+    (the competitive advantage period); the defaults are 5 + 5. `release_capital`
+    False floors reinvestment at zero: a cyclical whose revenue falls back to its trend
+    keeps its plants, so the fall is not paid out as cash."""
     if not revenue or revenue <= 0 or not shares or shares <= 0:
         return None
     if margin_now is None or margin_target is None or sales_to_capital is None or sales_to_capital <= 0:
@@ -62,6 +65,8 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
         ebit = rev * m
         nopat = ebit * (1 - tax) if ebit > 0 else ebit       # no tax on an operating loss
         reinvest = (rev - rev_prev) / sales_to_capital
+        if not release_capital:
+            reinvest = max(0.0, reinvest)
         fcff = nopat - reinvest
         disc *= (1 + r)
         pv = fcff / disc
