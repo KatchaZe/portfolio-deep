@@ -517,6 +517,27 @@ def _target(f, today):
     return tp, net_debt, why
 
 
+def _normalized_target(f, tp):
+    """A cyclical's point at its normalized margin, through-cycle growth and (at a
+    peak with no consensus) trend revenue: the base its FCFF DCF reverts to, so the
+    peer multiple is not applied to a peak (MU 2026-11: $133B at 74.6% read $2,043
+    and $1,569 a share). (point, note); the point unchanged for any other firm."""
+    from domain.engine import deep_v82
+    cyc = deep_v82.cycle_of(f) if tp else None
+    if cyc is None:
+        return tp, None
+    rev = tp["revenue"]
+    if cyc.at_peak and not deep_v82.consensus_growth_path(f):
+        rev = deep_v82.cycle_trend_revenue(f, cyc) or rev
+    out = dict(tp, revenue=rev, margin=cyc.normal_margin,
+               growth=cyc.trend_growth if cyc.trend_growth is not None else tp.get("growth"),
+               observed={"revenue": tp["revenue"], "margin": tp["margin"], "growth": tp.get("growth")})
+    return out, (f"cyclical: valued at its {cyc.margin_years}-year median margin "
+                 f"{cyc.normal_margin*100:.1f}%, trend growth and revenue "
+                 f"${rev/1e9:.1f}B (observed ${tp['revenue']/1e9:.1f}B at "
+                 f"{tp['margin']*100:.1f}%)")
+
+
 def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, universe=None, **kw):
     """(block, fmp_calls). `prev` = last stored block for this ticker (read-only).
     `universe` = Universe.load(...) in production; None = FMP peers only (tests)."""
@@ -531,6 +552,8 @@ def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, univers
         return {"model": None, "excluded": [], "industry": None, "peer_list_as_of": None,
                 "notes": [f"{industry}: EV/Sales does not apply to a financial firm"]}, 0
     tp, net_debt, t_why = _target(f, today)
+    tp, cyc_note = _normalized_target(f, tp)
+    notes += [cyc_note] if cyc_note else []
     ind = universe.industry_block(f, industry, basis, tp, net_debt) if tp else None
     cache_dir, fetch_list = kw.pop("cache_dir", None), kw.pop("fetch_list", None)
     model, excluded, list_as_of = None, [], None

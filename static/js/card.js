@@ -71,7 +71,7 @@ const DTABS=[["val","มูลค่า"],["deep","DEEP & ทุน"],["trend","
 const DPANES={
   val(x){
     if(ASSET_CLASS[x.ticker])return `<p class="note">${ASSET_CLASS_NOTE[ASSET_CLASS[x.ticker]==='bond'?'bond':'other']}</p>`;
-    const left=valueMethodsTable(x)+(x.young_dcf?'':pricedInLine(x))+(x.anchor_value==null?impliedVsActualBars(x):'');
+    const left=cyclePanel(x)+valueMethodsTable(x)+(x.young_dcf?'':pricedInLine(x))+(x.anchor_value==null?impliedVsActualBars(x):'');
     const right=(scenarioPanel(x)||'')+youngPanel(x);
     const charts=[storyMcBlock((x.scenarios||{}).story_mc,x.price),relativePanel(x)].filter(Boolean);
     return `<div class="dgrid"><div class="box">${left||'<p class="note">ไม่มีวิธีประเมินมูลค่าที่ใช้ได้</p>'}</div><div class="box">${right||'<p class="note">ไม่มี scenario สำหรับหุ้นนี้</p>'}</div></div>`

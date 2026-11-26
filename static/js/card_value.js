@@ -29,10 +29,15 @@ function consensusBadge(x){
   const tok=n>=2?(x.forward_eps_spread_pct!=null&&x.forward_eps_spread_pct>25?'--bear':'--bull'):'--muted';
   return ` ${chip('EPS×'+n,tok,esc(tip))}`;
 }
+// the fair value's growth comes from history, not from an analyst path (Yahoo / FMP missing)
+function noConsensusBadge(x){
+  const k=x.key_metrics||{}; if(!k.no_consensus||x.anchor_value==null)return '';
+  return ` ${chip('ไม่มี consensus รองรับ','--warn',esc('growth ของ FCFF DCF มาจากประวัติของบริษัท ไม่มีประมาณการรายได้จากนักวิเคราะห์ (Yahoo / FMP) รองรับ — คะแนน Price ไม่เกิน 3.0 · '+(((x.dcf||{}).sources||{}).growth||'')))}`;
+}
 function anchorCell(x){
   const m=methodShort(x.anchor_method);
   const altLine=fairValueAlternatives(x,m);
-  if(x.anchor_value!=null)return `${fixed(x.anchor_value)}${consensusBadge(x)}<div class="note">${m}</div>${altLine}`;
+  if(x.anchor_value!=null)return `${fixed(x.anchor_value)}${consensusBadge(x)}${noConsensusBadge(x)}<div class="note">${m}</div>${altLine}`;
   if(x.rev_implied_cagr!=null)return `<b style="color:color-mix(in srgb,var(--violet) 80%,var(--ink))">RevDCF</b>${consensusBadge(x)}<div class="note">implies ${x.rev_implied_cagr}% CAGR</div>${altLine}`;
   return MUTED_DASH+altLine;
 }
@@ -230,6 +235,20 @@ function valueMethodsTable(x){
     <thead><tr><th scope="col" class="l">วิธี</th><th scope="col" class="n">มูลค่า</th><th scope="col" class="n">เทียบราคา</th></tr></thead><tbody>
     ${rows.map(([n,v,p,t])=>`<tr${p?' class="tot"':''}><th scope="row" class="l" style="color:var(--ink);font-size:var(--t-sm);font-weight:${p?700:400}"${t?` title="${t}"`:''}>${esc(n)}${p?' <span class="note">(ใช้ตัดสิน)</span>':''}</th><td class="n">${usd(v)}</td><td class="n">${vsPrice(v,x.price)}</td></tr>`).join('')}
     </tbody></table></div><p class="note" style="margin:0">ช่วง ${usd(x.range_low)} – ${usd(x.range_high)} · ทุกวิธีนอกจาก Anchor เป็น cross-check ไม่เปลี่ยน FV และคะแนน P</p></div>`;
+}
+// cyclical normalization (domain/company_type.Cycle): why the firm is cyclical, the normal
+// margin, the revenue base and the Bear basis the DCF and the scenarios run on
+function cyclePanel(x){
+  const c=(x.key_metrics||{}).cycle, pi=x.priced_in||{}; if(!c)return '';
+  const why=c.basis==='firm'?'ตรวจจากงบของบริษัทเอง: '+c.reason:c.reason;
+  const rev=c.trend_revenue?`รายได้ล่าสุด <b class="num">$${nf(c.revenue_now/1e9,1)}B</b> = <b>${nf(c.peak_ratio,1)}×</b> ของเส้น trend <b class="num">$${nf(c.trend_revenue/1e9,1)}B</b> (log-linear ${c.years} ปีงบ, โต ${nf(c.trend_growth_pct,1)}%/ปี)`:'ไม่มีเส้น trend รายได้';
+  const path=c.revenue_converges?'DCF ให้รายได้กลับเข้าเส้น trend ใน 3 ปี แล้วโตตาม trend — เป็นสมมติฐานว่ารอบจะกลับ ไม่ใช่ประมาณการว่าเมื่อไร':c.at_peak?'รายได้สูงกว่า trend แต่มี consensus จึงใช้ path ของนักวิเคราะห์แทน (อาจเป็นการเปลี่ยนเชิงโครงสร้าง)':'รายได้ไม่ได้อยู่ที่จุดสูงสุดของรอบ: DCF เริ่มจากรายได้จริง';
+  const turn=pi.cycle_verdict?`<div class="warnc" style="font-size:var(--t-sm)">${esc(pi.cycle_verdict)}: ที่รายได้วันนี้ ราคาจ่ายให้ margin <b>${pi.margin_at_revenue_now_pct}%</b> เทียบ ${pi.margin_now_pct}% วันนี้</div>`:'';
+  return `<div class="box" style="gap:4px"><h3>วัฏจักร (cyclical) ${chip(c.basis==='firm'?'จากงบบริษัท':'จากอุตสาหกรรม','--warn',esc(why))}</h3>
+    <div style="font-size:var(--t-sm)">${esc(why)}</div>
+    <div style="font-size:var(--t-sm)">margin ปกติ <b>${nf(c.normal_margin_pct,1)}%</b> = median ${c.years} ปีงบ${c.short_window?' <span class="warnc">(ไม่ถึง 7 ปี: อาจไม่ครบหนึ่งรอบ)</span>':''} · margin เข้าหาค่านี้ใน 3 ปี</div>
+    <div style="font-size:var(--t-sm)">${rev}</div><div class="note">${path}</div>
+    <div style="font-size:var(--t-sm)">Bear ใช้ margin <b>${nf(c.bear_margin_pct,1)}%</b> (ควอไทล์ล่างของ ${c.years} ปี รวมปีขาลง, ไม่สูงกว่าวันนี้, ไม่ต่ำกว่า 2%) · Bull ${nf(c.bull_margin_pct,1)}% (ควอไทล์บน)</div>${turn}</div>`;
 }
 function scenarioPanel(x){
   const sc=x.scenarios, pi=x.priced_in; if(!sc||!sc.cases)return '';

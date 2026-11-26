@@ -1028,6 +1028,7 @@ WEIGHTS = {"D": 0.20, "E_exec": 0.20, "E_econ": 0.30, "P": 0.30}
 
 NEUTRAL_SCORE = 2.5     # midpoint of the 0-5 band: "we did not find out", not "it is bad"
 NO_CONSENSUS_P_CAP = 3.0
+NO_CONSENSUS_BADGE = "ไม่มี consensus รองรับ"
 
 
 _D = _decimal.Decimal
@@ -2162,6 +2163,9 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         return None
     out["growth_basis"] = g_basis
     out["sources"] = sources
+    if g_basis != "consensus":
+        _add_flag(f, (f"{NO_CONSENSUS_BADGE}: the FCFF DCF's growth is {sources['growth']} - "
+                      f"no analyst revenue path (Yahoo / FMP) behind the fair value"))
     if (kw["high_years"], kw["total_years"]) != MOAT_PERIODS["narrow"]:
         base = fcff_dcf.value(**dict(kw, high_years=MOAT_PERIODS["narrow"][0],
                                      total_years=MOAT_PERIODS["narrow"][1]))
@@ -2643,6 +2647,9 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "dcf_margin_target_pct": _pct(di.get("margin_target"), 1),
             "dcf_sales_to_capital": di.get("sales_to_capital"),
             "dcf_terminal_share_pct": dcf.get("terminal_share_pct"),
+            # the fair value rests on history, not on an analyst path: the card badge
+            "no_consensus": bool(dcf) and dcf.get("growth_basis") != "consensus",
+            "cycle": (dcf.get("sources") or {}).get("cycle"),
             "ke_pct": round(cap.ke * 100, 2),
             "kd_pct": _pct(cap.kd_pre, 2),                       # pre-tax
             "kd_after_pct": _pct(cap.kd_pre * (1 - cap.tax), 2) if cap.kd_pre else None,

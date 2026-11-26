@@ -960,6 +960,86 @@ for _lbl, _fn, _muts in (
         if not _hit:
             flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
+hdr("A20", "a cyclical at its peak is never valued as STANDARD; growth firms are never CYCLICAL (E83-E85)")
+from domain import company_type as _CT              # noqa: E402
+from domain.engine import scenarios as _SC          # noqa: E402
+# NVDA / TMDX FY margins and revenue ($B), newest first (tests/test_cyclical_norm.py cites them)
+_A20_GROWTH = {
+    "NVDA": ([.604, .624, .541, .157, .373, .272, .261, .330, .280, .149],
+             [215.938, 130.497, 60.922, 26.974, 26.914, 16.675, 10.918, 9.714, 6.910, 5.010], "Semiconductor"),
+    "TMDX": ([.179, .085, -.119, -.336, -1.303, -1.029, -1.254, -1.555],
+             [.605, .442, .242, .093, .030, .026, .024, .013], None)}
+
+
+def _a20_peaks():
+    """Synthetic firms that pass rule (a)-(c) by construction: a 10-year history, one
+    revenue fall of 15-60% inside the last five years, a loss year, and today's margin
+    1.6-3x its median."""
+    out = []
+    for drop in (0.15, 0.3, 0.6):
+        for k in (1.6, 2.0, 3.0):
+            for pos in (1, 2, 4):
+                m = [.12, .15, .10, .08, .14, .11, .13, .09, .16, .12]
+                m[min(pos + 1, 4)] = -.05
+                med = sorted(m[1:] + [0])[5]
+                rev = [100.0 * 1.05 ** -i for i in range(10)]
+                rev[pos] = rev[pos + 1] * (1 - drop) - 1e-6
+                m[0] = k * max(_CT.normalized_margin(m[1:] + [.5]) or med, .12)
+                dated = [(f"{2026 - i}-06-30", r) for i, r in enumerate(rev)]
+                out.append((f"drop{drop}/x{k}/y{pos}", m, dated))
+    return out
+
+
+def _a20(ct=_CT, sc=_SC):
+    bad = []
+    for name, m, dated in _a20_peaks():
+        if ct.normalized_margin(m) and m[0] > 1.5 * ct.normalized_margin(m):
+            got = ct.classify(None, m[0] * dated[0][1], dated[0][1], m, dated)[0]
+            if got is not ct.CompanyType.CYCLICAL:
+                bad.append((name, "peak firm valued as", got.value))
+    for name, (m, rev, ind) in _A20_GROWTH.items():
+        dated = [(f"{2026 - i}-01-31", r) for i, r in enumerate(rev)]
+        if ct.classify(ind, m[0] * rev[0], rev[0], m, dated)[0] is ct.CompanyType.CYCLICAL:
+            bad.append((name, "growth firm valued as cyclical"))
+    # the Bear of a cyclical reaches its low years: never the half-model floor
+    cyc = ct.cycle_profile(None, [.746, .261, .052, -.363, .315, .227, .140, .315, .493, .289],
+                           [(f"{2026 - i}-08-31", r) for i, r in enumerate(
+                               [133.2, 37.4, 25.1, 15.5, 30.8, 27.7, 21.4, 23.4, 30.4, 20.3])], .746)
+    if cyc is None:
+        return bad + [("MU history", "not cyclical")]
+    kw = dict(revenue=100.0, margin_now=.746, margin_target=cyc.normal_margin, g_high=.05, g_stable=.03,
+              sales_to_capital=1.3, tax_now=.15, tax_marginal=.25, wacc=.10, wacc_stable=.085,
+              roic_stable=.2, cash=0, debt=0, shares=1, growth_path=[.05], margin_years=3)
+    _, pack = sc.operating(kw, 300.0, None, .746, cycle=cyc)
+    case = {c["name"]: c["margin_pct"] for c in pack["cases"]}
+    lo_q = ct._quantile([.746, .261, .052, -.363, .315, .227, .140, .315, .493, .289], ct.BEAR_PERCENTILE)
+    hi_q = ct._quantile([.746, .261, .052, -.363, .315, .227, .140, .315, .493, .289], ct.BULL_PERCENTILE)
+    if abs(case["Bear"] - lo_q * 100) > 0.01:
+        bad.append(("cyclical Bear", case["Bear"], f"not the window's lower quartile {lo_q*100:.2f}%"))
+    if case["Bull"] > hi_q * 100 + 0.01:
+        bad.append(("cyclical Bull", case["Bull"], f"above the window's upper quartile {hi_q*100:.2f}%"))
+    return bad
+
+
+for _name, _mk in (("A20 firm test off", lambda: dict(ct=_variant(_CT, override={"firm_cycle_test": lambda *a: (False, None)}))),
+                   ("A20 revenue-fall rule off", lambda: dict(ct=_variant(_CT, override={"CYCLE_REVENUE_DROP": -10.0}))),
+                   ("A20 Bear half-floor for cyclicals", lambda: dict(sc=_variant(
+                       _SC, old="    if cycle is not None:\n        priced.update", new="    if False:\n        priced.update")))):
+    if _name.endswith("firm test off"):
+        _hit = _a20()
+        print(f"  A20: {len(_hit)} violation(s) over {len(_a20_peaks())} synthetic peaks + {len(_A20_GROWTH)} growth firms")
+        if _hit:
+            flag("HIGH", f"A20 cyclical guard: {_hit[:2]}")
+    try:
+        _kw = _mk()
+    except _Stale as _e:
+        flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
+        continue
+    _hit = _a20(**_kw)
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:
