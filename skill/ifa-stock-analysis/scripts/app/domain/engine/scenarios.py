@@ -39,13 +39,11 @@ BEAR_CYCLE_FLOOR_PCT = round(BEAR_CYCLE_FLOOR * 100, 1)
 
 
 def cycle_priced(kw, price, cycle):
-    """What a cyclical's price implies on TODAY's revenue (no convergence to trend,
-    growing at the through-cycle trend): the margin the price pays for, and whether it
-    sits CYCLE_PRICED_DOWN_X below today's. The model's own path already reverts, so
-    its priced-in margin answers a different question (MU 2026-11: no margin under
-    80% reaches the price there, while on today's revenue the price pays ~18%)."""
-    g = cycle.trend_growth if cycle.trend_growth is not None else kw["g_high"]
-    held = dict(kw, growth_path=[g], g_high=g)
+    """What a cyclical's price implies on TODAY's revenue at its through-cycle growth
+    (the model's last explicit year, without consensus years or a held margin): the
+    margin the price pays for, and whether it sits CYCLE_PRICED_DOWN_X below today's."""
+    g = (kw.get("growth_path") or [kw["g_high"]])[-1]
+    held = dict(kw, growth_path=[g], g_high=g, margin_hold=0)
     m, why = _bisect(lambda x: _dcf(held, margin_target=x), price, MARGIN_LO, MARGIN_HI)
     down = bool(m is not None and m > 0 and kw["margin_now"] / m > CYCLE_PRICED_DOWN_X)
     return {"margin_at_revenue_now_pct": round(m * 100, 2) if m is not None else None,
@@ -190,7 +188,19 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None)
                        "growth_y1_pct": round(g[0] * 100, 1)})
     pack = _pack([c[0] for c in cases], values, inputs, price,
                  basis + " · growth = consensus ∓ มากกว่าระหว่าง 2pp กับ 20% ของปีนั้น")
-    pack["story_mc"] = story_mc_operating(kw, price, lo, hi)
+    if cycle is not None and cycle.at_peak:
+        # at a peak margin the story is where in the cycle the firm settles: the Monte
+        # Carlo spans the window's trough (floored) to its peak, not the quartiles, so the
+        # uncertainty rating reads the cycle (MU 2026-11 read "Low" at 2.7x normal)
+        mc_lo = cycle.trough_margin + lease_adj
+        mc_hi = max(cycle.peak_margin + lease_adj, hi)
+        pack["story_mc"] = story_mc_operating(kw, price, mc_lo, mc_hi)
+        if pack["story_mc"]:
+            pack["story_mc"]["story"]["margin_basis"] = (
+                f"วัฏจักรที่จุดพีค: margin ต่ำสุดถึงสูงสุดของ {cycle.margin_years} ปีงบ "
+                f"(ไม่ต่ำกว่า {BEAR_CYCLE_FLOOR_PCT}%)")
+    else:
+        pack["story_mc"] = story_mc_operating(kw, price, lo, hi)
     return priced, pack
 
 

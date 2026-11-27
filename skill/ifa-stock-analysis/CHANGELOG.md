@@ -1,3 +1,12 @@
+# v9.0 build 2026-11-28a (engine copy rebuilt: cyclical round 2, MoS cap)
+- Cyclical DCF on TODAY's revenue x normal margin (the log-linear trend left the fair value:
+  its slope came from the peak year). Growth = through-cycle organic (acquisition years out),
+  never above g_stable; consensus for years 1-2 only, at today's margin. Trend-revenue and
+  average-EBIT values shown as Bear cross-checks. Monte Carlo spans the whole cycle at a peak
+  margin. MU 2026-11: FV $284 -> $471 (verifier hand rebuild $470.86); HOLD.
+- MoS below -50% caps the rating at HOLD.
+- E88: a gain is placed by summed opex lines only when they reconcile the face (HXL FY2022).
+
 # v9.0 build 2026-11-27a (engine copy rebuilt: cyclical normalization)
 - A firm is CYCLICAL by its own last 5 fiscal years (revenue fall >= 15% with the margin falling,
   a loss < -2% or a 30-point range, today's margin > 1.5x its 10-year median >= 5%), on top of the

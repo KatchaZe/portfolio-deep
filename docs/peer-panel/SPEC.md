@@ -414,7 +414,7 @@ list: NVDA, TMDX, HIMS, RKLB fail (a). The constants live in domain/company_type
 R50 Normal margin. The median of up to NORMAL_YEARS = 10 fiscal years, at least NORMAL_MIN_YEARS = 7; with 5-6
 the median is used and flagged short_window; under 5 the firm is not normalized. The DCF margin reaches it in 3
 years. E84.
-R51 Normalized revenue and growth (Damodaran: value a cyclical on a normalized base year, not the peak). The
+R51 (superseded by R58-R61, 2026-11-28) Normalized revenue and growth (Damodaran: value a cyclical on a normalized base year, not the peak). The
 log-linear least-squares trend through the same fiscal-year revenues gives the trend revenue at the latest
 year and its slope. Latest revenue above PEAK_REVENUE_RATIO = 1.25x trend is a peak: the DCF's revenue converges
 to the trend over 3 years, then grows at the slope (the through-cycle growth, never the trough-to-peak CAGR).
@@ -438,3 +438,32 @@ each further line of OPEX_LINES cumulatively; a residual against reported operat
 tagged gain places it inside EBIT. Only when neither OperatingExpenses nor CostsAndExpenses is filed. E88.
 R57 Scout job. POST /api/scout/run with no industry continues an interrupted queue, else 422. The job thread and
 scout_fetch's workers are refused by sources.fmp (by thread name). E89, E90.
+
+## Resolutions 2026-11-28 (cyclical-norm round 2; user decisions after the verifier's review; scored)
+R58 Cyclical base (amends R51, R54). The FCFF DCF of a cyclical starts at TODAY's revenue; the margin reverts
+from today's to the R50 normal margin over 3 years (Damodaran, normearn.htm: average margin x current revenue).
+PEAK_REVENUE_RATIO and the trend-revenue convergence are retired from every primary number (DCF, PEG / FVP EPS
+factor = normal margin / today's margin, relative target = normal margin on today's revenue). Why: the
+log-linear trend's slope is set largely by the newest year, the one being tested (MU 2.4%/yr ex-peak, 11.4%/yr
+with it), so the fair value rested on a window choice ($145-$411). E92.
+R59 Cyclical growth. cycle_growth = min(through-cycle organic growth, g_stable), clamped at -5%. Through-cycle
+organic = the geometric mean of year-on-year revenue growth over the cycle window (up to NORMAL_YEARS fiscal
+years), leaving out acquisition years by the one shared rule (_organic_years: M&A > 10% of the prior year's
+revenue). The recent rate is a phase of the cycle; above the stable rate needs an analyst to say the cycle
+changed (R60). E92, E94.
+R60 Cyclical consensus. Consensus covers at most CYCLE_CONSENSUS_YEARS = 2 years, at today's margin
+(fcff_dcf margin_hold); then the margin reverts over 3 years and growth is cycle_growth. The DCF basis is
+"consensus" (no badge, no P cap). Flag "consensus ถึงปีที่ 2 แล้วกลับสู่ค่าปกติของรอบ". E93.
+R61 Bear cross-checks. scenarios.cycle_checks lists, never in the FV or the range: trend_revenue (revenue converges
+over 3 years to the log-linear trend at the TTM date, then grows at its slope) and average_ebit (the window's
+average EBIT as a constant margin on the trend revenue, growing at the slope). The drawer's cycle box shows both
+with their distance to price. E92.
+R62 Uncertainty at a peak. When today's margin is above CYCLE_PEAK_MARGIN_X x normal, the story Monte Carlo's margin
+spans the window's lowest year (floored at BEAR_CYCLE_FLOOR) to its highest year or today's; Bear / Bull stay the
+quartiles (R52). The drawer says so. E97.
+R63 MoS cap. recommendation(composite, mos): MoS = (FV - price) / FV below MOS_HOLD_CAP = -50% caps BUY and HOLD /
+Accumulate at HOLD; SELL / AVOID and HOLD are unchanged; NOT RATED still applies after it. Flag "MoS ต่ำกว่า −50%
+จำกัดคำแนะนำไม่เกิน HOLD". Ref entry "rating" quotes it. E95.
+R64 Gain placement, face lines (amends R56). SG&A + R&D residual within GAIN_TOL places a gain; a sum with any
+further OPEX_LINES line must reconcile within FACE_TOL = 1% of the gain; a filed other-operating-income line that
+reconciles the face places the gain only when it holds it, alone or net of a filed restructuring charge. E96.

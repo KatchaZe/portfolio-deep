@@ -5,8 +5,8 @@
     YOUNG      no operating profit yet: forward young-company DCF with failure risk
     CYCLICAL   commodity and heavy-cycle industries, or a firm whose own last five
                years show a revenue fall, a margin swing and a peak margin today
-               (firm_cycle_test): FCFF DCF whose margin reverts to its own multi-year
-               median and whose revenue converges to its trend from a peak
+               (firm_cycle_test): FCFF DCF on today's revenue whose margin reverts to
+               its own multi-year median (Damodaran's scaled normalization)
     STANDARD   everything else: FCFF DCF on today's margin
 
 Decided once per evaluation from the industry and the income statement, so the rest
@@ -14,7 +14,7 @@ of the engine branches on one value instead of re-deriving the type in each stag
 Pure: no I/O.
 """
 from enum import Enum
-from typing import NamedTuple, Optional
+from typing import NamedTuple
 
 from sources.industries import FINANCIAL_INDUSTRIES
 
@@ -71,10 +71,12 @@ CYCLE_MIN_NORMAL_MARGIN = 0.05
 # years span one memory or commodity cycle; with five or six the median is used and
 # flagged (short_window), below five a firm is not normalized at all.
 NORMAL_YEARS, NORMAL_MIN_YEARS = 10, 7
-# Latest revenue above PEAK_REVENUE_RATIO x the log-linear trend through the window is
-# a cyclical peak: the DCF's revenue converges to the trend line (Damodaran,
-# normalizing a cyclical's base year) instead of compounding from the peak.
-PEAK_REVENUE_RATIO = 1.25
+# E92 (2026-11-28): the base is the normal margin on CURRENT revenue (Damodaran,
+# normearn.htm: average margin x current revenue). The log-linear revenue trend that
+# used to replace current revenue at a "revenue peak" is retired from the fair value:
+# its slope came mostly from the peak year it tested (MU FY17-25 2.4%/yr, FY17-26
+# 11.4%/yr) and moved FV between $145 and $411 on the window. revenue_trend() is kept
+# for the Bear cross-check only (deep_v82.cycle_checks).
 # Bear / Bull margins for a cyclical: the 25th / 75th percentile of the same window.
 # A trough year held forever values the firm as if every year were its worst; the
 # lower quartile is the low part of the cycle persisting. Floored at BEAR_CYCLE_FLOOR
@@ -92,10 +94,9 @@ class Cycle(NamedTuple):
     short_window: bool              # fewer than NORMAL_MIN_YEARS (5 or 6)
     low_margin: float               # Bear: BEAR_PERCENTILE of the window, floored
     high_margin: float              # Bull: BULL_PERCENTILE of the window
-    trend_revenue: Optional[float]  # log-linear trend at the latest fiscal year
-    trend_growth: Optional[float]   # its slope: the through-cycle growth rate
-    peak_ratio: Optional[float]     # latest fiscal-year revenue / trend_revenue
-    at_peak: bool                   # peak_ratio > PEAK_REVENUE_RATIO
+    trough_margin: float            # the window's lowest year, floored (Monte Carlo at a peak)
+    peak_margin: float              # the window's highest year or today's, if higher
+    at_peak: bool                   # today's margin above CYCLE_PEAK_MARGIN_X x normal
 
 
 def _quantile(xs, q):
@@ -113,8 +114,8 @@ def _years_between(a, b):
 def revenue_trend(revenue_dated):
     """(trend revenue at the newest date, annual growth) from a log-linear least-squares
     fit through [(date, revenue)] (any order, positive revenues only); (None, None)
-    with fewer than three points. One fit gives both: the trend line through the cycle
-    and its slope, so the base and the growth cannot come from different stories."""
+    with fewer than three points. A Bear cross-check only (E92): its slope is set
+    largely by the newest point, so it never drives the fair value."""
     import math
     pts = [(d, r) for d, r in revenue_dated if r and r > 0]
     if len(pts) < 3:
@@ -174,15 +175,13 @@ def cycle_profile(industry, margin_history, revenue_dated=None, current_margin=N
         if not ok:
             return None
         basis = "firm"
-    rev = sorted(revenue_dated or [], reverse=True)[:NORMAL_YEARS]
-    trend, slope = revenue_trend(rev)
-    ratio = (rev[0][1] / trend) if (trend and rev) else None
     return Cycle(basis=basis, reason=reason, normal_margin=normal, margin_years=len(window),
                  short_window=len(window) < NORMAL_MIN_YEARS,
                  low_margin=max(_quantile(window, BEAR_PERCENTILE), BEAR_CYCLE_FLOOR),
                  high_margin=_quantile(window, BULL_PERCENTILE),
-                 trend_revenue=trend, trend_growth=slope, peak_ratio=ratio,
-                 at_peak=bool(ratio and ratio > PEAK_REVENUE_RATIO))
+                 trough_margin=max(min(window), BEAR_CYCLE_FLOOR),
+                 peak_margin=max(window + ([current_margin] if current_margin is not None else [])),
+                 at_peak=bool(current_margin is not None and current_margin > CYCLE_PEAK_MARGIN_X * normal))
 
 
 def classify(industry, operating_income, revenue, margin_history=None, revenue_dated=None):
