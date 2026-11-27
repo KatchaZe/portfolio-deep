@@ -10,7 +10,7 @@ from typing import NamedTuple, Optional
 import config
 from domain import pead as pead_mod
 from domain import trend as trend_mod
-from domain.company_type import CompanyType, classify, normalized_margin
+from domain.company_type import NORMAL_MIN_YEARS, CompanyType, classify
 from . import fcff_dcf, young_dcf
 from . import scenarios as scenarios_mod
 from . import financial as financial_mod
@@ -1028,6 +1028,7 @@ WEIGHTS = {"D": 0.20, "E_exec": 0.20, "E_econ": 0.30, "P": 0.30}
 
 NEUTRAL_SCORE = 2.5     # midpoint of the 0-5 band: "we did not find out", not "it is bad"
 NO_CONSENSUS_P_CAP = 3.0
+NO_CONSENSUS_BADGE = "ไม่มี consensus รองรับ"
 
 
 _D = _decimal.Decimal
@@ -1171,6 +1172,7 @@ class DeepV82Engine(DeepEngine):
         ex = _execution_inputs(f, cap, acq, gr, notes, ctype)
         # the value range sets how deep a discount the Price pillar asks for
         priced_in, scen = _cross_checks(f, cap, gr, ctype, rf, anc)
+        _cycle_turn_verdict(f, pi.rdcf, priced_in)
         unc = uncertainty_mod.assess(
             scen, anc.ydcf,
             floor="Very High" if anc.method.startswith("Young-Company") else None)
@@ -1221,7 +1223,9 @@ def _cross_checks(f, cap, gr, ctype, rf, anc):
             built = _dcf_inputs(f, cap, gr, ctype, rf)
             if built:
                 m_raw = f.operating_income / f.revenue
-                pi, sc = scenarios_mod.operating(built[0], f.price, _margin_history(f), m_raw)
+                cyc = cycle_of(f) if ctype is CompanyType.CYCLICAL else None
+                pi, sc = scenarios_mod.operating(built[0], f.price, _margin_history(f), m_raw,
+                                                 cycle=cyc)
                 return pi or {}, sc or {}
         if anc.method.startswith("Young-Company") and f.price:
             pi, sc = scenarios_mod.young(anc.ydcf, f.price, getattr(f, "industry_margin", None))
@@ -1229,6 +1233,20 @@ def _cross_checks(f, cap, gr, ctype, rf, anc):
     except Exception as e:
         _add_flag(f, f"scenario cross-check unavailable ({type(e).__name__})")
     return {}, {}
+
+
+def _cycle_turn_verdict(f, rdcf, priced_in):
+    """A cyclical whose price pays for a margin far below today's (on today's revenue,
+    scenarios.cycle_priced) is priced for the turn. The reverse DCF's growth verdict
+    ("Plausible": the implied CAGR is below last year's) misreads that as cheapness,
+    so the verdict is replaced and the growth label kept beside it."""
+    if not (priced_in or {}).get("cycle_priced_down") or not rdcf:
+        return
+    rdcf["verdict_growth"] = rdcf.get("verdict")
+    rdcf["verdict"] = priced_in["cycle_verdict"]
+    _add_flag(f, (f"reverse DCF: {priced_in['cycle_verdict']} - on today's revenue the price "
+                  f"pays for a {priced_in['margin_at_revenue_now_pct']}% margin vs "
+                  f"{priced_in['margin_now_pct']}% today"))
 
 
 def _expected_return(f, cap, gr, ctype, rf, anc):
@@ -1284,13 +1302,29 @@ def _margin_history(f):
     return [(o / r) if (o is not None and r) else None for o, r in zip(oia, ann)]
 
 
+def _classified(f):
+    return classify(getattr(f, "damodaran_industry", None), f.operating_income, f.revenue,
+                    _margin_history(f), sorted(f.revenue_annuals_dated or [], reverse=True))
+
+
 def _company_type(f):
     """Which model values this firm (domain/company_type.py), decided once."""
-    ctype, why = classify(getattr(f, "damodaran_industry", None), f.operating_income,
-                          f.revenue, _margin_history(f))
+    ctype, why, cyc = _classified(f)
     if ctype is not CompanyType.STANDARD:
         _add_flag(f, f"model: {ctype.value} - {why}")
+    if cyc is not None and cyc.short_window:
+        _add_flag(f, (f"cyclical normal margin from {cyc.margin_years} fiscal years only "
+                      f"(fewer than {NORMAL_MIN_YEARS}): one cycle may not be covered"))
     return ctype
+
+
+def cycle_of(f):
+    """The firm's Cycle (domain/company_type.cycle_profile) when it is valued as a
+    cyclical, else None. Pure on the facts, so every stage that normalizes (DCF base
+    and margin, Bear/Bull, PEG/FVP earnings, the peers' relative point) reads the same
+    one instead of re-deriving it."""
+    ctype, _, cyc = _classified(f)
+    return cyc if ctype is CompanyType.CYCLICAL else None
 
 
 class _Capital(NamedTuple):
@@ -1548,6 +1582,13 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
                       f"not the old 15%/30% defaults"))
     # a measured 0% growth is not missing (`is not None`, never `or 0.08`)
     g_lt = f.growth_lt if f.growth_lt is not None else 0.08
+    cyc = cycle_of(f) if ctype is CompanyType.CYCLICAL else None
+    if cyc is not None and cyc.trend_growth is not None and not consensus_growth_path(f):
+        # trough-to-peak history is the cycle, not growth (MU FY2023 -> FY2026: 36.9%)
+        _add_flag(f, (f"cyclical growth: through-cycle trend {cyc.trend_growth*100:.1f}%/yr "
+                      f"(log-linear, {cyc.margin_years} fiscal years) replaces the historical "
+                      f"{g_lt*100:.1f}% - no consensus to say the cycle changed"))
+        g_lt = cyc.trend_growth
     growth_raw = _clamp(g_lt, 0.0, GROWTH_CAP)
     growth = min(growth_raw, g_cap)
     if growth_raw > growth + 1e-9:
@@ -1642,9 +1683,32 @@ class _PointValues(NamedTuple):
     fv_fvp: Optional[float]         # Future Value Projection
 
 
+def cycle_earnings_factor(f, cyc):
+    """Normalized over current operating income for a cyclical (Damodaran: value a
+    cyclical on normalized earnings): its normal margin on its trend revenue when
+    revenue is at a peak and no consensus covers it, else on today's revenue. None
+    when today's EBIT is not positive."""
+    m_now = (f.operating_income / f.revenue) if (f.operating_income and f.revenue) else None
+    if cyc is None or not m_now or m_now <= 0:
+        return None
+    rev = f.revenue
+    if cyc.at_peak and not consensus_growth_path(f):
+        rev = cycle_trend_revenue(f, cyc) or rev
+    return (rev * cyc.normal_margin) / (f.revenue * m_now)
+
+
 def _point_values(f, cap, gr, fwd_eps):
     """The two point fair values (Fundamental PEG, Future Value Projection), plus the
-    PEG on realised growth to show how much the value rests on consensus."""
+    PEG on realised growth to show how much the value rests on consensus. A cyclical's
+    EPS (trailing and forward) is scaled to its normalized operating income first,
+    the same base its DCF reverts to."""
+    k = cycle_earnings_factor(f, cycle_of(f))
+    if k is not None and abs(k - 1) > 1e-9:
+        _add_flag(f, (f"cyclical EPS normalized x{k:.2f} for PEG / FVP (normal margin"
+                      f"{' on trend revenue' if k < 1 and f.revenue else ''}): trailing "
+                      f"{gr.eps0 and round(gr.eps0, 2)} -> {gr.eps0 and round(gr.eps0 * k, 2)}"))
+        gr = gr._replace(eps0=gr.eps0 * k if gr.eps0 is not None else None)
+        fwd_eps = fwd_eps * k if fwd_eps is not None else None
     fv_peg, peg_d = fundamental_peg_price(gr.growth, gr.g_stable, cap.ke, gr.roic_high, gr.roic_term,
                                           fwd_eps, ke_stable=gr.ke_stable)
     if peg_d and peg_d.get("pe_clamped"):
@@ -1918,11 +1982,13 @@ def organic_growth(f):
     return g, note
 
 
-def _dcf_revenue_growth(f, gr):
+def _dcf_revenue_growth(f, gr, cyc=None):
     """Revenue growth path for the explicit years and where it came from:
     (path, source, basis). basis is "consensus", or "historical" when no analyst path
     exists (the Price pillar then refuses to rate above neutral). After the path,
-    fcff_dcf fades linearly to the stable growth rate by year 10."""
+    fcff_dcf fades linearly to the stable growth rate by year 10. A cyclical without
+    consensus grows at its through-cycle trend (_cyclical_revenue_path), never at the
+    trough-to-peak CAGR."""
     held = []
     path = consensus_growth_path(f, held)
     if held:
@@ -1930,7 +1996,13 @@ def _dcf_revenue_growth(f, gr):
                      + "; ".join(held))
     if path:
         src = f.provenance.get("rev_growth_path") or "consensus"
+        if cyc is not None and cyc.at_peak:
+            _add_flag(f, (f"cyclical at a revenue peak ({cyc.peak_ratio:.1f}x its trend) but "
+                          f"consensus covers it: the analysts' path replaces the trend "
+                          f"revenue (structural change, e.g. a new product cycle)"))
         return path, f"consensus revenue growth ({src}, {len(path)}y)", "consensus"
+    if cyc is not None and cyc.trend_growth is not None:
+        return _cyclical_revenue_path(f, cyc)
     g, note = organic_growth(f)
     if g is None:
         real = [x for x in (gr.rev_growth_yoy, gr.actual_3y) if x is not None]
@@ -1940,6 +2012,43 @@ def _dcf_revenue_growth(f, gr):
             return [_clamp(gr.growth, -0.05, GROWTH_CAP)], "EPS growth (no revenue history)", "historical"
     src = "historical revenue growth, fading (no consensus)" + (f"; {note}" if note else "")
     return [_clamp(g, -0.05, GROWTH_CAP)], src, "historical"
+
+
+def cycle_trend_revenue(f, cyc):
+    """The cycle's trend revenue at the TTM date: the trend line at the latest fiscal
+    year carried forward at its own slope to the facts' period end."""
+    rev = sorted(f.revenue_annuals_dated or [], reverse=True)
+    if not rev or cyc.trend_revenue is None:
+        return None
+    try:
+        from domain.company_type import _years_between
+        dt = max(0.0, _years_between(f.fiscal_year, rev[0][0]))
+    except (TypeError, ValueError):
+        dt = 0.0
+    return cyc.trend_revenue * (1 + (cyc.trend_growth or 0.0)) ** dt
+
+
+def _cyclical_revenue_path(f, cyc):
+    """A cyclical's explicit-year growth with no consensus (Damodaran: normalize the
+    base year of a cyclical, do not compound its peak). Growth is the slope of the
+    log-linear trend through its fiscal years. At a peak (revenue above
+    PEAK_REVENUE_RATIO x trend), revenue first converges to the trend line over
+    CYCLICAL_MARGIN_YEARS, the same years its margin takes to revert, then grows at the
+    trend. An assumption about the cycle, flagged as one: not a forecast of when."""
+    g_t = _clamp(cyc.trend_growth, -0.05, GROWTH_CAP)
+    src = (f"through-cycle revenue trend {g_t*100:.1f}%/yr (log-linear, "
+           f"{cyc.margin_years} fiscal years; no consensus)")
+    if not cyc.at_peak:
+        return [g_t], src, "historical"
+    n = CYCLICAL_MARGIN_YEARS
+    base = cycle_trend_revenue(f, cyc)
+    g_conv = (base * (1 + g_t) ** n / f.revenue) ** (1 / n) - 1
+    _add_flag(f, (f"cyclical revenue peak: ${f.revenue/1e9:.1f}B is {f.revenue/base:.1f}x its "
+                  f"trend ${base/1e9:.1f}B - the DCF converges to the trend line over {n}y "
+                  f"({g_conv*100:+.1f}%/yr), then grows {g_t*100:.1f}%/yr. Assumption: the "
+                  f"cycle reverts; no capital is released on the way down"))
+    path = [g_conv] * n + [g_t] * max(0, fcff_dcf.HIGH_YEARS - n)
+    return path, src + f"; from a peak {f.revenue/base:.1f}x trend, converging over {n}y", "historical"
 
 
 def _lease_ebit_addback(f, cap, rf):
@@ -1990,11 +2099,10 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
     m_adj = addback / f.revenue
     m_now = f.operating_income / f.revenue + m_adj
     years = 5
-    if ctype is CompanyType.CYCLICAL:
-        norm = normalized_margin(_margin_history(f))
-        if norm is None or norm <= 0:
-            return None
-        target, t_label = norm + m_adj, f"normalized median {norm*100:.1f}%"
+    cyc = cycle_of(f) if ctype is CompanyType.CYCLICAL else None
+    if cyc is not None:
+        norm = cyc.normal_margin
+        target, t_label = norm + m_adj, f"normalized median {norm*100:.1f}% ({cyc.margin_years}y)"
         years = CYCLICAL_MARGIN_YEARS
         _add_flag(f, (f"cyclical: operating margin {m_now*100:.1f}% reverts to its "
                       f"normalized {target*100:.1f}% over {years}y"))
@@ -2012,20 +2120,34 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
             _add_flag(f, (f"margin target: today's {m_now*100:.1f}% reverts to the 5-year "
                           f"median {target*100:.1f}% over 5y - a trough year is not the "
                           f"firm's steady state"))
-    g_path, g_src, g_basis = _dcf_revenue_growth(f, gr)
+    g_path, g_src, g_basis = _dcf_revenue_growth(f, gr, cyc)
     s2c, s2c_src = _dcf_sales_to_capital(f, cap)
     kw = dict(revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_path[0],
               growth_path=g_path, g_stable=gr.g_stable, sales_to_capital=s2c,
               tax_now=cap.tax, tax_marginal=_MARGINAL_TAX, wacc=cap.wacc,
               wacc_stable=max(cap.wacc_term, gr.g_stable + 0.01), roic_stable=gr.roic_term,
               cash=f.cash, debt=cap.debt_eff, minority_interest=_nci(f),
-              shares=_quote_shares(f, cap), margin_years=years, fade_start_cap=GROWTH_CAP)
+              shares=_quote_shares(f, cap), margin_years=years, fade_start_cap=GROWTH_CAP,
+              release_capital=cyc is None)
     moat, moat_note = moat_class(cap.roic_map, cap.wacc)
     kw["high_years"], kw["total_years"] = MOAT_PERIODS[moat or "narrow"]
     sources = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
                "lease_interest_added": round(addback, 0) if addback else None,
                "moat": moat, "moat_period": moat_note or "ไม่พอวัด moat (<4 ปีงบ) → 5 + 5 ปี",
                "total_years": kw["total_years"]}
+    if cyc is not None:
+        trend = cycle_trend_revenue(f, cyc)
+        sources["cycle"] = {
+            "basis": cyc.basis, "reason": cyc.reason,
+            "normal_margin_pct": round(cyc.normal_margin * 100, 2), "years": cyc.margin_years,
+            "short_window": cyc.short_window,
+            "trend_revenue": round(trend, 0) if trend else None,
+            "revenue_now": round(f.revenue, 0),
+            "peak_ratio": round(f.revenue / trend, 2) if trend else None,
+            "at_peak": cyc.at_peak, "trend_growth_pct": _pct(cyc.trend_growth, 1),
+            "revenue_converges": cyc.at_peak and g_basis != "consensus",
+            "bear_margin_pct": round(cyc.low_margin * 100, 2),
+            "bull_margin_pct": round(cyc.high_margin * 100, 2)}
     return kw, sources, g_basis
 
 
@@ -2041,6 +2163,9 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         return None
     out["growth_basis"] = g_basis
     out["sources"] = sources
+    if g_basis != "consensus":
+        _add_flag(f, (f"{NO_CONSENSUS_BADGE}: the FCFF DCF's growth is {sources['growth']} - "
+                      f"no analyst revenue path (Yahoo / FMP) behind the fair value"))
     if (kw["high_years"], kw["total_years"]) != MOAT_PERIODS["narrow"]:
         base = fcff_dcf.value(**dict(kw, high_years=MOAT_PERIODS["narrow"][0],
                                      total_years=MOAT_PERIODS["narrow"][1]))
@@ -2522,6 +2647,9 @@ def _key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype=CompanyType
             "dcf_margin_target_pct": _pct(di.get("margin_target"), 1),
             "dcf_sales_to_capital": di.get("sales_to_capital"),
             "dcf_terminal_share_pct": dcf.get("terminal_share_pct"),
+            # the fair value rests on history, not on an analyst path: the card badge
+            "no_consensus": bool(dcf) and dcf.get("growth_basis") != "consensus",
+            "cycle": (dcf.get("sources") or {}).get("cycle"),
             "ke_pct": round(cap.ke * 100, 2),
             "kd_pct": _pct(cap.kd_pre, 2),                       # pre-tax
             "kd_after_pct": _pct(cap.kd_pre * (1 - cap.tax), 2) if cap.kd_pre else None,

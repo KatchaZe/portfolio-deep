@@ -1,3 +1,11 @@
+# v9.0 build 2026-11-27a (engine copy rebuilt: cyclical normalization)
+- A firm is CYCLICAL by its own last 5 fiscal years (revenue fall >= 15% with the margin falling,
+  a loss < -2% or a 30-point range, today's margin > 1.5x its 10-year median >= 5%), on top of the
+  industry list. Normal margin = 10-year median (min 7). At a revenue peak (> 1.25x trend) the DCF
+  converges to the log-linear trend and grows at its slope; Bear / Bull = 25th / 75th percentile
+  (Bear floor 2%); PEG / FVP on normalized EPS; no-consensus flag; cycle-turn reverse-DCF verdict.
+  Stage 1.8 documents it. MU 2026-11: FV $2,769 -> $284.
+
 # v9.0 — 2026-11-10 (one engine: the skill runs the portfolio-deep app's code)
 - scripts/value.py runs pipeline.finish + the DEEP engine from scripts/app/, copied from the app
   by tools/build_skill.py. tests/test_skill_engine.py fails in CI when the copy is stale or when
