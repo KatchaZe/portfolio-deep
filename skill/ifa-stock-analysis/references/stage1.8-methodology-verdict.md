@@ -11,6 +11,9 @@ TYPE = FINANCIAL  if industry is a bank, insurer, reinsurer, broker or consumer 
                   basic chemicals, autos, homebuilding, airlines, shipping, trucking, farming)
                   AND >= 5 years of operating margins AND their median > 0
                   (checked BEFORE the loss test: a steel maker in a loss year is cyclical)
+                  OR, on the firm's own last 5 fiscal years, ALL of: a revenue fall >= 15% with the
+                  margin falling that year; a margin < -2% or a range > 30 points; today's margin
+                  > 1.5x its 10-year median (median >= 5%). MU FY2026 passes; NVDA does not.
        YOUNG      if operating income <= 0
        STANDARD   otherwise
 
@@ -26,7 +29,12 @@ STANDARD → FCFF DCF (`scripts/value.py`) — PRIMARY anchor
             WACC fades to the stable WACC in yrs 6–10; tax → marginal 25% in yrs 6–10
             terminal = NOPAT₁₁ × (1 − g/ROIC_stable) / (WACC_stable − g)
             equity = PV + cash − debt (incl. leases) ÷ shares in the QUOTE's unit
-CYCLICAL → same FCFF DCF, target margin = the firm's own median margin (reached in 3 yrs)
+CYCLICAL → same FCFF DCF, target margin = the firm's own median margin over up to 10 fiscal
+            years (min 7; 5-6 flagged), reached in 3 yrs. Revenue > 1.25x its log-linear trend
+            is a peak: it converges to the trend in 3 yrs, then grows at the trend's slope
+            (consensus overrides). Bear / Bull margin = 25th / 75th percentile of the window
+            (Bear floor 2%). PEG / FVP on normalized EPS. Reverse DCF: price implies a margin
+            on today's revenue < today / 1.5 → "ตลาดตั้งราคาว่ารอบกำลังจะลง".
 YOUNG    → Stage 1.7 Forward Intrinsic DCF (failure-adjusted) + Stage 1.6 reverse DCF
 
 Fallback: DCF/excess-return value <= 0 or < 10% of price → treat as a broken input,

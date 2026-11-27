@@ -402,3 +402,34 @@ Revenue keeps its R40 reason; a failed request gives the reason "อ่าน co
 companyfacts request per candidate per 30 days (52 over the 25 holdings' industries on a cold refresh, 0 while
 cached). A Universe built from parts reads the cache file's content (tools/panel_probe --offline) and fetches
 nothing. Display only (PP1). E76.
+
+## Resolutions 2026-11-27 (cyclical-norm; design approved by the user; scored)
+R49 Firm-level cyclical. A firm outside CYCLICAL_INDUSTRIES is CYCLICAL (Cycle.basis "firm") when, on its own
+newest CYCLE_LOOKBACK_YEARS = 5 fiscal years (one-time add-backs applied), all three hold: (a) revenue fell
+>= CYCLE_REVENUE_DROP = 15% year on year with the margin falling the same year; (b) a margin below
+CYCLE_LOSS_MARGIN = -2%, or a margin range above CYCLE_MARGIN_RANGE = 30 points; (c) today's margin is above
+CYCLE_PEAK_MARGIN_X = 1.5x the cyclical normal margin, which must itself reach CYCLE_MIN_NORMAL_MARGIN = 5%.
+The Thai reason names the fall, its year, today's and the normal margin. Semiconductor stays off the industry
+list: NVDA, TMDX, HIMS, RKLB fail (a). The constants live in domain/company_type.py; Ref quotes them. E83, E87.
+R50 Normal margin. The median of up to NORMAL_YEARS = 10 fiscal years, at least NORMAL_MIN_YEARS = 7; with 5-6
+the median is used and flagged short_window; under 5 the firm is not normalized. The DCF margin reaches it in 3
+years. E84.
+R51 Normalized revenue and growth (Damodaran: value a cyclical on a normalized base year, not the peak). The
+log-linear least-squares trend through the same fiscal-year revenues gives the trend revenue at the latest
+year and its slope. Latest revenue above PEAK_REVENUE_RATIO = 1.25x trend is a peak: the DCF's revenue converges
+to the trend over 3 years, then grows at the slope (the through-cycle growth, never the trough-to-peak CAGR).
+Assumption, stated in the flag and the drawer: the cycle reverts; no capital is released on the way down.
+Consensus, when present (Stage 0 rule 6), overrides the trend path and the flag says so. E84.
+R52 Cyclical Bear / Bull. Margins = the 25th / 75th percentile of the R50 window (Bear <= today's margin,
+floored at BEAR_CYCLE_FLOOR = 2% so the Bear stays a going concern). The half-model-margin floor applies to
+non-cyclicals only. Why the quartile and not the trough: a trough held for ever values a firm as if every
+year were its worst; the lower quartile is the low part of the cycle persisting. E85.
+R53 No consensus. key_metrics.no_consensus is true and a flag starts "ไม่มี consensus รองรับ" whenever the
+DCF's growth basis is not consensus; the card shows the chip. E86.
+R54 Cycle-turn verdict. For a cyclical the reverse DCF also solves the margin the price pays for on TODAY's
+revenue at the trend growth; when it is below today's margin / CYCLE_PRICED_DOWN_X = 1.5 the verdict reads
+"ตลาดตั้งราคาว่ารอบกำลังจะลง" instead of Plausible. PEG / FVP run on EPS x (normal margin x trend revenue) /
+(today's margin x today's revenue); the relative target uses the same normalized point. E86.
+R55 Display. The drawer's valuation tab shows the classification and its reason, the normal margin and its
+window, the trend revenue and peak ratio, and the Bear basis (percentile, floor). Ref entries "cycle" and
+"no-consensus" read the constants from code.

@@ -54,7 +54,7 @@ CYCLE_LOOKBACK_YEARS = 5
 CYCLE_REVENUE_DROP = 0.15
 CYCLE_MARGIN_RANGE = 0.30
 CYCLE_PEAK_MARGIN_X = 1.5
-# Tuned on the 657 cached filers (scan 2026-11-26), each with its reason:
+# Tuned on the 614 cached filers (scan 2026-11-26), each with its reason:
 # - the fall in (a) must take the margin down with it the same year: demand that turns
 #   does (operating leverage); a fall with a rising margin is a divestiture or a
 #   restatement (APP FY2023 -35% while its margin went -1.7% -> 41.9%: the apps
