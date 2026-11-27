@@ -518,24 +518,21 @@ def _target(f, today):
 
 
 def _normalized_target(f, tp):
-    """A cyclical's point at its normalized margin, through-cycle growth and (at a
-    peak with no consensus) trend revenue: the base its FCFF DCF reverts to, so the
-    peer multiple is not applied to a peak (MU 2026-11: $133B at 74.6% read $2,043
-    and $1,569 a share). (point, note); the point unchanged for any other firm."""
+    """A cyclical's point at its normalized margin and through-cycle organic growth on
+    today's revenue: the base its FCFF DCF reverts to (E92), so the peer multiple is not
+    applied to a peak margin (MU 2026-11: $133B at 74.6% read $2,043 and $1,569 a
+    share). (point, note); the point unchanged for any other firm."""
     from domain.engine import deep_v82
     cyc = deep_v82.cycle_of(f) if tp else None
     if cyc is None:
         return tp, None
-    rev = tp["revenue"]
-    if cyc.at_peak and not deep_v82.consensus_growth_path(f):
-        rev = deep_v82.cycle_trend_revenue(f, cyc) or rev
-    out = dict(tp, revenue=rev, margin=cyc.normal_margin,
-               growth=cyc.trend_growth if cyc.trend_growth is not None else tp.get("growth"),
+    g_tc, _ = deep_v82.through_cycle_growth(f)
+    out = dict(tp, margin=cyc.normal_margin,
+               growth=g_tc if g_tc is not None else tp.get("growth"),
                observed={"revenue": tp["revenue"], "margin": tp["margin"], "growth": tp.get("growth")})
     return out, (f"cyclical: valued at its {cyc.margin_years}-year median margin "
-                 f"{cyc.normal_margin*100:.1f}%, trend growth and revenue "
-                 f"${rev/1e9:.1f}B (observed ${tp['revenue']/1e9:.1f}B at "
-                 f"{tp['margin']*100:.1f}%)")
+                 f"{cyc.normal_margin*100:.1f}% and through-cycle growth on today's revenue "
+                 f"${tp['revenue']/1e9:.1f}B (observed margin {tp['margin']*100:.1f}%)")
 
 
 def relative_value(f, fmp_key, today, prev=None, budget=None, memo=None, universe=None, **kw):

@@ -5,7 +5,8 @@ simple Ginzu: revenue growth, operating margin, sales-to-capital, cost of capita
                                                   (consensus years), else g_high for
                                                   years 1-5; then a straight line down
                                                   to g_stable by year 10
-    margin_t    moves from today's margin to the target margin by `margin_years`
+    margin_t    today's margin for `margin_hold` years, then to the target margin over
+                `margin_years`
     tax_t       effective rate for years 1-5, then a straight line to the marginal rate
     NOPAT_t     = revenue_t x margin_t x (1 - tax_t)
     reinvest_t  = (revenue_t - revenue_{t-1}) / sales_to_capital   (floored at 0 when
@@ -34,13 +35,15 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
           tax_now, tax_marginal, wacc, wacc_stable, roic_stable, cash, debt, shares,
           minority_interest=0.0,
           margin_years=5, growth_path=None, fade_start_cap=None,
-          high_years=HIGH_YEARS, total_years=TOTAL_YEARS, release_capital=True) -> Optional[dict]:
+          high_years=HIGH_YEARS, total_years=TOTAL_YEARS, release_capital=True,
+          margin_hold=0) -> Optional[dict]:
     """Per-share value and the projection behind it, or None when the inputs cannot
     support a DCF (no revenue, no shares, or a stable WACC at or below g).
     `high_years` / `total_years` set how long the firm earns above its stable state
     (the competitive advantage period); the defaults are 5 + 5. `release_capital`
     False floors reinvestment at zero: a cyclical whose revenue falls back to its trend
-    keeps its plants, so the fall is not paid out as cash."""
+    keeps its plants, so the fall is not paid out as cash. `margin_hold` keeps today's
+    margin for that many years before it starts to revert (a cyclical's consensus years)."""
     if not revenue or revenue <= 0 or not shares or shares <= 0:
         return None
     if margin_now is None or margin_target is None or sales_to_capital is None or sales_to_capital <= 0:
@@ -58,7 +61,8 @@ def value(*, revenue, margin_now, margin_target, g_high, g_stable, sales_to_capi
         k = len(explicit)
         g = explicit[t - 1] if t <= k else _lerp(fade_from, g_stable, (t - k) / (total_years - k))
         rev = rev_prev * (1 + g)
-        m = _lerp(margin_now, margin_target, min(1.0, t / margin_years)) if margin_years else margin_target
+        m = (_lerp(margin_now, margin_target, min(1.0, max(0, t - margin_hold) / margin_years))
+             if margin_years else margin_target)
         fade = (t - high_years) / (total_years - high_years)
         tax = tax_now if t <= high_years else _lerp(tax_now, tax_marginal, fade)
         r = wacc if t <= high_years else _lerp(wacc, wacc_stable, fade)
