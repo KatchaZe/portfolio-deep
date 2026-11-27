@@ -41,10 +41,11 @@ MIN_MARGIN_YEARS = 5           # a "normal" margin needs at least one cycle of h
 
 # Firm-level cyclical test (user decision 2026-11-26, design "ก. revised"). A firm
 # outside CYCLICAL_INDUSTRIES is cyclical when ALL three hold on its own fiscal years:
-#   (a) revenue fell >= CYCLE_REVENUE_DROP year on year at least once in the last
-#       CYCLE_LOOKBACK_YEARS fiscal years: demand that turns, not a grower's pause;
-#   (b) an operating loss year, or an operating-margin range above CYCLE_MARGIN_RANGE,
-#       in the same years: the swing reaches the margin;
+#   (a) revenue fell >= CYCLE_REVENUE_DROP year on year, with the margin falling the
+#       same year, at least once in the last CYCLE_LOOKBACK_YEARS fiscal years: demand
+#       that turns, not a grower's pause;
+#   (b) an operating loss year (below CYCLE_LOSS_MARGIN), or an operating-margin range
+#       above CYCLE_MARGIN_RANGE, in the same years: the swing reaches the margin;
 #   (c) today's margin is above CYCLE_PEAK_MARGIN_X x its cyclical normal margin:
 #       the valuation would otherwise capitalize a peak.
 # MU FY2026 passes all three (FY2023 revenue -49%, FY2023 margin -37%, 74.6% today vs
@@ -53,6 +54,19 @@ CYCLE_LOOKBACK_YEARS = 5
 CYCLE_REVENUE_DROP = 0.15
 CYCLE_MARGIN_RANGE = 0.30
 CYCLE_PEAK_MARGIN_X = 1.5
+# Tuned on the 657 cached filers (scan 2026-11-26), each with its reason:
+# - the fall in (a) must take the margin down with it the same year: demand that turns
+#   does (operating leverage); a fall with a rising margin is a divestiture or a
+#   restatement (APP FY2023 -35% while its margin went -1.7% -> 41.9%: the apps
+#   business restated out of the later year only);
+# - the loss in (b) must be a real one, below CYCLE_LOSS_MARGIN: a breakeven year is
+#   not the margin turning (VSEC FY2021 -0.6% beside 7-9% in every other year);
+# - the normal margin must reach CYCLE_MIN_NORMAL_MARGIN (the 5% below which the DCF
+#   already treats a margin as a stage, not a steady state): a ~0% "normal" is a
+#   turnaround's loss history, and reverting to it values a recovered firm near zero
+#   (BKD 0.3%, CGNT 0.4%, INTC on a six-year window 1.9%).
+CYCLE_LOSS_MARGIN = -0.02
+CYCLE_MIN_NORMAL_MARGIN = 0.05
 # The cyclical normal margin is the median over up to NORMAL_YEARS fiscal years. Seven
 # years span one memory or commodity cycle; with five or six the median is used and
 # flagged (short_window), below five a firm is not normalized at all.
@@ -119,13 +133,17 @@ def revenue_trend(revenue_dated):
 def firm_cycle_test(revenue_dated, margin_history, current_margin, normal):
     """(passes, Thai reason): rule (a)-(c) above on the newest CYCLE_LOOKBACK_YEARS."""
     rev = sorted(revenue_dated or [], reverse=True)[:CYCLE_LOOKBACK_YEARS + 1]
-    drops = [(d0, r0 / r1 - 1) for (d0, r0), (_, r1) in zip(rev, rev[1:]) if r1 and r1 > 0]
+    mh = list(margin_history or [])
+    # margin_history is aligned with the fiscal years newest first, like `rev`
+    drops = [(d0, r0 / r1 - 1) for i, ((d0, r0), (_, r1)) in enumerate(zip(rev, rev[1:]))
+             if r1 and r1 > 0 and i + 1 < len(mh) and mh[i] is not None and mh[i + 1] is not None
+             and mh[i] < mh[i + 1]]
     drop = min(drops, key=lambda x: x[1]) if drops else None
-    recent = [m for m in (margin_history or [])[:CYCLE_LOOKBACK_YEARS] if m is not None]
-    if not (drop and drop[1] <= -CYCLE_REVENUE_DROP and recent and normal and normal > 0
-            and current_margin is not None):
+    recent = [m for m in mh[:CYCLE_LOOKBACK_YEARS] if m is not None]
+    if not (drop and drop[1] <= -CYCLE_REVENUE_DROP and recent and normal
+            and normal >= CYCLE_MIN_NORMAL_MARGIN and current_margin is not None):
         return False, None
-    loss, swing = min(recent) < 0, max(recent) - min(recent)
+    loss, swing = min(recent) < CYCLE_LOSS_MARGIN, max(recent) - min(recent)
     if not (loss or swing > CYCLE_MARGIN_RANGE):
         return False, None
     if current_margin <= CYCLE_PEAK_MARGIN_X * normal:
@@ -178,8 +196,8 @@ def classify(industry, operating_income, revenue, margin_history=None, revenue_d
     # a bad year, not a start-up (Damodaran normalizes it rather than writing it off)
     cyc = cycle_profile(industry, margin_history, revenue_dated, m_now) if revenue else None
     if cyc is not None:
-        return CompanyType.CYCLICAL, (f"{cyc.reason}: margin reverts to its "
-                                      f"{cyc.margin_years}-year median"), cyc
+        return CompanyType.CYCLICAL, (f"{cyc.reason}: ใช้ margin มัธยฐาน "
+                                      f"{cyc.margin_years} ปีงบเป็น margin ปกติ"), cyc
     if operating_income is None or operating_income <= 0 or not revenue:
         return CompanyType.YOUNG, "no operating profit yet: young-company DCF", None
     return CompanyType.STANDARD, "operating company: FCFF DCF", None

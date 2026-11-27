@@ -973,14 +973,14 @@ _A20_GROWTH = {
 
 def _a20_peaks():
     """Synthetic firms that pass rule (a)-(c) by construction: a 10-year history, one
-    revenue fall of 15-60% inside the last five years, a loss year, and today's margin
-    1.6-3x its median."""
+    revenue fall of 15-60% inside the last five years into a -5% loss year, and today's
+    margin 1.6-3x its (>= 5%) median."""
     out = []
     for drop in (0.15, 0.3, 0.6):
         for k in (1.6, 2.0, 3.0):
             for pos in (1, 2, 4):
                 m = [.12, .15, .10, .08, .14, .11, .13, .09, .16, .12]
-                m[min(pos + 1, 4)] = -.05
+                m[pos] = -.05                # the fall takes the margin into a loss
                 med = sorted(m[1:] + [0])[5]
                 rev = [100.0 * 1.05 ** -i for i in range(10)]
                 rev[pos] = rev[pos + 1] * (1 - drop) - 1e-6
