@@ -163,17 +163,20 @@ class RealDataBacktest(unittest.TestCase):
         self.assertGreater(model["coef"][1], 0)
 
 
-class FakeF(SimpleNamespace):
-    pass
-
-
 def target(**kw):
     base = dict(ticker="TGT", currency="USD", revenue=100e9, operating_income=25e9,
                 total_debt=10e9, operating_leases=0, cash=5e9, shares_diluted=1e9,
                 market_cap=None, price=60.0, provenance={"price": "yahoo close 2026-10-19 (T-1)"},
                 revenue_annuals_dated=[["2025-12-31", 90e9], ["2024-12-31", 80e9]])
     base.update(kw)
-    return FakeF(**base)
+    # the type relative_value receives in the app (its cyclical point reads FinancialFacts fields)
+    from domain.facts import FinancialFacts
+    fields = set(FinancialFacts.__dataclass_fields__)
+    ff = FinancialFacts(**{k: v for k, v in base.items() if k in fields})
+    for k, v in base.items():
+        if k not in fields:
+            setattr(ff, k, v)
+    return ff
 
 
 PEER_FACTS = {f"P{i}": facts(rev=10e9, oi=m * 10e9, shares=1e9) for i, m in
