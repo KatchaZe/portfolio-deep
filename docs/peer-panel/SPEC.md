@@ -433,3 +433,8 @@ revenue at the trend growth; when it is below today's margin / CYCLE_PRICED_DOWN
 R55 Display. The drawer's valuation tab shows the classification and its reason, the normal margin and its
 window, the trend revenue and peak ratio, and the Bear basis (percentile, floor). Ref entries "cycle" and
 "no-consensus" read the constants from code.
+R56 Gain placement without a total-opex line (amends E79). Gross profit minus SG&A (or its two parts) and R&D, then
+each further line of OPEX_LINES cumulatively; a residual against reported operating income within GAIN_TOL of a
+tagged gain places it inside EBIT. Only when neither OperatingExpenses nor CostsAndExpenses is filed. E88.
+R57 Scout job. POST /api/scout/run with no industry continues an interrupted queue, else 422. The job thread and
+scout_fetch's workers are refused by sources.fmp (by thread name). E89, E90.
