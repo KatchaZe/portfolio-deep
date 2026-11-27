@@ -193,5 +193,35 @@ def test_ref_quotes_the_constants():
         check(txt in e.rule or txt in e.calc, f"Ref cycle entry quotes {txt}")
 
 
+# The 614-filer scan (2026-11-26) caught these under the first cut of rule (a)-(c); each
+# is a different reason the rule had to be tightened (E87). Margins (one-time add-backs
+# applied) and revenue ($B), newest first, from the cached companyfacts / scout parts.
+APP_M = [.758, .593, .419, -.017, .054, -.043]
+APP_R = [("2025-12-31", 5.481), ("2024-12-31", 3.224), ("2023-12-31", 1.842),
+         ("2022-12-31", 2.817), ("2021-12-31", 2.793), ("2020-12-31", 1.451)]
+VSEC_M = [.081, .075, .092, .080, -.006, .072, .080, .078, .071, .074]
+VSEC_R = [("2025-12-31", 1.112), ("2024-12-31", .786), ("2023-12-31", .544),
+          ("2022-12-31", .669), ("2021-12-31", .481), ("2020-12-31", .662),
+          ("2019-12-31", .753), ("2018-12-31", .697), ("2017-12-31", .760), ("2016-12-31", .692)]
+BKD_M = [.027, .018, .020, -.005, -.070, .003, .001, -.023, .029]
+BKD_R = [("2025-12-31", 3.194), ("2024-12-31", 3.125), ("2023-12-31", 3.016),
+         ("2022-12-31", 2.825), ("2021-12-31", 2.758), ("2020-12-31", 3.540),
+         ("2019-12-31", 4.057), ("2018-12-31", 4.531), ("2017-12-31", 4.747)]
+
+
+def test_E87_scan_false_positives_stay_out():
+    for name, m, r, now, why in (
+            ("APP", APP_M, APP_R, .778, "a fall with the margin RISING is a divestiture, not a cycle"),
+            ("VSEC", VSEC_M, VSEC_R, .119, "a -0.6% breakeven year is not a loss year"),
+            ("BKD", BKD_M, BKD_R, .075, "a ~0% normal margin is a turnaround's loss history")):
+        got = CT.classify(None, now * r[0][1], r[0][1], m, r)[0]
+        check(got is not CT.CompanyType.CYCLICAL, f"{name} is not CYCLICAL: {why}", str(got))
+    check((CT.CYCLE_LOSS_MARGIN, CT.CYCLE_MIN_NORMAL_MARGIN) == (-0.02, 0.05),
+          "tuning constants are the documented ones")
+    # MU still passes: its FY2023 fall took the margin from 31.5% to -36.3%
+    check(CT.classify("Semiconductor", 99.34, 133.188, MU_M, MU_R)[0] is CT.CompanyType.CYCLICAL,
+          "MU still CYCLICAL after tuning")
+
+
 if __name__ == "__main__":
     run_suite(globals(), "ALL test_cyclical_norm PASSED")
