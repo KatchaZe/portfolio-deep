@@ -916,6 +916,15 @@ def _a17(sec=_sec, ot=_OT):
         bad.append(("NVST Q3 2026", "gain not placed by the sum of lines"))
     if sec._gain_inside(428.1 * M, 87.1 * M, 650 * M, 400.6 * M, None, None, nv):
         bad.append(("NVST lines explain OI", "gain placed anyway (false hit)"))
+    # HXL FY2022: GP 357.1 - SG&A 148.0 - R&D 45.8 + other operating income 11.9 = OI 175.2;
+    # the 19.4 gain is that line net of restructuring 7.6. Amortization 6.8 is notes-only.
+    hx = sec._opex_line_sums({"SellingGeneralAndAdministrativeExpense": 148.0 * M,
+                              "ResearchAndDevelopmentExpense": 45.8 * M,
+                              "AmortizationOfIntangibleAssets": 6.8 * M}.get)
+    if not sec._gain_inside(19.4 * M, 175.2 * M, 1577.7 * M, 357.1 * M, None, None, hx, 11.9 * M, [7.6 * M]):
+        bad.append(("HXL FY2022", "gain inside other operating income not placed"))
+    if sec._gain_inside(19.4 * M, 175.2 * M, 1577.7 * M, 357.1 * M, None, None, hx):
+        bad.append(("HXL FY2022 no other-operating line", "placed by the amortization coincidence"))
     return bad
 
 
@@ -950,8 +959,9 @@ for _lbl, _fn, _muts in (
                        ("A17 TTM gain ignored", lambda: dict(ot=_variant(_OT, override={"_gain": lambda ff: 0.0}))),
                        ("A17 sum-of-lines off (E88)", lambda: dict(sec=_variant(_sec, override={"_opex_line_sums": lambda get: []}))),
                        ("A17 any positive residual places a gain", lambda: dict(sec=_variant(
-                           _sec, old="return any(r is not None and abs(r - gain) <= tol for r in resids)",
-                           new="return any(r is not None and (abs(r - gain) <= tol or r >= 0) for r in resids)"))))),
+                           _sec, old="    if abs(oi - (gp - line_sums[0]) - gain) <= tol:",
+                           new="    if abs(oi - (gp - line_sums[0]) - gain) <= tol or oi - (gp - line_sums[0]) >= 0:"))),
+                       ("A17 notes-only lines at the loose tolerance (E88 HXL)", lambda: dict(sec=_variant(_sec, override={"FACE_TOL": 0.10}))))),
         ("A18", _a18, (("A18 combined total over the lines", lambda: dict(sec=_variant(_sec, old="legs > v * (1 + TOTAL_TOL)", new="legs > v * 1e9"))),
                        ("A18 extension debt read as partial", lambda: dict(sec=_variant(_sec, override={"DEBT_IN_EXTENSION": {}}))))),
         ("A19", _a19, (("A19 current AFS debt left out", lambda: dict(sec=_variant(
@@ -1048,6 +1058,78 @@ for _name, _mk in (("A20 firm test off", lambda: dict(ct=_variant(_CT, override=
         flag("HIGH", f"{_name} self-test is stale, not a detection: {_e}")
         continue
     _hit = _a20(**_kw)
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
+hdr("A21", "a cyclical is valued on its normal margin x TODAY's revenue, consensus years 1-2 only, organic through-cycle growth, MoS < -50% caps at HOLD (E92-E95)")
+_A21_MU = _json.load(open(os.path.join(APP, "tests", "fixtures", "cyclical", "MU.json")))
+_A21_HAND = 470.86        # ~/work/v_cyc/tools/hand.py alternative (i'), the verifier's rebuild
+
+
+def _a21_mu(**over):
+    d = dict(_A21_MU, **over)
+    ff = FF(**{k: v for k, v in d.items() if k in FF.__dataclass_fields__})
+    ff.flags = []
+    return E.DeepV82Engine().evaluate(ff, rf=0.045)
+
+
+def _a21():
+    bad = []
+    v = _a21_mu()
+    inp, path = v.dcf["inputs"], v.dcf["path"]
+    g_stable = 0.045
+    if abs(path[0]["revenue"] - _A21_MU["revenue"] * (1 + inp["growth_path"][0])) > 1e6:
+        bad.append(("M1 base", path[0]["revenue"], "year 1 is not today's revenue grown once"))
+    if max(inp["growth_path"]) > g_stable + 1e-9:
+        bad.append(("M1 growth", inp["growth_path"], "above the stable rate with no consensus"))
+    if abs(v.anchor_value - _A21_HAND) / _A21_HAND > 0.01:
+        bad.append(("M1 FV", v.anchor_value, f"not within 1% of hand.py {_A21_HAND}"))
+    two = _a21_mu(rev_growth_path=[[0.70, 25], [0.05, 20]])
+    five = _a21_mu(rev_growth_path=[[0.70, 25], [0.05, 20], [0.40, 15], [0.30, 12], [0.20, 11]])
+    gp = five.dcf["inputs"]["growth_path"]
+    if gp[:2] != [0.70, 0.05] or any(abs(x - inp["growth_path"][0]) > 1e-12 for x in gp[2:]):
+        bad.append(("M2 path", gp, "consensus past year 2 used"))
+    if abs(two.anchor_value - five.anchor_value) > 0.01:
+        bad.append(("M2 FV", five.anchor_value, two.anchor_value))
+    apps = FF(ticker="APPS")
+    apps.revenue_annuals_dated = [["2026-03-31", 565.251e6], ["2025-03-31", 490.506e6], ["2024-03-31", 544.482e6],
+                                  ["2023-03-31", 665.920e6], ["2022-03-31", 747.596e6], ["2021-03-31", 313.579e6]]
+    apps.acquisitions_annuals_dated = [["2022-03-31", 0.5 * 313.579e6]]
+    g, _ = E.through_cycle_growth(apps)
+    clean = [565.251 / 490.506, 490.506 / 544.482, 544.482 / 665.920, 665.920 / 747.596]
+    want = (clean[0] * clean[1] * clean[2] * clean[3]) ** 0.25 - 1
+    if g is None or abs(g - want) > 1e-9:
+        bad.append(("M3 organic", g, f"not the clean-year mean {want:.4f}"))
+    if E.recommendation(4.5, mos=-0.6) != "HOLD" or E.recommendation(3.5, mos=-0.51) != "HOLD":
+        bad.append(("M4 cap", E.recommendation(4.5, mos=-0.6), "MoS -60% not capped at HOLD"))
+    hi = _a21_mu(price=1500.0)
+    if hi.composite >= 3 and hi.recommendation != "HOLD":
+        bad.append(("M4 engine", hi.recommendation, "MU at $1,500 not capped"))
+    return bad
+
+
+def _a21_patch(attrs):
+    saved = {k: getattr(E, k) for k in attrs}
+    for k, v in attrs.items():
+        setattr(E, k, v)
+    try:
+        return _a21()
+    finally:
+        for k, v in saved.items():
+            setattr(E, k, v)
+
+
+_hit = _a21()
+print(f"  A21: {len(_hit)} violation(s) on MU (FV vs hand.py {_A21_HAND}), consensus 2 vs 5 years, APPS M&A, MoS cap")
+if _hit:
+    flag("HIGH", f"A21 cyclical valuation guard: {_hit[:2]}")
+for _name, _attrs in (
+        ("A21 M1 trend slope as growth", {"cycle_growth": lambda f, g: (0.1144, "log-linear trend slope")}),
+        ("A21 M2 full consensus path", {"CYCLE_CONSENSUS_YEARS": 5}),
+        ("A21 M3 acquisition years counted", {"INORGANIC_ACQ_SHARE": 1e9}),
+        ("A21 M4 no MoS cap", {"MOS_HOLD_CAP": -1e9})):
+    _hit = _a21_patch(_attrs)
     print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
