@@ -37,7 +37,15 @@ class Base(unittest.TestCase):
     def target(self, t):
         d = dict(self.fx["targets"][t])
         d["provenance"] = {"price": "yahoo close 2026-10-22 (T-1)"}
-        return SimpleNamespace(ticker=t, **d)
+        # the type relative_value receives in the app: every stage (the cyclical
+        # classification included, R54) reads FinancialFacts fields
+        from domain.facts import FinancialFacts
+        fields = set(FinancialFacts.__dataclass_fields__)
+        ff = FinancialFacts(ticker=t, **{k: v for k, v in d.items() if k in fields})
+        for k, v in d.items():
+            if k not in fields:
+                setattr(ff, k, v)
+        return ff
 
 
 class Industry(Base):
