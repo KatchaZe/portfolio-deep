@@ -908,6 +908,14 @@ def _a17(sec=_sec, ot=_OT):
     ot.normalize_operating_income(g)
     if g.operating_income != 200e6:
         bad.append(("TTM gain", g.operating_income))
+    # E88: NVST files no total-opex line; GP 400.6 - SG&A 284.2 - R&D 29.3 = 87.1 vs 515.2
+    M = 1e6
+    nv = sec._opex_line_sums({"SellingGeneralAndAdministrativeExpense": 284.2 * M,
+                              "ResearchAndDevelopmentExpense": 29.3 * M}.get)
+    if not sec._gain_inside(428.1 * M, 515.2 * M, 650 * M, 400.6 * M, None, None, nv):
+        bad.append(("NVST Q3 2026", "gain not placed by the sum of lines"))
+    if sec._gain_inside(428.1 * M, 87.1 * M, 650 * M, 400.6 * M, None, None, nv):
+        bad.append(("NVST lines explain OI", "gain placed anyway (false hit)"))
     return bad
 
 
@@ -939,7 +947,11 @@ for _lbl, _fn, _muts in (
         ("A16", _a16, (("A16 no share-scale check", lambda: dict(sec=_variant(_sec, override={"_check_share_scale": lambda x, out: []}))),
                        ("A16 no market-cap guard", lambda: dict(rel=_variant(_REL, override={"implausible_market_cap": lambda *a, **k: None}))))),
         ("A17", _a17, (("A17 no annual gain read", lambda: dict(sec=_variant(_sec, override={"_gain_annuals": lambda *a: []}))),
-                       ("A17 TTM gain ignored", lambda: dict(ot=_variant(_OT, override={"_gain": lambda ff: 0.0}))))),
+                       ("A17 TTM gain ignored", lambda: dict(ot=_variant(_OT, override={"_gain": lambda ff: 0.0}))),
+                       ("A17 sum-of-lines off (E88)", lambda: dict(sec=_variant(_sec, override={"_opex_line_sums": lambda get: []}))),
+                       ("A17 any positive residual places a gain", lambda: dict(sec=_variant(
+                           _sec, old="return any(r is not None and abs(r - gain) <= tol for r in resids)",
+                           new="return any(r is not None and (abs(r - gain) <= tol or r >= 0) for r in resids)"))))),
         ("A18", _a18, (("A18 combined total over the lines", lambda: dict(sec=_variant(_sec, old="legs > v * (1 + TOTAL_TOL)", new="legs > v * 1e9"))),
                        ("A18 extension debt read as partial", lambda: dict(sec=_variant(_sec, override={"DEBT_IN_EXTENSION": {}}))))),
         ("A19", _a19, (("A19 current AFS debt left out", lambda: dict(sec=_variant(
