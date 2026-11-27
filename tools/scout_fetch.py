@@ -93,6 +93,9 @@ def _count_sec():
     sec_edgar._throttle = counted
 
 
+WORKER_PREFIX = "scout-fetch"     # worker threads' names: sources.fmp refuses them (E90)
+
+
 def _guard_fmp():
     def refused(*a, **k):
         CALLS.add("fmp")
@@ -498,7 +501,7 @@ def run(args):
                 f"{'ok' if sec else 'no-sec'}  {el:.0f}s elapsed, ETA {eta / 60:.1f} min  "
                 f"(SEC calls {CALLS.n['sec']})")
 
-        with futures.ThreadPoolExecutor(max_workers=args.workers) as ex:
+        with futures.ThreadPoolExecutor(max_workers=args.workers, thread_name_prefix=WORKER_PREFIX) as ex:
             for f in [ex.submit(one, i) for i in range(len(metas))]:
                 f.result()
         out = {"industry": industry, "as_of": today.isoformat(), "panel_years": years,

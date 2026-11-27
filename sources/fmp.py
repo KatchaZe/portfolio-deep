@@ -121,10 +121,26 @@ def _over_limit(r):
     return r.status_code == 429 or "limit reach" in (getattr(r, "text", "") or "")[:300].lower()
 
 
+# Thread-name prefixes whose threads must never reach FMP (the sector scout's job thread
+# and its workers: the scout's sources are SEC, Damodaran and free prices only). A name,
+# not a flag, so the scout's worker pool is covered and the app's own threads are not.
+_REFUSED_PREFIXES = {}
+
+
+def refuse_threads(prefix, reason):
+    """From now on, any FMP request from a thread whose name starts with `prefix` raises
+    RuntimeError(reason). Idempotent."""
+    _REFUSED_PREFIXES[prefix] = reason
+
+
 def _send(http, url, params, timeout):
     """The one place a request goes to FMP. Counts it on LEDGER when it goes through
     the real session (an injected fake sends nothing to FMP). None when the day is
     used up, on a network error, or on an over-limit answer (which ends the day)."""
+    name = threading.current_thread().name
+    for prefix, reason in _REFUSED_PREFIXES.items():
+        if name.startswith(prefix):
+            raise RuntimeError(reason)
     ledger = LEDGER if http is _session_cached else None
     if ledger is not None and not ledger.take():
         return None

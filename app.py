@@ -281,8 +281,15 @@ def api_scout_view(industry: str):
 
 
 @app.post("/api/scout/run")
-def api_scout_run(industry: List[str] = Query(...)):
+def api_scout_run(industry: List[str] = Query(default=[])):
+    """Queue industries. With none, continue an interrupted queue (the tab's "ทำต่อ"
+    button, E89); with none and nothing to continue, 422."""
     from pipeline import scout_job
+    if not industry:
+        s = scout_job.status()
+        if s.get("state") != "interrupted" or not (s.get("queue") or s.get("current")):
+            return _invalid("no industry given and no interrupted run to continue")
+        return JSONResponse(scout_job.enqueue([]))
     known = set(scout_job.all_industries()) | set(scout_job.holding_industries(st.load()))
     bad = [i for i in industry if i not in known]
     if bad:

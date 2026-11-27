@@ -133,6 +133,41 @@ class Job(unittest.TestCase):
                            "MSFT": {"damodaran_industry": "Software (System & Application)"}, "HCA": {}}}
         self.assertEqual(J.holding_industries(store), {"Semiconductor": ["NVDA"], "Software (System & Application)": ["MSFT"]})
 
+    def test_run_one_refuses_fmp_in_its_own_threads_only(self):
+        """E90: the job thread and scout_fetch's workers get an exception from any FMP
+        call; the app's own threads (holdings refresh) still reach FMP."""
+        import threading
+        from concurrent import futures
+        from types import SimpleNamespace
+        from pipeline import scout_job as J
+        from sources import fmp
+        from tools import scout_fetch as sf
+        seen = {}
+
+        def fake_run(args):
+            def call():
+                try:
+                    return fmp._send(SimpleNamespace(get=lambda *a, **k: SimpleNamespace(status_code=200, text="sent")), "u", {}, 1).text
+                except RuntimeError as e:
+                    return "refused: " + str(e)
+            seen["job"] = call()
+            with futures.ThreadPoolExecutor(max_workers=2, thread_name_prefix=sf.WORKER_PREFIX) as ex:
+                seen["worker"] = ex.submit(call).result()
+            return 1                                   # stop run_one before it reads output
+        old = sf.run
+        sf.run = fake_run
+        try:
+            t = threading.Thread(target=lambda: self.assertRaises(RuntimeError, J.run_one, "Semiconductor"),
+                                 name="scout-job")
+            t.start()
+            t.join()
+        finally:
+            sf.run = old
+        self.assertTrue(seen.get("job", "").startswith("refused"), seen)
+        self.assertTrue(seen.get("worker", "").startswith("refused"), seen)
+        self.assertEqual(fmp._send(SimpleNamespace(get=lambda *a, **k: SimpleNamespace(status_code=200, text="sent")), "u", {}, 1).text, "sent",
+                         "a non-scout thread still reaches FMP")
+
 
 class Api(unittest.TestCase):
     def test_routes(self):
@@ -164,6 +199,22 @@ class Api(unittest.TestCase):
             self.assertEqual(v.json()["industry"], "Semiconductor")
             self.assertEqual(c.get("/api/scout/view", params={"industry": "Tobacco"}).status_code, 404)
             self.assertEqual(c.post("/api/scout/run", params={"industry": "No Such Industry"}).status_code, 422)
+
+            # E89: the "ทำต่อ" button posts with no industry; it continues an interrupted queue
+            from pipeline import scout_job as J
+            ran = []
+            old_run = J.run_one
+            J.run_one = lambda industry, **k: ran.append(industry) or {"finished": "x"}
+            try:
+                self.assertEqual(c.post("/api/scout/run").status_code, 422, "nothing to continue: 422")
+                J._save({"state": "running", "queue": ["Semiconductor"], "current": "Semiconductor", "runs": {}})
+                r = c.post("/api/scout/run")
+                self.assertEqual(r.status_code, 200, r.text)
+                if J._thread:
+                    J._thread.join(10)
+                self.assertEqual(ran, ["Semiconductor"], "the interrupted industry ran again")
+            finally:
+                J.run_one = old_run
         finally:
             config.CACHE_DIR = old
 

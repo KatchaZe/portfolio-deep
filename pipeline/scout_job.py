@@ -33,6 +33,9 @@ _lock = threading.Lock()
 _thread = None
 
 
+JOB_THREAD = "scout-job"
+
+
 def scout_dir():
     return os.path.join(config.CACHE_DIR, "scout")
 
@@ -137,7 +140,7 @@ def enqueue(industries):
         if not s.get("alive") and q:
             s.update(state="running", started=_now(), current=None)
             _save(s)
-            _thread = threading.Thread(target=_worker, name="scout-job", daemon=True)
+            _thread = threading.Thread(target=_worker, name=JOB_THREAD, daemon=True)
             _thread.start()
         else:
             _save(s)
@@ -191,6 +194,10 @@ def run_one(industry, today=None, offline=False, facts_dir=None):
     from sources import fmp
     from tools import scout_fetch as sf
     sf._count_sec()
+    # E90: the scout never calls FMP. Refused by thread name (this job thread and
+    # scout_fetch's workers), so the app's own FMP use in other threads is untouched.
+    fmp.refuse_threads(JOB_THREAD, "the sector scout never calls FMP")
+    fmp.refuse_threads(sf.WORKER_PREFIX, "the sector scout never calls FMP")
     before = dict(sf.CALLS.n)
     fmp0 = fmp.LEDGER.used()
     t0 = time.time()
