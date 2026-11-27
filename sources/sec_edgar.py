@@ -692,6 +692,15 @@ GAIN_TAGS = ("GainLossOnSaleOfBusiness", "DisposalGroupNotDiscontinuedOperationG
              "BusinessCombinationStepAcquisitionEquityInterestInAcquireeRemeasurementGain",
              "OtherComprehensiveIncomeReclassificationAdjustmentForSaleOfForeignEntitiesBeforeTax",
              "GainLossRelatedToLitigationSettlement")
+# E88: a filer with no total-opex line (NVST: gross profit, SG&A, R&D, operating profit)
+# is checked by the sum of its listed opex lines, SG&A (or its two parts) and R&D first,
+# then each further line cumulatively; a residual within GAIN_TOL of the gain places it.
+# Several sums are tried, so the tolerance is what keeps a coincidence out: the residual
+# must match the gain itself, not merely be positive.
+OPEX_LINES = ("ResearchAndDevelopmentExpense", "AmortizationOfIntangibleAssets",
+              "RestructuringCharges", "GoodwillImpairmentLoss", "OtherCostAndExpenseOperating")
+SGA_TOTAL, SGA_PARTS = "SellingGeneralAndAdministrativeExpense", ("SellingAndMarketingExpense",
+                                                                   "GeneralAndAdministrativeExpense")
 GAIN_TOL = 0.10                 # of the gain: a residual this close to it is the gain
 GAIN_MIN_SHARE = 0.005          # of revenue: a smaller gain is left alone (and not named)
 ACQUISITION_TAGS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",
@@ -1576,13 +1585,33 @@ def _check_share_scale(x, out):
     return ["DATA[warn] " + out["shares_unknown_reason"]]
 
 
-def _gain_inside(gain, oi, rev, gp, opex, costs):
+def _opex_line_sums(get):
+    """Cumulative sums of the listed opex lines for one period (`get(concept)` -> value or
+    None): SG&A (the total, else its two parts) + R&D, then each further line added in
+    OPEX_LINES order. [] when no SG&A is filed: one line alone is not the expense block."""
+    sga = get(SGA_TOTAL)
+    if sga is None:
+        parts = [get(c) for c in SGA_PARTS]
+        sga = sum(parts) if None not in parts else None
+    if sga is None:
+        return []
+    total, out = sga, []
+    for i, c in enumerate(OPEX_LINES):
+        v = get(c)
+        if v is not None:
+            total += v
+        if i == 0 or v is not None:
+            out.append(total)
+    return out
+
+
+def _gain_inside(gain, oi, rev, gp, opex, costs, line_sums=()):
     tol = GAIN_TOL * gain
-    for resid in ((oi - (gp - opex)) if None not in (oi, gp, opex) else None,
-                  (oi - (rev - costs)) if None not in (oi, rev, costs) else None):
-        if resid is not None and abs(resid - gain) <= tol:
-            return True
-    return False
+    resids = [(oi - (gp - opex)) if None not in (oi, gp, opex) else None,
+              (oi - (rev - costs)) if None not in (oi, rev, costs) else None]
+    if opex is None and costs is None and None not in (oi, gp):
+        resids += [oi - (gp - t) for t in line_sums]           # E88: no total line filed
+    return any(r is not None and abs(r - gain) <= tol for r in resids)
 
 
 def _gain_ttm(x, rev, oi, at):
@@ -1595,7 +1624,8 @@ def _gain_ttm(x, rev, oi, at):
     if not best or oi is None or not rev or best[1] < GAIN_MIN_SHARE * rev:
         return None, None, None
     t, v = best
-    if _gain_inside(v, oi, rev, x.ttm("GrossProfit"), x.ttm("OperatingExpenses"), x.ttm("CostsAndExpenses")):
+    if _gain_inside(v, oi, rev, x.ttm("GrossProfit"), x.ttm("OperatingExpenses"), x.ttm("CostsAndExpenses"),
+                    _opex_line_sums(lambda c: x.ttm(c))):
         return v, t, None
     return None, None, ("DATA[info] %s %.1fM filed for the TTM; the filer's lines do not place it inside "
                         "operating income, so EBIT keeps it" % (t, v / 1e6))
@@ -1606,13 +1636,15 @@ def _gain_annuals(x, at, op_dated, rev_dated):
     oi, rev = dict(op_dated or []), dict(rev_dated or [])
     series = lambda c: dict(x.annual_series_dated(c))      # noqa: E731
     gp, opex, costs = series("GrossProfit"), series("OperatingExpenses"), series("CostsAndExpenses")
+    lines = {c: series(c) for c in (SGA_TOTAL,) + SGA_PARTS + OPEX_LINES}
     best = {}
     for t, p in _live_tags(x, tuple((t, USD) for t in GAIN_TAGS), at):
         for d, v in x.annual_series_dated(t, p):
             if v and v > 0 and (d not in best or v > best[d]):
                 best[d] = v
     out = [[d, v] for d, v in best.items() if rev.get(d) and v >= GAIN_MIN_SHARE * rev[d]
-           and _gain_inside(v, oi.get(d), rev.get(d), gp.get(d), opex.get(d), costs.get(d))]
+           and _gain_inside(v, oi.get(d), rev.get(d), gp.get(d), opex.get(d), costs.get(d),
+                            _opex_line_sums(lambda c, d=d: lines[c].get(d)))]
     return sorted(out, reverse=True)
 
 

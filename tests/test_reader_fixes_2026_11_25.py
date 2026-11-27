@@ -149,6 +149,43 @@ class OneTimeGains(unittest.TestCase):
         ff2.gain_ttm = 390e6
         self.assertAlmostEqual(one_time.normalize_operating_income(ff2), -250e6)
 
+    def test_E88_nvst_sum_of_lines_places_the_gain_with_no_total_opex_line(self):
+        # NVST Q3 2026 (release 2026-11-04, $M): gross profit 400.6, SG&A 284.2, R&D 29.3,
+        # operating profit 515.2 with no total-opex line. 400.6 - 284.2 - 29.3 = 87.1, so
+        # 515.2 - 87.1 = 428.1 is the realized translation gain: inside operating income.
+        M = 1e6
+        lines = S._opex_line_sums(lambda c: {"SellingGeneralAndAdministrativeExpense": 284.2 * M,
+                                             "ResearchAndDevelopmentExpense": 29.3 * M}.get(c))
+        self.assertTrue(S._gain_inside(428.1 * M, 515.2 * M, 650 * M, 400.6 * M, None, None, lines))
+        # the same through the reader, the quarter filed as one annual period
+        cf = {"cik": 1757073, "facts": {"us-gaap": {
+            c: {"units": {"USD": [dict(_inst("2025-12-31", v * M, form="10-K", filed="2026-02-20"),
+                                       start="2025-01-01", fy=2025, fp="FY")]}}
+            for c, v in (("Revenues", 650.0), ("GrossProfit", 400.6), ("OperatingIncomeLoss", 515.2),
+                         ("SellingGeneralAndAdministrativeExpense", 284.2),
+                         ("ResearchAndDevelopmentExpense", 29.3),
+                         ("OtherComprehensiveIncomeReclassificationAdjustmentForSaleOfForeignEntitiesBeforeTax", 428.1),
+                         ("Liabilities", 900.0))}}}
+        self.assertIn(["2025-12-31", 428.1 * M], S.extract(cf)["gain_annuals_dated"])
+
+    def test_E88_sum_of_lines_never_places_a_gain_the_lines_already_explain(self):
+        M = 1e6
+        get = {"SellingGeneralAndAdministrativeExpense": 284.2 * M, "ResearchAndDevelopmentExpense": 29.3 * M}.get
+        lines = S._opex_line_sums(get)
+        # operating income equals GP - SG&A - R&D: the gain is below the line, not inside
+        self.assertFalse(S._gain_inside(428.1 * M, 87.1 * M, 650 * M, 400.6 * M, None, None, lines))
+        # a residual 20% off the gain is not the gain
+        self.assertFalse(S._gain_inside(428.1 * M, (87.1 + 1.2 * 428.1) * M, 650 * M, 400.6 * M, None, None, lines))
+        # no listed opex line at all: nothing to sum, nothing placed
+        self.assertEqual(S._opex_line_sums(lambda c: None), [])
+        self.assertFalse(S._gain_inside(428.1 * M, 515.2 * M, 650 * M, 400.6 * M, None, None, []))
+        # SG&A filed as a total AND as its parts is counted once (the total)
+        both = S._opex_line_sums({"SellingGeneralAndAdministrativeExpense": 284.2 * M,
+                                  "SellingAndMarketingExpense": 200 * M,
+                                  "GeneralAndAdministrativeExpense": 84.2 * M,
+                                  "ResearchAndDevelopmentExpense": 29.3 * M}.get)
+        self.assertAlmostEqual(both[0], 313.5 * M)
+
 
 def _inst(end, val, form="10-Q", filed="2026-05-07"):
     return {"end": end, "val": val, "form": form, "filed": filed, "accn": "x"}
