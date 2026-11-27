@@ -161,20 +161,62 @@ class Group2(unittest.TestCase):
         closes = [100.0 + f(i) for i in range(n)]
         return {"closes": closes, "dates": days, "volumes": [1e6] * n, "source": "test", "dividend_adjusted": True}
 
-    def test_E82_beta_is_the_apps_beta_on_the_same_window(self):
+    def known_beta(self, n=500, beta=1.7, alpha=0.001, step=5):
+        """(asset, spy) whose weekly returns, sampled every `step` bars back from the last
+        date, satisfy r_asset = alpha + beta x r_spy exactly; every other day is noise, so
+        a beta sampled from any other anchor is far from `beta`."""
         import math
+        spy, a = [0.0] * n, [0.0] * n
+        sample = set(range(n - 1, -1, -step))
+        s_lvl, a_lvl, k = 100.0, 50.0, 0
+        for i in range(n):
+            if i in sample:
+                if k:
+                    rm = 0.03 * math.sin(1.3 * k) + 0.01 * math.cos(0.7 * k)
+                    s_lvl *= 1 + rm
+                    a_lvl *= 1 + alpha + beta * rm
+                k += 1
+                spy[i], a[i] = s_lvl, a_lvl
+            else:
+                spy[i] = s_lvl * (1 + 0.04 * math.sin(2.1 * i))
+                a[i] = a_lvl * (1 + 0.09 * math.cos(1.7 * i))
+        return self.series(n, lambda i: a[i] - 100.0), self.series(n, lambda i: spy[i] - 100.0)
+
+    def check_E82(self):
         from pipeline import daily
         from tools import scout_groups
-        spy = self.series(500, lambda i: 10 * math.sin(i / 7.0) + i * 0.05)
-        m = self.series(500, lambda i: 23 * math.sin(i / 7.0) + 4 * math.cos(i / 3.0) + i * 0.1)
+        m, spy = self.known_beta()
         g = scout_groups.group2("ABC", m, None, spy, {})
-        b, end = daily.beta_vs_spy(m, spy)
-        self.assertIsNotNone(b)
-        self.assertEqual(g["beta_spy"]["value"], b)
-        self.assertEqual(g["beta_spy"]["window_end"], end)
+        self.assertEqual(g["beta_spy"]["value"], 1.7, "scout beta = the constructed 1.7")
+        self.assertEqual(daily.beta_vs_spy(m, spy), (1.7, m["dates"][-1]), "app beta = 1.7 to the last date")
+        self.assertEqual(g["beta_spy"]["window_end"], m["dates"][-1])
         cut = 380                                    # an earlier as-of samples other weeks
         short = {k: (v[:cut] if isinstance(v, list) else v) for k, v in m.items()}
         self.assertEqual(scout_groups.group2("ABC", short, None, spy, {})["beta_spy"]["window_end"], m["dates"][cut - 1])
+
+    def test_E82_beta_matches_an_independent_construction(self):
+        self.check_E82()
+
+    def test_E82_the_check_goes_red_on_a_mutant(self):
+        """The check above can fail: a beta sampled forward from the first common date (the
+        as-of mistake E82 was about) gives another number on the same series."""
+        from domain import momentum
+        real = momentum.regression_beta
+
+        def forward(closes, dates, mc, md, step=5, min_points=40):
+            mk = {str(d)[:10]: c for d, c in zip(md, mc)}
+            pairs = [(c, mk[str(d)[:10]]) for d, c in zip(dates, closes) if str(d)[:10] in mk][::step]
+            ra = [pairs[i][0] / pairs[i - 1][0] - 1 for i in range(1, len(pairs))]
+            rm = [pairs[i][1] / pairs[i - 1][1] - 1 for i in range(1, len(pairs))]
+            n = len(ra)
+            ma, mm = sum(ra) / n, sum(rm) / n
+            return round(sum((x - ma) * (y - mm) for x, y in zip(ra, rm)) / sum((y - mm) ** 2 for y in rm), 2)
+        momentum.regression_beta = forward
+        try:
+            with self.assertRaises(AssertionError):
+                self.check_E82()
+        finally:
+            momentum.regression_beta = real
 
     def test_highest_correlation_names_the_holding_and_short_overlaps_are_skipped(self):
         import math
