@@ -186,6 +186,41 @@ class OneTimeGains(unittest.TestCase):
                                   "ResearchAndDevelopmentExpense": 29.3 * M}.get)
         self.assertAlmostEqual(both[0], 313.5 * M)
 
+    def _hxl(self, with_ooi=True):
+        # HXL FY2022 10-K (accn 0000950170-23-002099, $M): gross profit 357.1, SG&A 148.0,
+        # R&D 45.8, other operating income 11.9, operating income 175.2; notes: amortization
+        # 6.8, restructuring 7.6, gain on disposition of assets 19.4. The face reconciles
+        # through the other-operating line (357.1 - 148.0 - 45.8 + 11.9 = 175.2), and that
+        # line is the gain net of restructuring (19.4 - 7.6 = 11.8 ~ 11.9).
+        M = 1e6
+        vals = [("Revenues", 1577.7), ("GrossProfit", 357.1), ("OperatingIncomeLoss", 175.2),
+                ("SellingGeneralAndAdministrativeExpense", 148.0), ("ResearchAndDevelopmentExpense", 45.8),
+                ("AmortizationOfIntangibleAssets", 6.8), ("RestructuringCharges", 7.6),
+                ("GainLossOnDispositionOfAssets1", 19.4), ("Liabilities", 900.0)]
+        if with_ooi:
+            vals.append(("OtherOperatingIncomeExpenseNet", 11.9))
+        cf = {"cik": 717605, "facts": {"us-gaap": {
+            c: {"units": {"USD": [dict(_inst("2022-12-31", v * M, form="10-K", filed="2023-02-10"),
+                                       start="2022-01-01", fy=2022, fp="FY")]}}
+            for c, v in vals}}}
+        return S.extract(cf)["gain_annuals_dated"]
+
+    def test_E88_hxl_gain_placed_through_its_other_operating_line(self):
+        self.assertIn(["2022-12-31", 19.4e6], self._hxl())
+
+    def test_E88_hxl_without_the_line_is_declined_not_matched_by_amortization(self):
+        # SG&A + R&D + amortization leave 18.7 against 19.4 (3.6% off): a notes-only line
+        # summed to a near miss is a coincidence, so the gain is not placed
+        self.assertEqual(self._hxl(with_ooi=False), [])
+        M = 1e6
+        lines = S._opex_line_sums({"SellingGeneralAndAdministrativeExpense": 148.0 * M,
+                                   "ResearchAndDevelopmentExpense": 45.8 * M,
+                                   "AmortizationOfIntangibleAssets": 6.8 * M}.get)
+        self.assertFalse(S._gain_inside(19.4 * M, 175.2 * M, 1577.7 * M, 357.1 * M, None, None, lines))
+        # the other-operating line reconciles the face but does not hold the gain: declined
+        self.assertFalse(S._gain_inside(19.4 * M, 175.2 * M, 1577.7 * M, 357.1 * M, None, None, lines,
+                                        11.9 * M, []))
+
 
 def _inst(end, val, form="10-Q", filed="2026-05-07"):
     return {"end": end, "val": val, "form": form, "filed": filed, "accn": "x"}

@@ -241,14 +241,16 @@ function valueMethodsTable(x){
 function cyclePanel(x){
   const c=(x.key_metrics||{}).cycle, pi=x.priced_in||{}; if(!c)return '';
   const why=c.basis==='firm'?'ตรวจจากงบของบริษัทเอง: '+c.reason:c.reason;
-  const rev=c.trend_revenue?`รายได้ล่าสุด <b class="num">$${nf(c.revenue_now/1e9,1)}B</b> = <b>${nf(c.peak_ratio,1)}×</b> ของเส้น trend <b class="num">$${nf(c.trend_revenue/1e9,1)}B</b> (log-linear ${c.years} ปีงบ, โต ${nf(c.trend_growth_pct,1)}%/ปี)`:'ไม่มีเส้น trend รายได้';
-  const path=c.revenue_converges?'DCF ให้รายได้กลับเข้าเส้น trend ใน 3 ปี แล้วโตตาม trend — เป็นสมมติฐานว่ารอบจะกลับ ไม่ใช่ประมาณการว่าเมื่อไร':c.at_peak?'รายได้สูงกว่า trend แต่มี consensus จึงใช้ path ของนักวิเคราะห์แทน (อาจเป็นการเปลี่ยนเชิงโครงสร้าง)':'รายได้ไม่ได้อยู่ที่จุดสูงสุดของรอบ: DCF เริ่มจากรายได้จริง';
+  const cons=c.consensus_years?`<div class="note">consensus ถึงปีที่ ${c.consensus_years} แล้วกลับสู่ค่าปกติของรอบ: ${c.consensus_years} ปีแรกใช้รายได้ของนักวิเคราะห์ที่ margin วันนี้ แล้ว margin และอัตราโตกลับสู่ค่าปกติ</div>`:'';
+  const rev=`DCF เริ่มจากรายได้วันนี้ <b class="num">$${nf(c.revenue_now/1e9,1)}B</b> × margin ปกติ (Damodaran) · โตต่อ <b>${nf(c.growth_pct,1)}%/ปี</b> <span class="note">(${esc(c.growth_source||'')})</span>`;
+  const checks=((x.scenarios||{}).cycle_checks||[]).map(k=>`<div style="font-size:var(--t-sm)">${esc(k.label)}: <b class="num">${usd(k.value)}</b> (${vsPrice(k.value,x.price)} vs ราคา)</div>`).join('');
+  const mc=c.mc_margin_pct?`<div class="note">margin วันนี้เกิน 1.5× ของปกติ (จุดพีค): Monte Carlo ใช้ margin ${nf(c.mc_margin_pct[0],1)}% ถึง ${nf(c.mc_margin_pct[1],1)}% ทั้งรอบ ไม่ใช่ควอไทล์</div>`:'';
   const turn=pi.cycle_verdict?`<div class="warnc" style="font-size:var(--t-sm)">${esc(pi.cycle_verdict)}: ที่รายได้วันนี้ ราคาจ่ายให้ margin <b>${pi.margin_at_revenue_now_pct}%</b> เทียบ ${pi.margin_now_pct}% วันนี้</div>`:'';
   return `<div class="box" style="gap:4px"><h3>วัฏจักร (cyclical) ${chip(c.basis==='firm'?'จากงบบริษัท':'จากอุตสาหกรรม','--warn',esc(why))}</h3>
     <div style="font-size:var(--t-sm)">${esc(why)}</div>
     <div style="font-size:var(--t-sm)">margin ปกติ <b>${nf(c.normal_margin_pct,1)}%</b> = median ${c.years} ปีงบ${c.short_window?' <span class="warnc">(ไม่ถึง 7 ปี: อาจไม่ครบหนึ่งรอบ)</span>':''} · margin เข้าหาค่านี้ใน 3 ปี</div>
-    <div style="font-size:var(--t-sm)">${rev}</div><div class="note">${path}</div>
-    <div style="font-size:var(--t-sm)">Bear ใช้ margin <b>${nf(c.bear_margin_pct,1)}%</b> (ควอไทล์ล่างของ ${c.years} ปี รวมปีขาลง, ไม่สูงกว่าวันนี้, ไม่ต่ำกว่า 2%) · Bull ${nf(c.bull_margin_pct,1)}% (ควอไทล์บน)</div>${turn}</div>`;
+    <div style="font-size:var(--t-sm)">${rev}</div>${cons}
+    <div style="font-size:var(--t-sm)">Bear ใช้ margin <b>${nf(c.bear_margin_pct,1)}%</b> (ควอไทล์ล่างของ ${c.years} ปี รวมปีขาลง, ไม่สูงกว่าวันนี้, ไม่ต่ำกว่า 2%) · Bull ${nf(c.bull_margin_pct,1)}% (ควอไทล์บน)</div>${mc}${checks}${turn}</div>`;
 }
 function scenarioPanel(x){
   const sc=x.scenarios, pi=x.priced_in; if(!sc||!sc.cases)return '';

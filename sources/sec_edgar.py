@@ -702,6 +702,14 @@ OPEX_LINES = ("ResearchAndDevelopmentExpense", "AmortizationOfIntangibleAssets",
 SGA_TOTAL, SGA_PARTS = "SellingGeneralAndAdministrativeExpense", ("SellingAndMarketingExpense",
                                                                    "GeneralAndAdministrativeExpense")
 GAIN_TOL = 0.10                 # of the gain: a residual this close to it is the gain
+# E88 round 2 (HXL FY2022): only SG&A and R&D are taken as face lines on trust. A sum
+# that adds amortization, restructuring, impairment or other cost (often notes-only
+# disclosures) must reconcile operating income to FACE_TOL of the gain, or it is a
+# coincidence: HXL's SG&A + R&D + amortization left 18.7 against a 19.4 gain because
+# the gain sat, net of restructuring 7.6, in its "other operating income" line 11.9.
+FACE_TOL = 0.01
+OOI_LINES = ("OtherOperatingIncomeExpenseNet", "OtherOperatingIncome")
+OOI_CHARGES = ("RestructuringCharges",)
 GAIN_MIN_SHARE = 0.005          # of revenue: a smaller gain is left alone (and not named)
 ACQUISITION_TAGS = ("PaymentsToAcquireBusinessesNetOfCashAcquired",
                     "PaymentsToAcquireBusinessesAndInterestInAffiliates",
@@ -1605,13 +1613,31 @@ def _opex_line_sums(get):
     return out
 
 
-def _gain_inside(gain, oi, rev, gp, opex, costs, line_sums=()):
-    tol = GAIN_TOL * gain
+def _ooi(get):
+    """(other operating income line, [charges it may net]) for one period, or (None, [])."""
+    line = next((v for v in (get(c) for c in OOI_LINES) if v is not None), None)
+    return line, [v for v in (get(c) for c in OOI_CHARGES) if v]
+
+
+def _gain_inside(gain, oi, rev, gp, opex, costs, line_sums=(), ooi=None, charges=()):
+    """Whether a filed gain sits inside operating income. With a total-opex or
+    total-cost line, the residual must be within GAIN_TOL of the gain. Without one
+    (E88), the face is rebuilt from the listed lines: when an other-operating-income
+    line reconciles it, the gain is inside only if that line holds it (alone or net of
+    a filed restructuring charge); else SG&A + R&D leave the gain within GAIN_TOL, or a
+    sum with further lines reconciles it within FACE_TOL."""
+    tol, tight = GAIN_TOL * gain, FACE_TOL * gain
     resids = [(oi - (gp - opex)) if None not in (oi, gp, opex) else None,
               (oi - (rev - costs)) if None not in (oi, rev, costs) else None]
-    if opex is None and costs is None and None not in (oi, gp):
-        resids += [oi - (gp - t) for t in line_sums]           # E88: no total line filed
-    return any(r is not None and abs(r - gain) <= tol for r in resids)
+    if any(r is not None and abs(r - gain) <= tol for r in resids):
+        return True
+    if opex is not None or costs is not None or None in (oi, gp) or not line_sums:
+        return False
+    if ooi is not None and abs(gp - line_sums[0] + ooi - oi) <= tight:
+        return any(abs(ooi + c - gain) <= tight for c in (0.0, *charges))
+    if abs(oi - (gp - line_sums[0]) - gain) <= tol:
+        return True
+    return any(abs(oi - (gp - t) - gain) <= tight for t in line_sums[1:])
 
 
 def _gain_ttm(x, rev, oi, at):
@@ -1625,7 +1651,7 @@ def _gain_ttm(x, rev, oi, at):
         return None, None, None
     t, v = best
     if _gain_inside(v, oi, rev, x.ttm("GrossProfit"), x.ttm("OperatingExpenses"), x.ttm("CostsAndExpenses"),
-                    _opex_line_sums(lambda c: x.ttm(c))):
+                    _opex_line_sums(lambda c: x.ttm(c)), *_ooi(lambda c: x.ttm(c))):
         return v, t, None
     return None, None, ("DATA[info] %s %.1fM filed for the TTM; the filer's lines do not place it inside "
                         "operating income, so EBIT keeps it" % (t, v / 1e6))
@@ -1636,7 +1662,7 @@ def _gain_annuals(x, at, op_dated, rev_dated):
     oi, rev = dict(op_dated or []), dict(rev_dated or [])
     series = lambda c: dict(x.annual_series_dated(c))      # noqa: E731
     gp, opex, costs = series("GrossProfit"), series("OperatingExpenses"), series("CostsAndExpenses")
-    lines = {c: series(c) for c in (SGA_TOTAL,) + SGA_PARTS + OPEX_LINES}
+    lines = {c: series(c) for c in (SGA_TOTAL,) + SGA_PARTS + OPEX_LINES + OOI_LINES + OOI_CHARGES}
     best = {}
     for t, p in _live_tags(x, tuple((t, USD) for t in GAIN_TAGS), at):
         for d, v in x.annual_series_dated(t, p):
@@ -1644,7 +1670,8 @@ def _gain_annuals(x, at, op_dated, rev_dated):
                 best[d] = v
     out = [[d, v] for d, v in best.items() if rev.get(d) and v >= GAIN_MIN_SHARE * rev[d]
            and _gain_inside(v, oi.get(d), rev.get(d), gp.get(d), opex.get(d), costs.get(d),
-                            _opex_line_sums(lambda c, d=d: lines[c].get(d)))]
+                            _opex_line_sums(lambda c, d=d: lines[c].get(d)),
+                            *_ooi(lambda c, d=d: lines[c].get(d)))]
     return sorted(out, reverse=True)
 
 

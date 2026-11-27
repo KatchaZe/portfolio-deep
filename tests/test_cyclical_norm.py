@@ -299,10 +299,13 @@ def test_relative_target_normalized():
 
 def test_ref_quotes_the_constants():
     from docs.ref import content_b
+    from domain.engine import deep_v82 as E
     e = next(x for x in content_b.VAL.entries if x.id == "cycle")
     for txt in (f"≥{CT.CYCLE_REVENUE_DROP*100:.0f}%", f"เกิน {CT.CYCLE_MARGIN_RANGE*100:.0f} จุด",
                 f"{CT.CYCLE_PEAK_MARGIN_X}×", f"≥{CT.NORMAL_MIN_YEARS} ปี",
-                f"{CT.CYCLE_LOOKBACK_YEARS} ปีงบล่าสุด", f"สูงสุด {CT.NORMAL_YEARS} ปี"):
+                f"{CT.CYCLE_LOOKBACK_YEARS} ปีงบล่าสุด", f"สูงสุด {CT.NORMAL_YEARS} ปี",
+                f"consensus ใช้ไม่เกิน {E.CYCLE_CONSENSUS_YEARS} ปี", E.CYCLE_CONSENSUS_NOTE,
+                f"ไม่ต่ำกว่า {CT.BEAR_CYCLE_FLOOR*100:.0f}%"):
         check(txt in e.rule or txt in e.calc, f"Ref cycle entry quotes {txt}")
 
 

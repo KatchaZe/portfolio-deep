@@ -168,6 +168,55 @@ class Job(unittest.TestCase):
         self.assertEqual(fmp._send(SimpleNamespace(get=lambda *a, **k: SimpleNamespace(status_code=200, text="sent")), "u", {}, 1).text, "sent",
                          "a non-scout thread still reaches FMP")
 
+    def test_E90_scout_fetch_run_pool_is_the_refused_one(self):
+        """E90 (verifier 2026-11-28): the test above builds its own pool, so renaming the
+        real pool in scout_fetch.run survived. Here run_one drives the real run() (its
+        universe, Damodaran block, fetcher and assembler stubbed) and the fetcher, called
+        inside run()'s own worker threads, tries FMP."""
+        import tempfile
+        import threading
+        from types import SimpleNamespace as NS
+        import config
+        from pipeline import peers, scout_job as J
+        from sources import fmp
+        from tools import scout_fetch as sf
+        sent = NS(get=lambda *a, **k: NS(status_code=200, text="sent"))
+        seen = []
+
+        class Fetcher:
+            def __init__(self, *a):
+                pass
+
+            def price(self, t):
+                try:
+                    seen.append((threading.current_thread().name, fmp._send(sent, "u", {}, 1).text))
+                except RuntimeError as e:
+                    seen.append((threading.current_thread().name, "refused: " + str(e)))
+                return None, None
+
+        uni = NS(rows={"AAA": [None, None, None]}, frames={}, us_names={}, frame_notes=[], name_notes=[],
+                 notes=[], members_of=lambda ind: ({"AAA": None}, {}, {}))
+        stubs = {(peers.Universe, "lazy"): staticmethod(lambda *a: uni),
+                 (sf, "Fetcher"): Fetcher, (sf, "damodaran_block"): lambda *a: {"wacc": {"value": 0.1}},
+                 (sf, "_history"): lambda *a: (None, "stub"), (sf, "assemble"): lambda *a: {},
+                 (sf, "coverage"): lambda *a: {}, (sf, "resolve_cik"): lambda t: (None,),
+                 (sf.scout_groups, "group2"): lambda *a: {}, (J, "_mirror"): lambda p: None}
+        old = {k: k[0].__dict__.get(k[1]) for k in stubs}
+        old_cache = config.CACHE_DIR
+        config.CACHE_DIR = tempfile.mkdtemp()
+        try:
+            for (o, n), v in stubs.items():
+                setattr(o, n, v)
+            J.run_one("Semiconductor", today="2026-11-24", offline=True)
+        finally:
+            config.CACHE_DIR = old_cache
+            for (o, n), v in old.items():
+                setattr(o, n, v)
+        self.assertEqual(len(seen), 1, seen)
+        self.assertTrue(seen[0][0].startswith(sf.WORKER_PREFIX), seen)
+        self.assertTrue(seen[0][1].startswith("refused"), seen)
+        self.assertEqual(fmp._send(sent, "u", {}, 1).text, "sent", "the caller's own thread still reaches FMP")
+
 
 class Api(unittest.TestCase):
     def test_routes(self):
