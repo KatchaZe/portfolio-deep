@@ -201,11 +201,13 @@ def test_E94_through_cycle_growth_leaves_acquisition_years_out():
 
 
 def test_E95_mos_below_minus_50_caps_at_hold():
+    """E95, stepped by E99 (user decision 2026-11-28): -25% caps at HOLD / Accumulate,
+    -50% at HOLD; boundaries in test_cyclical_round3."""
     from domain.engine import deep_v82 as E
-    check(E.MOS_HOLD_CAP == -0.50, "the cap is the named -50% constant")
+    check(E.MOS_CAP_HOLD == -0.50, "the HOLD step is the named -50% constant")
     check(E.recommendation(4.2, mos=-0.51) == "HOLD", "BUY composite, MoS -51% -> HOLD")
     check(E.recommendation(3.5, mos=-0.60) == "HOLD", "Accumulate composite, MoS -60% -> HOLD")
-    check(E.recommendation(4.2, mos=-0.49) == "BUY", "MoS -49% keeps BUY")
+    check(E.recommendation(4.2, mos=-0.49) == "HOLD / Accumulate", "MoS -49%: one notch below BUY")
     check(E.recommendation(1.5, mos=-0.9) == "SELL / AVOID", "never lifts a SELL")
     check(E.recommendation(4.2) == "BUY", "no MoS: composite bands only")
     v = _value("MU", price=1500.0)
@@ -230,11 +232,13 @@ def test_E96_bear_reaches_the_2pct_floor():
 
 
 def test_E97_uncertainty_at_a_peak_spans_the_cycle():
-    """A cyclical at a peak margin is not 'Low' uncertainty: its Monte Carlo margin spans
-    the cycle's whole range (min to max of the window), not the quartiles."""
+    """A cyclical at a peak margin is not 'Low' uncertainty: its Monte Carlo margin reaches
+    the cycle's trough, not just the lower quartile; its top is the Bull margin (E98)."""
     v = _value("MU")
     st = v.scenarios["story_mc"]["story"]["margin_pct"]
-    check(st[0] <= 2.0 + 0.7 and st[2] >= 74.0, "MC margin from the floored trough to the peak", str(st))
+    bull = next(c for c in v.scenarios["cases"] if c["name"] == "Bull")["margin_pct"]
+    check(st[0] <= 2.0 + 0.7 and abs(st[2] - bull) < 1e-6,
+          "MC margin from the floored trough to the Bull margin, never today's peak (E98)", str(st))
     check(v.uncertainty["rating"] != "Low", "MU uncertainty is not Low at a 2.9x peak margin",
           str(v.uncertainty))
 
@@ -305,7 +309,8 @@ def test_ref_quotes_the_constants():
                 f"{CT.CYCLE_PEAK_MARGIN_X}×", f"≥{CT.NORMAL_MIN_YEARS} ปี",
                 f"{CT.CYCLE_LOOKBACK_YEARS} ปีงบล่าสุด", f"สูงสุด {CT.NORMAL_YEARS} ปี",
                 f"consensus ใช้ไม่เกิน {E.CYCLE_CONSENSUS_YEARS} ปี", E.CYCLE_CONSENSUS_NOTE,
-                f"ไม่ต่ำกว่า {CT.BEAR_CYCLE_FLOOR*100:.0f}%"):
+                f"ไม่ต่ำกว่า {CT.BEAR_CYCLE_FLOOR*100:.0f}%", E.NO_ACQUISITION_DATA, E.CYCLE_CHECK_NEUTRAL,
+                f"ไม่เกิน {CT.CYCLE_PEAK_MARGIN_X}× ปกติ"):
         check(txt in e.rule or txt in e.calc, f"Ref cycle entry quotes {txt}")
 
 

@@ -189,16 +189,17 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None)
     pack = _pack([c[0] for c in cases], values, inputs, price,
                  basis + " · growth = consensus ∓ มากกว่าระหว่าง 2pp กับ 20% ของปีนั้น")
     if cycle is not None and cycle.at_peak:
-        # at a peak margin the story is where in the cycle the firm settles: the Monte
-        # Carlo spans the window's trough (floored) to its peak, not the quartiles, so the
-        # uncertainty rating reads the cycle (MU 2026-11 read "Low" at 2.7x normal)
+        # at a peak margin the downside is where in the cycle the firm settles: the Monte
+        # Carlo reaches the window's trough (floored), so the uncertainty rating reads the
+        # cycle (MU 2026-11 read "Low" at 2.7x normal). Its upper end is the Bull margin,
+        # not today's peak: the peak is the margin the normalization rejects as a steady
+        # state, and sampling it put MU's p50 ($557) above its FV ($471) (E98).
         mc_lo = cycle.trough_margin + lease_adj
-        mc_hi = max(cycle.peak_margin + lease_adj, hi)
-        pack["story_mc"] = story_mc_operating(kw, price, mc_lo, mc_hi)
+        pack["story_mc"] = story_mc_operating(kw, price, mc_lo, hi)
         if pack["story_mc"]:
             pack["story_mc"]["story"]["margin_basis"] = (
-                f"วัฏจักรที่จุดพีค: margin ต่ำสุดถึงสูงสุดของ {cycle.margin_years} ปีงบ "
-                f"(ไม่ต่ำกว่า {BEAR_CYCLE_FLOOR_PCT}%)")
+                f"วัฏจักรที่จุดพีค: margin ต่ำสุดของ {cycle.margin_years} ปีงบ "
+                f"(ไม่ต่ำกว่า {BEAR_CYCLE_FLOOR_PCT}%) ถึง margin Bull (ควอไทล์บน)")
     else:
         pack["story_mc"] = story_mc_operating(kw, price, lo, hi)
     return priced, pack

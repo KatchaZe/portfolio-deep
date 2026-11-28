@@ -154,8 +154,10 @@ def test_ref_thresholds_equal_the_code():
     # rating, weights, MoS and uncertainty bands
     assert [E.recommendation(c) for c in (4, 3.99, 3, 2.99, 2, 1.99)] == [
         "BUY", "HOLD / Accumulate", "HOLD / Accumulate", "HOLD", "HOLD", "SELL / AVOID"]
-    assert E.recommendation(4.5, mos=E.MOS_HOLD_CAP - 0.01) == "HOLD"
-    _has("rating", f"MoS ต่ำกว่า {pc(E.MOS_HOLD_CAP)}% จำกัดคำแนะนำไม่เกิน HOLD".replace("-", "−"),
+    assert E.recommendation(4.5, mos=E.MOS_CAP_HOLD - 0.01) == "HOLD"
+    assert E.recommendation(4.5, mos=E.MOS_CAP_ACCUMULATE - 0.01) == "HOLD / Accumulate"
+    _has("rating", *(E.mos_cap_flag(line, top) for line, top in E.MOS_CAPS),
+         f"{E.CYCLE_PEAK_MARGIN_X}× ปกติ",
          "composite ≥4 = BUY", "3–4 = HOLD / Accumulate", "2–3 = HOLD", "<2 = SELL / AVOID",
          f">{g(E.TERMINAL_SHARE_UNRATABLE)}%",
          *(f"{k}×{pc(w)}%" for k, w in E.WEIGHTS.items()))

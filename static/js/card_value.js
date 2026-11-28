@@ -244,7 +244,8 @@ function cyclePanel(x){
   const cons=c.consensus_years?`<div class="note">consensus ถึงปีที่ ${c.consensus_years} แล้วกลับสู่ค่าปกติของรอบ: ${c.consensus_years} ปีแรกใช้รายได้ของนักวิเคราะห์ที่ margin วันนี้ แล้ว margin และอัตราโตกลับสู่ค่าปกติ</div>`:'';
   const rev=`DCF เริ่มจากรายได้วันนี้ <b class="num">$${nf(c.revenue_now/1e9,1)}B</b> × margin ปกติ (Damodaran) · โตต่อ <b>${nf(c.growth_pct,1)}%/ปี</b> <span class="note">(${esc(c.growth_source||'')})</span>`;
   const checks=((x.scenarios||{}).cycle_checks||[]).map(k=>`<div style="font-size:var(--t-sm)">${esc(k.label)}: <b class="num">${usd(k.value)}</b> (${vsPrice(k.value,x.price)} vs ราคา)</div>`).join('');
-  const mc=c.mc_margin_pct?`<div class="note">margin วันนี้เกิน 1.5× ของปกติ (จุดพีค): Monte Carlo ใช้ margin ${nf(c.mc_margin_pct[0],1)}% ถึง ${nf(c.mc_margin_pct[1],1)}% ทั้งรอบ ไม่ใช่ควอไทล์</div>`:'';
+  const km=x.key_metrics||{};
+  const mc=c.mc_margin_pct?`<div class="note">margin วันนี้เกิน 1.5× ของปกติ (จุดพีค): Monte Carlo ใช้ margin ${nf(c.mc_margin_pct[0],1)}% (ต่ำสุดของรอบ) ถึง ${nf(c.mc_margin_pct[1],1)}% (Bull) · ความไม่แน่นอนที่กว้างขึ้นแสดงเป็นความเสี่ยง แต่ไม่ช่วยคะแนน Price: ราคาเกิน FV ใช้ band Low${km.peak_scored_fv?` · คะแนน Price และเพดาน MoS ใช้ FV <b class="num">${usd(km.peak_scored_fv)}</b> (margin วันนี้นับไม่เกิน 1.5× ปกติ, MoS ${nf(km.mos_scored_pct,1)}%)`:''}</div>`:'';
   const turn=pi.cycle_verdict?`<div class="warnc" style="font-size:var(--t-sm)">${esc(pi.cycle_verdict)}: ที่รายได้วันนี้ ราคาจ่ายให้ margin <b>${pi.margin_at_revenue_now_pct}%</b> เทียบ ${pi.margin_now_pct}% วันนี้</div>`:'';
   return `<div class="box" style="gap:4px"><h3>วัฏจักร (cyclical) ${chip(c.basis==='firm'?'จากงบบริษัท':'จากอุตสาหกรรม','--warn',esc(why))}</h3>
     <div style="font-size:var(--t-sm)">${esc(why)}</div>
