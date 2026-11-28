@@ -12,7 +12,7 @@ from domain import pead as pead_mod
 from domain import trend as trend_mod
 from domain import fv_outlier as fv_outlier_mod
 from domain.company_type import (CYCLE_PEAK_MARGIN_X, NORMAL_MIN_YEARS, NORMAL_YEARS, CompanyType,
-                                 classify, revenue_trend)
+                                 classify, peak_line, revenue_trend)
 from . import fcff_dcf, young_dcf
 from . import scenarios as scenarios_mod
 from . import financial as financial_mod
@@ -765,9 +765,10 @@ def beat_consistency(eps_surprises):
 
 def _trend_roic_map(f, tax):
     """Per-year RAW ROIC map (no R&D or lease capitalization) from the trend series,
-    or {} when the inputs are absent."""
+    or {} when the inputs are absent. A cyclical's years are read at their margin held
+    to the peak line (returns_oi_dated, E106)."""
     try:
-        return trend_mod.roic_series(getattr(f, "operating_income_annuals_dated", None),
+        return trend_mod.roic_series(returns_oi_dated(f),
                                      getattr(f, "ic_components_dated", None) or {}, tax)
     except Exception:
         return {}
@@ -993,8 +994,7 @@ def fcf_yield_adj(trend_rows, enterprise_value, wacc_val):
     return adj, f"FCF yield {y*100:.1f}% vs WACC {wacc_val*100:.1f}% ({ratio:.2f}x)"
 
 
-def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None, uncertainty=None,
-             peak_cyclical=False, fv_note=""):
+def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None, uncertainty=None):
     if fv_anchor is None or not price or fv_anchor <= 0:
         # No point fair value: an FCF yield is still a cheapness opinion, scored
         # around neutral because the margin-of-safety half is missing.
@@ -1009,15 +1009,13 @@ def _r_price(fv_anchor, price, notes, fcf_adj=0.0, fcf_note=None, uncertainty=No
     # skews the bands asymmetrically).
     mos = (fv_anchor - price) / fv_anchor
     b5, b4, b3, b2 = uncertainty_mod.bands(uncertainty)
+    # E98's Low bands over the fair value for a cyclical at a peak are retired (E107):
+    # since E105 the range is built on the capped start margin and every cyclical's MC
+    # reaches its trough, so a bigger peak no longer widens it, and the switch at the
+    # peak line was itself a cliff (MU with consensus: BUY just under, Accumulate over).
     rated = (uncertainty or {}).get("rating") or "Unrated"
-    if peak_cyclical and mos < 0:
-        # E98: a wider range forgives a premium (Morningstar's 1-star edge moves out), and
-        # at a peak the range is wide BECAUSE of the peak, so a bigger peak bought a
-        # better score. Over the fair value a peak cyclical reads the Low bands.
-        b5, b4, b3, b2 = uncertainty_mod.BANDS["Low"]
-        rated = f"{rated} (วัฏจักรจุดพีค ราคาเกิน FV: ใช้ band Low)"
     base = _band(mos, [(b5, 5.0), (b4, 4.0), (b3, 3.0), (b2, 2.0), (-1e9, 1.0)])
-    notes.append(f"P base(margin-of-safety {mos*100:+.0f}% of value{fv_note}, uncertainty {rated}: "
+    notes.append(f"P base(margin-of-safety {mos*100:+.0f}% of value, uncertainty {rated}: "
                  f"5 at >= {b5*100:.0f}%, 4 at >= {b4*100:.0f}%)={base}")
     score = base
     # The firm's own 5-year P/E range no longer moves P (user decision 2026-10-19):
@@ -1148,6 +1146,11 @@ def not_rated_reasons(unc, anc, f):
     gaps = _ttm_gaps(f)
     if gaps:
         out.append("TTM incomplete - " + "; ".join(gaps))
+    # a DCF whose Bear / Base / Bull could not be built has no measured range, so the
+    # "Unrated" bands must not stand in for one: APPS (approximate facts) went NOT RATED
+    # -> HOLD on a router flip whose FCFF row had no scenarios (m1)
+    if (method == "FCFF DCF" or young) and (unc or {}).get("rating") in (None, "Unrated"):
+        out.append("no value range - the scenarios could not be built on the primary model")
     return out
 
 
@@ -1224,12 +1227,11 @@ class DeepV82Engine(DeepEngine):
         unc = uncertainty_mod.assess(
             scen, anc.ydcf,
             floor="Very High" if anc.method.startswith("Young-Company") else None)
-        fv_scored = _peak_scored_value(anc)
-        scores = _pillars(f, cap, gr, pv, fv_scored or anc.value, ex, notes, ctype,
+        scores = _pillars(f, cap, gr, pv, anc.value, ex, notes, ctype,
                           young_uncertain=bool((anc.ydcf or {}).get("uncertain"))
                           and anc.method.startswith("Young-Company"),
-                          uncertainty=unc, peak_held=fv_scored is not None)
-        comp, reco = _overall(f, scores, notes, unc, anc, fv_scored)
+                          uncertainty=unc)
+        comp, reco = _overall(f, scores, notes, unc, anc)
 
         # EVA on ONE basis: the measured return on the capital it was measured on
         # (R&D-capitalized ROIC x R&D-capitalized capital). The median-damped scoring
@@ -1256,9 +1258,6 @@ class DeepV82Engine(DeepEngine):
             key_metrics=_key_metrics(f, cap, gr, dil, pv, pi, ex, fv_disagreement, ctype, anc),
             flags=list(f.flags))
         v.priced_in, v.scenarios, v.uncertainty = priced_in, scen, unc
-        v.key_metrics["peak_scored_fv"] = _round_nonzero(fv_scored)
-        v.key_metrics["mos_scored_pct"] = (_pct((fv_scored - f.price) / fv_scored, 1)
-                                           if (fv_scored and f.price) else None)
         fv_outlier_mod.mark(v)
         v.expected_return = _expected_return(f, cap, gr, ctype, rf, anc)
         try:
@@ -1268,17 +1267,6 @@ class DeepV82Engine(DeepEngine):
         return v
 
 
-def _peak_scored_value(anc):
-    """The fair value P and the MoS cap read for a cyclical at a peak: the FCFF DCF with
-    today's margin held to the peak line (CYCLE_PEAK_MARGIN_X x normal) before it
-    reverts. Above the line a bigger peak raises the fade years' cash and so the
-    displayed FV (MU OI x1.5: $471 -> $505), which must not buy a better rating (E98).
-    None for any other firm, or a peak already under the line."""
-    if anc is None or anc.method != "FCFF DCF":
-        return None
-    return (anc.dcf or {}).get("peak_scored_per_share")
-
-
 def _cross_checks(f, cap, gr, ctype, rf, anc):
     """(priced_in, scenarios) on the anchor's own model, or ({}, {}). A cross-check
     must never kill a row."""
@@ -1286,10 +1274,15 @@ def _cross_checks(f, cap, gr, ctype, rf, anc):
         if anc.method == "FCFF DCF" and f.price:
             built = _dcf_inputs(f, cap, gr, ctype, rf)
             if built:
-                m_raw = f.operating_income / f.revenue
+                # the DCF's own start margin without the lease add-back: Bear and the
+                # Monte Carlo shift by exactly the peak line's cap (E105), or a capped
+                # start read as a huge negative lease offset and sent Bear to $0
+                m_adj = _lease_ebit_addback(f, cap, rf) / f.revenue
+                m_raw = built[0]["margin_now"] - m_adj
                 cyc = cycle_of(f) if ctype is CompanyType.CYCLICAL else None
                 pi, sc = scenarios_mod.operating(built[0], f.price, _margin_history(f), m_raw,
-                                                 cycle=cyc)
+                                                 cycle=cyc,
+                                                 margin_today=f.operating_income / f.revenue + m_adj)
                 if sc and cyc is not None:
                     sc["cycle_checks"] = cycle_checks(f, built[0], cyc, anc.value)
                 return pi or {}, sc or {}
@@ -1391,6 +1384,35 @@ def cycle_of(f):
     one instead of re-deriving it."""
     ctype, _, cyc = _classified(f)
     return cyc if ctype is CompanyType.CYCLICAL else None
+
+
+def returns_oi(f, operating_income, revenue):
+    """The operating income a cyclical's RETURNS are measured on (E106): its margin
+    held to the peak line, the same cap its DCF starts at (E105). Every reader of a
+    ROIC level or spread (the valuation's terminal ROIC, Economics' spread, the
+    competitive-advantage period, the moat class, incremental ROIC, the ROIC trend)
+    reads it, so a bigger peak buys neither value nor score. Any other firm, or a
+    cyclical below its line: `operating_income` unchanged."""
+    cyc = cycle_of(f)
+    if cyc is None or operating_income is None or not revenue or revenue <= 0:
+        return operating_income
+    return min(operating_income, peak_line(cyc) * revenue)
+
+
+def returns_oi_dated(f):
+    """operating_income_annuals_dated with each fiscal year passed through returns_oi
+    on that year's revenue."""
+    oid = getattr(f, "operating_income_annuals_dated", None)
+    if not oid or cycle_of(f) is None:
+        return oid
+    rev = dict(f.revenue_annuals_dated or [])
+    return [(d, returns_oi(f, o, rev.get(d))) for d, o in oid]
+
+
+def _returns_oi_annuals(f):
+    """operating_income_annuals passed through returns_oi, year by year."""
+    oia, ann = f.operating_income_annuals or [], f.revenue_annuals or []
+    return [returns_oi(f, o, ann[i] if i < len(ann) else None) for i, o in enumerate(oia)]
 
 
 class _Capital(NamedTuple):
@@ -1527,8 +1549,15 @@ def _capital(f, rf, notes, ctype=CompanyType.STANDARD):
                      f"capital as well as EBIT")
     if lease:
         _add_flag(f, f"operating leases ${lease/1e9:.1f}B capitalized into debt+IC (S5)")
-    roic = (nopat / ic) if (nopat is not None and ic and ic > 0) else None
-    rd = rd_capitalize(f.rnd_annuals, f.operating_income, ic, tax)
+    # returns on the peak-line operating income for a cyclical (E106); NOPAT itself
+    # stays as measured (EPS, reinvestment and FCFF read it)
+    oi_r = returns_oi(f, f.operating_income, f.revenue)
+    nopat_r = oi_r * (1 - tax) if oi_r is not None else None
+    if oi_r is not None and f.operating_income is not None and oi_r < f.operating_income - 1e-6:
+        _add_flag(f, (f"cyclical at a peak: ROIC measured on EBIT ${oi_r/1e9:.2f}B (margin held "
+                      f"to {CYCLE_PEAK_MARGIN_X}x normal), not today's ${f.operating_income/1e9:.2f}B"))
+    roic = (nopat_r / ic) if (nopat_r is not None and ic and ic > 0) else None
+    rd = rd_capitalize(f.rnd_annuals, oi_r, ic, tax)
     if rd:
         notes.append(f"R&D-capitalized ROIC {rd[2]*100:.1f}%")
     roic_used = rd[2] if rd else roic
@@ -1663,7 +1692,12 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
         # trough-to-peak history is the cycle, not growth (MU FY2023 -> FY2026: 36.9%);
         # a consensus long-term rate is the same peak seen forward (E93)
         g_c, g_src = cycle_growth(f, g_stable)
-        _add_flag(f, f"cyclical growth: {g_src} replaces the historical {g_lt*100:.1f}%")
+        # name what is replaced: TSLA's 13.3% is the consensus path, not history (m4)
+        src = str((getattr(f, "provenance", None) or {}).get("growth_lt") or "")
+        kind = "consensus" if "consensus" in src or src.startswith(("fmp", "yahoo")) else "historical"
+        _add_flag(f, (f"cyclical growth for PEG / FV-P: {g_src} replaces the {kind} "
+                      f"{g_lt*100:.1f}%" + ("; the FCFF DCF keeps the consensus revenue path"
+                                           if kind == "consensus" and consensus_growth_path(f) else "")))
         g_lt = g_c
     growth_raw = _clamp(g_lt, 0.0, GROWTH_CAP)
     growth = min(growth_raw, g_cap)
@@ -2094,13 +2128,35 @@ def organic_growth(f):
     return g, note
 
 
-def _dcf_revenue_growth(f, gr, cyc=None):
+def peak_weight(cyc, margin):
+    """How far a cyclical's start margin (raw, already held to the peak line) sits
+    between its normal margin (0) and the peak line (1), linear between (E107). The
+    peak treatment of consensus (E93) applies in that proportion, so nothing in the
+    fair value switches when the margin crosses the line or the normal."""
+    lo, hi = cyc.normal_margin, peak_line(cyc)
+    return _clamp((margin - lo) / (hi - lo), 0.0, 1.0) if hi > lo else 0.0
+
+
+def _faded_path(path, g_stable, total_years, fade_start_cap, years=fcff_dcf.HIGH_YEARS):
+    """`path` extended to `years` with fcff_dcf's own fade to g_stable, so fcff_dcf
+    values the extended path exactly as it values `path` (the fade is linear in the
+    year, so it restarts on the same line)."""
+    if len(path) >= years:
+        return list(path)
+    k, start = len(path), min(path[-1], fade_start_cap)
+    return list(path) + [start + (g_stable - start) * (t - k) / (total_years - k)
+                         for t in range(k + 1, years + 1)]
+
+
+def _dcf_revenue_growth(f, gr, cyc=None, weight=0.0, total_years=fcff_dcf.TOTAL_YEARS):
     """Revenue growth path for the explicit years and where it came from:
     (path, source, basis). basis is "consensus", or "historical" when no analyst path
     exists (the Price pillar then refuses to rate above neutral). After the path,
-    fcff_dcf fades linearly to the stable growth rate by year 10. A cyclical takes at
-    most CYCLE_CONSENSUS_YEARS of consensus when it is at a peak, then its cycle_growth
-    (E93, E100); without consensus, cycle_growth from today's revenue (E92), never the
+    fcff_dcf fades linearly to the stable growth rate by year 10. A cyclical at its
+    peak line (weight 1) takes at most CYCLE_CONSENSUS_YEARS of consensus, then its
+    cycle_growth (E93); at or below its normal margin (weight 0) the analyst path is
+    read like any firm's (E100); between, the two paths year by year in proportion
+    (E107). Without consensus, cycle_growth from today's revenue (E92), never the
     trough-to-peak CAGR."""
     held = []
     path = consensus_growth_path(f, held)
@@ -2110,18 +2166,25 @@ def _dcf_revenue_growth(f, gr, cyc=None):
     if cyc is not None and not path:
         g_c, g_src = cycle_growth(f, gr.g_stable)
         return [g_c], g_src + "; no consensus", "historical"
-    if cyc is not None and cyc.at_peak:
-        # consensus past year 2 is the peak seen forward (E93); below the peak line the
-        # analyst path is read like any firm's (TSLA at 3.7% vs a normal 8.2%, E100)
+    if cyc is not None:
+        src = f.provenance.get("rev_growth_path") or "consensus"
+        full = _faded_path(path, gr.g_stable, total_years, GROWTH_CAP)
+        if weight <= 0:
+            return full, f"consensus revenue growth ({src}, {len(path)}y)", "consensus"
+        # consensus past year 2 is the peak seen forward (E93)
         g_c, g_src = cycle_growth(f, gr.g_stable)
         used = path[:CYCLE_CONSENSUS_YEARS]
-        src = f.provenance.get("rev_growth_path") or "consensus"
+        peak = used + [g_c] * max(0, fcff_dcf.HIGH_YEARS - len(used))
+        out = [(1 - weight) * a + weight * b for a, b in zip(full, peak)]
         _add_flag(f, (f"{CYCLE_CONSENSUS_NOTE}: consensus {', '.join(f'{x*100:+.0f}%' for x in used)} "
-                      f"at today's margin, then margin to its normal and growth {g_src}"
+                      f"at the start margin, then margin to its normal and growth {g_src}"
                       + (f" ({len(path) - len(used)} later consensus year(s) not used)"
-                         if len(path) > len(used) else "")))
-        return (used + [g_c] * max(0, fcff_dcf.HIGH_YEARS - len(used)),
-                f"consensus revenue growth ({src}, {len(used)}y), then {g_src}", "consensus")
+                         if len(path) > len(used) and weight >= 1 else "")
+                      + (f"; {weight*100:.0f}% of the way from normal to the peak line, so the "
+                         f"path is that share of this and the rest the full consensus"
+                         if weight < 1 else "")))
+        return (out, f"consensus revenue growth ({src}, {len(used)}y), then {g_src}"
+                + (f" (peak weight {weight:.2f})" if weight < 1 else ""), "consensus")
     if path:
         src = f.provenance.get("rev_growth_path") or "consensus"
         return path, f"consensus revenue growth ({src}, {len(path)}y)", "consensus"
@@ -2247,6 +2310,16 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
         norm = cyc.normal_margin
         target, t_label = norm + m_adj, f"normalized median {norm*100:.1f}% ({cyc.margin_years}y)"
         years = CYCLICAL_MARGIN_YEARS
+        # E105: ONE fair value. Above the peak line the DCF starts at the line, so a
+        # bigger peak never raises the value (MU OI x0.6..x2.0: $440.32 throughout),
+        # and at the line the start is today's margin, so the value is continuous.
+        line = peak_line(cyc) + m_adj
+        if m_now > line:
+            _add_flag(f, (f"cyclical at a peak: today's {m_now*100:.1f}% is valued from "
+                          f"{line*100:.1f}% ({CYCLE_PEAK_MARGIN_X}x normal), the highest "
+                          f"margin the cycle is credited with"))
+            m_now = line
+        weight = peak_weight(cyc, m_now - m_adj)
         _add_flag(f, (f"cyclical: operating margin {m_now*100:.1f}% reverts to its "
                       f"normalized {target*100:.1f}% over {years}y"))
     else:
@@ -2263,7 +2336,10 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
             _add_flag(f, (f"margin target: today's {m_now*100:.1f}% reverts to the 5-year "
                           f"median {target*100:.1f}% over 5y - a trough year is not the "
                           f"firm's steady state"))
-    g_path, g_src, g_basis = _dcf_revenue_growth(f, gr, cyc)
+    moat, moat_note = moat_class(cap.roic_map, cap.wacc)
+    high_years, total_years = MOAT_PERIODS[moat or "narrow"]
+    g_path, g_src, g_basis = _dcf_revenue_growth(f, gr, cyc, weight if cyc is not None else 0.0,
+                                                 total_years)
     s2c, s2c_src = _dcf_sales_to_capital(f, cap)
     kw = dict(revenue=f.revenue, margin_now=m_now, margin_target=target, g_high=g_path[0],
               growth_path=g_path, g_stable=gr.g_stable, sales_to_capital=s2c,
@@ -2272,12 +2348,12 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
               cash=f.cash, debt=cap.debt_eff, minority_interest=_nci(f),
               shares=_quote_shares(f, cap), margin_years=years, fade_start_cap=GROWTH_CAP,
               release_capital=cyc is None,
-              # E93: a cyclical's consensus years run at today's margin, then it reverts
+              # E93: a cyclical's consensus years run at its start margin, then it
+              # reverts; only above its normal, where holding is not reverting (E107)
               margin_hold=(min(len(consensus_growth_path(f)), CYCLE_CONSENSUS_YEARS)
-                           if (cyc is not None and cyc.at_peak and g_basis == "consensus")
-                           else 0))
-    moat, moat_note = moat_class(cap.roic_map, cap.wacc)
-    kw["high_years"], kw["total_years"] = MOAT_PERIODS[moat or "narrow"]
+                           if (cyc is not None and g_basis == "consensus" and m_now > target)
+                           else 0),
+              high_years=high_years, total_years=total_years)
     sources = {"growth": g_src, "sales_to_capital": s2c_src, "margin_target": t_label,
                "lease_interest_added": round(addback, 0) if addback else None,
                "moat": moat, "moat_period": moat_note or "ไม่พอวัด moat (<4 ปีงบ) → 5 + 5 ปี",
@@ -2288,13 +2364,14 @@ def _dcf_inputs(f, cap, gr, ctype, rf):
             "normal_margin_pct": round(cyc.normal_margin * 100, 2), "years": cyc.margin_years,
             "short_window": cyc.short_window,
             "revenue_now": round(f.revenue, 0),
-            "at_peak": cyc.at_peak,
+            "at_peak": cyc.at_peak, "peak_weight": round(weight, 3),
+            "peak_line_pct": round(peak_line(cyc) * 100, 2),
+            "start_margin_pct": round(kw["margin_now"] * 100, 2),
             "growth_pct": _pct(g_path[-1], 2), "growth_source": g_src,
             "consensus_years": kw["margin_hold"],
             "bear_margin_pct": round(cyc.low_margin * 100, 2),
             "bull_margin_pct": round(cyc.high_margin * 100, 2),
-            "mc_margin_pct": ([round(cyc.trough_margin * 100, 2), round(cyc.high_margin * 100, 2)]
-                              if cyc.at_peak else None)}
+            "mc_margin_pct": [round(cyc.trough_margin * 100, 2), round(cyc.high_margin * 100, 2)]}
     return kw, sources, g_basis
 
 
@@ -2310,14 +2387,6 @@ def _fcff_dcf(f, cap, gr, pi, ctype, rf):
         return None
     out["growth_basis"] = g_basis
     out["sources"] = sources
-    cyc = cycle_of(f) if ctype is CompanyType.CYCLICAL else None
-    if cyc is not None and cyc.at_peak:
-        line = CYCLE_PEAK_MARGIN_X * cyc.normal_margin + (kw["margin_target"] - cyc.normal_margin)
-        held = (fcff_dcf.value(**dict(kw, margin_now=line))
-                if kw["margin_now"] > line else None)
-        if held:
-            out["peak_scored_per_share"] = held["per_share"]
-            sources["peak_line_margin_pct"] = round(line * 100, 2)
     if g_basis != "consensus":
         _add_flag(f, (f"{NO_CONSENSUS_BADGE}: the FCFF DCF's growth is {sources['growth']} - "
                       f"no analyst revenue path (Yahoo / FMP) behind the fair value"))
@@ -2575,7 +2644,7 @@ def _incremental_roic(f, roic_map, acq, tax, notes):
     denominator is large and stable. The 1-year capex + M&A - D&A fallback has a
     near-zero denominator whenever capex ~ D&A, hence the [-2, 2] clamp. Both are
     raw (no R&D or lease capitalization). Returns (roic, source, declined)."""
-    oia = f.operating_income_annuals or []
+    oia = _returns_oi_annuals(f)
     inc_roic, inc_src, declined = None, None, False
     if roic_map:
         win = trend_mod.incremental_window(roic_map, years=5)
@@ -2613,8 +2682,9 @@ def _margin_trend(f):
 
 
 def _roic_delta(f, cap):
-    """Like-for-like FY0 - FY1 ROIC change, or None."""
-    oia = f.operating_income_annuals or []
+    """Like-for-like FY0 - FY1 ROIC change, or None (a cyclical's years at the peak
+    line, E106)."""
+    oia = _returns_oi_annuals(f)
     if not (f.equity_prior is not None and f.cash_prior is not None and len(oia) > 1 and oia[1]):
         return None
     # Leases on both sides of the trend. With no filed prior-year lease, reuse
@@ -2670,7 +2740,7 @@ def _acquisitions_for_growth_year(f):
 
 
 def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD,
-             young_uncertain=False, uncertainty=None, peak_held=False):
+             young_uncertain=False, uncertainty=None):
     """The four DEEP pillar scores, each from its rubric in _r_*."""
     acq_int, acq_label = acquisition_intensity(*_acquisitions_for_growth_year(f))
     # the fade is read on the covered years only, on the fiscal-year clock Demand
@@ -2707,12 +2777,8 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     # the same EV the WACC weights and the reverse DCF were built from
     ev = _enterprise_value(f, cap) if cap.mcap else None
     fy_adj, fy_note = (0.0, None) if fin else fcf_yield_adj(trend_rows, ev, cap.wacc)
-    cyc = cycle_of(f) if ctype is CompanyType.CYCLICAL else None
     P = _r_price(anchor_value, f.price, notes,
-                 fcf_adj=fy_adj, fcf_note=fy_note, uncertainty=uncertainty,
-                 peak_cyclical=bool(cyc and cyc.at_peak),
-                 fv_note=(f" ${anchor_value:,.2f}, today's margin held to "
-                          f"{CYCLE_PEAK_MARGIN_X}x normal" if peak_held else ""))
+                 fcf_adj=fy_adj, fcf_note=fy_note, uncertainty=uncertainty)
     # When the two growth stories disagree, "cheap" is a belief about consensus:
     # cap (never lift) P at NEUTRAL.
     if pv.growth_unreconciled and P is not None and P > NEUTRAL_SCORE:
@@ -2734,7 +2800,7 @@ def _pillars(f, cap, gr, pv, anchor_value, ex, notes, ctype=CompanyType.STANDARD
     return {"D": D, "E_exec": E_exec, "E_econ": E_econ, "P": P}
 
 
-def _overall(f, scores, notes, unc=None, anc=None, fv_scored=None):
+def _overall(f, scores, notes, unc=None, anc=None):
     """Composite and recommendation, with the caps for unmeasured pillars, then
     NOT RATED when the value cannot carry a rating (not_rated_reasons).
     Returns (composite, recommendation)."""
@@ -2755,14 +2821,12 @@ def _overall(f, scores, notes, unc=None, anc=None, fv_scored=None):
         for k in missing:
             notes.append(f"{k} วัดไม่ได้=ใช้ค่ากลาง {NEUTRAL_SCORE} "
                          f"(น้ำหนัก {WEIGHTS[k]:.0%} · ไม่มีข้อมูลพอ ไม่ได้แปลว่าแย่)")
-    fv = fv_scored if fv_scored is not None else (anc.value if anc is not None else None)
+    fv = anc.value if anc is not None else None
     mos = (fv - f.price) / fv if (fv and fv > 0 and f.price) else None
     reco = recommendation(comp, mos) if comp is not None else None
     if reco is not None and reco != recommendation(comp):
         line, top = mos_cap(mos)
-        basis = (f" on the peak-held FV ${fv:,.2f}" if fv_scored is not None
-                 and anc is not None and abs(fv_scored - (anc.value or 0)) > 0.005 else "")
-        _add_flag(f, (f"{mos_cap_flag(line, top)}: {mos_text(mos, line)}{basis} "
+        _add_flag(f, (f"{mos_cap_flag(line, top)}: {mos_text(mos, line)} "
                       f"(composite {comp:.2f} reads {recommendation(comp)})"))
     for cap_reco, pillar in ((cap_reco_without_price, "P"), (cap_reco_without_quality, "E_econ")):
         reco, why = cap_reco(reco, scores[pillar])

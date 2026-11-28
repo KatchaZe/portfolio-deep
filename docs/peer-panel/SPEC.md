@@ -492,3 +492,26 @@ value its way, otherwise Base growth; reinvestment and WACC are Base's. Bear <= 
 R71 FV outlier flag (display only). |FV / median(other methods) - 1| > FV_OUTLIER_GAP = 40% with at least 2 of PEG,
 FV/P, relative (regression, else peer median) and the cycle checks: flag "ค่าหลักต่างจากวิธีเทียบอื่นมาก
 ตรวจสมมติฐาน" and a badge by the Fair Value. Changes no number. E104.
+
+## Resolutions 2026-11-28c (cyclical-norm round 4; verifier v_cyc3 J1-J4, m1-m4; scored)
+R72 One fair value at a peak (supersedes the peak-held FV in R65). A cyclical's FCFF DCF starts at
+min(today's margin, peak_line = CYCLE_PEAK_MARGIN_X x normal) plus the lease add-back; the card FV, Bear / Base /
+Bull, the Monte Carlo, P, the MoS cap, the reverse DCF and the cross-checks all read it. The scenarios' unadjusted
+margin is that start minus the lease add-back. key_metrics.cycle carries peak_line_pct and start_margin_pct;
+priced_in.margin_now_pct stays today's measured margin. E105.
+R73 Returns on the capped margin. For a cyclical, every ROIC level or spread (terminal ROIC, Economics' spread, CAP,
+moat class, incremental ROIC, the ROIC trend) is measured on operating income held to the peak line, year by year.
+Below the line nothing changes. E106.
+R74 Cyclical class off today's margin (amends R58; supersedes R67 and R65's at-peak gates). Firm-level: (a) a >= 15% revenue fall with
+the margin falling the same year, (b) a loss below -2% or a range above 30 points, (c) a later fiscal year back at
+or above the normal margin, all on fiscal years, normal >= 5%. Today's margin decides only whether the start is
+capped. The E93 two-year consensus path applies in proportion peak_weight = (start - normal) / (line - normal)
+clamped to [0, 1]; the margin hold applies when the start is above the target; every cyclical's MC runs from its
+floored trough to its Bull margin; P uses the firm's own uncertainty bands (R65's Low bands retired). Test: OI
+x0.30..x2.00 has no FV step > 5%, and P, composite and rating never rise on a step into or above the line. E107.
+R75 FV outlier flag (supersedes R71). Methods: PEG and FV/P (not for a young-company primary), relative (not when
+model.weak or loo_median_err > FV_OUTLIER_MAX_LOO = 0.40), cycle checks; >= FV_OUTLIER_MIN_METHODS = 2 left; flag
+when |ln(FV / median)| > ln(FV_OUTLIER_RATIO = 1.5) and >= 2 methods lie beyond 1.5x on the same side. E108.
+R76 Young Monte Carlo and the rating gate. The young story MC's margin runs from at most model - sampled span to at
+least model + sampled span (young_dcf MC_MARGIN_SPAN_*). A FCFF or young anchor whose uncertainty is Unrated (no
+scenarios) is NOT RATED. E109.

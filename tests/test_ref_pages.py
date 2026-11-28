@@ -161,6 +161,10 @@ def test_ref_thresholds_equal_the_code():
          "composite ≥4 = BUY", "3–4 = HOLD / Accumulate", "2–3 = HOLD", "<2 = SELL / AVOID",
          f">{g(E.TERMINAL_SHARE_UNRATABLE)}%",
          *(f"{k}×{pc(w)}%" for k, w in E.WEIGHTS.items()))
+    # E105-E107: one FV at a peak, returns on the same line, class off today's margin
+    _has("rating", "บริษัทวัฏจักรมี FV เดียว")
+    _has("cycle", "ไม่ใช้ margin วันนี้", "margin กลับถึงระดับปกติ", "peak weight", "ไม่มีจุดกระโดดที่เส้นพีค",
+         "วัดบน EBIT ที่ margin ไม่เกินเส้นพีคเดียวกัน")
     from domain import fv_outlier as FO
     _has("fv-outlier", f"{FO.FV_OUTLIER_RATIO}× (FV_OUTLIER_RATIO)", f"เกิน {FO.FV_OUTLIER_MAX_LOO:.2f}",
          f"อย่างน้อย {FO.FV_OUTLIER_MIN_METHODS} วิธี", FO.FV_OUTLIER_FLAG)

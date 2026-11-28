@@ -1,3 +1,14 @@
+# v9.0 build 2026-11-28c (engine copy rebuilt: cyclical round 4, one fair value)
+- One fair value for a cyclical at a peak: the DCF starts at today's margin held to 1.5x
+  normal, and the card, scenarios, Monte Carlo, P, the MoS cap, the reverse DCF and the
+  cross-checks all read it. MU 2026-11: FV $471 -> $440.32 (= Base), MoS -60.7%, HOLD.
+- Returns on the same line: Economics' ROIC, terminal ROIC, CAP, moat and incremental ROIC.
+  MU E_econ 5.0 -> 4.5, composite 3.78 -> 3.63.
+- The firm-level cyclical class reads fiscal years only (the margin must have come back to
+  normal after the drop); no step in value at the peak line.
+- FV outlier flag: weak regressions and a young firm's PEG no longer count; 1.5x either way
+  with two methods agreeing. Young Monte Carlo margin two-sided.
+
 # v9.0 build 2026-11-28b (engine copy rebuilt: cyclical round 3, stepped MoS cap)
 - A bigger peak never improves P, the composite or the rating: at a peak the Monte Carlo tops
   out at the Bull margin, P uses the Low bands over the FV, and P and the MoS cap read the DCF
