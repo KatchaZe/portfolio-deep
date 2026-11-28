@@ -2644,7 +2644,6 @@ def _incremental_roic(f, roic_map, acq, tax, notes):
     denominator is large and stable. The 1-year capex + M&A - D&A fallback has a
     near-zero denominator whenever capex ~ D&A, hence the [-2, 2] clamp. Both are
     raw (no R&D or lease capitalization). Returns (roic, source, declined)."""
-    oia = _returns_oi_annuals(f)
     inc_roic, inc_src, declined = None, None, False
     if roic_map:
         win = trend_mod.incremental_window(roic_map, years=5)
@@ -2658,6 +2657,7 @@ def _incremental_roic(f, roic_map, acq, tax, notes):
             # The noisy 1-year proxy must not answer that question either.
             declined = True
             notes.append(f"E_exec incremental-ROIC adj=skipped({why})")
+    oia = _returns_oi_annuals(f) if (inc_roic is None and not declined) else []
     if (inc_roic is None and not declined
             and len(oia) > 1 and oia[1] and f.capex is not None and f.dep_amort is not None):
         d_nopat = (oia[0] - oia[1]) * (1 - tax)
