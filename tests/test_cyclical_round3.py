@@ -57,13 +57,13 @@ def test_E98_a_bigger_peak_never_raises_P_composite_or_rating():
           "rating never rise", str(rows))
 
 
-def test_E98_premium_side_reads_low_bands_at_a_peak():
+def test_E98_premium_side_low_bands_retired_by_E107():
     v = _value("MU")
     check(v.uncertainty["rating"] != "Low", "the wider range is still shown as risk", str(v.uncertainty))
     notes = v.subscores["breakdown"]
     base = next(n for n in notes if n.startswith("P base("))
-    check("Low" in base and "จุดพีค" in base, "P base names the Low bands of a cyclical at a peak", base)
-    check(v.P <= 1.25 + 1e-9, "MU P is the Low-band 1.0 + FCF 0.25, not 2.25", str(v.P))
+    check("จุดพีค" not in base, "E107: P reads the firm's own bands (the Low-band switch was a cliff at the line)", base)
+    check(v.P <= 1.25 + 1e-9, "MU P stays 1.0 + FCF 0.25 at MoS -61%", str(v.P))
 
 
 def test_E98_peak_mc_never_above_the_bull_margin():
@@ -76,17 +76,15 @@ def test_E98_peak_mc_never_above_the_bull_margin():
     mc = v.scenarios["story_mc"]
     check(mc["p50"] <= v.anchor_value * 1.05, "MC p50 no longer sits above the normalized FV",
           f"p50 {mc['p50']} FV {v.anchor_value}")
-    check(abs(v.anchor_value - 470.93) / 470.93 < 0.01, "primary FV stays $471 +/-1%", str(v.anchor_value))
+    check(abs(v.anchor_value - 440.32) / 440.32 < 0.01, "primary FV $440.32 +/-1% (E105: start held to the line)",
+          str(v.anchor_value))
 
 
-def test_E98_scored_value_holds_the_peak_at_the_line():
+def test_E98_peak_held_value_is_the_card_value_E105():
     v = _value("MU")
-    km = v.key_metrics
-    check(km.get("peak_scored_fv") is not None and km["peak_scored_fv"] < v.anchor_value,
-          "a peak cyclical's P and cap read the FV with today's margin held to 1.5x normal",
-          str(km.get("peak_scored_fv")))
+    check("peak_scored_fv" not in v.key_metrics, "E105: no second FV; the card's FV is held to the line")
     nv = _value("NVDA")
-    check(nv.key_metrics.get("peak_scored_fv") is None, "a standard firm has no peak-scored FV")
+    check("peak_scored_fv" not in nv.key_metrics, "a standard firm has none either")
 
 
 def test_E99_stepped_cap_constants_and_boundaries():

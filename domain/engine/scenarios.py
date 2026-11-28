@@ -38,14 +38,16 @@ from domain.company_type import BEAR_CYCLE_FLOOR  # noqa: E402
 BEAR_CYCLE_FLOOR_PCT = round(BEAR_CYCLE_FLOOR * 100, 1)
 
 
-def cycle_priced(kw, price, cycle):
+def cycle_priced(kw, price, cycle, margin_today=None):
     """What a cyclical's price implies on TODAY's revenue at its through-cycle growth
     (the model's last explicit year, without consensus years or a held margin): the
-    margin the price pays for, and whether it sits CYCLE_PRICED_DOWN_X below today's."""
+    margin the price pays for, and whether it sits CYCLE_PRICED_DOWN_X below today's
+    (`margin_today`, the measured margin: the DCF's start is capped at the peak line)."""
+    today = kw["margin_now"] if margin_today is None else margin_today
     g = (kw.get("growth_path") or [kw["g_high"]])[-1]
     held = dict(kw, growth_path=[g], g_high=g, margin_hold=0)
     m, why = _bisect(lambda x: _dcf(held, margin_target=x), price, MARGIN_LO, MARGIN_HI)
-    down = bool(m is not None and m > 0 and kw["margin_now"] / m > CYCLE_PRICED_DOWN_X)
+    down = bool(m is not None and m > 0 and today / m > CYCLE_PRICED_DOWN_X)
     return {"margin_at_revenue_now_pct": round(m * 100, 2) if m is not None else None,
             "margin_at_revenue_now_note": why,
             "cycle_priced_down": down,
@@ -115,12 +117,14 @@ def _pack(names, values, inputs, price, basis):
             "growth_destroys_value": values[0] > values[1]}
 
 
-def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None):
+def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None, margin_today=None):
     """(priced_in, scenarios) for an FCFF DCF firm. `kw` is the anchor's own
     fcff_dcf.value() input; `margin_history` the firm's annual margins, newest first
     (one-time add-backs applied), without the lease-interest add-back the DCF makes,
     which is `kw["margin_now"] - margin_now_unadjusted`. `cycle` (a
-    domain.company_type.Cycle) sets a cyclical's Bear / Bull from its whole cycle."""
+    domain.company_type.Cycle) sets a cyclical's Bear / Bull from its whole cycle.
+    `margin_today` is the measured margin (lease-adjusted) when the DCF starts lower
+    (a cyclical above its peak line, E105); shown as today's and read by the cycle turn."""
     if not kw or not price:
         return None, None
     m_model = kw["margin_target"]
@@ -139,14 +143,15 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None)
                                              fade_start_cap=None)))
     priced = {"margin_pct": round(m_star * 100, 2) if m_star is not None else None,
               "margin_note": why_m,
-              "margin_now_pct": round(kw["margin_now"] * 100, 2),
+              "margin_now_pct": round((kw["margin_now"] if margin_today is None else margin_today) * 100, 2),
+              "margin_start_pct": round(kw["margin_now"] * 100, 2),
               "margin_model_pct": round(m_model * 100, 2),
               "growth_pct": round(g_star * 100, 1) if g_star is not None else None,
               "growth_note": why_g,
               "rev10_x": round(rev10 / kw["revenue"], 1) if rev10 else None}
     lease_adj = (kw["margin_now"] - margin_now_unadjusted) if margin_now_unadjusted is not None else 0.0
     if cycle is not None:
-        priced.update(cycle_priced(kw, price, cycle))
+        priced.update(cycle_priced(kw, price, cycle, margin_today))
         # the whole cycle, not its last five years: the lower and upper quartile of up
         # to ten fiscal years. No half-model floor: a cyclical's low years ARE its story
         # never above today's when today is the trough (TSLA 2026: 4.1% under a 5.5%
@@ -191,17 +196,17 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None)
                        "growth_y1_pct": round(g[0] * 100, 1)})
     pack = _pack([c[0] for c in cases], values, inputs, price,
                  basis + " · growth = consensus ∓ มากกว่าระหว่าง 2pp กับ 20% ของปีนั้น")
-    if cycle is not None and cycle.at_peak:
-        # at a peak margin the downside is where in the cycle the firm settles: the Monte
-        # Carlo reaches the window's trough (floored), so the uncertainty rating reads the
-        # cycle (MU 2026-11 read "Low" at 2.7x normal). Its upper end is the Bull margin,
-        # not today's peak: the peak is the margin the normalization rejects as a steady
-        # state, and sampling it put MU's p50 ($557) above its FV ($471) (E98).
-        mc_lo = cycle.trough_margin + lease_adj
+    if cycle is not None:
+        # the downside is where in the cycle the firm settles: the Monte Carlo reaches
+        # the window's trough (floored), so the uncertainty rating reads the cycle (MU
+        # 2026-11 read "Low" at 2.7x normal). Its upper end is the Bull margin, not today's
+        # peak (E98). For every cyclical, not only one above its peak line: the line was
+        # a cliff, Low uncertainty just under it and High just over (E107).
+        mc_lo = min(cycle.trough_margin + lease_adj, lo)
         pack["story_mc"] = story_mc_operating(kw, price, mc_lo, hi)
         if pack["story_mc"]:
             pack["story_mc"]["story"]["margin_basis"] = (
-                f"วัฏจักรที่จุดพีค: margin ต่ำสุดของ {cycle.margin_years} ปีงบ "
+                f"วัฏจักร: margin ต่ำสุดของ {cycle.margin_years} ปีงบ "
                 f"(ไม่ต่ำกว่า {BEAR_CYCLE_FLOOR_PCT}%) ถึง margin Bull (ควอไทล์บน)")
     else:
         pack["story_mc"] = story_mc_operating(kw, price, lo, hi)

@@ -4,9 +4,10 @@
                invested capital and FCFF are not meaningful (deposits are raw material)
     YOUNG      no operating profit yet: forward young-company DCF with failure risk
     CYCLICAL   commodity and heavy-cycle industries, or a firm whose own last five
-               years show a revenue fall, a margin swing and a peak margin today
-               (firm_cycle_test): FCFF DCF on today's revenue whose margin reverts to
-               its own multi-year median (Damodaran's scaled normalization)
+               years show a revenue fall with a margin swing (firm_cycle_test): FCFF
+               DCF on today's revenue, starting at today's margin held to the peak line
+               (peak_line), whose margin reverts to its own multi-year median
+               (Damodaran's scaled normalization)
     STANDARD   everything else: FCFF DCF on today's margin
 
 Decided once per evaluation from the industry and the income statement, so the rest
@@ -39,17 +40,25 @@ CYCLICAL_INDUSTRIES = frozenset({
 })
 MIN_MARGIN_YEARS = 5           # a "normal" margin needs at least one cycle of history
 
-# Firm-level cyclical test (user decision 2026-11-26, design "ก. revised"). A firm
-# outside CYCLICAL_INDUSTRIES is cyclical when ALL three hold on its own fiscal years:
+# Firm-level cyclical test (user decision 2026-11-26, design "ก. revised"; rule (c)
+# replaced 2026-11-28, E107). A firm outside CYCLICAL_INDUSTRIES is cyclical when all
+# three hold on its own FISCAL years (today's TTM margin plays no part):
 #   (a) revenue fell >= CYCLE_REVENUE_DROP year on year, with the margin falling the
 #       same year, at least once in the last CYCLE_LOOKBACK_YEARS fiscal years: demand
 #       that turns, not a grower's pause;
 #   (b) an operating loss year (below CYCLE_LOSS_MARGIN), or an operating-margin range
 #       above CYCLE_MARGIN_RANGE, in the same years: the swing reaches the margin;
-#   (c) today's margin is above CYCLE_PEAK_MARGIN_X x its cyclical normal margin:
-#       the valuation would otherwise capitalize a peak.
-# MU FY2026 passes all three (FY2023 revenue -49%, FY2023 margin -37%, 74.6% today vs
-# a 27.5% ten-year median). NVDA fails (a): its revenue has not fallen in five years.
+#   (c) the margin recovered after that fall: a later fiscal year reached the normal
+#       margin. A fall that never turned is a decline or a turnaround (INTC, REGN,
+#       STAA: 0.2-0.8x their normal today), and normalizing it would value the recovery
+#       nobody has seen; without (c) the 614-filer scan made 8 of them cyclical (E107).
+# Today's margin no longer decides the class (E107): the old rule (c) "above 1.5x normal" made
+# MU standard at 41.0% (FV $1,532, BUY) and cyclical at 44.8% (FV $444, HOLD), so a
+# falling peak tripled the value. Above the peak line (CYCLE_PEAK_MARGIN_X x normal,
+# Cycle.at_peak) the line only caps the margin the DCF starts at and the returns
+# Economics scores (E105-E106), which is continuous through the line.
+# MU passes both (FY2023 revenue -49%, FY2023 margin -37%). NVDA fails (a): its revenue
+# has not fallen in five years.
 CYCLE_LOOKBACK_YEARS = 5
 CYCLE_REVENUE_DROP = 0.15
 CYCLE_MARGIN_RANGE = 0.30
@@ -87,7 +96,7 @@ BEAR_CYCLE_FLOOR = 0.02
 
 class Cycle(NamedTuple):
     """What normalizing a cyclical firm runs on, decided once from its own history."""
-    basis: str                      # "industry" (CYCLICAL_INDUSTRIES) or "firm" (rule a-c)
+    basis: str                      # "industry" (CYCLICAL_INDUSTRIES) or "firm" (rules a-c)
     reason: str                     # Thai, shown on the card and the flag
     normal_margin: float            # median of up to NORMAL_YEARS fiscal years
     margin_years: int               # years in that median
@@ -95,7 +104,7 @@ class Cycle(NamedTuple):
     low_margin: float               # Bear: BEAR_PERCENTILE of the window, floored
     high_margin: float              # Bull: BULL_PERCENTILE of the window
     trough_margin: float            # the window's lowest year, floored (Monte Carlo at a peak)
-    at_peak: bool                   # today's margin above CYCLE_PEAK_MARGIN_X x normal
+    at_peak: bool                   # today's margin above peak_line: the cap binds
 
 
 def _quantile(xs, q):
@@ -131,31 +140,32 @@ def revenue_trend(revenue_dated):
 
 
 def firm_cycle_test(revenue_dated, margin_history, current_margin, normal):
-    """(passes, Thai reason): rule (a)-(c) above on the newest CYCLE_LOOKBACK_YEARS."""
+    """(passes, Thai reason): rules (a)-(c) above on the newest CYCLE_LOOKBACK_YEARS.
+    `current_margin` is kept for the reason text only: it never decides the class."""
     rev = sorted(revenue_dated or [], reverse=True)[:CYCLE_LOOKBACK_YEARS + 1]
     mh = list(margin_history or [])
     # margin_history is aligned with the fiscal years newest first, like `rev`
-    drops = [(d0, r0 / r1 - 1) for i, ((d0, r0), (_, r1)) in enumerate(zip(rev, rev[1:]))
+    drops = [(d0, r0 / r1 - 1, i) for i, ((d0, r0), (_, r1)) in enumerate(zip(rev, rev[1:]))
              if r1 and r1 > 0 and i + 1 < len(mh) and mh[i] is not None and mh[i + 1] is not None
-             and mh[i] < mh[i + 1]]
-    drop = min(drops, key=lambda x: x[1]) if drops else None
+             and mh[i] < mh[i + 1] and r0 / r1 - 1 <= -CYCLE_REVENUE_DROP]
+    # (c) the margin came back: a later fiscal year at or above the normal margin
+    turned = [x for x in drops if normal and any(m is not None and m >= normal for m in mh[:x[2]])]
+    drop = min(turned, key=lambda x: x[1]) if turned else None
     recent = [m for m in mh[:CYCLE_LOOKBACK_YEARS] if m is not None]
-    if not (drop and drop[1] <= -CYCLE_REVENUE_DROP and recent and normal
+    if not (drop and recent and normal
             and normal >= CYCLE_MIN_NORMAL_MARGIN and current_margin is not None):
         return False, None
     loss, swing = min(recent) < CYCLE_LOSS_MARGIN, max(recent) - min(recent)
     if not (loss or swing > CYCLE_MARGIN_RANGE):
         return False, None
-    if current_margin <= CYCLE_PEAK_MARGIN_X * normal:
-        return False, None
     why = ("ปีขาดทุนจากการดำเนินงาน" if loss else f"margin แกว่ง {swing*100:.0f} จุด")
     return True, (f"รายได้ลด {-drop[1]*100:.0f}% ในปีงบ {str(drop[0])[:4]}, {why} ใน "
-                  f"{CYCLE_LOOKBACK_YEARS} ปี และ margin วันนี้ {current_margin*100:.1f}% เกิน "
-                  f"{CYCLE_PEAK_MARGIN_X}x ของ margin ปกติ {normal*100:.1f}%")
+                  f"{CYCLE_LOOKBACK_YEARS} ปี แล้ว margin กลับถึงระดับปกติ (margin วันนี้ {current_margin*100:.1f}% เทียบ "
+                  f"margin ปกติ {normal*100:.1f}%)")
 
 
 def cycle_profile(industry, margin_history, revenue_dated=None, current_margin=None):
-    """Cycle when the firm is cyclical (its industry, or rule a-c on its own years),
+    """Cycle when the firm is cyclical (its industry, or rules a-c on its own years),
     else None. `margin_history` is the operating margins by fiscal year, newest first
     (one-time add-backs applied); `revenue_dated` the fiscal-year revenue [(date, rev)]
     the margins were built on."""
@@ -180,6 +190,12 @@ def cycle_profile(industry, margin_history, revenue_dated=None, current_margin=N
                  high_margin=_quantile(window, BULL_PERCENTILE),
                  trough_margin=max(min(window), BEAR_CYCLE_FLOOR),
                  at_peak=bool(current_margin is not None and current_margin > CYCLE_PEAK_MARGIN_X * normal))
+
+
+def peak_line(cyc):
+    """The highest operating margin a cyclical is valued and scored on (E105-E106):
+    CYCLE_PEAK_MARGIN_X x its normal margin. Below it today's margin is used as is."""
+    return CYCLE_PEAK_MARGIN_X * cyc.normal_margin
 
 
 def classify(industry, operating_income, revenue, margin_history=None, revenue_dated=None):

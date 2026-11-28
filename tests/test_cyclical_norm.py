@@ -71,7 +71,7 @@ def test_E83_firm_level_cyclical_detection():
         oi = m[0] * r[0][1]
         got = CT.classify("Semiconductor" if name == "NVDA" else None, oi, r[0][1], m, r)[0]
         check(got is not CT.CompanyType.CYCLICAL, f"{name} is not caught (growth, not a cycle)", str(got))
-    # each condition is needed: drop the FY2023 fall, the loss, or the peak
+    # each condition is needed: drop the FY2023 fall or the loss; today's margin is not one (E107)
     no_drop = [(d, max(v, 30.0)) for d, v in MU_R]
     check(CT.classify("Semiconductor", 99.34, 133.188, MU_M, no_drop)[0] is CT.CompanyType.STANDARD,
           "(a) without a >=15% revenue fall: STANDARD")
@@ -79,7 +79,7 @@ def test_E83_firm_level_cyclical_detection():
     check(CT.classify("Semiconductor", .30 * 133.188, 133.188, calm, MU_R)[0] is CT.CompanyType.STANDARD,
           "(b) no loss and a range under 30 points: STANDARD")
     check(CT.classify("Semiconductor", .30 * 133.188, 133.188, [.30] + MU_M[1:], MU_R)[0]
-          is CT.CompanyType.STANDARD, "(c) a margin under 1.5x normal: STANDARD")
+          is CT.CompanyType.CYCLICAL, "E107: a margin under 1.5x normal is still CYCLICAL (no class cliff)")
     check((CT.CYCLE_LOOKBACK_YEARS, CT.CYCLE_REVENUE_DROP, CT.CYCLE_MARGIN_RANGE, CT.CYCLE_PEAK_MARGIN_X)
           == (5, 0.15, 0.30, 1.5), "thresholds are the approved constants (Ref quotes them)")
 
@@ -120,7 +120,7 @@ def test_E92_MU_normal_margin_on_current_revenue():
     check(g == [0.045], "growth = the stable 4.5% (through-cycle 23% M&A-free CAGR is above it)", str(g))
     check(abs(path[0]["revenue"] - 133.188e9 * 1.045) < 1e6,
           "year 1 grows from TODAY's $133.2B, no convergence to a trend line", str(path[0]["revenue"]))
-    check(abs(v.anchor_value - 470.86) / 470.86 < 0.01, "FV within 1% of hand.py (i') $470.86",
+    check(abs(v.anchor_value - 440.32) / 440.32 < 0.01, "FV within 1% of hand.py (i') at the 1.5x start (E105) $440.32",
           str(v.anchor_value))
     c = v.key_metrics["cycle"]
     for k in ("trend_revenue", "peak_ratio", "trend_growth_pct", "revenue_converges"):
@@ -133,8 +133,9 @@ def test_E92_trend_and_average_ebit_are_bear_cross_checks():
     v = _value("MU")
     checks = {c["name"]: c for c in v.scenarios.get("cycle_checks") or []}
     check(set(checks) == {"trend_revenue", "average_ebit"}, "two Bear cross-checks", str(checks))
-    check(abs(checks["trend_revenue"]["value"] - 283.56) / 283.56 < 0.01,
-          "trend-revenue check = hand.py engine method $283.56", str(checks["trend_revenue"]))
+    check(abs(checks["trend_revenue"]["value"] - 262.15) / 262.15 < 0.01,
+          "trend-revenue check on the capped start (E105) $262.15 (was $283.56 from 74.6%)",
+          str(checks["trend_revenue"]))
     check(abs(checks["average_ebit"]["value"] - 262.15) / 262.15 < 0.01,
           "average-EBIT check = hand.py (iii) $262.15", str(checks["average_ebit"]))
     check(all(c["value"] < v.anchor_value for c in checks.values()), "both sit below the primary FV")

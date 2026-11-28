@@ -1064,7 +1064,7 @@ for _name, _mk in (("A20 firm test off", lambda: dict(ct=_variant(_CT, override=
 
 hdr("A21", "a cyclical is valued on its normal margin x TODAY's revenue, consensus years 1-2 only at a peak, organic through-cycle growth, MoS < -50% caps at HOLD (E92-E95, E100)")
 _A21_MU = _json.load(open(os.path.join(APP, "tests", "fixtures", "cyclical", "MU.json")))
-_A21_HAND = 470.86        # ~/work/v_cyc/tools/hand.py alternative (i'), the verifier's rebuild
+_A21_HAND = 440.32        # hand.py alternative (i') started at the 1.5x peak line (E105; was $470.86 from 74.6%)
 
 
 def _a21_mu(**over):
@@ -1145,11 +1145,10 @@ def _a22():
     if not _a22_mono(rows):
         bad.append(("ladder", rows, "MU OI x0.75..1.5 at $707.70 raised P, composite or rating"))
     v = _a21_mu()
-    fv_s = v.key_metrics.get("peak_scored_fv") or v.anchor_value
-    over = _a21_mu(price=round(1.3 * fv_s, 2))
-    base = next((n for n in over.subscores["breakdown"] if n.startswith("P base(")), "")
-    if not base.endswith("=1.0"):
-        bad.append(("Low bands", base[-60:], "MoS -30% over a peak FV scored above 1.0"))
+    fvs = [_a21_mu(operating_income=_A21_MU["operating_income"] * x).anchor_value for x in (0.6, 2.0)]
+    base_case = next(c for c in v.scenarios["cases"] if c["name"] == "Base")["value"]
+    if any(abs(x - v.anchor_value) > 0.01 for x in fvs + [base_case]):
+        bad.append(("one FV", (v.anchor_value, fvs, base_case), "a bigger peak or Base moved the FV (E105)"))
     mc = v.scenarios["story_mc"]["story"]["margin_pct"]
     bull = next(c for c in v.scenarios["cases"] if c["name"] == "Bull")["margin_pct"]
     if mc[2] > bull + 1e-9:
@@ -1179,7 +1178,7 @@ def _a22_patch(attrs, mod=E):
 
 
 _hit = _a22()
-print(f"  A22: {len(_hit)} violation(s): peak ladder, Low bands over FV, MC top, price sweep")
+print(f"  A22: {len(_hit)} violation(s): peak ladder, one FV above the line, MC top, price sweep")
 if _hit:
     flag("HIGH", f"A22 peak / MoS-step guard: {_hit[:2]}")
 _r_price_real = E._r_price
@@ -1191,8 +1190,7 @@ def _mc_to_peak(kw, price, lo, hi, *a, **k):
 
 
 for _name, _attrs, _mod in (
-        ("A22 X1 peak-held FV off", {"_peak_scored_value": lambda anc: None}, E),
-        ("A22 X2 wide bands forgive a premium", {"_r_price": lambda *a, **k: _r_price_real(*a, **dict(k, peak_cyclical=False))}, E),
+        ("A22 X1 start margin uncapped", {"peak_line": lambda cyc: 99.0}, E),
         ("A22 X3 MC to today's peak", {"story_mc_operating": _mc_to_peak}, E.scenarios_mod),
         ("A22 X4 one -50% step", {"MOS_CAPS": ((-0.50, "HOLD"),)}, E)):
     _hit = _a22_patch(_attrs, _mod)
@@ -1225,6 +1223,74 @@ finally:
 print(f"  mutation for A23 X1 growth always shifted: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
 if not _hit:
     flag("HIGH", "A23 X1 growth always shifted cannot fire: its mutant produced no violation")
+
+
+hdr("A24", "one FV with no step at the peak line; returns on the capped margin; class off today's margin (E105-E107)")
+from tests import test_cyclical_round4 as _A24  # noqa: E402
+from domain import company_type as _A24_CT  # noqa: E402
+_A24_XS = (0.35, 0.4, 0.45, 0.5, 0.55, 0.6, 1.0, 2.0)
+
+
+def _a24():
+    bad = []
+    for t in ("MUC", "SYN"):
+        oi = _A24._raw(t)["operating_income"]
+        rows = []
+        for x in _A24_XS:
+            v = _A24._value(t, operating_income=oi * x)
+            c = (v.dcf.get("sources") or {}).get("cycle") or {}
+            rows.append((x, None, bool(c.get("at_peak")), v.anchor_value, v.P, v.composite,
+                         v.recommendation, v.company_type))
+        if _A24.fv_jumps(rows):
+            bad.append((t, "FV step", _A24.fv_jumps(rows)[:2]))
+        if _A24.peak_improvements(rows):
+            bad.append((t, "better on a bigger peak", _A24.peak_improvements(rows)[:2]))
+        if any(r[7] != "cyclical" for r in rows):
+            bad.append((t, "class moved with today's margin", [r[0] for r in rows if r[7] != "cyclical"]))
+        line, rev = _A24._line(t), _A24._raw(t)["revenue"]
+        edge = []
+        for e in (-1e-6, 1e-6):
+            v = _A24._value(t, operating_income=(line + e) * rev)
+            mc = v.scenarios["story_mc"]
+            edge.append((v.anchor_value, mc["p10"], mc["p90"], v.uncertainty["rating"], v.P, v.E_econ))
+        if any((abs(a - b) > 0.001 * max(abs(a), 1)) if isinstance(a, float) else a != b
+               for a, b in zip(*edge)):
+            bad.append((t, "step at the line", edge))
+    return bad
+
+
+_hit = _a24()
+print(f"  A24: {len(_hit)} violation(s): ladders MUC / SYN, the line, the class")
+if _hit:
+    flag("HIGH", f"A24 peak-line guard: {_hit[:2]}")
+_a24_ftest = _A24_CT.firm_cycle_test
+
+
+def _a24_old_c(rev, mh, m, normal):
+    ok, why = _a24_ftest(rev, mh, m, normal)
+    return (ok, why) if (ok and m is not None and m > 1.5 * normal) else (False, None)
+
+
+def _a24_step_weight(cyc, margin):
+    return 1.0 if margin >= _A24_CT.peak_line(cyc) - 1e-12 else 0.0
+
+
+for _name, _attrs, _mod in (
+        ("A24 X1 start margin uncapped", {"peak_line": lambda cyc: 99.0}, E),
+        ("A24 X2 returns on today's peak", {"returns_oi": lambda f, oi, rev: oi}, E),
+        ("A24 X3 class reads today's margin (old rule c)", {"firm_cycle_test": _a24_old_c}, _A24_CT),
+        ("A24 X4 peak consensus switched on at the line", {"peak_weight": _a24_step_weight}, E)):
+    saved = {k: getattr(_mod, k) for k in _attrs}
+    for k, v in _attrs.items():
+        setattr(_mod, k, v)
+    try:
+        _hit = _a24()
+    finally:
+        for k, v in saved.items():
+            setattr(_mod, k, v)
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {str(_hit[:1])[:160]}")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
 
 print("\n" + "=" * 78)
