@@ -176,12 +176,15 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None)
         if floored:
             basis += " · Bear ไม่ต่ำกว่าครึ่งหนึ่งของ margin โมเดล (ปีขาดทุน/ปีพิเศษไม่ใช่ steady state)"
     path = kw.get("growth_path") or [kw["g_high"]]
-    cases = [("Bear", dict(margin_target=lo, growth_path=_shift(path, -1))),
+    base_v = _dcf(kw) or 0.0
+    cases = [("Bear", _one_way(lambda **o: _dcf(kw, **o), dict(margin_target=lo),
+                               "growth_path", _shift(path, -1), min)),
              ("Base", {}),
-             ("Bull", dict(margin_target=hi, growth_path=_shift(path, +1)))]
+             ("Bull", _one_way(lambda **o: _dcf(kw, **o), dict(margin_target=hi),
+                               "growth_path", _shift(path, +1), max))]
     values, inputs = [], []
     for _, over in cases:
-        v = _dcf(kw, **over)
+        v = _dcf(kw, **over) if over else base_v
         values.append(v or 0.0)
         g = (over.get("growth_path") or path)
         inputs.append({"margin_pct": round(over.get("margin_target", m_model) * 100, 2),
@@ -203,6 +206,18 @@ def operating(kw, price, margin_history, margin_now_unadjusted=None, cycle=None)
     else:
         pack["story_mc"] = story_mc_operating(kw, price, lo, hi)
     return priced, pack
+
+
+def _one_way(value, margin_over, growth_key, shifted, pick):
+    """A Bear (pick=min) or Bull (pick=max) case's overrides: its margin, and the shifted
+    growth only when it moves the value the case's way. Faster growth is worth LESS when
+    ROIC < WACC (DCO, LOAR: Bull < Base; RDW young: Bear > Base), so there the case keeps
+    Base growth. Every input then moves one way and Bear <= Base <= Bull (E103)."""
+    with_g = dict(margin_over, **{growth_key: shifted})
+    a, b = value(**with_g), value(**margin_over)
+    if a is None or b is None:
+        return with_g if b is None else margin_over
+    return with_g if pick(a, b) == a else margin_over
 
 
 def young(ydcf, price, industry_margin=None):
@@ -235,9 +250,10 @@ def young(ydcf, price, industry_margin=None):
     ind = industry_margin if (industry_margin and industry_margin > 0) else d["target_margin"]
     lo, hi = min(ind, d["target_margin"]), max(2 * ind, d["target_margin"])
     gh = d["g_high"]
-    cases = [("Bear", dict(target_margin=lo, g_high=max(0.0, gh - YOUNG_GROWTH_SHIFT))),
+    cases = [("Bear", _one_way(val, dict(target_margin=lo), "g_high",
+                               max(0.0, gh - YOUNG_GROWTH_SHIFT), min)),
              ("Base", {}),
-             ("Bull", dict(target_margin=hi, g_high=gh + YOUNG_GROWTH_SHIFT))]
+             ("Bull", _one_way(val, dict(target_margin=hi), "g_high", gh + YOUNG_GROWTH_SHIFT, max))]
     values, inputs = [], []
     for _, over in cases:
         v = val(**over)
@@ -248,7 +264,8 @@ def young(ydcf, price, industry_margin=None):
                  "margin = อุตสาหกรรม / โมเดล / 2× อุตสาหกรรม · growth ปีแรก ∓15pp · Base = ค่าจุด (FV หลักคือ p50 ของ Monte Carlo)")
     # the floor clips Bear and Base to the same liquidation value; whether slower
     # growth is worth more is a property of the raw model, so it is read before the floor
-    bear_raw, base_raw = val(raw=True, **cases[0][1]), val(raw=True)
+    bear_raw = val(raw=True, target_margin=lo, g_high=max(0.0, gh - YOUNG_GROWTH_SHIFT))
+    base_raw = val(raw=True)
     pack["growth_destroys_value"] = bool(bear_raw is not None and base_raw is not None
                                          and bear_raw > base_raw)
     pack["story_mc"] = story_mc_young(ydcf, price, lo, hi)

@@ -486,3 +486,9 @@ and the geometric mean is weighted by span. A cycle cross-check above the FV is 
 Bear (amends R61). E101.
 R69 Acquisition data. Through-cycle growth names a missing acquisition series: "ไม่มีข้อมูลการซื้อกิจการ — growth
 อาจรวม M&A". The series comes from companyfacts (ACQUISITION_TAGS); the scout's SEC part does not carry it. E102.
+R70 Scenario ordering (amends R52). Bear margin = min(model, lower quartile or the firm's own low), Bull margin =
+max(model, upper quartile or high); each case takes the shifted growth (Bear down, Bull up) only when that moves the
+value its way, otherwise Base growth; reinvestment and WACC are Base's. Bear <= Base <= Bull. E103.
+R71 FV outlier flag (display only). |FV / median(other methods) - 1| > FV_OUTLIER_GAP = 40% with at least 2 of PEG,
+FV/P, relative (regression, else peer median) and the cycle checks: flag "ค่าหลักต่างจากวิธีเทียบอื่นมาก
+ตรวจสมมติฐาน" and a badge by the Fair Value. Changes no number. E104.

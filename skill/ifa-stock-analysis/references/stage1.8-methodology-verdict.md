@@ -45,6 +45,9 @@ CYCLICAL → same FCFF DCF, target margin = the firm's own median margin over up
             normalized EPS.
             Reverse DCF: price implies a margin on today's revenue < today / 1.5 →
             "ตลาดตั้งราคาว่ารอบกำลังจะลง".
+Scenarios → Bear / Bull shift growth only when that moves the value their way (Bear <= Base
+            <= Bull). Primary FV > 40% from the median of PEG, FV/P, relative and cycle checks
+            → flag "ค่าหลักต่างจากวิธีเทียบอื่นมาก ตรวจสมมติฐาน" (display only).
 Rating cap → MoS = (FV − price) / FV below −25% caps at HOLD / Accumulate, below −50% at
             HOLD, one notch per step ("MoS ต่ำกว่า −50% จำกัดคำแนะนำไม่เกิน HOLD: MoS −50.3%").
 YOUNG    → Stage 1.7 Forward Intrinsic DCF (failure-adjusted) + Stage 1.6 reverse DCF

@@ -7,6 +7,9 @@
 - Cyclical consensus years 1-2 only at a peak (TSLA NOT RATED again); through-cycle growth
   counts the real years between observations (TSLA 23.6%/yr 2018-25); no acquisition series
   is flagged.
+- Bear <= Base <= Bull by construction: a case shifts growth only when that moves the value
+  its way (faster growth is worth less when ROIC < WACC).
+- Display flag when the primary FV is more than 40% from the median of the other methods.
 
 # v9.0 build 2026-11-28a (engine copy rebuilt: cyclical round 2, MoS cap)
 - Cyclical DCF on TODAY's revenue x normal margin (the log-linear trend left the fair value:
