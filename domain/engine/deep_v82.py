@@ -1146,6 +1146,11 @@ def not_rated_reasons(unc, anc, f):
     gaps = _ttm_gaps(f)
     if gaps:
         out.append("TTM incomplete - " + "; ".join(gaps))
+    # a DCF whose Bear / Base / Bull could not be built has no measured range, so the
+    # "Unrated" bands must not stand in for one: APPS (approximate facts) went NOT RATED
+    # -> HOLD on a router flip whose FCFF row had no scenarios (m1)
+    if (method == "FCFF DCF" or young) and (unc or {}).get("rating") in (None, "Unrated"):
+        out.append("no value range - the scenarios could not be built on the primary model")
     return out
 
 
@@ -1687,7 +1692,12 @@ def _growth(f, cap, acq, rf, ctype=CompanyType.STANDARD):
         # trough-to-peak history is the cycle, not growth (MU FY2023 -> FY2026: 36.9%);
         # a consensus long-term rate is the same peak seen forward (E93)
         g_c, g_src = cycle_growth(f, g_stable)
-        _add_flag(f, f"cyclical growth: {g_src} replaces the historical {g_lt*100:.1f}%")
+        # name what is replaced: TSLA's 13.3% is the consensus path, not history (m4)
+        src = str((getattr(f, "provenance", None) or {}).get("growth_lt") or "")
+        kind = "consensus" if "consensus" in src or src.startswith(("fmp", "yahoo")) else "historical"
+        _add_flag(f, (f"cyclical growth for PEG / FV-P: {g_src} replaces the {kind} "
+                      f"{g_lt*100:.1f}%" + ("; the FCFF DCF keeps the consensus revenue path"
+                                           if kind == "consensus" and consensus_growth_path(f) else "")))
         g_lt = g_c
     growth_raw = _clamp(g_lt, 0.0, GROWTH_CAP)
     growth = min(growth_raw, g_cap)

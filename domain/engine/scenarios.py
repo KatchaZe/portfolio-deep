@@ -266,14 +266,21 @@ def young(ydcf, price, industry_margin=None):
         inputs.append({"margin_pct": round(over.get("target_margin", d["target_margin"]) * 100, 2),
                        "growth_y1_pct": round(over.get("g_high", gh) * 100, 1)})
     pack = _pack([c[0] for c in cases], values, inputs, price,
-                 "margin = อุตสาหกรรม / โมเดล / 2× อุตสาหกรรม · growth ปีแรก ∓15pp · Base = ค่าจุด (FV หลักคือ p50 ของ Monte Carlo)")
+                 "margin = อุตสาหกรรม / โมเดล / 2× อุตสาหกรรม · growth ปีแรก ∓15pp · Base = FV หลัก "
+                 "(ค่าจุดหลังปรับความเสี่ยงล้มเหลว ไม่ใช่ p50 ของ Monte Carlo)")
     # the floor clips Bear and Base to the same liquidation value; whether slower
     # growth is worth more is a property of the raw model, so it is read before the floor
     bear_raw = val(raw=True, target_margin=lo, g_high=max(0.0, gh - YOUNG_GROWTH_SHIFT))
     base_raw = val(raw=True)
     pack["growth_destroys_value"] = bool(bear_raw is not None and base_raw is not None
                                          and bear_raw > base_raw)
-    pack["story_mc"] = story_mc_young(ydcf, price, lo, hi)
+    # E109: the margin draw brackets the model by the young model's own sampled span
+    # (young_dcf MC_MARGIN_SPAN_*), not [model .. 2x industry]: lo == mode made every
+    # draw >= the model and put MC p50 30-50% above the FV (HIMS $53.60 vs $36.90)
+    span = ((ydcf.get("inputs") or {}).get("target_margin_sampled_pp") or
+            young_dcf.MC_MARGIN_SPAN_ASSUMED * 100) / 100
+    pack["story_mc"] = story_mc_young(ydcf, price, min(lo, d["target_margin"] - span),
+                                      max(hi, d["target_margin"] + span))
     return priced, pack
 
 
@@ -340,9 +347,10 @@ def story_mc_operating(kw, price, margin_lo, margin_hi, sims=MC_SIMS, seed=MC_SE
 
 
 def story_mc_young(ydcf, price, margin_lo, margin_hi, sims=MC_SIMS, seed=MC_SEED):
-    """Monte Carlo over a young-company story: target margin triangular(industry,
-    model, 2x industry), first-year growth +/-15pp, sales-to-capital x0.75-1.25,
-    survival +/-20 points; value = p x going concern + (1 - p) x distress."""
+    """Monte Carlo over a young-company story: target margin triangular(lo, model, hi)
+    with lo at least the young model's sampled span below the model (E109), first-year
+    growth +/-15pp, sales-to-capital x0.75-1.25, survival +/-20 points; value = p x
+    going concern + (1 - p) x distress."""
     import random
     d = (ydcf or {}).get("model")
     if not d or not price:
