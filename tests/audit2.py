@@ -1200,6 +1200,33 @@ for _name, _attrs, _mod in (
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
+hdr("A23", "Bear <= Base <= Bull with every input one way on every scenario fixture (E103)")
+from tests import test_scenario_order as _A23  # noqa: E402
+from domain.engine import scenarios as _A23_S  # noqa: E402
+
+
+def _a23():
+    bad = []
+    for p in _A23.PATHS:
+        bad += _A23.order_violations(_A23._value(p), os.path.basename(p)[:-5])
+    return bad
+
+
+_hit = _a23()
+print(f"  A23: {len(_hit)} violation(s) on {len(_A23.PATHS)} fixtures")
+if _hit:
+    flag("HIGH", f"A23 scenario ordering: {_hit[:2]}")
+_one_way_real = _A23_S._one_way
+_A23_S._one_way = lambda value, margin_over, key, shifted, pick: dict(margin_over, **{key: shifted})
+try:
+    _hit = _a23()
+finally:
+    _A23_S._one_way = _one_way_real
+print(f"  mutation for A23 X1 growth always shifted: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
+if not _hit:
+    flag("HIGH", "A23 X1 growth always shifted cannot fire: its mutant produced no violation")
+
+
 print("\n" + "=" * 78)
 print(f"SUMMARY: {len(FOUND)} findings")
 for sev, m in FOUND:
@@ -1214,3 +1241,4 @@ if _bad:
     print(f"\nFAIL: {len(_bad)} MED/HIGH finding(s) — see above")
     sys.exit(1)
 print(f"\nOK: {len(FOUND)} LOW finding(s), all documented and accepted")
+
