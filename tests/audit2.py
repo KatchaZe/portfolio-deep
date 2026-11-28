@@ -1062,7 +1062,7 @@ for _name, _mk in (("A20 firm test off", lambda: dict(ct=_variant(_CT, override=
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
 
-hdr("A21", "a cyclical is valued on its normal margin x TODAY's revenue, consensus years 1-2 only, organic through-cycle growth, MoS < -50% caps at HOLD (E92-E95)")
+hdr("A21", "a cyclical is valued on its normal margin x TODAY's revenue, consensus years 1-2 only at a peak, organic through-cycle growth, MoS < -50% caps at HOLD (E92-E95, E100)")
 _A21_MU = _json.load(open(os.path.join(APP, "tests", "fixtures", "cyclical", "MU.json")))
 _A21_HAND = 470.86        # ~/work/v_cyc/tools/hand.py alternative (i'), the verifier's rebuild
 
@@ -1128,8 +1128,74 @@ for _name, _attrs in (
         ("A21 M1 trend slope as growth", {"cycle_growth": lambda f, g: (0.1144, "log-linear trend slope")}),
         ("A21 M2 full consensus path", {"CYCLE_CONSENSUS_YEARS": 5}),
         ("A21 M3 acquisition years counted", {"INORGANIC_ACQ_SHARE": 1e9}),
-        ("A21 M4 no MoS cap", {"MOS_HOLD_CAP": -1e9})):
+        ("A21 M4 no MoS cap", {"MOS_CAPS": ()})):
     _hit = _a21_patch(_attrs)
+    print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
+    if not _hit:
+        flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
+
+hdr("A22", "a bigger peak never buys a better P, composite or rating; the stepped MoS cap moves one notch (E98, E99)")
+from tests.test_cyclical_round3 import RANK as _A22_RANK, ladder_is_monotone as _a22_mono  # noqa: E402
+
+
+def _a22():
+    bad = []
+    rows = [(x, v.P, v.composite, v.recommendation) for x, v in
+            ((x, _a21_mu(operating_income=_A21_MU["operating_income"] * x)) for x in (0.75, 1.0, 1.15, 1.5))]
+    if not _a22_mono(rows):
+        bad.append(("ladder", rows, "MU OI x0.75..1.5 at $707.70 raised P, composite or rating"))
+    v = _a21_mu()
+    fv_s = v.key_metrics.get("peak_scored_fv") or v.anchor_value
+    over = _a21_mu(price=round(1.3 * fv_s, 2))
+    base = next((n for n in over.subscores["breakdown"] if n.startswith("P base(")), "")
+    if not base.endswith("=1.0"):
+        bad.append(("Low bands", base[-60:], "MoS -30% over a peak FV scored above 1.0"))
+    mc = v.scenarios["story_mc"]["story"]["margin_pct"]
+    bull = next(c for c in v.scenarios["cases"] if c["name"] == "Bull")["margin_pct"]
+    if mc[2] > bull + 1e-9:
+        bad.append(("MC top", mc, f"above the Bull margin {bull}"))
+    prev = None
+    for p in range(400, 1300, 25):
+        r = _a21_mu(price=float(p)).recommendation
+        if prev is not None and abs(_A22_RANK[r] - _A22_RANK[prev]) > 1:
+            bad.append(("sweep", (p, prev, r), "two notches on one price step"))
+        prev = r
+    for c in (4.2, 3.5):
+        ranks = [_A22_RANK[E.recommendation(c, mos=-m / 1000)] for m in range(0, 800, 5)]
+        if any(abs(a - b) > 1 for a, b in zip(ranks, ranks[1:])):
+            bad.append(("steps", c, "a composite of 4.2 / 3.5 jumps two notches as MoS falls"))
+    return bad
+
+
+def _a22_patch(attrs, mod=E):
+    saved = {k: getattr(mod, k) for k in attrs}
+    for k, v in attrs.items():
+        setattr(mod, k, v)
+    try:
+        return _a22()
+    finally:
+        for k, v in saved.items():
+            setattr(mod, k, v)
+
+
+_hit = _a22()
+print(f"  A22: {len(_hit)} violation(s): peak ladder, Low bands over FV, MC top, price sweep")
+if _hit:
+    flag("HIGH", f"A22 peak / MoS-step guard: {_hit[:2]}")
+_r_price_real = E._r_price
+_sc_operating_real = E.scenarios_mod.story_mc_operating
+
+
+def _mc_to_peak(kw, price, lo, hi, *a, **k):
+    return _sc_operating_real(kw, price, lo, max(hi, kw["margin_now"]), *a, **k)
+
+
+for _name, _attrs, _mod in (
+        ("A22 X1 peak-held FV off", {"_peak_scored_value": lambda anc: None}, E),
+        ("A22 X2 wide bands forgive a premium", {"_r_price": lambda *a, **k: _r_price_real(*a, **dict(k, peak_cyclical=False))}, E),
+        ("A22 X3 MC to today's peak", {"story_mc_operating": _mc_to_peak}, E.scenarios_mod),
+        ("A22 X4 one -50% step", {"MOS_CAPS": ((-0.50, "HOLD"),)}, E)):
+    _hit = _a22_patch(_attrs, _mod)
     print(f"  mutation for {_name}: {len(_hit)} violation(s) found, e.g. {_hit[:1]}")
     if not _hit:
         flag("HIGH", f"{_name} cannot fire: its mutant produced no violation")
