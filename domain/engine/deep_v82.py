@@ -10,6 +10,7 @@ from typing import NamedTuple, Optional
 import config
 from domain import pead as pead_mod
 from domain import trend as trend_mod
+from domain import fv_outlier as fv_outlier_mod
 from domain.company_type import (CYCLE_PEAK_MARGIN_X, NORMAL_MIN_YEARS, NORMAL_YEARS, CompanyType,
                                  classify, revenue_trend)
 from . import fcff_dcf, young_dcf
@@ -1258,6 +1259,7 @@ class DeepV82Engine(DeepEngine):
         v.key_metrics["peak_scored_fv"] = _round_nonzero(fv_scored)
         v.key_metrics["mos_scored_pct"] = (_pct((fv_scored - f.price) / fv_scored, 1)
                                            if (fv_scored and f.price) else None)
+        fv_outlier_mod.mark(v)
         v.expected_return = _expected_return(f, cap, gr, ctype, rf, anc)
         try:
             v.verdict = _verdict(f, v)

@@ -6,6 +6,7 @@ import logging
 
 from sources import yahoo
 from domain import momentum, advice
+from domain import fv_outlier
 from pipeline import fundamentals, daily, rows, batch, lastgood, peers
 
 log = logging.getLogger("portfolio.watchlist")
@@ -34,6 +35,7 @@ def analyze_row(ticker, rf, fmp_key="", rf_live=True, regime=None, spy=None, pre
                                         universe)
         calls += c
         val.relative = block
+        fv_outlier.mark(val)
         fundamentals.attach_panel(ff, val, block, universe, today)
     except Exception as e:
         log.warning("%s watchlist relative valuation failed: %s", t, e)

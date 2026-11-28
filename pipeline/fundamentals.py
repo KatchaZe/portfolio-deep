@@ -13,6 +13,7 @@ import logging
 import config
 from sources import sec_edgar, sec_gap, yahoo, fmp, finnhub, alphavantage, damodaran
 from domain import pricing
+from domain import fv_outlier
 from domain.facts import FinancialFacts
 from domain.engine import get_engine
 from pipeline import (normalize, rev_track, consensus, surprise_backfill,
@@ -609,6 +610,7 @@ def _attach_relative(fetched, fmp_key, budget, prev_results, today=None):
             continue
         calls += c
         fetched[t][1].relative = block
+        fv_outlier.mark(fetched[t][1])
         attach_panel(fetched[t][0], fetched[t][1], block, universe, today)
     return calls
 
