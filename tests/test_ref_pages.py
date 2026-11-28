@@ -162,7 +162,8 @@ def test_ref_thresholds_equal_the_code():
          f">{g(E.TERMINAL_SHARE_UNRATABLE)}%",
          *(f"{k}×{pc(w)}%" for k, w in E.WEIGHTS.items()))
     from domain import fv_outlier as FO
-    _has("fv-outlier", f"±{pc(FO.FV_OUTLIER_GAP)}%", f"อย่างน้อย {FO.FV_OUTLIER_MIN_METHODS} วิธี", FO.FV_OUTLIER_FLAG)
+    _has("fv-outlier", f"{FO.FV_OUTLIER_RATIO}× (FV_OUTLIER_RATIO)", f"เกิน {FO.FV_OUTLIER_MAX_LOO:.2f}",
+         f"อย่างน้อย {FO.FV_OUTLIER_MIN_METHODS} วิธี", FO.FV_OUTLIER_FLAG)
     for r in ("Low", "Medium", "High", "Very High", "Extreme"):
         b = U.BANDS[r]
         _has("mos", f"{r} {pc(b[0])} / {pc(b[1])} / {pc(b[2])} / {pc(b[3])}%".replace("-", "−"))
