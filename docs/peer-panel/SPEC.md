@@ -461,9 +461,28 @@ with their distance to price. E92.
 R62 Uncertainty at a peak. When today's margin is above CYCLE_PEAK_MARGIN_X x normal, the story Monte Carlo's margin
 spans the window's lowest year (floored at BEAR_CYCLE_FLOOR) to its highest year or today's; Bear / Bull stay the
 quartiles (R52). The drawer says so. E97.
-R63 MoS cap. recommendation(composite, mos): MoS = (FV - price) / FV below MOS_HOLD_CAP = -50% caps BUY and HOLD /
+R63 (superseded by R66) MoS cap. recommendation(composite, mos): MoS = (FV - price) / FV below MOS_HOLD_CAP = -50% caps BUY and HOLD /
 Accumulate at HOLD; SELL / AVOID and HOLD are unchanged; NOT RATED still applies after it. Flag "MoS ต่ำกว่า −50%
 จำกัดคำแนะนำไม่เกิน HOLD". Ref entry "rating" quotes it. E95.
 R64 Gain placement, face lines (amends R56). SG&A + R&D residual within GAIN_TOL places a gain; a sum with any
 further OPEX_LINES line must reconcile within FACE_TOL = 1% of the gain; a filed other-operating-income line that
 reconciles the face places the gain only when it holds it, alone or net of a filed restructuring charge. E96.
+
+## Resolutions 2026-11-28b (cyclical-norm round 3; verifier C1/J1/J2 and minors; scored)
+R65 A peak never improves the score (amends R62). At a peak (today's margin > CYCLE_PEAK_MARGIN_X x normal):
+the story Monte Carlo's margin runs from the window's floored trough to the Bull margin (BULL_PERCENTILE), never
+today's; over the FV (MoS < 0) the Price pillar uses the Low bands whatever the measured uncertainty; P and the
+MoS cap (R66) read the FCFF DCF with today's margin held to the peak line before it reverts
+(key_metrics.peak_scored_fv, mos_scored_pct). The displayed FV, MoS, range and uncertainty are unchanged. Test:
+today's operating income x0.75 / 1.0 / 1.15 / 1.5 at a fixed price never raises P, the composite or the rating. E98.
+R66 Stepped MoS cap (supersedes R63). MOS_CAP_ACCUMULATE = -25% caps at HOLD / Accumulate, MOS_CAP_HOLD = -50% caps
+at HOLD; a cap never lifts; NOT RATED still applies after it. Flag "MoS ต่ำกว่า −25% จำกัดคำแนะนำไม่เกิน HOLD /
+Accumulate" or "MoS ต่ำกว่า −50% จำกัดคำแนะนำไม่เกิน HOLD", then the MoS to one decimal, never rounded across
+the line. E99.
+R67 Cyclical consensus at a peak only (amends R60). The 2-year consensus rule and margin_hold apply only when the
+cyclical is at a peak; otherwise its consensus path is read as any firm's. E100.
+R68 Through-cycle span (amends R59). Growth between two observations is annualized over the real years between them,
+and the geometric mean is weighted by span. A cycle cross-check above the FV is labelled "ค่าเทียบรอบวัฏจักร", not
+Bear (amends R61). E101.
+R69 Acquisition data. Through-cycle growth names a missing acquisition series: "ไม่มีข้อมูลการซื้อกิจการ — growth
+อาจรวม M&A". The series comes from companyfacts (ACQUISITION_TAGS); the scout's SEC part does not carry it. E102.

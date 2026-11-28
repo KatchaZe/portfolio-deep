@@ -95,7 +95,6 @@ class Cycle(NamedTuple):
     low_margin: float               # Bear: BEAR_PERCENTILE of the window, floored
     high_margin: float              # Bull: BULL_PERCENTILE of the window
     trough_margin: float            # the window's lowest year, floored (Monte Carlo at a peak)
-    peak_margin: float              # the window's highest year or today's, if higher
     at_peak: bool                   # today's margin above CYCLE_PEAK_MARGIN_X x normal
 
 
@@ -180,7 +179,6 @@ def cycle_profile(industry, margin_history, revenue_dated=None, current_margin=N
                  low_margin=max(_quantile(window, BEAR_PERCENTILE), BEAR_CYCLE_FLOOR),
                  high_margin=_quantile(window, BULL_PERCENTILE),
                  trough_margin=max(min(window), BEAR_CYCLE_FLOOR),
-                 peak_margin=max(window + ([current_margin] if current_margin is not None else [])),
                  at_peak=bool(current_margin is not None and current_margin > CYCLE_PEAK_MARGIN_X * normal))
 
 

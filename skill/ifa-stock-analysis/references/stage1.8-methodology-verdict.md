@@ -32,16 +32,21 @@ STANDARD → FCFF DCF (`scripts/value.py`) — PRIMARY anchor
 CYCLICAL → same FCFF DCF, target margin = the firm's own median margin over up to 10 fiscal
             years (min 7; 5-6 flagged), reached in 3 yrs, on TODAY's revenue (Damodaran's
             scaled normalization). Growth = through-cycle organic (geometric mean of the
-            non-acquisition years in the window), never above g_stable. Consensus: 2 years at
-            today's margin, then back to the normal margin and through-cycle growth ("consensus
-            ถึงปีที่ 2 แล้วกลับสู่ค่าปกติของรอบ"). Bear / Bull margin = 25th / 75th percentile of
-            the window (Bear floor 2%); at a peak margin (> 1.5x normal) the Monte Carlo spans
-            the window's trough to peak. Bear cross-checks (never the FV): revenue to its
-            log-linear trend, and average EBIT on trend revenue. PEG / FVP on normalized EPS.
+            non-acquisition years in the window, annualized over the real years between
+            observations), never above g_stable. At a peak margin (> 1.5x normal) consensus
+            covers 2 years at today's margin, then back to the normal margin and through-cycle
+            growth ("consensus ถึงปีที่ 2 แล้วกลับสู่ค่าปกติของรอบ"); below the peak line
+            consensus is read as for any firm. Bear / Bull margin = 25th / 75th percentile of
+            the window (Bear floor 2%); at a peak the Monte Carlo runs from the window's trough
+            to the Bull margin. At a peak, P and the MoS cap read the DCF with today's margin
+            held to 1.5x normal, and over the FV P uses the Low bands: a bigger peak never
+            raises the score. Cross-checks (never the FV): revenue to its log-linear trend,
+            and average EBIT on trend revenue, labelled Bear only below the FV. PEG / FVP on
+            normalized EPS.
             Reverse DCF: price implies a margin on today's revenue < today / 1.5 →
             "ตลาดตั้งราคาว่ารอบกำลังจะลง".
-Rating cap → MoS = (FV − price) / FV below −50% caps BUY and HOLD / Accumulate at HOLD
-            ("MoS ต่ำกว่า −50% จำกัดคำแนะนำไม่เกิน HOLD").
+Rating cap → MoS = (FV − price) / FV below −25% caps at HOLD / Accumulate, below −50% at
+            HOLD, one notch per step ("MoS ต่ำกว่า −50% จำกัดคำแนะนำไม่เกิน HOLD: MoS −50.3%").
 YOUNG    → Stage 1.7 Forward Intrinsic DCF (failure-adjusted) + Stage 1.6 reverse DCF
 
 Fallback: DCF/excess-return value <= 0 or < 10% of price → treat as a broken input,

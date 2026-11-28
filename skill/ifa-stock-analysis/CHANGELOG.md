@@ -1,3 +1,13 @@
+# v9.0 build 2026-11-28b (engine copy rebuilt: cyclical round 3, stepped MoS cap)
+- A bigger peak never improves P, the composite or the rating: at a peak the Monte Carlo tops
+  out at the Bull margin, P uses the Low bands over the FV, and P and the MoS cap read the DCF
+  with today's margin held to 1.5x normal. MU 2026-11: FV $471 unchanged, P 2.25 -> 1.25,
+  composite 4.08 -> 3.78, HOLD (peak-held FV $440, MoS -60.7%).
+- MoS cap in two steps: below -25% at most HOLD / Accumulate, below -50% at most HOLD.
+- Cyclical consensus years 1-2 only at a peak (TSLA NOT RATED again); through-cycle growth
+  counts the real years between observations (TSLA 23.6%/yr 2018-25); no acquisition series
+  is flagged.
+
 # v9.0 build 2026-11-28a (engine copy rebuilt: cyclical round 2, MoS cap)
 - Cyclical DCF on TODAY's revenue x normal margin (the log-linear trend left the fair value:
   its slope came from the peak year). Growth = through-cycle organic (acquisition years out),
